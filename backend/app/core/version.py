@@ -29,7 +29,8 @@ def _read_version_file() -> Optional[str]:
     """Read version from backend/VERSION file (single source of truth)."""
     version_file = Path(__file__).parent.parent.parent / "VERSION"
     try:
-        return version_file.read_text().strip()
+        raw_version = version_file.read_text().strip()
+        return raw_version or None
     except (FileNotFoundError, OSError):
         return None
 

@@ -9,7 +9,7 @@
  */
 
 import { API_URL } from '../config/api';
-import pkgJson from '../../../package.json';
+import pkgJson from '../../package.json';
 
 /** Version string read from package.json at build time (e.g. "3.0.1"). */
 const PACKAGE_VERSION = pkgJson.version;
@@ -47,9 +47,9 @@ export function getCurrentVersionSync() {
  * @returns {number} -1 if v1 < v2, 0 if v1 === v2, 1 if v1 > v2
  */
 export function compareVersions(v1, v2) {
-  // Remove 'v' prefix if present
-  const cleanV1 = v1.replace(/^v/, "");
-  const cleanV2 = v2.replace(/^v/, "");
+  // Ensure inputs are strings
+  const cleanV1 = String(v1 ?? "0").replace(/^v/, "");
+  const cleanV2 = String(v2 ?? "0").replace(/^v/, "");
 
   const parts1 = cleanV1.split(".").map(Number);
   const parts2 = cleanV2.split(".").map(Number);
@@ -93,5 +93,5 @@ export function isVersionGreaterThan(v1, v2) {
  * @returns {string} Formatted version
  */
 export function formatVersion(version) {
-  return version.replace(/^v/, "");
+  return String(version ?? "").replace(/^v/, "");
 }

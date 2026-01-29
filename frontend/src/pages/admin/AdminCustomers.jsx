@@ -169,6 +169,24 @@ export default function AdminCustomers() {
     }
   };
 
+  // Edit customer (fetch full details first so address fields are populated)
+  const handleEditCustomer = async (customerId) => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/admin/customers/${customerId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (!res.ok) throw new Error("Failed to fetch customer details");
+      const data = await res.json();
+      setEditingCustomer(data);
+      setShowCustomerModal(true);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   // View customer details
   const handleViewCustomer = async (customerId) => {
     try {
@@ -348,10 +366,7 @@ export default function AdminCustomers() {
                         View
                       </button>
                       <button
-                        onClick={() => {
-                          setEditingCustomer(customer);
-                          setShowCustomerModal(true);
-                        }}
+                        onClick={() => handleEditCustomer(customer.id)}
                         className="text-blue-400 hover:text-blue-300 text-sm"
                       >
                         Edit
@@ -390,9 +405,8 @@ export default function AdminCustomers() {
           customer={viewingCustomer}
           onClose={() => setViewingCustomer(null)}
           onEdit={() => {
-            setEditingCustomer(viewingCustomer);
             setViewingCustomer(null);
-            setShowCustomerModal(true);
+            handleEditCustomer(viewingCustomer.id);
           }}
         />
       )}

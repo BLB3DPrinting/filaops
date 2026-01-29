@@ -513,6 +513,7 @@ export default function AdminLayout() {
 
   // AI Settings for SecurityBadge
   const [aiSettings, setAiSettings] = useState(null);
+  const [aiSettingsFailed, setAiSettingsFailed] = useState(false);
 
   useEffect(() => {
     const fetchAiSettings = async () => {
@@ -526,6 +527,10 @@ export default function AdminLayout() {
         if (response.ok) {
           const data = await response.json();
           setAiSettings(data);
+          setAiSettingsFailed(false);
+        } else if (response.status === 401 || response.status === 403) {
+          // Stop polling on auth failure to avoid console spam
+          setAiSettingsFailed(true);
         }
       } catch (error) {
         console.error("Failed to fetch AI settings:", error);
@@ -533,10 +538,12 @@ export default function AdminLayout() {
     };
 
     fetchAiSettings();
-    // Refresh every 30 seconds in case settings change
-    const interval = setInterval(fetchAiSettings, 30000);
+    // Refresh every 30 seconds in case settings change, but stop on auth failure
+    const interval = setInterval(() => {
+      if (!aiSettingsFailed) fetchAiSettings();
+    }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [aiSettingsFailed]);
 
   // Filter nav items based on user role
   const isAdmin = user?.account_type === "admin";

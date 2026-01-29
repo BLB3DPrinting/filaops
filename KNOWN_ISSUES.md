@@ -127,7 +127,7 @@ Multiple hardcoded `"2.0.1"` fallback strings were never updated when the versio
 Additionally, `useVersionCheck.js` called an async function without `await`, making the
 update-available comparison always use a Promise object instead of a version string.
 
-**Fix (PR #XX):**
+**Fix (PR #110):**
 - Created `backend/VERSION` file as a single source of truth for the backend fallback
 - Frontend now imports version from `package.json` at Vite build time (no hardcoded strings)
 - Fixed missing `await` in `useVersionCheck.js`

@@ -4,7 +4,8 @@ How version numbers are managed, where they live, and what to update when cuttin
 
 ## Sources of Truth
 
-There are **three** places that define the current version. All three must agree.
+There are **three** sources of truth for the current version. All three must agree.
+There is also a last-resort hardcoded fallback, which should never be reached in practice.
 
 | File | Used By | Format |
 |------|---------|--------|
