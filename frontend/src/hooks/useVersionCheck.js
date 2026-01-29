@@ -53,7 +53,7 @@ export function useVersionCheck() {
       
       // Extract version from tag (e.g., "v1.6.0" -> "1.6.0")
       const latest = formatVersion(data.tag_name || "");
-      const current = getCurrentVersion();
+      const current = await getCurrentVersion();
 
       setLatestVersion(latest);
       const hasUpdate = isVersionLessThan(current, latest);

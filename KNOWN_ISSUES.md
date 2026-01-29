@@ -110,7 +110,29 @@ if order.quote_id:
 
 ## Resolved Issues
 
-*(None yet - this is a new tracking document)*
+### ISSUE-002: Version Display Shows v2.0.1 After Updating to v3.0.1
+
+**Status:** Resolved
+**Priority:** Medium
+**Reported:** 2026-01-29
+**Affects:** Settings page "Current Version" display, update checker comparison
+
+**Description:**
+After running the built-in updater (which correctly pulls new code and rebuilds), the
+Settings page continued to display "v2.0.1" as the current version. The "Latest Version"
+showed the correct value from GitHub, but the comparison was also broken.
+
+**Root Cause:**
+Multiple hardcoded `"2.0.1"` fallback strings were never updated when the version bumped.
+Additionally, `useVersionCheck.js` called an async function without `await`, making the
+update-available comparison always use a Promise object instead of a version string.
+
+**Fix (PR #XX):**
+- Created `backend/VERSION` file as a single source of truth for the backend fallback
+- Frontend now imports version from `package.json` at Vite build time (no hardcoded strings)
+- Fixed missing `await` in `useVersionCheck.js`
+- Updated Dockerfile `ARG FILAOPS_VERSION` default
+- Added `docs/VERSIONING.md` documenting the version bump process
 
 ---
 

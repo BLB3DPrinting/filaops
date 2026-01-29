@@ -1,12 +1,22 @@
 /**
  * Version utility functions
+ *
+ * The frontend version is imported from package.json at build time (Vite
+ * inlines JSON imports).  This eliminates hardcoded version strings that
+ * fall out of date.
+ *
+ * See docs/VERSIONING.md for the full versioning strategy.
  */
 
 import { API_URL } from '../config/api';
+import pkgJson from '../../../package.json';
+
+/** Version string read from package.json at build time (e.g. "3.0.1"). */
+const PACKAGE_VERSION = pkgJson.version;
 
 /**
  * Get current version from backend API
- * @returns {Promise<string>} Current version (e.g., "1.5.0")
+ * @returns {Promise<string>} Current version (e.g., "3.0.1")
  */
 export async function getCurrentVersion() {
   try {
@@ -18,18 +28,16 @@ export async function getCurrentVersion() {
     return data.version;
   } catch (error) {
     console.error('Failed to get version from backend:', error);
-    // Fallback to hardcoded version (should match package.json)
-    return "2.0.1";
+    return PACKAGE_VERSION;
   }
 }
 
 /**
- * Get current version synchronously (uses fallback)
- * @returns {string} Current version (e.g., "2.0.1")
+ * Get current version synchronously (build-time value from package.json)
+ * @returns {string} Current version (e.g., "3.0.1")
  */
 export function getCurrentVersionSync() {
-  // Synchronous fallback for components that need immediate value
-  return "2.0.1";
+  return PACKAGE_VERSION;
 }
 
 /**
@@ -87,4 +95,3 @@ export function isVersionGreaterThan(v1, v2) {
 export function formatVersion(version) {
   return version.replace(/^v/, "");
 }
-

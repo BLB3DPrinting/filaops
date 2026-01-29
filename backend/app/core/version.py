@@ -3,6 +3,14 @@ FilaOps Version Management System
 
 Handles version detection, update checking, and GitHub release integration.
 Uses git-based versioning for native PostgreSQL installation.
+
+Version resolution order:
+  1. Git tag (git describe --tags --abbrev=0) — works in dev and non-Docker prod
+  2. FILAOPS_VERSION environment variable — set via Dockerfile ARG or docker-compose
+  3. _VERSION_FILE (backend/VERSION) — single source of truth, read at import time
+  4. Hardcoded FALLBACK_VERSION — last resort, should never be reached
+
+See docs/VERSIONING.md for the full versioning strategy.
 """
 
 import subprocess
@@ -17,11 +25,20 @@ import threading
 logger = logging.getLogger(__name__)
 
 
+def _read_version_file() -> Optional[str]:
+    """Read version from backend/VERSION file (single source of truth)."""
+    version_file = Path(__file__).parent.parent.parent / "VERSION"
+    try:
+        return version_file.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return None
+
+
 class VersionManager:
     """Manages FilaOps version information and update checking"""
 
     GITHUB_REPO = "Blb3D/filaops"
-    FALLBACK_VERSION = "2.0.1"  # Update this when releasing new versions
+    FALLBACK_VERSION = _read_version_file() or "3.0.1"
 
     # Server-side cache for GitHub API responses (to avoid rate limiting)
     _update_cache: Optional[Dict[str, Any]] = None
