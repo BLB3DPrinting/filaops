@@ -1,7 +1,21 @@
 import { useState } from "react";
 import { API_URL } from "../../config/api";
 
-// Production Order Modal - creates a production order from a BOM
+/**
+ * Render a modal UI for creating a production order from a BOM.
+ *
+ * Renders product and BOM information, computes producible quantity from component inventory,
+ * supports selecting quantity (with quick-set to quoted or max producible), optional partial
+ * fulfillment with backorder, notes entry, cost estimate, and submission to create a production order.
+ *
+ * @param {Object} props
+ * @param {Object} props.bom - Bill of materials and product details required to build the order.
+ * @param {Object} [props.quoteContext] - Optional quote context; if present, its `quantity` initializes the input.
+ * @param {Function} props.onClose - Callback invoked to close the modal.
+ * @param {string} props.token - Authorization token used for API requests.
+ * @param {Function} props.onSuccess - Callback invoked with the created production order on successful creation.
+ * @returns {JSX.Element} The modal component.
+ */
 export default function CreateProductionOrderModal({
   bom,
   quoteContext,

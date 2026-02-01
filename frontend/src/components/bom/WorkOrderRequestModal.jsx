@@ -2,8 +2,17 @@ import { useState } from "react";
 import { API_URL } from "../../config/api";
 
 /**
- * Work Order Request Modal content - Creates a production/work order for make items.
- * Used when a component has its own BOM (sub-assembly).
+ * Modal UI for creating a production work order for a component that has its own BOM.
+ *
+ * Renders a form to specify quantity, priority, due date, and notes, creates the work order
+ * via the production-orders API, displays any errors, and shows a confirmation view on success.
+ *
+ * @param {Object} props
+ * @param {Object} props.line - Line item data used to prefill form fields (e.g., component_id, component_name, component_sku, component_unit, inventory_available, shortage).
+ * @param {Function} props.onClose - Callback invoked to close the modal.
+ * @param {string} props.token - Bearer token used for API authorization.
+ * @param {Function} [props.onSuccess] - Optional callback invoked with the created work order object after successful creation.
+ * @returns {JSX.Element} The modal content (form and success confirmation) for requesting a work order.
  */
 export default function WorkOrderRequestModal({ line, onClose, token, onSuccess }) {
   const [quantity, setQuantity] = useState(line?.shortage || 1);

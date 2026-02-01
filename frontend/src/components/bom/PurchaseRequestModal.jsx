@@ -1,7 +1,15 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-// Purchase Request Modal content - Creates actual PO from BOM shortage
+/**
+ * Render a modal UI that creates a Purchase Order from a BOM shortage.
+ * @param {Object} props - Component props.
+ * @param {Object} props.line - BOM line data used to prefill the form (expects fields: component_id, component_name, component_unit, component_sku, component_cost, inventory_available, shortage).
+ * @param {Function} props.onClose - Callback invoked to close the modal.
+ * @param {string} props.token - Authorization bearer token used for API requests.
+ * @param {Function} [props.onSuccess] - Optional callback invoked with the created purchase order object after successful creation.
+ * @returns {JSX.Element} The modal UI for creating a purchase order, including vendor selection, quantity/cost inputs, validation, API submission, and a success confirmation view.
+ */
 export default function PurchaseRequestModal({ line, onClose, token, onSuccess }) {
   const [quantity, setQuantity] = useState(line?.shortage || 1);
   const [vendorId, setVendorId] = useState("");

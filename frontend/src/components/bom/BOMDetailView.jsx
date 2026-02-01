@@ -6,6 +6,15 @@ import SearchableSelect from "../SearchableSelect";
 import PurchaseRequestModal from "./PurchaseRequestModal";
 import WorkOrderRequestModal from "./WorkOrderRequestModal";
 
+/**
+ * Render and manage a detailed Bill of Materials (BOM) view including lines, cost rollup, routing/operations, operation materials, and related modals for creating purchase requests, work orders, and exploded BOM visualization.
+ * @param {Object} props.bom - BOM record to display and manage (includes id, product_id, lines, cost fields, etc.).
+ * @param {Function} props.onClose - Callback invoked when the detail view is closed.
+ * @param {Function} props.onUpdate - Callback invoked after BOM changes (lines, routing, materials) to request a parent refresh.
+ * @param {string} props.token - Authentication bearer token used for API requests.
+ * @param {Function} props.onCreateProductionOrder - Callback invoked to initiate creation of a production order for this BOM's product.
+ * @returns {JSX.Element} The rendered BOM detail view component.
+ */
 export default function BOMDetailView({
   bom,
   onClose,

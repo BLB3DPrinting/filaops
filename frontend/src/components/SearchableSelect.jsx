@@ -1,5 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 
+/**
+ * Render a searchable dropdown select that filters and lets the user pick from provided options.
+ *
+ * @param {Object[]} options - Array of option objects to display; each object should contain the keys referenced by `displayKey` and `valueKey` and may include `sku`.
+ * @param {(string|number)} value - Current selected value, compared against each option's `valueKey`.
+ * @param {(newValue: string) => void} onChange - Callback invoked with the selected option's value (string) when the user selects an option.
+ * @param {string} [placeholder="Search..."] - Text shown when no option is selected.
+ * @param {string} [displayKey="name"] - Object key used to derive the display text for each option.
+ * @param {string} [valueKey="id"] - Object key used to identify each option's value.
+ * @param {(option: Object) => (string|import('react').ReactNode)} [formatOption=null] - Optional function to format an option for display; receives the option and should return a string or React node.
+ * @param {string} [className=""] - Additional CSS classes applied to the root container.
+ * @returns {import('react').ReactElement} The rendered searchable select component.
+ */
 export default function SearchableSelect({
   options,
   value,

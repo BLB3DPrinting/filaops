@@ -3,6 +3,15 @@ import { Link } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import SearchableSelect from "../SearchableSelect";
 
+/**
+ * Renders a form to create a Bill of Materials (BOM), load product options, detect active BOMs for the selected product, and submit either a new BOM or a new BOM version.
+ * @param {Object} props - Component props.
+ * @param {function} props.onClose - Called when the user cancels or closes the form.
+ * @param {function} props.onCreate - Called with the created BOM object after successful creation.
+ * @param {string} props.token - Authorization bearer token used for API requests.
+ * @param {Array} [props.existingBoms=[]] - Existing BOMs used to determine if the selected product already has an active BOM.
+ * @returns {JSX.Element} The BOM creation form UI.
+ */
 export default function CreateBOMForm({ onClose, onCreate, token, existingBoms = [] }) {
   const [formData, setFormData] = useState({
     product_id: "",
