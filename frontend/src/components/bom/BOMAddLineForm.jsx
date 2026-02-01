@@ -13,40 +13,38 @@ export default function BOMAddLineForm({
   onAddLine,
   onCancel,
 }) {
+  const selectedProduct = products.find(
+    (p) => String(p.id) === String(newLine.component_id)
+  );
+  const selectedCost = selectedProduct
+    ? selectedProduct.standard_cost ||
+      selectedProduct.average_cost ||
+      selectedProduct.selling_price ||
+      0
+    : 0;
+
   return (
     <div className="bg-gray-800 rounded-lg p-4 space-y-4">
       <h4 className="font-medium text-white">Add Component</h4>
       {/* Selected component info */}
-      {newLine.component_id &&
-        (() => {
-          const selected = products.find(
-            (p) => String(p.id) === String(newLine.component_id)
-          );
-          if (!selected) return null;
-          const cost =
-            selected.standard_cost ||
-            selected.average_cost ||
-            selected.selling_price ||
-            0;
-          return (
-            <div className="bg-gray-900 rounded-lg p-3 flex items-center justify-between">
-              <div>
-                <span className="text-white font-medium">
-                  {selected.name}
-                </span>
-                <span className="text-gray-500 ml-2">({selected.sku})</span>
-              </div>
-              <div className="text-right">
-                <span className="text-green-400 font-mono">
-                  ${parseFloat(cost).toFixed(2)}
-                </span>
-                <span className="text-gray-500 ml-1">
-                  / {selected.unit || "EA"}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
+      {selectedProduct && (
+        <div className="bg-gray-900 rounded-lg p-3 flex items-center justify-between">
+          <div>
+            <span className="text-white font-medium">
+              {selectedProduct.name}
+            </span>
+            <span className="text-gray-500 ml-2">({selectedProduct.sku})</span>
+          </div>
+          <div className="text-right">
+            <span className="text-green-400 font-mono">
+              ${parseFloat(selectedCost).toFixed(2)}
+            </span>
+            <span className="text-gray-500 ml-1">
+              / {selectedProduct.unit || "EA"}
+            </span>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">
@@ -92,13 +90,7 @@ export default function BOMAddLineForm({
               className="flex-1 bg-gray-900 border border-gray-700 rounded-l-lg px-3 py-2 text-white"
             />
             <span className="bg-gray-700 border border-l-0 border-gray-700 rounded-r-lg px-3 py-2 text-gray-300 font-mono text-sm">
-              {newLine.unit ||
-                (() => {
-                  const selected = products.find(
-                    (p) => String(p.id) === String(newLine.component_id)
-                  );
-                  return selected?.unit || "EA";
-                })()}
+              {newLine.unit || selectedProduct?.unit || "EA"}
             </span>
           </div>
         </div>

@@ -7,7 +7,6 @@ export default function BOMLinesList({
   editingLine,
   setEditingLine,
   uoms,
-  loading,
   onUpdateLine,
   onDeleteLine,
 }) {

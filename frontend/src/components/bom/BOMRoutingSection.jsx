@@ -1,4 +1,4 @@
-import React from "react";
+import { Fragment } from "react";
 import { API_URL } from "../../config/api";
 
 export default function BOMRoutingSection({
@@ -22,7 +22,6 @@ export default function BOMRoutingSection({
   applyingTemplate,
   savingRouting,
   addingOperation,
-  showAddMaterialModal,
   setShowAddMaterialModal,
   token,
   handleAddPendingOperation,
@@ -302,7 +301,7 @@ export default function BOMRoutingSection({
                   </thead>
                   <tbody>
                     {(productRouting.operations || []).map((op, idx) => (
-                      <React.Fragment key={op.id || idx}>
+                      <Fragment key={op.id || idx}>
                         {/* Main operation row */}
                         <tr className="border-b border-gray-800">
                           <td className="py-2 px-3">
@@ -587,7 +586,7 @@ export default function BOMRoutingSection({
                             </td>
                           </tr>
                         )}
-                      </React.Fragment>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

@@ -946,7 +946,6 @@ export default function BOMDetailView({
         editingLine={editingLine}
         setEditingLine={setEditingLine}
         uoms={uoms}
-        loading={loading}
         onUpdateLine={handleUpdateLine}
         onDeleteLine={handleDeleteLine}
       />
@@ -972,7 +971,6 @@ export default function BOMDetailView({
         applyingTemplate={applyingTemplate}
         savingRouting={savingRouting}
         addingOperation={addingOperation}
-        showAddMaterialModal={showAddMaterialModal}
         setShowAddMaterialModal={setShowAddMaterialModal}
         token={token}
         handleAddPendingOperation={handleAddPendingOperation}
