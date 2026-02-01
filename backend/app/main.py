@@ -185,9 +185,7 @@ app.state.limiter, RATE_LIMITS_ENABLED = apply_rate_limiting(app)
 # Security headers middleware (outermost)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# CORS middleware — never fall back to wildcard
-if not settings.ALLOWED_ORIGINS:
-    logger.warning("No CORS origins configured — all cross-origin requests will be blocked")
+# CORS middleware — uses settings.ALLOWED_ORIGINS directly (no wildcard fallback)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
