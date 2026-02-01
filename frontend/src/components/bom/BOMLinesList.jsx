@@ -96,7 +96,7 @@ export default function BOMLinesList({
                   </div>
                 ) : (
                   <span>
-                    {parseFloat(line.quantity).toFixed(2)}{" "}
+                    {parseFloat(line.quantity || 0).toFixed(2)}{" "}
                     {line.unit || line.component_unit || "EA"}
                   </span>
                 )}
