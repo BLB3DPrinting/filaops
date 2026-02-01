@@ -23,12 +23,14 @@ export default function CreateBOMForm({ onClose, onCreate, token, existingBoms =
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || data);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to load products.");
       }
-    } catch {
-      setError("Failed to load products. Please refresh the page.");
+      const data = await res.json();
+      setProducts(data.items || data);
+    } catch (err) {
+      setError(err.message || "Failed to load products. Please refresh the page.");
     }
   }, [token]);
 
