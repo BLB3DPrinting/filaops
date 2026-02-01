@@ -55,8 +55,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       SECRET_KEY: ${SECRET_KEY:-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://localhost:5173}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -81,7 +81,7 @@ services:
         VITE_API_URL: http://localhost:8000
     container_name: filaops-frontend
     ports:
-      - "5173:5173"
+      - "80:80"
     depends_on:
       - backend
     networks:
