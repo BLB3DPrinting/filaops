@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 import Modal from "../Modal";
-import SearchableSelect from "../SearchableSelect";
 import PurchaseRequestModal from "./PurchaseRequestModal";
 import WorkOrderRequestModal from "./WorkOrderRequestModal";
 import ExplodedBOMView from "./ExplodedBOMView";
