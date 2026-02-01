@@ -380,6 +380,13 @@ export default function Onboarding() {
     }
   };
 
+  const prevStep = () => {
+    if (currentStep > STEPS.ACCOUNT) {
+      setCurrentStep(currentStep - 1);
+      setError(null);
+    }
+  };
+
   const handleComplete = () => {
     navigate("/admin");
   };
@@ -656,6 +663,14 @@ export default function Onboarding() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={seedingData}
+                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
+                <button
                   onClick={handleSeedExampleData}
                   disabled={seedingData}
                   className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -703,6 +718,14 @@ export default function Onboarding() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={importingProducts}
+                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
+                <button
                   onClick={handleProductsImport}
                   disabled={importingProducts}
                   className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -744,6 +767,14 @@ export default function Onboarding() {
               )}
 
               <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={importingCustomers}
+                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
                 <button
                   onClick={handleCustomersImport}
                   disabled={importingCustomers}
@@ -812,6 +843,14 @@ export default function Onboarding() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={importingOrders}
+                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
+                <button
                   onClick={handleOrdersImport}
                   disabled={importingOrders}
                   className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -851,6 +890,14 @@ export default function Onboarding() {
               )}
 
               <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={importingInventory}
+                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                >
+                  Back
+                </button>
                 <button
                   onClick={handleInventoryImport}
                   disabled={importingInventory}
