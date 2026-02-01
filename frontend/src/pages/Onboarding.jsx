@@ -360,8 +360,6 @@ export default function Onboarding() {
       const formData = new FormData();
       formData.append("file", inventoryFile);
 
-      // Note: Inventory import endpoint may need to be created
-      // For now, we'll skip this step or use a placeholder
       const res = await fetch(`${API_URL}/api/v1/admin/import/inventory`, {
         method: "POST",
         headers: {
@@ -370,16 +368,16 @@ export default function Onboarding() {
         body: formData,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setInventoryResult(data);
-      }
-      // Endpoint doesn't exist yet - that's okay, we'll just continue
+      const data = await res.json();
 
+      if (!res.ok) {
+        throw new Error(data.detail || "Import failed");
+      }
+
+      setInventoryResult(data);
       scheduleAdvance(STEPS.COMPLETE);
-    } catch {
-      // If endpoint doesn't exist, that's fine - just skip
-      setCurrentStep(STEPS.COMPLETE);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setImportingInventory(false);
     }
@@ -894,7 +892,13 @@ export default function Onboarding() {
 
               {inventoryResult && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-400 text-sm">
-                  Inventory imported successfully!
+                  <div>Created: {inventoryResult.created || 0}</div>
+                  <div>Updated: {inventoryResult.updated || 0}</div>
+                  {inventoryResult.errors && inventoryResult.errors.length > 0 && (
+                    <div className="text-yellow-400 mt-2">
+                      Errors: {inventoryResult.errors.length}
+                    </div>
+                  )}
                 </div>
               )}
 
