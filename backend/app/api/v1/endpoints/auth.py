@@ -502,7 +502,7 @@ async def request_password_reset(
                 "user_id": user.id,
                 "email": user.email,
                 "request_id": reset_request.id,
-                "reset_token": reset_token
+                "token_prefix": reset_token[:8] + "..."
             }
         )
         

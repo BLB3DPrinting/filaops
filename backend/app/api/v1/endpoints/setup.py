@@ -8,11 +8,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 import sys
-import traceback
 
 from app.db.session import get_db
 from app.models.user import User
 from app.core.security import hash_password, create_access_token, validate_password_strength
+from app.api.v1.deps import get_current_admin_user
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -142,14 +145,22 @@ class SeedDataResponse(BaseModel):
 
 @router.post("/seed-example-data", response_model=SeedDataResponse)
 def seed_example_data(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """
     Seed the database with example items and materials.
-    
-    This can be called during onboarding to populate example data.
-    Safe to run multiple times - won't duplicate existing data.
+
+    Requires admin authentication. Only allowed on fresh installations
+    (1 user or fewer) to prevent accidental data pollution.
     """
+    user_count = db.query(User).count()
+    if user_count > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Seeding only allowed on fresh installations"
+        )
+
     try:
         # Import seed functions directly from the script
         # Use absolute import path
@@ -167,20 +178,20 @@ def seed_example_data(
             items_created, items_skipped = seed_example_items(db)
         except Exception as e:
             db.rollback()
-            error_trace = traceback.format_exc()
+            logger.error("Failed to seed example items", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to seed example items: {str(e)}\n\nTraceback:\n{error_trace}"
+                detail="Failed to seed example items. Check server logs for details."
             )
         
         try:
             mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
         except Exception as e:
             db.rollback()
-            error_trace = traceback.format_exc()
+            logger.error("Failed to seed materials", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to seed materials: {str(e)}\n\nTraceback:\n{error_trace}"
+                detail="Failed to seed materials. Check server logs for details."
             )
         
         return SeedDataResponse(
@@ -200,8 +211,8 @@ def seed_example_data(
             detail=f"Seed script not found. Please ensure backend/scripts/seed_example_data.py exists. Error: {str(e)}"
         )
     except Exception as e:
-        error_trace = traceback.format_exc()
+        logger.error("Failed to seed example data", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to seed example data: {str(e)}\n\nTraceback:\n{error_trace}"
+            detail="Failed to seed example data. Check server logs for details."
         )

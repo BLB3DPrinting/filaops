@@ -21,11 +21,21 @@ from pydantic import BaseModel
 from app.db.session import get_db
 from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
+from app.core.config import settings
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/security", tags=["Security"])
+
+
+def require_local_remediation():
+    """Dependency that blocks remediation endpoints in production."""
+    if getattr(settings, "ENVIRONMENT", "development") == "production":
+        raise HTTPException(
+            status_code=403,
+            detail="This endpoint is disabled in production environments"
+        )
 
 
 def validate_domain(domain: str) -> str:
@@ -304,6 +314,7 @@ async def get_security_status(
 async def generate_secret_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Generate a secure SECRET_KEY for the user to copy.
@@ -339,6 +350,7 @@ async def generate_secret_key(
 async def open_env_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Open the .env file in the system's default text editor.
@@ -393,6 +405,7 @@ async def open_env_file(
 async def update_secret_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Automatically update the SECRET_KEY in the .env file.
@@ -464,6 +477,7 @@ async def update_secret_key(
 async def open_restart_terminal(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Open a terminal window with instructions to restart the backend.
@@ -538,6 +552,7 @@ async def open_restart_terminal(
 async def fix_dependencies(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Automatically scan and fix vulnerable dependencies.
@@ -702,6 +717,7 @@ async def fix_dependencies(
 async def fix_rate_limiting(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Automatically install slowapi for rate limiting.
@@ -782,6 +798,7 @@ async def setup_https(
     request: SetupHTTPSRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Automatically set up HTTPS with Caddy reverse proxy.
@@ -1155,6 +1172,7 @@ echo  Servers stopped.
 async def check_caddy_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """Check if Caddy is installed and get its version."""
     if not current_user.is_admin:
@@ -1189,6 +1207,7 @@ async def check_caddy_status(
 async def fix_dotfile_blocking(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Automatically update Caddyfile to block access to dotfiles (.env, .git, etc.).
@@ -1361,6 +1380,7 @@ async def get_remediation_steps(
     check_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _gate=Depends(require_local_remediation),
 ):
     """
     Get detailed remediation steps for a specific check.
