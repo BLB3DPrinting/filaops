@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../config/api";
 import { validateRequired, validateQuantity } from "../utils/validation";
+import CustomerSelectionStep from "./sales-order/CustomerSelectionStep";
+import ReviewStep from "./sales-order/ReviewStep";
 
 // Item type options
 const ITEM_TYPES = [
@@ -1104,179 +1106,30 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
         <div className="flex-1 overflow-auto p-6">
           {/* Step 1: Customer */}
           {currentStep === 1 && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-white">
-                Select Customer
-              </h3>
-
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <select
-                    value={orderData.customer_id || ""}
-                    onChange={(e) => {
-                      const cid = e.target.value
-                        ? parseInt(e.target.value)
-                        : null;
-                      const customer = customers.find((c) => c.id === cid);
-                      setOrderData({
-                        ...orderData,
-                        customer_id: cid,
-                        shipping_address_line1:
-                          customer?.shipping_address_line1 || "",
-                        shipping_city: customer?.shipping_city || "",
-                        shipping_state: customer?.shipping_state || "",
-                        shipping_zip: customer?.shipping_zip || "",
-                      });
-                    }}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
-                  >
-                    <option value="">-- Walk-in / No Customer --</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customer_number || `#${c.id}`} -{" "}
-                        {c.full_name || c.name || c.email}{" "}
-                        {c.company_name ? `(${c.company_name})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  onClick={() => {
-                    // Navigate to customer page to create new customer
-                    // Store current order data in sessionStorage so we can restore it
-                    sessionStorage.setItem(
-                      "pendingOrderData",
-                      JSON.stringify({
-                        customer_id: orderData.customer_id,
-                        shipping_address_line1:
-                          orderData.shipping_address_line1,
-                        shipping_city: orderData.shipping_city,
-                        shipping_state: orderData.shipping_state,
-                        shipping_zip: orderData.shipping_zip,
-                        customer_notes: orderData.customer_notes,
-                        lineItems: lineItems,
-                        currentStep: currentStep,
-                      })
-                    );
-                    navigate("/admin/customers?action=new&returnTo=order");
-                  }}
-                  className="px-4 py-2 bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:bg-gray-700 hover:text-white whitespace-nowrap"
-                >
-                  + New Customer
-                </button>
-              </div>
-
-              {selectedCustomer && (
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                  <div className="text-white font-medium">
-                    {selectedCustomer.name}
-                  </div>
-                  {selectedCustomer.company && (
-                    <div className="text-gray-400 text-sm">
-                      {selectedCustomer.company}
-                    </div>
-                  )}
-                  <div className="text-gray-400 text-sm">
-                    {selectedCustomer.email}
-                  </div>
-                  {selectedCustomer.phone && (
-                    <div className="text-gray-400 text-sm">
-                      {selectedCustomer.phone}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-4">
-                <h4 className="text-md font-medium text-white">
-                  Shipping Address
-                </h4>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Address
-                  </label>
-                  <input
-                    type="text"
-                    value={orderData.shipping_address_line1}
-                    onChange={(e) =>
-                      setOrderData({
-                        ...orderData,
-                        shipping_address_line1: e.target.value,
-                      })
-                    }
-                    placeholder="Street address"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">
-                      City
-                    </label>
-                    <input
-                      type="text"
-                      value={orderData.shipping_city}
-                      onChange={(e) =>
-                        setOrderData({
-                          ...orderData,
-                          shipping_city: e.target.value,
-                        })
-                      }
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">
-                      State
-                    </label>
-                    <input
-                      type="text"
-                      value={orderData.shipping_state}
-                      onChange={(e) =>
-                        setOrderData({
-                          ...orderData,
-                          shipping_state: e.target.value,
-                        })
-                      }
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">
-                      ZIP
-                    </label>
-                    <input
-                      type="text"
-                      value={orderData.shipping_zip}
-                      onChange={(e) =>
-                        setOrderData({
-                          ...orderData,
-                          shipping_zip: e.target.value,
-                        })
-                      }
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Order Notes
-                  </label>
-                  <textarea
-                    value={orderData.customer_notes}
-                    onChange={(e) =>
-                      setOrderData({
-                        ...orderData,
-                        customer_notes: e.target.value,
-                      })
-                    }
-                    rows={2}
-                    placeholder="Special instructions..."
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                  />
-                </div>
-              </div>
-            </div>
+            <CustomerSelectionStep
+              customers={customers}
+              orderData={orderData}
+              setOrderData={setOrderData}
+              selectedCustomer={selectedCustomer}
+              lineItems={lineItems}
+              currentStep={currentStep}
+              onNavigateToNewCustomer={() => {
+                sessionStorage.setItem(
+                  "pendingOrderData",
+                  JSON.stringify({
+                    customer_id: orderData.customer_id,
+                    shipping_address_line1: orderData.shipping_address_line1,
+                    shipping_city: orderData.shipping_city,
+                    shipping_state: orderData.shipping_state,
+                    shipping_zip: orderData.shipping_zip,
+                    customer_notes: orderData.customer_notes,
+                    lineItems: lineItems,
+                    currentStep: currentStep,
+                  })
+                );
+                navigate("/admin/customers?action=new&returnTo=order");
+              }}
+            />
           )}
 
           {/* Step 2: Products */}
@@ -2544,151 +2397,13 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
 
           {/* Step 3: Review */}
           {currentStep === 3 && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-white">Review Order</h3>
-
-              {/* Customer Info */}
-              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                <h4 className="text-md font-medium text-white mb-3">
-                  Customer
-                </h4>
-                {selectedCustomer ? (
-                  <div>
-                    <div className="text-white">{selectedCustomer.name}</div>
-                    {selectedCustomer.company && (
-                      <div className="text-gray-400 text-sm">
-                        {selectedCustomer.company}
-                      </div>
-                    )}
-                    <div className="text-gray-400 text-sm">
-                      {selectedCustomer.email}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-gray-500">
-                    Walk-in / No customer selected
-                  </div>
-                )}
-              </div>
-
-              {/* Shipping */}
-              {orderData.shipping_address_line1 && (
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                  <h4 className="text-md font-medium text-white mb-3">
-                    Ship To
-                  </h4>
-                  <div className="text-gray-300 text-sm">
-                    {orderData.shipping_address_line1}
-                    <br />
-                    {orderData.shipping_city}, {orderData.shipping_state}{" "}
-                    {orderData.shipping_zip}
-                  </div>
-                </div>
-              )}
-
-              {/* Line Items */}
-              <div className="bg-gray-800/50 rounded-lg border border-gray-700">
-                <div className="p-4 border-b border-gray-700">
-                  <h4 className="text-md font-medium text-white">
-                    Order Lines
-                  </h4>
-                </div>
-                <table className="w-full">
-                  <thead className="bg-gray-800/50">
-                    <tr>
-                      <th className="text-left py-2 px-4 text-xs font-medium text-gray-400">
-                        Product
-                      </th>
-                      <th className="text-right py-2 px-4 text-xs font-medium text-gray-400">
-                        Qty
-                      </th>
-                      <th className="text-right py-2 px-4 text-xs font-medium text-gray-400">
-                        Price
-                      </th>
-                      <th className="text-right py-2 px-4 text-xs font-medium text-gray-400">
-                        Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineItems.map((li) => (
-                      <tr
-                        key={li.product_id}
-                        className="border-t border-gray-800"
-                      >
-                        <td className="py-3 px-4">
-                          <div className="text-white">{li.product?.name}</div>
-                          <div className="text-gray-500 text-xs font-mono">
-                            {li.product?.sku}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-right text-gray-300">
-                          {li.quantity}
-                        </td>
-                        <td className="py-3 px-4 text-right text-gray-300">
-                          ${parseFloat(li.unit_price).toFixed(2)}
-                        </td>
-                        <td className="py-3 px-4 text-right text-green-400 font-medium">
-                          ${(li.quantity * li.unit_price).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-gray-800/80">
-                    <tr>
-                      <td
-                        colSpan={3}
-                        className="py-3 px-4 text-right text-gray-400"
-                      >
-                        Subtotal
-                      </td>
-                      <td className="py-3 px-4 text-right text-white font-medium">
-                        ${orderTotal.toFixed(2)}
-                      </td>
-                    </tr>
-                    {taxSettings.tax_enabled && taxSettings.tax_rate > 0 && (
-                      <tr>
-                        <td
-                          colSpan={3}
-                          className="py-3 px-4 text-right text-gray-400"
-                        >
-                          {taxSettings.tax_name} ({(taxSettings.tax_rate * 100).toFixed(2)}%)
-                        </td>
-                        <td className="py-3 px-4 text-right text-white font-medium">
-                          ${(orderTotal * taxSettings.tax_rate).toFixed(2)}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className="border-t border-gray-700">
-                      <td
-                        colSpan={3}
-                        className="py-3 px-4 text-right text-white font-medium"
-                      >
-                        Grand Total
-                      </td>
-                      <td className="py-3 px-4 text-right text-green-400 font-bold text-lg">
-                        ${(taxSettings.tax_enabled && taxSettings.tax_rate > 0
-                          ? orderTotal * (1 + taxSettings.tax_rate)
-                          : orderTotal
-                        ).toFixed(2)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* Notes */}
-              {orderData.customer_notes && (
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                  <h4 className="text-md font-medium text-white mb-2">
-                    Order Notes
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    {orderData.customer_notes}
-                  </p>
-                </div>
-              )}
-            </div>
+            <ReviewStep
+              selectedCustomer={selectedCustomer}
+              orderData={orderData}
+              lineItems={lineItems}
+              orderTotal={orderTotal}
+              taxSettings={taxSettings}
+            />
           )}
         </div>
 
