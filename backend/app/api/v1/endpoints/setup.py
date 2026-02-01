@@ -176,7 +176,7 @@ def seed_example_data(
         # Run seed functions with error handling
         try:
             items_created, items_skipped = seed_example_items(db)
-        except Exception as e:
+        except Exception:
             db.rollback()
             logger.error("Failed to seed example items", exc_info=True)
             raise HTTPException(
@@ -186,7 +186,7 @@ def seed_example_data(
         
         try:
             mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
-        except Exception as e:
+        except Exception:
             db.rollback()
             logger.error("Failed to seed materials", exc_info=True)
             raise HTTPException(
@@ -210,7 +210,7 @@ def seed_example_data(
             status_code=500,
             detail=f"Seed script not found. Please ensure backend/scripts/seed_example_data.py exists. Error: {str(e)}"
         )
-    except Exception as e:
+    except Exception:
         logger.error("Failed to seed example data", exc_info=True)
         raise HTTPException(
             status_code=500,
