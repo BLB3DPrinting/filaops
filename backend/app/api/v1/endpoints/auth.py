@@ -432,7 +432,7 @@ async def request_password_reset(
     existing_request = db.query(PasswordResetRequest).filter(
         PasswordResetRequest.user_id == user.id,
         PasswordResetRequest.status == 'pending',
-        PasswordResetRequest.expires_at > datetime.now(timezone.utc)
+        PasswordResetRequest.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
     ).first()
 
     if existing_request:
@@ -541,7 +541,7 @@ async def approve_password_reset(
             detail=f"Request has already been {reset_request.status}"
         )
 
-    if reset_request.expires_at < datetime.now(timezone.utc):  # type: ignore[operator]
+    if reset_request.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         reset_request.status = 'expired'  # type: ignore[assignment]
         db.commit()
         raise HTTPException(
@@ -695,7 +695,7 @@ async def check_reset_status(
             can_reset=False
         )
 
-    if reset_request.expires_at < datetime.now(timezone.utc):  # type: ignore[operator]
+    if reset_request.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         return PasswordResetStatus(
             status="expired",
             message="This reset link has expired",
@@ -743,7 +743,7 @@ async def complete_password_reset(
             detail=f"Cannot reset password. Request status: {reset_request.status}"
         )
 
-    if reset_request.expires_at < datetime.now(timezone.utc):  # type: ignore[operator]
+    if reset_request.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         reset_request.status = 'expired'  # type: ignore[assignment]
         db.commit()
         raise HTTPException(

@@ -130,8 +130,7 @@ class RefreshToken(Base):
     def is_valid(self) -> bool:
         """Check if refresh token is still valid (not revoked and not expired)"""
         from datetime import datetime, timezone
-        # Using naive datetime (no timezone) for PostgreSQL TIMESTAMP compatibility
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         return not self.revoked and self.expires_at > now
 
 
@@ -181,12 +180,12 @@ class PasswordResetRequest(Base):
     def is_valid(self) -> bool:
         """Check if reset request can be used"""
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         return self.status == 'approved' and self.expires_at > now
 
     @property
     def is_pending(self) -> bool:
         """Check if waiting for admin approval"""
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         return self.status == 'pending' and self.expires_at > now
