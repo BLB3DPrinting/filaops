@@ -6,6 +6,9 @@ import SearchableSelect from "../SearchableSelect";
 import PurchaseRequestModal from "./PurchaseRequestModal";
 import WorkOrderRequestModal from "./WorkOrderRequestModal";
 import ExplodedBOMView from "./ExplodedBOMView";
+import BOMLinesList from "./BOMLinesList";
+import BOMAddLineForm from "./BOMAddLineForm";
+import AddOperationMaterialForm from "./AddOperationMaterialForm";
 
 export default function BOMDetailView({
   bom,
@@ -148,6 +151,17 @@ export default function BOMDetailView({
   }, [productRouting, fetchManufacturingBOM]);
 
   // Add material to operation
+  const closeMaterialModal = () => {
+    setShowAddMaterialModal(null);
+    setNewMaterial({
+      component_id: "",
+      quantity: "1",
+      quantity_per: "unit",
+      scrap_factor: "0",
+      unit: "",
+    });
+  };
+
   const handleAddMaterial = async (operationId) => {
     if (!newMaterial.component_id) return;
 
@@ -927,143 +941,15 @@ export default function BOMDetailView({
       )}
 
       {/* BOM Lines Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-800">
-            <tr>
-              <th className="text-left py-2 px-3 text-gray-400">#</th>
-              <th className="text-left py-2 px-3 text-gray-400">Component</th>
-              <th className="text-left py-2 px-3 text-gray-400">Qty Needed</th>
-              <th className="text-left py-2 px-3 text-gray-400">Unit Cost</th>
-              <th className="text-left py-2 px-3 text-gray-400">Line Cost</th>
-              <th className="text-right py-2 px-3 text-gray-400">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((line) => (
-              <tr key={line.id} className="border-b border-gray-800">
-                <td className="py-2 px-3 text-gray-500">{line.sequence}</td>
-                <td className="py-2 px-3">
-                  <div className="flex items-center gap-2">
-                    <div>
-                      <div className="text-white font-medium flex items-center gap-1.5">
-                        {line.component_name || `Product #${line.component_id}`}
-                        {line.has_bom && (
-                          <span
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs"
-                            title="Sub-assembly - has its own BOM"
-                          >
-                            <svg
-                              className="w-3 h-3"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                              />
-                            </svg>
-                            Sub
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-gray-500 text-xs">
-                        {line.component_sku}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="py-2 px-3 text-gray-300">
-                  {editingLine === line.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        defaultValue={line.quantity}
-                        step="0.01"
-                        className="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
-                        onBlur={(e) =>
-                          handleUpdateLine(line.id, {
-                            quantity: parseFloat(e.target.value),
-                          })
-                        }
-                      />
-                      <select
-                        defaultValue={line.unit || ""}
-                        className="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-sm"
-                        onChange={(e) =>
-                          handleUpdateLine(line.id, {
-                            unit: e.target.value || null,
-                          })
-                        }
-                      >
-                        <option value="">Default</option>
-                        {uoms.map((u) => (
-                          <option key={u.code} value={u.code}>
-                            {u.code}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : (
-                    <span>
-                      {parseFloat(line.quantity).toFixed(2)}{" "}
-                      {line.unit || line.component_unit || "EA"}
-                    </span>
-                  )}
-                </td>
-                <td className="py-2 px-3 text-gray-400">
-                  ${parseFloat(line.component_cost || 0).toFixed(2)}/
-                  {(() => {
-                    // For materials, always show /KG regardless of line unit
-                    // Materials have unit="G" (we changed all materials to G)
-                    // and cost is stored per-KG (typically > $1)
-                    const isMaterial =
-                      line.is_material ||
-                      line.component_cost_unit === "KG" ||
-                      (line.component_unit === "G" &&
-                        line.component_cost &&
-                        parseFloat(line.component_cost) > 0.01);
-
-                    if (isMaterial) {
-                      return "KG";
-                    }
-                    return line.unit || line.component_unit || "EA";
-                  })()}
-                </td>
-                <td className="py-2 px-3 text-green-400 font-medium">
-                  ${parseFloat(line.line_cost || 0).toFixed(2)}
-                </td>
-                <td className="py-2 px-3 text-right">
-                  <button
-                    onClick={() =>
-                      setEditingLine(editingLine === line.id ? null : line.id)
-                    }
-                    className="text-blue-400 hover:text-blue-300 px-2"
-                  >
-                    {editingLine === line.id ? "Done" : "Edit"}
-                  </button>
-                  <button
-                    onClick={() => handleDeleteLine(line.id)}
-                    className="text-red-400 hover:text-red-300 px-2"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {lines.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-gray-500">
-                  No components added yet
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <BOMLinesList
+        lines={lines}
+        editingLine={editingLine}
+        setEditingLine={setEditingLine}
+        uoms={uoms}
+        loading={loading}
+        onUpdateLine={handleUpdateLine}
+        onDeleteLine={handleDeleteLine}
+      />
 
       {/* Process Path / Routing Section */}
       {showProcessPath && (
@@ -1755,155 +1641,15 @@ export default function BOMDetailView({
 
       {/* Add Line Form */}
       {showAddLine && (
-        <div className="bg-gray-800 rounded-lg p-4 space-y-4">
-          <h4 className="font-medium text-white">Add Component</h4>
-          {/* Selected component info */}
-          {newLine.component_id &&
-            (() => {
-              const selected = products.find(
-                (p) => String(p.id) === String(newLine.component_id)
-              );
-              if (!selected) return null;
-              const cost =
-                selected.standard_cost ||
-                selected.average_cost ||
-                selected.selling_price ||
-                0;
-              return (
-                <div className="bg-gray-900 rounded-lg p-3 flex items-center justify-between">
-                  <div>
-                    <span className="text-white font-medium">
-                      {selected.name}
-                    </span>
-                    <span className="text-gray-500 ml-2">({selected.sku})</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-green-400 font-mono">
-                      ${parseFloat(cost).toFixed(2)}
-                    </span>
-                    <span className="text-gray-500 ml-1">
-                      / {selected.unit || "EA"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                Component
-              </label>
-              <SearchableSelect
-                options={products}
-                value={newLine.component_id}
-                onChange={(val) => {
-                  const selected = products.find(
-                    (p) => String(p.id) === String(val)
-                  );
-                  setNewLine({
-                    ...newLine,
-                    component_id: val,
-                    unit: selected?.unit || newLine.unit,
-                  });
-                }}
-                placeholder="Select component..."
-                displayKey="name"
-                valueKey="id"
-                formatOption={(p) => {
-                  const cost =
-                    p.standard_cost || p.average_cost || p.selling_price || 0;
-                  return `${p.name} (${p.sku}) - $${parseFloat(cost).toFixed(
-                    2
-                  )}/${p.unit || "EA"}`;
-                }}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                Quantity
-              </label>
-              <div className="flex">
-                <input
-                  type="number"
-                  step="0.001"
-                  value={newLine.quantity}
-                  onChange={(e) =>
-                    setNewLine({ ...newLine, quantity: e.target.value })
-                  }
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-l-lg px-3 py-2 text-white"
-                />
-                <span className="bg-gray-700 border border-l-0 border-gray-700 rounded-r-lg px-3 py-2 text-gray-300 font-mono text-sm">
-                  {newLine.unit ||
-                    (() => {
-                      const selected = products.find(
-                        (p) => String(p.id) === String(newLine.component_id)
-                      );
-                      return selected?.unit || "EA";
-                    })()}
-                </span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                Unit Override
-              </label>
-              <select
-                value={newLine.unit}
-                onChange={(e) =>
-                  setNewLine({ ...newLine, unit: e.target.value })
-                }
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="">Use component default</option>
-                {uoms.map((u) => (
-                  <option key={u.code} value={u.code}>
-                    {u.code} - {u.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                Scrap Factor %
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                value={newLine.scrap_factor}
-                onChange={(e) =>
-                  setNewLine({ ...newLine, scrap_factor: e.target.value })
-                }
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Notes</label>
-              <input
-                type="text"
-                value={newLine.notes}
-                onChange={(e) =>
-                  setNewLine({ ...newLine, notes: e.target.value })
-                }
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleAddLine}
-              disabled={loading || !newLine.component_id}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-            >
-              Add Component
-            </button>
-            <button
-              onClick={() => setShowAddLine(false)}
-              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <BOMAddLineForm
+          newLine={newLine}
+          setNewLine={setNewLine}
+          products={products}
+          uoms={uoms}
+          loading={loading}
+          onAddLine={handleAddLine}
+          onCancel={() => setShowAddLine(false)}
+        />
       )}
 
       <div className="flex justify-end pt-4 border-t border-gray-800">
@@ -1978,150 +1724,18 @@ export default function BOMDetailView({
       {/* Add Material to Operation Modal */}
       <Modal
         isOpen={!!showAddMaterialModal}
-        onClose={() => {
-          setShowAddMaterialModal(null);
-          setNewMaterial({
-            component_id: "",
-            quantity: "1",
-            quantity_per: "unit",
-            scrap_factor: "0",
-            unit: "",
-          });
-        }}
+        onClose={closeMaterialModal}
         title="Add Material to Operation"
         className="w-full max-w-2xl"
       >
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-white">Add Material to Operation</h2>
-            <button onClick={() => {
-              setShowAddMaterialModal(null);
-              setNewMaterial({
-                component_id: "",
-                quantity: "1",
-                quantity_per: "unit",
-                scrap_factor: "0",
-                unit: "",
-              });
-            }} className="text-gray-400 hover:text-white p-1" aria-label="Close">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">
-                Component *
-              </label>
-              <SearchableSelect
-                options={products}
-                value={newMaterial.component_id}
-                onChange={(val) => {
-                  const selected = products.find(
-                    (p) => String(p.id) === String(val)
-                  );
-                  setNewMaterial({
-                    ...newMaterial,
-                    component_id: val,
-                    unit: selected?.unit || "",
-                  });
-                }}
-                placeholder="Select component..."
-                displayKey="name"
-                valueKey="id"
-                formatOption={(p) => {
-                  const cost =
-                    p.standard_cost || p.average_cost || p.selling_price || 0;
-                  return `${p.name} (${p.sku}) - ${parseFloat(cost).toFixed(2)}/${
-                    p.unit || "EA"
-                  }`;
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Quantity *
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={newMaterial.quantity}
-                  onChange={(e) =>
-                    setNewMaterial({
-                      ...newMaterial,
-                      quantity: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Scrap %
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={newMaterial.scrap_factor}
-                  onChange={(e) =>
-                    setNewMaterial({
-                      ...newMaterial,
-                      scrap_factor: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Unit
-                </label>
-                <select
-                  value={newMaterial.unit}
-                  onChange={(e) =>
-                    setNewMaterial({ ...newMaterial, unit: e.target.value })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                >
-                  <option value="">Use component default</option>
-                  {uoms.map((u) => (
-                    <option key={u.code} value={u.code}>
-                      {u.code} - {u.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => handleAddMaterial(showAddMaterialModal)}
-                disabled={!newMaterial.component_id}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                Add Material
-              </button>
-              <button
-                onClick={() => {
-                  setShowAddMaterialModal(null);
-                  setNewMaterial({
-                    component_id: "",
-                    quantity: "1",
-                    quantity_per: "unit",
-                    scrap_factor: "0",
-                    unit: "",
-                  });
-                }}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <AddOperationMaterialForm
+          newMaterial={newMaterial}
+          setNewMaterial={setNewMaterial}
+          products={products}
+          uoms={uoms}
+          onSubmit={() => handleAddMaterial(showAddMaterialModal)}
+          onClose={closeMaterialModal}
+        />
       </Modal>
 
       {/* Exploded BOM View Modal */}
