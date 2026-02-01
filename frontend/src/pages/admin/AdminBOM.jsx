@@ -342,7 +342,7 @@ export default function AdminBOM() {
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-white">{`BOM: ${selectedBOM?.code}`}</h2>
-            <button onClick={() => setSelectedBOM(null)} className="text-gray-400 hover:text-white p-1">
+            <button onClick={() => setSelectedBOM(null)} className="text-gray-400 hover:text-white p-1" aria-label="Close">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -379,7 +379,7 @@ export default function AdminBOM() {
             <button onClick={() => {
               setShowProductionModal(false);
               setProductionBOM(null);
-            }} className="text-gray-400 hover:text-white p-1">
+            }} className="text-gray-400 hover:text-white p-1" aria-label="Close">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -411,7 +411,7 @@ export default function AdminBOM() {
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-white">Create New BOM</h2>
-            <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white p-1">
+            <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white p-1" aria-label="Close">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
