@@ -225,6 +225,7 @@ export default function CompleteOrderModal({
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white text-xl"
+            disabled={submitting}
           >
             &times;
           </button>
@@ -423,7 +424,8 @@ export default function CompleteOrderModal({
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            disabled={submitting}
+            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
