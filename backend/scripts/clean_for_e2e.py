@@ -1,4 +1,5 @@
 """Quick cleanup script for E2E tests."""
+import re
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -28,10 +29,16 @@ tables = [
     'refresh_tokens',
 ]
 
+# Validate table names to prevent SQL injection
+_TABLE_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
 print('Cleaning database for E2E tests...')
 for table in tables:
+    if not _TABLE_NAME_RE.match(table):
+        print(f'  Skip {table}: invalid table name')
+        continue
     try:
-        db.execute(text(f'TRUNCATE TABLE {table} CASCADE'))
+        db.execute(text(f'TRUNCATE TABLE "{table}" CASCADE'))
         print(f'  Truncated: {table}')
     except Exception as e:
         print(f'  Skip {table}: {e}')

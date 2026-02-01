@@ -205,10 +205,11 @@ def seed_example_data(
         )
     except HTTPException:
         raise  # Re-raise HTTP exceptions
-    except ImportError as e:
+    except ImportError:
+        logger.error("Seed script import failed", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Seed script not found. Please ensure backend/scripts/seed_example_data.py exists. Error: {str(e)}"
+            detail="Seed script not found. Please ensure backend/scripts/seed_example_data.py exists."
         )
     except Exception:
         logger.error("Failed to seed example data", exc_info=True)

@@ -185,10 +185,12 @@ app.state.limiter, RATE_LIMITS_ENABLED = apply_rate_limiting(app)
 # Security headers middleware (outermost)
 app.add_middleware(SecurityHeadersMiddleware)
 
-# CORS middleware
+# CORS middleware — never fall back to wildcard
+if not settings.ALLOWED_ORIGINS:
+    logger.warning("No CORS origins configured — all cross-origin requests will be blocked")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=getattr(settings, 'ALLOWED_ORIGINS', ["*"]),
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-API-Key"],
@@ -303,50 +305,6 @@ async def health_check():
             "version": settings.VERSION,
         }
     )
-
-
-@app.get("/debug/config")
-async def debug_config():
-    """
-    Debug endpoint to check configuration.
-    Shows database type, CORS origins, and other settings.
-    DISABLE THIS IN PRODUCTION by setting ENVIRONMENT=production.
-    """
-    if getattr(settings, "ENVIRONMENT", "development") == "production":
-        return {"error": "Debug endpoint disabled in production"}
-
-    db_url = getattr(settings, 'database_url', 'NOT SET')
-
-    # Determine database type
-    db_type = "unknown"
-    if 'mssql' in db_url.lower() or 'sqlserver' in db_url.lower():
-        db_type = "SQL Server (WRONG for v2.x!)"
-    elif 'postgresql' in db_url.lower() or 'postgres' in db_url.lower():
-        db_type = "PostgreSQL (correct)"
-    elif 'sqlite' in db_url.lower():
-        db_type = "SQLite (not recommended)"
-
-    return {
-        "version": settings.VERSION,
-        "environment": getattr(settings, "ENVIRONMENT", "development"),
-        "database": {
-            "type": db_type,
-            "host": getattr(settings, 'DB_HOST', 'NOT SET'),
-            "port": getattr(settings, 'DB_PORT', 'NOT SET'),
-            "name": getattr(settings, 'DB_NAME', 'NOT SET'),
-            "url_prefix": db_url.split("://")[0] if "://" in db_url else "unknown",
-        },
-        "cors": {
-            "allowed_origins": getattr(settings, 'ALLOWED_ORIGINS', []),
-            "frontend_url": getattr(settings, 'FRONTEND_URL', 'NOT SET'),
-        },
-        "tier": getattr(settings, 'TIER', 'open'),
-        "debug": getattr(settings, 'DEBUG', False),
-        "hints": {
-            "sql_server_detected": 'mssql' in db_url.lower() or 'sqlserver' in db_url.lower(),
-            "cors_count": len(getattr(settings, 'ALLOWED_ORIGINS', [])),
-        }
-    }
 
 
 if __name__ == "__main__":
