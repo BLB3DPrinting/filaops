@@ -16,6 +16,7 @@ Run with:
 Run with coverage:
     pytest tests/services/test_mrp_service.py -v --cov=app/services/mrp
 """
+import uuid
 import pytest
 from decimal import Decimal
 from datetime import date, timedelta, datetime, timezone
@@ -687,8 +688,39 @@ class TestReleasePlannedOrder:
         db.flush()
         return order
 
+    def _cleanup_purchase_orders(self, db):
+        """Remove leftover POs from previous test runs to avoid po_number collision."""
+        from sqlalchemy import text
+        year = datetime.now(timezone.utc).year
+        pattern = f"PO-{year}-%"
+        # Null out FKs referencing these POs, then delete lines, then POs
+        db.execute(text(
+            "UPDATE material_lots SET purchase_order_id = NULL "
+            "WHERE purchase_order_id IN "
+            "(SELECT id FROM purchase_orders WHERE po_number LIKE :pattern)"
+        ), {"pattern": pattern})
+        db.execute(text(
+            "UPDATE planned_orders SET converted_to_po_id = NULL "
+            "WHERE converted_to_po_id IN "
+            "(SELECT id FROM purchase_orders WHERE po_number LIKE :pattern)"
+        ), {"pattern": pattern})
+        db.execute(text(
+            "DELETE FROM purchase_order_lines WHERE purchase_order_id IN "
+            "(SELECT id FROM purchase_orders WHERE po_number LIKE :pattern)"
+        ), {"pattern": pattern})
+        db.execute(text(
+            "DELETE FROM purchase_order_documents WHERE purchase_order_id IN "
+            "(SELECT id FROM purchase_orders WHERE po_number LIKE :pattern)"
+        ), {"pattern": pattern})
+        db.execute(text(
+            "DELETE FROM purchase_orders WHERE po_number LIKE :pattern"
+        ), {"pattern": pattern})
+        db.commit()
+
     def test_release_purchase_creates_po(self, db, make_product, make_vendor):
         """Releasing a purchase planned order creates a real PurchaseOrder."""
+        self._cleanup_purchase_orders(db)
+
         product = make_product(
             item_type="supply", unit="EA",
             standard_cost=Decimal("2.50"),
@@ -772,16 +804,7 @@ class TestReleasePlannedOrder:
 
     def test_release_firmed_order_succeeds(self, db, make_product, make_vendor):
         """Firmed orders can also be released (not just planned)."""
-        # Clean up planned orders referencing POs first (FK constraint),
-        # then clean up POs to avoid duplicate key on auto-generated po_number.
-        year = datetime.now(timezone.utc).year
-        db.query(PlannedOrder).filter(
-            PlannedOrder.converted_to_po_id.isnot(None)
-        ).update({"converted_to_po_id": None}, synchronize_session=False)
-        db.query(PurchaseOrder).filter(
-            PurchaseOrder.po_number.like(f"PO-{year}-%")
-        ).delete(synchronize_session=False)
-        db.commit()
+        self._cleanup_purchase_orders(db)
 
         product = make_product(
             item_type="supply", unit="EA",
@@ -835,7 +858,7 @@ class TestRunMrp:
 
         # Create a production order within planning horizon
         prod_order = ProductionOrder(
-            code="PO-TEST-MRP-001",
+            code=f"PO-TEST-MRP-{uuid.uuid4().hex[:8]}",
             product_id=fg.id,
             quantity_ordered=Decimal("10"),
             quantity_completed=Decimal("0"),
@@ -945,7 +968,7 @@ class TestRunMrp:
 
         # Draft production order
         prod_order = ProductionOrder(
-            code="PO-TEST-DRAFT-001",
+            code=f"PO-TEST-DRAFT-{uuid.uuid4().hex[:8]}",
             product_id=fg.id,
             quantity_ordered=Decimal("5"),
             quantity_completed=Decimal("0"),
