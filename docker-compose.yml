@@ -32,6 +32,7 @@ services:
       DB_NAME: ${DB_NAME:-filaops}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      SECRET_KEY: ${SECRET_KEY:-change-in-production}
     depends_on:
       db:
         condition: service_healthy
@@ -62,7 +63,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
       retries: 3

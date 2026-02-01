@@ -4,7 +4,7 @@ React-based admin dashboard for FilaOps ERP.
 
 ## Tech Stack
 
-- **React 18** with Vite
+- **React 19** with Vite
 - **Tailwind CSS** with custom neo-industrial dark theme
 - **React Router** for navigation
 - **Recharts** for data visualization

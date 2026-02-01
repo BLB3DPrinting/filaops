@@ -50,9 +50,10 @@ Both `buy_label()` and `mark_order_shipped()` in `fulfillment.py` were not creat
 
 ### ISSUE-002: Version Display Shows v2.0.1 After Updating to v3.0.1
 
-**Status:** Resolved  
-**Priority:** Medium  
-**Reported:** 2026-01-29  
+**Status:** Resolved
+**Priority:** Medium
+**Reported:** 2026-01-29
+**Resolved:** 2026-01-31
 
 **Description:**
 After running the built-in updater (which correctly pulls new code and rebuilds), the Settings page continued to display "v2.0.1" as the current version.

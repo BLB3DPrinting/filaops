@@ -281,14 +281,18 @@ async def health_check():
     overall_healthy = True
 
     # Check database connectivity
+    db = None
     try:
         db = SessionLocal()
         db.execute(text("SELECT 1"))
-        db.close()
         checks["database"] = "ok"
-    except Exception as e:
-        checks["database"] = f"failed: {str(e)}"
+    except Exception:
+        logger.warning("Health check DB probe failed", exc_info=True)
+        checks["database"] = "failed"
         overall_healthy = False
+    finally:
+        if db is not None:
+            db.close()
 
     status_code = 200 if overall_healthy else 503
     return JSONResponse(

@@ -21,16 +21,6 @@ SMTP_TLS=true
 2. Generate an App Password: <https://myaccount.google.com/apppasswords>
 3. Use the App Password (not your regular password) for SMTP_PASSWORD
 
-## Testing
-
-```bash
-# Send test email via API
-curl -X POST http://localhost:8000/api/v1/admin/test-email \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"to": "test@example.com"}'
-```
-
 ## Disabling Email
 
 If SMTP is not configured, FilaOps will:
