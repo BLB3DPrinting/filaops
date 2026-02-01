@@ -1,6 +1,7 @@
 """
 FilaOps ERP - Main FastAPI Application
 """
+import os
 from contextlib import asynccontextmanager
 
 try:
@@ -30,8 +31,6 @@ setup_logging()
 logger = get_logger(__name__)
 
 # Initialize Sentry (optional - only if installed and configured)
-import os
-
 sentry_dsn = os.getenv("SENTRY_DSN")
 if SENTRY_AVAILABLE and sentry_dsn:
     sentry_sdk.init(
