@@ -199,9 +199,52 @@ def build_line_response(line: BOMLine, component: Optional[Product], comp_cost: 
 
 def build_bom_response(bom: BOM, db: Session) -> dict:
     """Build a full BOM response with product info and lines"""
+    from sqlalchemy import func
+
+    # Batch-fetch all components for this BOM's lines
+    component_ids = [line.component_id for line in bom.lines]
+    components_by_id = {}
+    if component_ids:
+        components = db.query(Product).filter(Product.id.in_(component_ids)).all()
+        components_by_id = {c.id: c for c in components}
+
+    # Batch-fetch inventory for all components
+    inventory_by_id = {}
+    if component_ids:
+        inv_rows = (
+            db.query(
+                Inventory.product_id,
+                func.sum(Inventory.on_hand_quantity).label("on_hand"),
+                func.sum(Inventory.allocated_quantity).label("allocated"),
+                func.sum(Inventory.available_quantity).label("available"),
+            )
+            .filter(Inventory.product_id.in_(component_ids))
+            .group_by(Inventory.product_id)
+            .all()
+        )
+        inventory_by_id = {
+            row.product_id: {
+                "on_hand": float(row.on_hand or 0),
+                "allocated": float(row.allocated or 0),
+                "available": float(row.available or 0),
+            }
+            for row in inv_rows
+        }
+
+    # Batch-check which components have active BOMs (sub-assemblies)
+    components_with_bom = set()
+    if component_ids:
+        sub_bom_rows = (
+            db.query(BOM.product_id)
+            .filter(BOM.product_id.in_(component_ids), BOM.active.is_(True))
+            .distinct()
+            .all()
+        )
+        components_with_bom = {row.product_id for row in sub_bom_rows}
+
     lines = []
     for line in bom.lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
+        component = components_by_id.get(line.component_id)
         component_cost = get_effective_cost(component) if component else Decimal("0")
 
         # Calculate effective quantity including scrap factor
@@ -209,9 +252,9 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
         scrap = line.scrap_factor or Decimal("0")
         effective_qty = qty * (1 + scrap / 100)
 
-        # Get inventory status
-        inventory = get_component_inventory(line.component_id, db)
-        
+        # Get inventory status from batch-loaded data
+        inventory = inventory_by_id.get(line.component_id, {"on_hand": 0, "allocated": 0, "available": 0})
+
         # Convert effective_qty to inventory unit for comparison if needed
         qty_needed_in_inventory_unit = float(effective_qty)
         component_unit = component.unit if component else None
@@ -220,34 +263,25 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
             and component_unit
             and line.unit != component_unit
         ):
-            # Convert effective_qty from line.unit to component.unit (inventory unit)
-            # E.g., 25 G -> 0.025 KG
-            # Use _safe variant to handle empty UOM table with inline fallbacks
             converted_qty, success = convert_quantity_safe(db, effective_qty, line.unit, component_unit)
             if success:
                 qty_needed_in_inventory_unit = float(converted_qty)
-        
+
         is_available = inventory["available"] >= qty_needed_in_inventory_unit
         shortage = max(0, qty_needed_in_inventory_unit - inventory["available"])
 
-        # Check if component has its own BOM (is a sub-assembly)
-        component_has_bom = db.query(BOM).filter(
-            BOM.product_id == line.component_id,
-            BOM.active.is_(True)
-        ).first() is not None
-
         # Build base line response using helper
         line_dict = build_line_response(line, component, component_cost, db)
-        
+
         # Add inventory and sub-assembly info specific to this endpoint
         line_dict.update({
             "inventory_on_hand": inventory["on_hand"],
             "inventory_available": inventory["available"],
             "is_available": is_available,
             "shortage": shortage,
-            "has_bom": component_has_bom,
+            "has_bom": line.component_id in components_with_bom,
         })
-        
+
         lines.append(line_dict)
 
     product = bom.product
@@ -273,10 +307,17 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
 def recalculate_bom_cost(bom: BOM, db: Session) -> Decimal:
     """Recalculate total BOM cost from component costs, with UOM conversion"""
     from app.services.inventory_helpers import is_material
-    
+
+    # Batch-fetch all components for this BOM's lines
+    component_ids = [line.component_id for line in bom.lines]
+    components_by_id = {}
+    if component_ids:
+        components = db.query(Product).filter(Product.id.in_(component_ids)).all()
+        components_by_id = {c.id: c for c in components}
+
     total = Decimal("0")
     for line in bom.lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
+        component = components_by_id.get(line.component_id)
         if component:
             cost = get_effective_cost(component)
             if cost > 0:
@@ -349,16 +390,26 @@ async def list_boms(
     query = query.order_by(desc(BOM.created_at))
     boms = query.offset(skip).limit(limit).all()
 
+    # Batch-fetch active routings for all BOM products
+    product_ids = [bom.product_id for bom in boms]
+    routings_by_product = {}
+    if product_ids:
+        routings = db.query(Routing).filter(
+            Routing.product_id.in_(product_ids),
+            Routing.is_active.is_(True)
+        ).all()
+        for r in routings:
+            # Keep first (or only) active routing per product
+            if r.product_id not in routings_by_product:
+                routings_by_product[r.product_id] = r
+
     result = []
     for bom in boms:
         product = bom.product
         material_cost = bom.total_cost or Decimal("0")
 
-        # Get routing process cost for this product
-        routing = db.query(Routing).filter(
-            Routing.product_id == bom.product_id,
-            Routing.is_active.is_(True)
-        ).first()
+        # Get routing process cost from batch-loaded data
+        routing = routings_by_product.get(bom.product_id)
         process_cost = routing.total_cost if routing and routing.total_cost else Decimal("0")
 
         # Combined total
@@ -876,10 +927,17 @@ async def recalculate_bom(
 
     # Calculate line costs for response (with UOM conversion)
     from app.services.inventory_helpers import is_material
-    
+
+    # Batch-fetch all components for this BOM's lines
+    component_ids = [line.component_id for line in bom.lines]
+    components_by_id = {}
+    if component_ids:
+        components = db.query(Product).filter(Product.id.in_(component_ids)).all()
+        components_by_id = {c.id: c for c in components}
+
     line_costs = []
     for line in bom.lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
+        component = components_by_id.get(line.component_id)
         component_cost = get_effective_cost(component) if component else Decimal("0")
         
         if component and component_cost and component_cost > 0:
@@ -1345,11 +1403,31 @@ async def get_cost_rollup(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM not found")
 
+    # Batch-fetch all components for this BOM's lines
+    component_ids = [line.component_id for line in bom.lines]
+    components_by_id = {}
+    if component_ids:
+        components = db.query(Product).filter(Product.id.in_(component_ids)).all()
+        components_by_id = {c.id: c for c in components}
+
+    # Batch-fetch active sub-BOMs for all components
+    sub_boms_by_product = {}
+    if component_ids:
+        sub_boms = (
+            db.query(BOM)
+            .filter(BOM.product_id.in_(component_ids), BOM.active.is_(True))
+            .order_by(desc(BOM.version))
+            .all()
+        )
+        for sb in sub_boms:
+            if sb.product_id not in sub_boms_by_product:
+                sub_boms_by_product[sb.product_id] = sb
+
     breakdown = []
     total = Decimal("0")
 
     for line in bom.lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
+        component = components_by_id.get(line.component_id)
         if not component:
             continue
 
@@ -1357,13 +1435,8 @@ async def get_cost_rollup(
         scrap = line.scrap_factor or Decimal("0")
         effective_qty = qty * (1 + scrap / 100)
 
-        # Check for sub-BOM
-        sub_bom = (
-            db.query(BOM)
-            .filter(BOM.product_id == component.id, BOM.active.is_(True))  # noqa: E712
-            .order_by(desc(BOM.version))
-            .first()
-        )
+        # Check for sub-BOM from batch-loaded data
+        sub_bom = sub_boms_by_product.get(component.id)
 
         if sub_bom:
             sub_cost = calculate_rolled_up_cost(sub_bom.id, db)
@@ -1520,9 +1593,27 @@ async def validate_bom(
             "message": "BOM has no components"
         })
 
+    # Batch-fetch all components for validation
+    component_ids = [line.component_id for line in bom.lines]
+    components_by_id = {}
+    if component_ids:
+        components = db.query(Product).filter(Product.id.in_(component_ids)).all()
+        components_by_id = {c.id: c for c in components}
+
+    # Batch-check which components have active BOMs (sub-assemblies)
+    components_with_bom = set()
+    if component_ids:
+        sub_bom_rows = (
+            db.query(BOM.product_id)
+            .filter(BOM.product_id.in_(component_ids), BOM.active.is_(True))
+            .distinct()
+            .all()
+        )
+        components_with_bom = {row.product_id for row in sub_bom_rows}
+
     # Check each line
     for line in bom.lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
+        component = components_by_id.get(line.component_id)
 
         if not component:
             issues.append({
@@ -1537,12 +1628,9 @@ async def validate_bom(
         component_cost = get_effective_cost(component)
         if not component_cost or component_cost <= 0:
             # Check if it's a sub-assembly
-            sub_bom = db.query(BOM).filter(
-                BOM.product_id == component.id,
-                BOM.active.is_(True)
-            ).first()
+            has_sub_bom = component.id in components_with_bom
 
-            if not sub_bom:
+            if not has_sub_bom:
                 issues.append({
                     "severity": "warning",
                     "code": "missing_cost",

@@ -8,7 +8,7 @@ from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc, or_
 from pydantic import BaseModel
 
@@ -264,6 +264,7 @@ async def get_dashboard(
     pending_bom_query = (
         db.query(BOM)
         .join(Product)
+        .options(joinedload(BOM.product), joinedload(BOM.lines))
         .filter(
             Product.type == "custom",
             BOM.active.is_(True),  # noqa: E712
@@ -348,7 +349,6 @@ async def get_dashboard_summary(
     # Use the same logic as /items/low-stock endpoint - just get the count
     from app.models.inventory import Inventory
     from collections import defaultdict
-    from app.models.sales_order import SalesOrderLine
     from app.services.mrp import MRPService, ComponentRequirement
     
     # 1. Get items below reorder point (count unique products)
@@ -385,18 +385,16 @@ async def get_dashboard_summary(
     # 2. Get MRP shortages from active sales orders
     active_orders = db.query(SalesOrder).filter(
         SalesOrder.status.notin_(["cancelled", "completed", "delivered"])
-    ).all()
-    
+    ).options(joinedload(SalesOrder.lines)).all()
+
     mrp_shortage_products = set()
     if active_orders:
         mrp_service = MRPService(db)
         all_requirements = []
-        
+
         for order in active_orders:
             if order.order_type == "line_item":
-                lines = db.query(SalesOrderLine).filter(
-                    SalesOrderLine.sales_order_id == order.id
-                ).all()
+                lines = order.lines
                 for line in lines:
                     if line.product_id:
                         try:
@@ -465,53 +463,72 @@ async def get_dashboard_summary(
     
     # Production orders ready to start (materials available)
     # Get released/pending production orders and check material availability
-    from app.models.bom import BOMLine
     from app.models.inventory import Inventory
     
     ready_to_start_count = 0
     released_orders = db.query(ProductionOrder).filter(
         ProductionOrder.status.in_(["pending", "released"])
     ).all()
-    
+
+    # Batch-load BOMs with lines for all released orders
+    bom_ids = [po.bom_id for po in released_orders if po.bom_id]
+    boms_by_id = {}
+    if bom_ids:
+        boms_loaded = (
+            db.query(BOM)
+            .options(joinedload(BOM.lines))
+            .filter(BOM.id.in_(bom_ids))
+            .all()
+        )
+        boms_by_id = {b.id: b for b in boms_loaded}
+
+    # Batch-load inventory availability for all components
+    all_component_ids = set()
+    for bom in boms_by_id.values():
+        for line in bom.lines:
+            if not line.is_cost_only:
+                all_component_ids.add(line.component_id)
+
+    inventory_by_product = {}
+    if all_component_ids:
+        inv_rows = (
+            db.query(
+                Inventory.product_id,
+                func.sum(Inventory.available_quantity).label("total")
+            )
+            .filter(Inventory.product_id.in_(all_component_ids))
+            .group_by(Inventory.product_id)
+            .all()
+        )
+        inventory_by_product = {row.product_id: Decimal(str(row.total or 0)) for row in inv_rows}
+
     for po in released_orders:
         if not po.bom_id:
-            # No BOM = no materials needed, ready to start
             ready_to_start_count += 1
             continue
-        
-        bom = db.query(BOM).filter(BOM.id == po.bom_id).first()
+
+        bom = boms_by_id.get(po.bom_id)
         if not bom:
             continue
-        
-        bom_lines = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).all()
+
         all_available = True
-        
         qty_multiplier = Decimal(str(po.quantity_ordered or 1))
-        
-        for line in bom_lines:
+
+        for line in bom.lines:
             if line.is_cost_only:
                 continue
-            
-            component = db.query(Product).filter(Product.id == line.component_id).first()
-            if not component:
-                continue
-            
-            # Calculate required quantity
+
             base_qty = Decimal(str(line.quantity or 0))
             scrap_factor = Decimal(str(line.scrap_factor or 0)) / Decimal("100")
             qty_with_scrap = base_qty * (Decimal("1") + scrap_factor)
             required_qty = qty_with_scrap * qty_multiplier
-            
-            # Check available inventory
-            inv_result = db.query(
-                func.sum(Inventory.available_quantity)
-            ).filter(Inventory.product_id == line.component_id).scalar()
-            available_qty = Decimal(str(inv_result or 0))
-            
+
+            available_qty = inventory_by_product.get(line.component_id, Decimal("0"))
+
             if available_qty < required_qty:
                 all_available = False
                 break
-        
+
         if all_available:
             ready_to_start_count += 1
     
@@ -567,6 +584,7 @@ async def get_recent_orders(
     """
     orders = (
         db.query(SalesOrder)
+        .options(joinedload(SalesOrder.user))
         .order_by(desc(SalesOrder.created_at))
         .limit(limit)
         .all()
@@ -599,6 +617,7 @@ async def get_pending_bom_reviews(
     """
     boms = (
         db.query(BOM)
+        .options(joinedload(BOM.lines))
         .filter(BOM.active.is_(True))  # noqa: E712
         .order_by(desc(BOM.created_at))
         .limit(limit)
