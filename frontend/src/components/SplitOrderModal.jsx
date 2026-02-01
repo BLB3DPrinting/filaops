@@ -77,7 +77,7 @@ export default function SplitOrderModal({ productionOrder, onClose, onSplit }) {
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Split Production Order" className="w-full max-w-lg p-6">
+    <Modal isOpen={true} onClose={onClose} title="Split Production Order" className="w-full max-w-lg p-6" disableClose={submitting}>
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-bold text-white">Split Production Order</h2>

@@ -1962,6 +1962,7 @@ export default function AdminItems() {
         }}
         title="Adjustment Reason"
         className="w-full max-w-md"
+        disableClose={adjustingQty}
       >
         <div className="p-6">
 

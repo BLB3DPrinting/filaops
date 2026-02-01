@@ -639,7 +639,7 @@ export default function AdminProduction() {
         disableClose={creating}
       >
         <div className="p-6">
-
+            <h2 className="text-xl font-bold text-white mb-4">Create Production Order</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               {/* Product Selection */}
               <div>

@@ -368,11 +368,18 @@ export default function Onboarding() {
         body: formData,
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.detail || "Import failed");
+        let errorMessage = "Import failed";
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch {
+          errorMessage = `Server error: ${res.status} ${res.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
+
+      const data = await res.json();
 
       setInventoryResult(data);
       scheduleAdvance(STEPS.COMPLETE);
