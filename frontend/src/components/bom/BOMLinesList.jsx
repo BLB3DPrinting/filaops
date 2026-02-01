@@ -68,11 +68,14 @@ export default function BOMLinesList({
                       defaultValue={line.quantity}
                       step="0.01"
                       className="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
-                      onBlur={(e) =>
-                        onUpdateLine(line.id, {
-                          quantity: parseFloat(e.target.value),
-                        })
-                      }
+                      onBlur={(e) => {
+                        const nextQty = Number(e.target.value);
+                        if (!Number.isFinite(nextQty) || nextQty <= 0) {
+                          e.target.value = line.quantity ?? "";
+                          return;
+                        }
+                        onUpdateLine(line.id, { quantity: nextQty });
+                      }}
                     />
                     <select
                       defaultValue={line.unit || ""}
@@ -119,6 +122,7 @@ export default function BOMLinesList({
               </td>
               <td className="py-2 px-3 text-right">
                 <button
+                  type="button"
                   onClick={() =>
                     setEditingLine(editingLine === line.id ? null : line.id)
                   }
@@ -127,6 +131,7 @@ export default function BOMLinesList({
                   {editingLine === line.id ? "Done" : "Edit"}
                 </button>
                 <button
+                  type="button"
                   onClick={() => onDeleteLine(line.id)}
                   className="text-red-400 hover:text-red-300 px-2"
                 >
