@@ -63,7 +63,6 @@ export default function ItemCreationWizard({
   applyRoutingTemplate,
 
   // Image state
-  productImages,
   imagePreviewUrls,
   handleImageSelect,
   handleImageDrop,
@@ -292,9 +291,7 @@ export default function ItemCreationWizard({
           <div className="flex justify-end">
             <button
               onClick={() =>
-                setItemWizardStep(
-                  itemNeedsBom ? 2 : itemNeedsBom ? 3 : 2
-                )
+                setItemWizardStep(2)
               }
               disabled={!newItem.name}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50"
@@ -446,7 +443,7 @@ export default function ItemCreationWizard({
               <option value="">
                 -- Select component or material to add --
               </option>
-              <optgroup label="&#128230; Components & Supplies">
+              <optgroup label="📦 Components & Supplies">
                 {components
                   .filter(
                     (c) =>
@@ -468,7 +465,7 @@ export default function ItemCreationWizard({
                     </option>
                   ))}
               </optgroup>
-              <optgroup label="&#127912; Filament / Materials">
+              <optgroup label="🎨 Filament / Materials">
                 {components
                   .filter(
                     (c) =>

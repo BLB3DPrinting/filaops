@@ -1112,8 +1112,6 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
               orderData={orderData}
               setOrderData={setOrderData}
               selectedCustomer={selectedCustomer}
-              lineItems={lineItems}
-              currentStep={currentStep}
               onNavigateToNewCustomer={() => {
                 sessionStorage.setItem(
                   "pendingOrderData",
@@ -1353,7 +1351,6 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
                   routingTemplates={routingTemplates}
                   selectedTemplate={selectedTemplate}
                   applyRoutingTemplate={applyRoutingTemplate}
-                  productImages={productImages}
                   imagePreviewUrls={imagePreviewUrls}
                   handleImageSelect={handleImageSelect}
                   handleImageDrop={handleImageDrop}

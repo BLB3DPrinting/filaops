@@ -7,8 +7,6 @@ export default function CustomerSelectionStep({
   orderData,
   setOrderData,
   selectedCustomer,
-  lineItems,
-  currentStep,
   onNavigateToNewCustomer,
 }) {
   return (
