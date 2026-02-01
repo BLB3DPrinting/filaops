@@ -6,6 +6,7 @@ import SplitOrderModal from "../../components/SplitOrderModal";
 import ScrapOrderModal from "../../components/ScrapOrderModal";
 import CompleteOrderModal from "../../components/CompleteOrderModal";
 import QCInspectionModal from "../../components/QCInspectionModal";
+import Modal from "../../components/Modal";
 import { API_URL } from "../../config/api";
 
 // Production Trend Chart Component
@@ -630,20 +631,14 @@ export default function AdminProduction() {
       )}
 
       {/* Create Production Order Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-white">
-                Create Production Order
-              </h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title="Create Production Order"
+        className="w-full max-w-md"
+        disableClose={creating}
+      >
+        <div className="p-6">
 
             <form onSubmit={handleCreateOrder} className="space-y-4">
               {/* Product Selection */}
@@ -758,9 +753,8 @@ export default function AdminProduction() {
                 </button>
               </div>
             </form>
-          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

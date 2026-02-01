@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { API_URL } from '../../config/api';
+import Modal from '../Modal';
 
 export default function ShortageModal({
   isOpen,
@@ -62,15 +63,7 @@ export default function ShortageModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-gray-900 border border-orange-500/50 rounded-xl w-full max-w-md mx-4 shadow-2xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Order Short" disableClose={creating} className="w-full max-w-md mx-4">
         {/* Header */}
         <div className="flex items-center gap-3 p-6 border-b border-gray-800">
           <div className="flex items-center justify-center w-10 h-10 rounded-full bg-orange-500/20">
@@ -163,7 +156,6 @@ export default function ShortageModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

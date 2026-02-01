@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import ItemForm from "../../components/ItemForm";
 import MaterialForm from "../../components/MaterialForm";
+import Modal from "../../components/Modal";
 import RoutingEditor from "../../components/RoutingEditor";
 import StatCard from "../../components/StatCard";
 import { ItemCard } from "../../components/inventory/ItemCard";
@@ -188,14 +189,14 @@ function BulkUpdateModal({ categories, selectedCount, onSave, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div
-        className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bulk-update-modal-title"
-      >
-        <h2 id="bulk-update-modal-title" className="text-xl font-semibold text-white mb-4">
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={`Bulk Update ${selectedCount} Item${selectedCount !== 1 ? "s" : ""}`}
+      className="w-full max-w-md"
+    >
+      <div className="p-6">
+        <h2 className="text-xl font-semibold text-white mb-4">
           Bulk Update {selectedCount} Item{selectedCount !== 1 ? "s" : ""}
         </h2>
         <p className="text-gray-400 text-sm mb-6">
@@ -287,7 +288,7 @@ function BulkUpdateModal({ categories, selectedCount, onSave, onClose }) {
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -365,19 +366,18 @@ function CategoryModal({ category, categories, onSave, onClose }) {
   const availableParents = categories.filter((c) => c.id !== category?.id);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div
-        className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-md"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="category-modal-title"
-      >
-        <div className="p-6 border-b border-gray-800">
-          <h2 id="category-modal-title" className="text-xl font-bold text-white">
-            {category ? "Edit Category" : "Add New Category"}
-          </h2>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={category ? "Edit Category" : "Add New Category"}
+      className="w-full max-w-md"
+    >
+      <div className="p-6 border-b border-gray-800">
+        <h2 className="text-xl font-bold text-white">
+          {category ? "Edit Category" : "Add New Category"}
+        </h2>
+      </div>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">
               Code <RequiredIndicator />
@@ -516,9 +516,8 @@ function CategoryModal({ category, categories, onSave, onClose }) {
               {category ? "Save Changes" : "Create Category"}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1954,29 +1953,17 @@ export default function AdminItems() {
       )}
 
       {/* Adjustment Reason Modal */}
-      {showAdjustmentModal && editingQtyItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div
-            className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="adjustment-modal-title"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 id="adjustment-modal-title" className="text-xl font-bold text-white">
-                Adjustment Reason
-              </h2>
-              <button
-                onClick={() => {
-                  setShowAdjustmentModal(false);
-                  setAdjustmentReason("");
-                  setAdjustmentNotes("");
-                }}
-                className="text-gray-400 hover:text-white text-xl"
-              >
-                &times;
-              </button>
-            </div>
+      <Modal
+        isOpen={showAdjustmentModal && !!editingQtyItem}
+        onClose={() => {
+          setShowAdjustmentModal(false);
+          setAdjustmentReason("");
+          setAdjustmentNotes("");
+        }}
+        title="Adjustment Reason"
+        className="w-full max-w-md"
+      >
+        <div className="p-6">
 
             <div className="mb-4">
               <label className="block text-sm text-gray-400 mb-2">
@@ -2046,9 +2033,8 @@ export default function AdminItems() {
                 Confirm Adjustment
               </button>
             </div>
-          </div>
         </div>
-      )}
+      </Modal>
 
       {/* Delete Category Confirm Dialog */}
       <ConfirmDialog

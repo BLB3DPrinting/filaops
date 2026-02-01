@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
+import Modal from "../../components/Modal";
 
 const statusColors = {
   offline: "bg-gray-500/20 text-gray-400",
@@ -1075,15 +1076,20 @@ function PrinterModal({ printer, onClose, onSave, brandInfo }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-700">
-          <h2 className="text-xl font-bold text-white">
-            {isEdit ? "Edit Printer" : "Add Printer"}
-          </h2>
-        </div>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={isEdit ? "Edit Printer" : "Add Printer"}
+      className="w-full max-w-lg max-h-[90vh] overflow-y-auto"
+      disableClose={loading}
+    >
+      <div className="p-6 border-b border-gray-700">
+        <h2 className="text-xl font-bold text-white">
+          {isEdit ? "Edit Printer" : "Add Printer"}
+        </h2>
+      </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Brand */}
           <div>
             <label className="block text-sm text-gray-300 mb-1">Brand</label>
@@ -1271,9 +1277,8 @@ function PrinterModal({ printer, onClose, onSave, brandInfo }) {
               {loading ? "Saving..." : isEdit ? "Update" : "Add Printer"}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1496,14 +1501,19 @@ function MaintenanceModal({ printers, selectedPrinterId, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-700">
-          <h2 className="text-xl font-bold text-white">Log Maintenance</h2>
-          <p className="text-gray-400 text-sm mt-1">Track maintenance activities, costs, and downtime</p>
-        </div>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title="Log Maintenance"
+      className="w-full max-w-lg max-h-[90vh] overflow-y-auto"
+      disableClose={loading}
+    >
+      <div className="p-6 border-b border-gray-700">
+        <h2 className="text-xl font-bold text-white">Log Maintenance</h2>
+        <p className="text-gray-400 text-sm mt-1">Track maintenance activities, costs, and downtime</p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Printer Selection */}
           <div>
             <label className="block text-sm text-gray-300 mb-1">Printer *</label>
@@ -1651,8 +1661,7 @@ function MaintenanceModal({ printers, selectedPrinterId, onClose, onSave }) {
               {loading ? "Saving..." : "Log Maintenance"}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }

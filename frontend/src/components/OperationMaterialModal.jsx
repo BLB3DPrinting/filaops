@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from 'react';
 import { API_URL } from '../config/api';
+import Modal from './Modal';
 
 export default function OperationMaterialModal({
   isOpen,
@@ -186,13 +187,10 @@ export default function OperationMaterialModal({
     }
   };
 
-  if (!isOpen) return null;
-
   const selectedProduct = products.find((p) => p.id === parseInt(formData.component_id));
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Material' : 'Add Material'} disableClose={loading} className="w-full max-w-lg">
         <div className="p-6">
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
@@ -383,7 +381,6 @@ export default function OperationMaterialModal({
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

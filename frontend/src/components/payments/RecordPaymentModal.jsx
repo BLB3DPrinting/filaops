@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import Modal from "../Modal";
 
 const paymentMethods = [
   { value: "cash", label: "Cash" },
@@ -246,10 +247,7 @@ export default function RecordPaymentModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-lg w-full mx-auto p-6">
+    <Modal isOpen={true} onClose={onClose} title={isRefund ? "Record Refund" : "Record Payment"} disableClose={loading} className="max-w-lg w-full mx-auto p-6">
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-semibold text-white">
@@ -556,8 +554,6 @@ export default function RecordPaymentModal({
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

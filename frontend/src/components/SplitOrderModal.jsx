@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { API_URL } from "../config/api";
 import { useToast } from "./Toast";
+import Modal from "./Modal";
 
 export default function SplitOrderModal({ productionOrder, onClose, onSplit }) {
   const toast = useToast();
@@ -76,8 +77,7 @@ export default function SplitOrderModal({ productionOrder, onClose, onSplit }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg p-6">
+    <Modal isOpen={true} onClose={onClose} title="Split Production Order" className="w-full max-w-lg p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-bold text-white">Split Production Order</h2>
@@ -203,7 +203,6 @@ export default function SplitOrderModal({ productionOrder, onClose, onSplit }) {
             {submitting ? "Splitting..." : `Split into ${splits.length} Orders`}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

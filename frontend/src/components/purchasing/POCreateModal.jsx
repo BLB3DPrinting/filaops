@@ -10,6 +10,7 @@
  */
 import { useState } from "react";
 import { useToast } from "../Toast";
+import Modal from "../Modal";
 import ProductSearchSelect from "./ProductSearchSelect";
 import QuickCreateItemModal from "./QuickCreateItemModal";
 import { convertUOM } from "../../lib/uom";
@@ -279,10 +280,7 @@ export default function POCreateModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-        <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-4xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={true} onClose={onClose} title={po ? `Edit PO ${po.po_number}` : "New Purchase Order"} className="max-w-4xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h3 className="text-xl font-semibold text-white">
@@ -831,8 +829,6 @@ export default function POCreateModal({
               </div>
             </div>
           </form>
-        </div>
-      </div>
 
       {/* Quick Create Item Modal */}
       {showCreateItemModal && (
@@ -846,6 +842,6 @@ export default function POCreateModal({
           initialName={createItemInitialName}
         />
       )}
-    </div>
+    </Modal>
   );
 }

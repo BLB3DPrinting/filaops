@@ -3,6 +3,7 @@
  */
 import { useState } from "react";
 import { useToast } from "../Toast";
+import Modal from "../Modal";
 
 export default function VendorModal({ vendor, onClose, onSave }) {
   const toast = useToast();
@@ -35,10 +36,7 @@ export default function VendorModal({ vendor, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-        <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-2xl w-full mx-auto p-6">
+    <Modal isOpen={true} onClose={onClose} title={vendor ? "Edit Vendor" : "New Vendor"} className="max-w-2xl w-full mx-auto p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold text-white">
               {vendor ? "Edit Vendor" : "New Vendor"}
@@ -288,8 +286,6 @@ export default function VendorModal({ vendor, onClose, onSave }) {
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

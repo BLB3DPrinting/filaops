@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { API_URL } from "../config/api";
 import { convertUOM } from "../lib/uom";
+import Modal from "./Modal";
 
 export default function BOMEditor({
   isOpen,
@@ -386,17 +387,20 @@ export default function BOMEditor({
     );
   };
 
-  if (!isOpen) return null;
-
   const totalCost = lines.reduce((sum, line) => {
     const qty = line.quantity * (1 + (line.scrap_factor || 0) / 100);
     return sum + qty * (line.component_cost || 0);
   }, 0);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={bom ? `Edit BOM: ${bom.code || bom.name}` : "Create BOM"}
+      className="w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+      disableClose={loading}
+    >
+      <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-white">
               {bom ? `Edit BOM: ${bom.code || bom.name}` : "Create BOM"}
@@ -788,7 +792,6 @@ export default function BOMEditor({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

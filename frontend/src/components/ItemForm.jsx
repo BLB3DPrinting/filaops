@@ -14,6 +14,7 @@ import {
   hasErrors,
 } from "../utils/validation";
 import { FormErrorSummary, RequiredIndicator } from "./ErrorMessage";
+import Modal from "./Modal";
 
 const ITEM_TYPES = [
   { value: "finished_good", label: "Finished Good" },
@@ -252,12 +253,15 @@ export default function ItemForm({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={editingItem ? "Edit Item" : "Create New Item"}
+      className="w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      disableClose={loading}
+    >
+      <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-white">
               {editingItem ? "Edit Item" : "Create New Item"}
@@ -720,7 +724,6 @@ export default function ItemForm({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

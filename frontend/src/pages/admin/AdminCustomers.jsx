@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
+import Modal from "../../components/Modal";
 import StatCard from "../../components/StatCard";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
@@ -468,15 +469,19 @@ function CustomerModal({ customer, onSave, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
-        <div className="p-6 border-b border-gray-800">
-          <h2 className="text-xl font-bold text-white">
-            {customer ? "Edit Customer" : "Add New Customer"}
-          </h2>
-        </div>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={customer ? "Edit Customer" : "Add New Customer"}
+      className="w-full max-w-3xl max-h-[90vh] overflow-auto"
+    >
+      <div className="p-6 border-b border-gray-800">
+        <h2 className="text-xl font-bold text-white">
+          {customer ? "Edit Customer" : "Add New Customer"}
+        </h2>
+      </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* Basic Info */}
           <div>
             <h3 className="text-sm font-medium text-gray-400 uppercase mb-3">
@@ -770,9 +775,8 @@ function CustomerModal({ customer, onSave, onClose }) {
               {customer ? "Save Changes" : "Create Customer"}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -846,10 +850,14 @@ function CustomerDetailsModal({ customer, onClose, onEdit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
-        {/* Header */}
-        <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={customer.full_name || customer.email}
+      className="w-full max-w-3xl max-h-[90vh] overflow-auto"
+    >
+      {/* Header */}
+      <div className="p-6 border-b border-gray-800 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold text-white">
               {customer.full_name || customer.email}
@@ -1073,8 +1081,7 @@ function CustomerDetailsModal({ customer, onClose, onEdit }) {
             Close
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1254,18 +1261,23 @@ function ImportCSVModal({ onClose, onImportComplete }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-4xl max-h-[90vh] overflow-auto">
-        <div className="p-6 border-b border-gray-800 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">Import Customers from CSV</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title="Import Customers from CSV"
+      className="w-full max-w-4xl max-h-[90vh] overflow-auto"
+      disableClose={importing}
+    >
+      <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+        <h2 className="text-xl font-bold text-white">Import Customers from CSV</h2>
+        <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-        <div className="p-6">
+      <div className="p-6">
           {/* Upload Step */}
           {step === "upload" && (
             <div className="space-y-6">
@@ -1493,8 +1505,7 @@ function ImportCSVModal({ onClose, onImportComplete }) {
               </button>
             </div>
           )}
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { API_URL } from "../config/api";
 import { useToast } from "./Toast";
+import Modal from "./Modal";
 
 // Quantity Per options
 const QUANTITY_PER_OPTIONS = [
@@ -253,11 +254,13 @@ export default function ManufacturingBOMEditor({
     return `${hours}h ${remainingMins.toFixed(0)}m`;
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Manufacturing BOM"
+      className="w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col"
+    >
         {/* Header */}
         <div className="p-6 border-b border-gray-700 flex justify-between items-center">
           <div>
@@ -515,12 +518,15 @@ export default function ManufacturingBOMEditor({
             Close
           </button>
         </div>
-      </div>
 
       {/* Add/Edit Material Modal */}
-      {showMaterialModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-60">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg p-6">
+      <Modal
+        isOpen={showMaterialModal}
+        onClose={() => setShowMaterialModal(false)}
+        title={editingMaterial ? "Edit Material" : "Add Material"}
+        disableClose={saving}
+      >
+        <div className="p-6">
             <h3 className="text-xl font-bold text-white mb-4">
               {editingMaterial ? "Edit Material" : "Add Material"}
             </h3>
@@ -668,9 +674,8 @@ export default function ManufacturingBOMEditor({
                 {saving ? "Saving..." : editingMaterial ? "Update" : "Add Material"}
               </button>
             </div>
-          </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </Modal>
   );
 }

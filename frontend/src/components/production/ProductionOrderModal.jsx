@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../../config/api';
 import { formatDuration, formatDate } from '../../utils/formatting';
+import Modal from '../Modal';
 import OperationCard from './OperationCard';
 import SkipOperationModal from './SkipOperationModal';
 import ShortageModal from './ShortageModal';
@@ -466,8 +467,7 @@ export default function ProductionOrderModal({
   if (!productionOrder) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col shadow-2xl">
+    <Modal isOpen={true} onClose={onClose} title={`Production Order ${productionOrder.code}`} className="w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-start p-6 border-b border-gray-800">
           <div>
@@ -636,7 +636,6 @@ export default function ProductionOrderModal({
             Close
           </button>
         </div>
-      </div>
 
       {/* Skip Modal */}
       <SkipOperationModal
@@ -784,6 +783,6 @@ export default function ProductionOrderModal({
           onUpdated?.();
         }}
       />
-    </div>
+    </Modal>
   );
 }

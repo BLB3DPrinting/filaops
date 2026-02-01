@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { API_URL } from '../../config/api';
 import { useResources, useResourceConflicts } from '../../hooks/useResources';
 import { formatDuration, formatTime } from '../../utils/formatting';
+import Modal from '../Modal';
 
 /**
  * Conflict alert banner
@@ -166,15 +167,7 @@ export default function OperationSchedulerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={handleClose}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Schedule Operation" disableClose={submitting} className="w-full max-w-lg mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-800">
           <h2 className="text-xl font-semibold text-white">Schedule Operation</h2>
@@ -300,7 +293,6 @@ export default function OperationSchedulerModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

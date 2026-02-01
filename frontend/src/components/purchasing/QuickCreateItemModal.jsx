@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import Modal from "../Modal";
 
 export default function QuickCreateItemModal({ onClose, onCreated, initialName = "" }) {
   const toast = useToast();
@@ -76,10 +77,7 @@ export default function QuickCreateItemModal({ onClose, onCreated, initialName =
   };
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full mx-auto p-6">
+    <Modal isOpen={true} onClose={onClose} title="Quick Create Item" disableClose={loading} className="max-w-md w-full mx-auto p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold text-white">Quick Create Item</h3>
             <button
@@ -261,8 +259,6 @@ export default function QuickCreateItemModal({ onClose, onCreated, initialName =
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

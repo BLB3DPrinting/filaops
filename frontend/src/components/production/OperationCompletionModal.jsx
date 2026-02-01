@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API_URL } from '../../config/api';
 import { useToast } from '../Toast';
+import Modal from '../Modal';
 
 /**
  * Format currency value
@@ -293,8 +294,7 @@ export default function OperationCompletionModal({
   const selectedReason = scrapReasons.find((r) => r.code === scrapReason);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={onClose} title="Complete Operation" disableClose={submitting} className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-800">
           <div>
@@ -471,7 +471,6 @@ export default function OperationCompletionModal({
                 : `Complete ${qtyGood} Unit${qtyGood !== 1 ? 's' : ''}`}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

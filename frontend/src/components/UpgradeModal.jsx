@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from "react";
 import { on } from "../lib/events";
+import Modal from "./Modal";
 
 export default function UpgradeModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -17,15 +18,12 @@ export default function UpgradeModal() {
     });
   }, []);
 
-  if (!isOpen || !limitInfo) return null;
-
-  const resourceName = limitInfo.resource?.replace("_", " ") || "resource";
-  const limit = limitInfo.limit || 0;
-  const current = limitInfo.current || 0;
+  const resourceName = limitInfo?.resource?.replace("_", " ") || "resource";
+  const limit = limitInfo?.limit || 0;
+  const current = limitInfo?.current || 0;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full shadow-2xl">
+    <Modal isOpen={isOpen && !!limitInfo} onClose={() => setIsOpen(false)} title="Upgrade to Pro" className="max-w-md w-full">
         {/* Header */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -122,7 +120,6 @@ export default function UpgradeModal() {
             Starting at $29/user/month (2 seat minimum)
           </p>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

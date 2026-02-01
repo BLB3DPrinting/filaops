@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import { API_URL } from "../config/api";
+import Modal from "./Modal";
 
 export default function MaterialForm({ isOpen, onClose, onSuccess }) {
   const token = localStorage.getItem("adminToken");
@@ -181,16 +182,13 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
     }
   };
 
-  if (!isOpen) return null;
-
   const selectedMaterial = materialTypes.find(
     (m) => m.code === formData.material_type_code
   );
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-xl w-full max-w-lg">
-        <div className="p-6">
+    <Modal isOpen={isOpen} onClose={onClose} title="Create New Material" disableClose={loading}>
+      <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-white">
               Create New Material
@@ -433,7 +431,6 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
             {formData.color_code || "COLOR"}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

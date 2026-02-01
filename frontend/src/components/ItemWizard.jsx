@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { API_URL } from "../config/api";
+import Modal from "./Modal";
 
 // Item type options
 const ITEM_TYPES = [
@@ -558,11 +559,14 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col m-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={editingItem ? "Edit Item" : "Create New Item"}
+      className="w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+      disableClose={loading}
+    >
         {/* Header */}
         <div className="p-6 border-b border-gray-800 flex justify-between items-center">
           <div>
@@ -1126,7 +1130,6 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

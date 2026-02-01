@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../config/api";
 import { useToast } from "./Toast";
+import Modal from "./Modal";
 
 const CloseIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,8 +369,6 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
     }
   };
 
-  if (!isOpen) return null;
-
   const allStepsCompleted = guide?.steps && completedSteps.size >= guide.steps.length;
   const canAutoFixSecretKey = guide?.can_auto_generate && check?.id?.includes("secret_key");
   const canAutoFixDependencies = guide?.can_auto_fix_dependencies && check?.id === "dependencies_secure";
@@ -378,8 +377,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const canAutoFixDotfiles = guide?.can_auto_fix_dotfiles && check?.id === "env_file_not_exposed";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+    <Modal isOpen={isOpen} onClose={onClose} title="Remediation Guide" className="w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div>
@@ -1239,8 +1237,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

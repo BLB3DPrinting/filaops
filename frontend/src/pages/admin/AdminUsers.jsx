@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
+import Modal from "../../components/Modal";
 
 // Role options
 const ROLE_OPTIONS = [
@@ -515,20 +516,19 @@ function UserModal({ user, onSave, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-lg">
-        <div className="p-6 border-b border-gray-800">
-          <h2 className="text-xl font-bold text-white">
-            {user ? "Edit User" : "Add New User"}
-          </h2>
-          {!user && (
-            <p className="text-gray-400 text-sm mt-1">
-              User will need this password to log in for the first time
-            </p>
-          )}
-        </div>
+    <Modal isOpen={true} onClose={onClose} title={user ? "Edit User" : "Add New User"}>
+      <div className="p-6 border-b border-gray-800">
+        <h2 className="text-xl font-bold text-white">
+          {user ? "Edit User" : "Add New User"}
+        </h2>
+        {!user && (
+          <p className="text-gray-400 text-sm mt-1">
+            User will need this password to log in for the first time
+          </p>
+        )}
+      </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Email *</label>
             <input
@@ -698,9 +698,8 @@ function UserModal({ user, onSave, onClose }) {
               {user ? "Save Changes" : "Create User"}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -731,16 +730,15 @@ function ResetPasswordModal({ user, onReset, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-md">
-        <div className="p-6 border-b border-gray-800">
-          <h2 className="text-xl font-bold text-white">Reset Password</h2>
-          <p className="text-gray-400 text-sm mt-1">
-            Reset password for {user.email}
-          </p>
-        </div>
+    <Modal isOpen={true} onClose={onClose} title="Reset Password" className="w-full max-w-md">
+      <div className="p-6 border-b border-gray-800">
+        <h2 className="text-xl font-bold text-white">Reset Password</h2>
+        <p className="text-gray-400 text-sm mt-1">
+          Reset password for {user.email}
+        </p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">
               New Password *
@@ -830,8 +828,7 @@ function ResetPasswordModal({ user, onReset, onClose }) {
               Reset Password
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }

@@ -11,6 +11,7 @@
  */
 import { useState, useMemo } from "react";
 import { useToast } from "../Toast";
+import Modal from "../Modal";
 
 export default function ReceiveModal({ po, onClose, onReceive }) {
   const toast = useToast();
@@ -269,10 +270,7 @@ export default function ReceiveModal({ po, onClose, onReceive }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-        <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-4xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={true} onClose={onClose} title="Receive Items" className="max-w-4xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
           {/* Header */}
           <div className="flex justify-between items-start mb-6">
             <div>
@@ -852,8 +850,6 @@ export default function ReceiveModal({ po, onClose, onReceive }) {
               </div>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
