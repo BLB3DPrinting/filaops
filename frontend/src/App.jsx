@@ -46,6 +46,7 @@ import AdminCycleCount from "./pages/admin/AdminCycleCount";
 import MaterialTraceability from "./pages/admin/quality/MaterialTraceability";
 import CommandCenter from "./pages/CommandCenter";
 import Pricing from "./pages/Pricing";
+import NotFound from "./pages/NotFound";
 
 export default function App() {
   const api = useMemo(
@@ -135,6 +136,9 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             <Route path="security" element={<AdminSecurity />} />
           </Route>
+
+          {/* Catch-all 404 - must be last */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
           </BrowserRouter>
         </ToastProvider>

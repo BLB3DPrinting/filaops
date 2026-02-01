@@ -273,7 +273,32 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Deep health check that verifies critical dependencies."""
+    from sqlalchemy import text
+    from app.db.session import SessionLocal
+
+    checks = {}
+    overall_healthy = True
+
+    # Check database connectivity
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"failed: {str(e)}"
+        overall_healthy = False
+
+    status_code = 200 if overall_healthy else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "healthy" if overall_healthy else "unhealthy",
+            "checks": checks,
+            "version": settings.VERSION,
+        }
+    )
 
 
 @app.get("/debug/config")
