@@ -11,7 +11,7 @@ import { useToast } from "../Toast";
 export default function QuoteFormModal({ quote, onSave, onClose, token }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [step, setStep] = useState(1); // 1=product, 2=customer+details
+  const [step, setStep] = useState(quote ? 2 : 1); // 1=product, 2=customer+details
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [companySettings, setCompanySettings] = useState(null);
@@ -194,8 +194,11 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
       payload.valid_days = form.valid_days;
     }
 
-    await onSave(payload);
-    setSaving(false);
+    try {
+      await onSave(payload);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Handle customer selection from dropdown
@@ -338,7 +341,7 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
                 <div className="flex justify-between items-start">
                   <div>
                     <h4 className="text-white font-medium">{form.product_name}</h4>
-                    <p className="text-gray-400 text-sm">{selectedProduct?.sku}</p>
+                    <p className="text-gray-400 text-sm">{selectedProduct?.sku ?? quote?.product_sku ?? ""}</p>
                   </div>
                   <button
                     type="button"

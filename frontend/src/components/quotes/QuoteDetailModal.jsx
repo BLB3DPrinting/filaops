@@ -99,7 +99,12 @@ export default function QuoteDetailModal({
       });
       if (imgRes.ok) {
         const blob = await imgRes.blob();
-        setImageUrl(URL.createObjectURL(blob));
+        if (imageUrlRef.current) {
+          URL.revokeObjectURL(imageUrlRef.current);
+        }
+        const url = URL.createObjectURL(blob);
+        imageUrlRef.current = url;
+        setImageUrl(url);
       }
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -124,6 +129,10 @@ export default function QuoteDetailModal({
       }
 
       toast.success("Image deleted");
+      if (imageUrlRef.current) {
+        URL.revokeObjectURL(imageUrlRef.current);
+        imageUrlRef.current = null;
+      }
       setImageUrl(null);
       if (onRefresh) onRefresh();
     } catch (err) {
