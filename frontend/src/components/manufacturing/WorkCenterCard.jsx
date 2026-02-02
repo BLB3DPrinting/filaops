@@ -1,7 +1,7 @@
 /**
  * WorkCenterCard - Expandable card showing work center details, resources, and printers.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 import { getTypeColor, getStatusColor } from "./constants";
@@ -19,11 +19,13 @@ export default function WorkCenterCard({
   const [resources, setResources] = useState([]);
   const [printers, setPrinters] = useState([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const resourcesLoaded = useRef(false);
+  const printersLoaded = useRef(false);
 
   const token = localStorage.getItem("adminToken");
 
-  const fetchResources = async () => {
-    if (resources.length > 0) return;
+  const fetchResources = useCallback(async () => {
+    if (resourcesLoaded.current) return;
     setLoadingResources(true);
     try {
       const res = await fetch(
@@ -33,16 +35,17 @@ export default function WorkCenterCard({
       if (res.ok) {
         const data = await res.json();
         setResources(data);
+        resourcesLoaded.current = true;
       }
     } catch {
       // Resources fetch failure is non-critical - resource list will just be empty
     } finally {
       setLoadingResources(false);
     }
-  };
+  }, [workCenter.id, token]);
 
-  const fetchPrinters = async () => {
-    if (printers.length > 0) return;
+  const fetchPrinters = useCallback(async () => {
+    if (printersLoaded.current) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers/${workCenter.id}/printers?active_only=false`,
@@ -51,11 +54,12 @@ export default function WorkCenterCard({
       if (res.ok) {
         const data = await res.json();
         setPrinters(data);
+        printersLoaded.current = true;
       }
     } catch {
       // Printers fetch failure is non-critical
     }
-  };
+  }, [workCenter.id, token]);
 
   useEffect(() => {
     if (expanded) {
@@ -64,7 +68,7 @@ export default function WorkCenterCard({
         fetchPrinters();
       }
     }
-  }, [expanded]);
+  }, [expanded, fetchResources, fetchPrinters, workCenter.center_type]);
 
   const [addingAll, setAddingAll] = useState(false);
 
@@ -123,6 +127,7 @@ export default function WorkCenterCard({
     }
 
     // Refresh resources list
+    resourcesLoaded.current = false;
     setResources([]);
     await fetchResources();
     setAddingAll(false);
