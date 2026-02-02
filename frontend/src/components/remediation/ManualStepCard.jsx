@@ -42,7 +42,15 @@ export default function ManualStepCard({
     >
       <div
         className="p-4 cursor-pointer"
+        role="button"
+        tabIndex={0}
         onClick={() => onSetCurrentStep(index)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSetCurrentStep(index);
+          }
+        }}
       >
         <div className="flex items-start gap-3">
           <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
@@ -193,6 +201,7 @@ export default function ManualStepCard({
                       <code className="text-gray-300">{step.code_snippet}</code>
                     </pre>
                     <button
+                      aria-label="Copy code snippet"
                       onClick={() => {
                         navigator.clipboard.writeText(step.code_snippet);
                         toast.success("Code copied!");
@@ -209,6 +218,7 @@ export default function ManualStepCard({
                   <div className="bg-gray-950 border border-gray-600 rounded-lg p-3 flex items-center justify-between">
                     <code className="text-cyan-400 font-mono text-sm">{step.command}</code>
                     <button
+                      aria-label="Copy command"
                       onClick={() => {
                         navigator.clipboard.writeText(step.command);
                         toast.success("Command copied!");
