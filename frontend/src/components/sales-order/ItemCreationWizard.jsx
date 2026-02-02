@@ -155,7 +155,7 @@ export default function ItemCreationWizard({
                 Category
               </label>
               <select
-                value={newItem.category_id || ""}
+                value={newItem.category_id ?? ""}
                 onChange={(e) =>
                   setNewItem({
                     ...newItem,
@@ -320,11 +320,20 @@ export default function ItemCreationWizard({
               Product Images
             </label>
             <div
+              role="button"
+              tabIndex={0}
+              aria-label="Add product images"
               onDrop={handleImageDrop}
               onDragOver={(e) => e.preventDefault()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  document.getElementById("image-input")?.click();
+                }
+              }}
               className="border-2 border-dashed border-gray-600 rounded-lg p-4 text-center hover:border-blue-500 transition-colors cursor-pointer"
               onClick={() =>
-                document.getElementById("image-input").click()
+                document.getElementById("image-input")?.click()
               }
             >
               <input
@@ -578,7 +587,7 @@ export default function ItemCreationWizard({
               </label>
               {routingTemplates.length > 0 && (
                 <select
-                  value={selectedTemplate?.id || ""}
+                  value={selectedTemplate?.id ?? ""}
                   onChange={(e) => {
                     const tpl = routingTemplates.find(
                       (t) => t.id === parseInt(e.target.value)
@@ -842,7 +851,7 @@ export default function ItemCreationWizard({
               <input
                 type="number"
                 step="0.01"
-                value={newItem.standard_cost || totalCost || ""}
+                value={newItem.standard_cost ?? totalCost ?? ""}
                 onChange={(e) =>
                   setNewItem({
                     ...newItem,
@@ -863,7 +872,7 @@ export default function ItemCreationWizard({
               <input
                 type="number"
                 step="0.01"
-                value={newItem.selling_price || ""}
+                value={newItem.selling_price ?? ""}
                 onChange={(e) =>
                   setNewItem({
                     ...newItem,
