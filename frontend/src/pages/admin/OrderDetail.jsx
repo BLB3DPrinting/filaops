@@ -17,6 +17,12 @@ import ShippingTimeline from "../../components/ShippingTimeline";
 import BlockingIssuesPanel from "../../components/orders/BlockingIssuesPanel";
 import FulfillmentProgress from "../../components/orders/FulfillmentProgress";
 import { useFulfillmentStatus } from "../../hooks/useFulfillmentStatus";
+import { ProductionProgressSummary, ProductionOrderStatusCard } from "../../components/orders/ProductionStatusCards";
+import MaterialRequirementsSection from "../../components/orders/MaterialRequirementsSection";
+import CapacityRequirementsSection from "../../components/orders/CapacityRequirementsSection";
+import PaymentsSection from "../../components/orders/PaymentsSection";
+import ShippingAddressSection from "../../components/orders/ShippingAddressSection";
+import { CancelOrderModal, DeleteOrderModal } from "../../components/orders/OrderModals";
 
 export default function OrderDetail() {
   const { orderId } = useParams();
@@ -32,29 +38,24 @@ export default function OrderDetail() {
 
   const hasMainProductWO = () => {
     if (!order?.lines || order.lines.length === 0) {
-      // Old style order with single product_id
       return productionOrders.some((po) => po.product_id === order?.product_id);
     }
-    // Check if all line items have WOs
     const lineProductIds = order.lines.map((line) => line.product_id);
     const woProductIds = productionOrders
       .filter((po) => po.sales_order_line_id)
       .map((po) => po.product_id);
     return lineProductIds.every((pid) => woProductIds.includes(pid));
   };
+
   const [error, setError] = useState(null);
   const [exploding, setExploding] = useState(false);
   const [paymentSummary, setPaymentSummary] = useState(null);
   const [payments, setPayments] = useState([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isRefund, setIsRefund] = useState(false);
-  const [editingAddress, setEditingAddress] = useState(false);
-  const [addressForm, setAddressForm] = useState({});
-  const [savingAddress, setSavingAddress] = useState(false);
 
   // Cancel/Delete modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancellationReason, setCancellationReason] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Refresh state
@@ -122,16 +123,13 @@ export default function OrderDetail() {
         data.lines &&
         data.lines.length > 0
       ) {
-        // Line-item order - use first line's product
         const firstLine = data.lines[0];
         if (firstLine.product_id) {
           await explodeBOM(firstLine.product_id, firstLine.quantity);
         }
       } else if (data.product_id) {
-        // Order has product_id directly (quote-based or manual)
         await explodeBOM(data.product_id, data.quantity);
       } else if (data.quote_id) {
-        // Fallback: fetch quote to get product_id (legacy orders)
         try {
           const quoteRes = await fetch(
             `${API_URL}/api/v1/quotes/${data.quote_id}`,
@@ -146,7 +144,7 @@ export default function OrderDetail() {
             }
           }
         } catch {
-          // Quote fetch failure is non-critical - BOM explosion will just be skipped
+          // Quote fetch failure is non-critical
         }
       }
     } catch (err) {
@@ -158,7 +156,6 @@ export default function OrderDetail() {
       } else {
         setError(err.message || "Failed to fetch order");
       }
-      // Re-throw to allow handleRefresh to catch and show toast
       throw err;
     } finally {
       setLoading(false);
@@ -179,14 +176,13 @@ export default function OrderDetail() {
         setProductionOrders(data.items || data || []);
       }
     } catch {
-      // Production orders fetch failure is non-critical - production list will just be empty
+      // Production orders fetch failure is non-critical
     }
   };
 
   const fetchPaymentData = async () => {
     if (!token || !orderId) return;
     try {
-      // Fetch payment summary
       const summaryRes = await fetch(
         `${API_URL}/api/v1/payments/order/${orderId}/summary`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -195,7 +191,6 @@ export default function OrderDetail() {
         setPaymentSummary(await summaryRes.json());
       }
 
-      // Fetch payment history
       const paymentsRes = await fetch(
         `${API_URL}/api/v1/payments?order_id=${orderId}`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -213,11 +208,10 @@ export default function OrderDetail() {
     setShowPaymentModal(false);
     setIsRefund(false);
     fetchPaymentData();
-    fetchOrder(); // Refresh order to get updated payment_status
+    fetchOrder();
     toast.success(isRefund ? "Refund recorded" : "Payment recorded");
   };
 
-  // Refresh all data
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -234,53 +228,10 @@ export default function OrderDetail() {
     }
   };
 
-  const handleEditAddress = () => {
-    setAddressForm({
-      shipping_address_line1: order.shipping_address_line1 || "",
-      shipping_address_line2: order.shipping_address_line2 || "",
-      shipping_city: order.shipping_city || "",
-      shipping_state: order.shipping_state || "",
-      shipping_zip: order.shipping_zip || "",
-      shipping_country: order.shipping_country || "USA",
-    });
-    setEditingAddress(true);
-  };
-
-  const handleSaveAddress = async () => {
-    setSavingAddress(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/address`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(addressForm),
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to update address");
-      }
-
-      toast.success("Shipping address updated");
-      setEditingAddress(false);
-      fetchOrder();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setSavingAddress(false);
-    }
-  };
-
   const explodeBOM = async (productId, quantity) => {
     setExploding(true);
     try {
       // PRIMARY: Use the new material-requirements endpoint (routing-first approach)
-      // This uses routing operation materials if available, falling back to legacy BOM
       const matReqRes = await fetch(
         `${API_URL}/api/v1/sales-orders/${orderId}/material-requirements`,
         {
@@ -291,7 +242,6 @@ export default function OrderDetail() {
       if (matReqRes.ok) {
         const matReqData = await matReqRes.json();
 
-        // Convert to display format
         const requirements = (matReqData.requirements || []).map((req) => ({
           product_id: req.product_id,
           product_sku: req.product_sku || "",
@@ -300,7 +250,7 @@ export default function OrderDetail() {
           net_shortage: parseFloat(req.quantity_short || 0),
           on_hand_quantity: parseFloat(req.quantity_available || 0),
           available_quantity: parseFloat(req.quantity_available || 0),
-          unit_cost: 0, // Not included in new endpoint yet
+          unit_cost: 0,
           has_bom: req.has_bom || false,
           operation_code: req.operation_code || null,
           material_source: req.material_source || "bom",
@@ -321,14 +271,12 @@ export default function OrderDetail() {
         if (res.ok) {
           const data = await res.json();
 
-          // The endpoint returns requirements for quantity=1, so scale by order quantity
           const scaled = (data.requirements || []).map((req) => {
             const gross_qty = parseFloat(req.gross_quantity || 0) * quantity;
             const available_qty = parseFloat(req.available_quantity || 0);
             const incoming_qty = parseFloat(req.incoming_quantity || 0) || 0;
             const safety_stock = parseFloat(req.safety_stock || 0) || 0;
 
-            // Recalculate net_shortage for scaled quantity
             const available_supply = available_qty + incoming_qty;
             let net_shortage = gross_qty - available_supply + safety_stock;
 
@@ -363,7 +311,6 @@ export default function OrderDetail() {
           if (bomRes.ok) {
             const bomData = await bomRes.json();
 
-            // Convert to requirements format (without inventory netting)
             const requirements = (bomData.components || []).map((comp) => ({
               product_id: comp.product_id,
               product_sku: comp.product_sku,
@@ -378,8 +325,6 @@ export default function OrderDetail() {
               material_source: "bom",
             }));
             setMaterialRequirements(requirements);
-          } else {
-            // BOM explosion failure - material requirements will be empty
           }
         }
       }
@@ -397,7 +342,6 @@ export default function OrderDetail() {
           const routing = await routingRes.json();
           if (routing.operations && routing.operations.length > 0) {
             const capacity = routing.operations.map((op) => {
-              // Ensure numeric values (API may return strings for decimals)
               const setupTime = parseFloat(op.setup_time_minutes) || 0;
               const runTime = parseFloat(op.run_time_minutes) || 0;
               return {
@@ -486,20 +430,18 @@ export default function OrderDetail() {
       }
 
       toast.success(`Work order created for ${materialReq.product_name}`);
-      fetchOrder(); // Refresh to update requirements
+      fetchOrder();
       fetchProductionOrders();
     } catch (err) {
       toast.error(err.message);
     }
   };
 
-  // Check if order can be cancelled
   const canCancelOrder = () => {
     return order && ["pending", "confirmed", "on_hold"].includes(order.status);
   };
 
-  // Handle cancel order
-  const handleCancelOrder = async () => {
+  const handleCancelOrder = async (cancellationReason) => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/sales-orders/${orderId}/cancel`,
@@ -516,7 +458,6 @@ export default function OrderDetail() {
       if (res.ok) {
         toast.success(`Order ${order.order_number} cancelled`);
         setShowCancelModal(false);
-        setCancellationReason("");
         fetchOrder();
       } else {
         const errorData = await res.json();
@@ -527,7 +468,6 @@ export default function OrderDetail() {
     }
   };
 
-  // Handle delete order
   const handleDeleteOrder = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}`, {
@@ -549,7 +489,7 @@ export default function OrderDetail() {
             const errorData = JSON.parse(text);
             errorMsg = errorData.detail || errorMsg;
           } catch {
-            // Ignore JSON parse error, fallback to generic message
+            // Ignore JSON parse error
           }
         }
         toast.error(errorMsg);
@@ -575,16 +515,6 @@ export default function OrderDetail() {
     );
   }
 
-  const totalMaterialCost = materialRequirements.reduce(
-    (sum, req) => sum + req.gross_quantity * (req.unit_cost || 0),
-    0
-  );
-  const totalCapacityHours = capacityRequirements.reduce(
-    (sum, op) => sum + (op.total_time_minutes || 0) / 60,
-    0
-  );
-  const hasShortages = materialRequirements.some((req) => req.net_shortage > 0);
-
   const handleCheckAvailability = async () => {
     if (!order.product_id && !(order.lines?.length > 0 && order.lines[0].product_id)) {
       toast.error("Order must have a product to check availability");
@@ -593,7 +523,6 @@ export default function OrderDetail() {
 
     setCheckingAvailability(true);
     try {
-      // Check availability for production orders if they exist
       if (productionOrders.length > 0) {
         const availabilityChecks = await Promise.all(
           productionOrders.map(async (po) => {
@@ -636,7 +565,7 @@ export default function OrderDetail() {
             onClick={() => navigate("/admin/orders")}
             className="text-gray-400 hover:text-white mb-2"
           >
-            ← Back to Orders
+            &larr; Back to Orders
           </button>
           <h1 className="text-2xl font-bold text-white">
             Order: {order.order_number}
@@ -650,7 +579,7 @@ export default function OrderDetail() {
             className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50"
             title="Refresh order data"
           >
-            {refreshing ? "Refreshing..." : "↻ Refresh"}
+            {refreshing ? "Refreshing..." : "\u21BB Refresh"}
           </button>
           {order.status !== "shipped" && order.status !== "delivered" && (
             <button
@@ -745,7 +674,7 @@ export default function OrderDetail() {
                 <div className="flex items-center justify-between">
                   <span className="text-white font-medium">{avail.order_code}</span>
                   <span className={`text-sm ${avail.can_release ? "text-green-400" : "text-red-400"}`}>
-                    {avail.can_release ? "✓ Materials Available" : `⚠ ${avail.shortage_count} Shortage${avail.shortage_count !== 1 ? "s" : ""}`}
+                    {avail.can_release ? "\u2713 Materials Available" : `\u26A0 ${avail.shortage_count} Shortage${avail.shortage_count !== 1 ? "s" : ""}`}
                   </span>
                 </div>
               </div>
@@ -768,20 +697,16 @@ export default function OrderDetail() {
         orderType="sales"
         orderId={order.id}
         onActionClick={(action) => {
-          // Navigate based on action reference type
           if (action.reference_type === 'purchase_order') {
             navigate(`/admin/purchasing?po_id=${action.reference_id}`);
           } else if (action.reference_type === 'make_product') {
-            // Product needs manufacturing - create production order
             const qty = parseFloat(action.impact?.match(/Need\s+([\d.]+)/)?.[1] || 0);
-            console.log('Creating production order:', { product_id: action.reference_id, qty, action });
             handleCreateWorkOrder({
               product_id: action.reference_id,
               product_name: action.action.replace('Create production order for ', ''),
               net_shortage: qty
             });
           } else if (action.reference_type === 'product') {
-            // Product needs purchasing - navigate to purchasing
             const quantityMatch = action.impact?.match(/Need\s+([\d.]+)/);
             const quantity = quantityMatch ? quantityMatch[1] : '';
             navigate(`/admin/purchasing?create_po=true&product_id=${action.reference_id}${quantity ? `&quantity=${quantity}` : ''}`);
@@ -826,7 +751,7 @@ export default function OrderDetail() {
             <div>
               <div className="text-sm text-gray-400">Name</div>
               <div className="text-white font-medium">
-                {order.customer_name || "—"}
+                {order.customer_name || "\u2014"}
               </div>
             </div>
             <div>
@@ -836,20 +761,20 @@ export default function OrderDetail() {
                   <a href={`mailto:${order.customer_email}`} className="text-blue-400 hover:underline">
                     {order.customer_email}
                   </a>
-                ) : "—"}
+                ) : "\u2014"}
               </div>
             </div>
             <div>
               <div className="text-sm text-gray-400">Phone</div>
               <div className="text-white font-medium">
-                {order.customer_phone || "—"}
+                {order.customer_phone || "\u2014"}
               </div>
             </div>
             {order.customer_id && (
               <div>
                 <div className="text-sm text-gray-400">Customer ID</div>
                 <div className="text-white font-medium">
-                  <button 
+                  <button
                     onClick={() => navigate(`/admin/customers/${order.customer_id}`)}
                     className="text-blue-400 hover:underline"
                   >
@@ -862,8 +787,8 @@ export default function OrderDetail() {
         ) : order.quote_id ? (
           <div className="text-gray-400">
             Customer info available in linked quote.
-            <button 
-              onClick={() => navigate(`/admin/quotes`)} 
+            <button
+              onClick={() => navigate(`/admin/quotes`)}
               className="text-blue-400 hover:underline ml-2"
             >
               View Quote
@@ -875,383 +800,27 @@ export default function OrderDetail() {
       </div>
 
       {/* Shipping Address */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-white">Shipping Address</h2>
-          {!editingAddress && (
-            <button
-              onClick={handleEditAddress}
-              className="text-blue-400 hover:text-blue-300 text-sm"
-            >
-              Edit
-            </button>
-          )}
-        </div>
-
-        {editingAddress ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-sm text-gray-400 mb-1">
-                  Address Line 1
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_address_line1}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_address_line1: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                  placeholder="Street address"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm text-gray-400 mb-1">
-                  Address Line 2
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_address_line2}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_address_line2: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                  placeholder="Apt, suite, etc."
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">City</label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_city}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_city: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  State
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_state}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_state: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  ZIP Code
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_zip}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_zip: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">
-                  Country
-                </label>
-                <input
-                  type="text"
-                  value={addressForm.shipping_country}
-                  onChange={(e) =>
-                    setAddressForm({
-                      ...addressForm,
-                      shipping_country: e.target.value,
-                    })
-                  }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setEditingAddress(false)}
-                className="px-4 py-2 text-gray-400 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveAddress}
-                disabled={savingAddress}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
-              >
-                {savingAddress ? "Saving..." : "Save Address"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {order.shipping_address_line1 ? (
-              <div className="text-white">
-                <div>{order.shipping_address_line1}</div>
-                {order.shipping_address_line2 && (
-                  <div>{order.shipping_address_line2}</div>
-                )}
-                <div>
-                  {order.shipping_city}, {order.shipping_state}{" "}
-                  {order.shipping_zip}
-                </div>
-                <div className="text-gray-400">
-                  {order.shipping_country || "USA"}
-                </div>
-              </div>
-            ) : (
-              <div className="text-yellow-400 flex items-center gap-2">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                No shipping address on file. Click Edit to add one.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <ShippingAddressSection order={order} onOrderUpdated={fetchOrder} />
 
       {/* Material Requirements */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={() => toggleSection("materialRequirements")}
-            className="flex items-center gap-2 text-lg font-semibold text-white hover:text-gray-300"
-          >
-            <svg
-              className={`w-5 h-5 transition-transform ${expandedSections.materialRequirements ? "rotate-90" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-            Material Requirements
-            {hasShortages && (
-              <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded-full">
-                {materialRequirements.filter((r) => r.net_shortage > 0).length} Shortage{materialRequirements.filter((r) => r.net_shortage > 0).length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </button>
-          {exploding && (
-            <span className="text-gray-400 text-sm">Calculating...</span>
-          )}
-        </div>
-        {expandedSections.materialRequirements && (
-          <>
-            {materialRequirements.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            {order.product_id || (order.lines && order.lines.length > 0)
-              ? "No BOM found for this product. Add a BOM to see material requirements."
-              : "No product assigned to this order"}
-          </div>
-        ) : (
-          <>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left p-2 text-gray-400">Component</th>
-                  <th className="text-left p-2 text-gray-400">Operation</th>
-                  <th className="text-right p-2 text-gray-400">Required</th>
-                  <th className="text-right p-2 text-gray-400">Available</th>
-                  <th className="text-right p-2 text-gray-400">Shortage</th>
-                  <th className="text-center p-2 text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialRequirements.map((req, idx) => (
-                  <tr
-                    key={idx}
-                    className={`border-b border-gray-800 ${
-                      req.net_shortage > 0 ? "bg-red-900/20" : ""
-                    }`}
-                  >
-                    <td className="p-2">
-                      <div className="text-white">{req.product_sku} - {req.product_name}</div>
-                      {req.material_source === "routing" && (
-                        <span className="text-xs text-blue-400">via routing</span>
-                      )}
-                      {req.has_incoming_supply && (
-                        <span className="text-xs text-amber-400 ml-2" title={req.incoming_supply_details?.expected_date ? `Expected: ${req.incoming_supply_details.expected_date}` : ""}>
-                          PO pending
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-2 text-left">
-                      {req.operation_code ? (
-                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full">
-                          {req.operation_code}
-                        </span>
-                      ) : (
-                        <span className="text-gray-500 text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="p-2 text-right text-white">
-                      {req.gross_quantity?.toFixed(2) || "0.00"}
-                    </td>
-                    <td className="p-2 text-right text-gray-300">
-                      {req.available_quantity?.toFixed(2) || "0.00"}
-                    </td>
-                    <td className="p-2 text-right">
-                      <span
-                        className={
-                          req.net_shortage > 0
-                            ? "text-red-400 font-semibold"
-                            : "text-green-400"
-                        }
-                      >
-                        {req.net_shortage?.toFixed(2) || "0.00"}
-                      </span>
-                    </td>
-                    <td className="p-2 text-center">
-                      {req.net_shortage > 0 &&
-                        (req.has_bom ? (
-                          <button
-                            onClick={() => handleCreateWorkOrder(req)}
-                            className="text-purple-400 hover:text-purple-300 text-sm"
-                          >
-                            Create WO
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleCreatePurchaseOrder(req)}
-                            className="text-blue-400 hover:text-blue-300 text-sm"
-                          >
-                            Create PO
-                          </button>
-                        ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-gray-800 font-semibold">
-                  <td colSpan="4" className="p-2 text-right text-white">
-                    {materialAvailability?.has_shortages ? (
-                      <span className="text-red-400">
-                        {materialAvailability.materials_short} of {materialAvailability.total_materials} materials short
-                      </span>
-                    ) : (
-                      <span className="text-green-400">All materials available</span>
-                    )}
-                  </td>
-                  <td className="p-2 text-right text-white">
-                    Est: ${totalMaterialCost.toFixed(2)}
-                  </td>
-                  <td className="p-2"></td>
-                </tr>
-              </tfoot>
-            </table>
-
-            {hasShortages && (
-              <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
-                <p className="text-red-400 text-sm">
-                  ⚠️ Material shortages detected. Create{" "}
-                  <span className="text-purple-400">Work Orders</span> for
-                  sub-assemblies or{" "}
-                  <span className="text-blue-400">Purchase Orders</span> for raw
-                  materials.
-                </p>
-              </div>
-            )}
-          </>
-        )}
-        </>
-        )}
-      </div>
+      <MaterialRequirementsSection
+        materialRequirements={materialRequirements}
+        materialAvailability={materialAvailability}
+        expandedSections={expandedSections}
+        onToggle={toggleSection}
+        exploding={exploding}
+        order={order}
+        onCreateWorkOrder={handleCreateWorkOrder}
+        onCreatePurchaseOrder={handleCreatePurchaseOrder}
+      />
 
       {/* Capacity Requirements */}
-      {capacityRequirements.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <button
-            onClick={() => toggleSection("capacityRequirements")}
-            className="flex items-center gap-2 text-lg font-semibold text-white hover:text-gray-300 mb-4"
-          >
-            <svg
-              className={`w-5 h-5 transition-transform ${expandedSections.capacityRequirements ? "rotate-90" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-            Capacity Requirements
-          </button>
-          {expandedSections.capacityRequirements && (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-700">
-                <th className="text-left p-2 text-gray-400">Operation</th>
-                <th className="text-left p-2 text-gray-400">Work Center</th>
-                <th className="text-right p-2 text-gray-400">Setup (min)</th>
-                <th className="text-right p-2 text-gray-400">Run (min)</th>
-                <th className="text-right p-2 text-gray-400">Total (hrs)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {capacityRequirements.map((op, idx) => (
-                <tr key={idx} className="border-b border-gray-800">
-                  <td className="p-2 text-white">
-                    {op.operation_name || op.operation_code || `OP${idx + 1}`}
-                  </td>
-                  <td className="p-2 text-gray-300">{op.work_center_name}</td>
-                  <td className="p-2 text-right text-gray-300">
-                    {op.setup_time_minutes?.toFixed(1) || "0.0"}
-                  </td>
-                  <td className="p-2 text-right text-gray-300">
-                    {((op.run_time_minutes || 0) * order.quantity).toFixed(1)}
-                  </td>
-                  <td className="p-2 text-right text-white">
-                    {(op.total_time_minutes / 60).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-gray-800 font-semibold">
-                <td colSpan="4" className="p-2 text-right text-white">
-                  Total Time:
-                </td>
-                <td className="p-2 text-right text-white">
-                  {totalCapacityHours.toFixed(2)} hrs
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-          )}
-        </div>
-      )}
+      <CapacityRequirementsSection
+        capacityRequirements={capacityRequirements}
+        expandedSections={expandedSections}
+        onToggle={toggleSection}
+        orderQuantity={order.quantity}
+      />
 
       {/* Production Orders - Read-Only Status Display */}
       {productionOrders.length > 0 && (
@@ -1271,180 +840,35 @@ export default function OrderDetail() {
             Production Status ({productionOrders.length})
           </button>
           {expandedSections.productionOrders && (
-          <div className="space-y-3">
-            {/* Overall Production Progress */}
-            <ProductionProgressSummary orders={productionOrders} />
-            
-            {/* Individual Work Orders */}
-            {productionOrders.map((po) => (
-              <ProductionOrderStatusCard
-                key={po.id}
-                order={po}
-                onViewInProduction={() =>
-                  navigate(`/admin/production?search=${encodeURIComponent(po.code || `WO-${po.id}`)}`)
-                }
-              />
-            ))}
-          </div>
+            <div className="space-y-3">
+              <ProductionProgressSummary orders={productionOrders} />
+              {productionOrders.map((po) => (
+                <ProductionOrderStatusCard
+                  key={po.id}
+                  order={po}
+                  onViewInProduction={() =>
+                    navigate(`/admin/production?search=${encodeURIComponent(po.code || `WO-${po.id}`)}`)
+                  }
+                />
+              ))}
+            </div>
           )}
         </div>
       )}
 
-      {/* Payments Section */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-white">Payments</h2>
-          <div className="flex gap-2">
-            {paymentSummary && paymentSummary.total_paid > 0 && (
-              <button
-                onClick={() => {
-                  setIsRefund(true);
-                  setShowPaymentModal(true);
-                }}
-                className="px-3 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded text-sm"
-              >
-                Refund
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setIsRefund(false);
-                setShowPaymentModal(true);
-              }}
-              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm flex items-center gap-1"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                />
-              </svg>
-              Record Payment
-            </button>
-          </div>
-        </div>
-
-        {/* Payment Summary */}
-        {paymentSummary && (
-          <div className="grid grid-cols-4 gap-4 mb-4 p-4 bg-gray-800/50 rounded-lg">
-            <div>
-              <div className="text-sm text-gray-400">Order Total</div>
-              <div className="text-white font-medium">
-                ${parseFloat(paymentSummary.order_total || 0).toFixed(2)}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-400">Paid</div>
-              <div className="text-green-400 font-medium">
-                ${parseFloat(paymentSummary.total_paid || 0).toFixed(2)}
-              </div>
-            </div>
-            {paymentSummary.total_refunded > 0 && (
-              <div>
-                <div className="text-sm text-gray-400">Refunded</div>
-                <div className="text-red-400 font-medium">
-                  ${parseFloat(paymentSummary.total_refunded || 0).toFixed(2)}
-                </div>
-              </div>
-            )}
-            <div>
-              <div className="text-sm text-gray-400">Balance Due</div>
-              <div
-                className={`font-medium ${
-                  paymentSummary.balance_due > 0
-                    ? "text-yellow-400"
-                    : "text-green-400"
-                }`}
-              >
-                ${parseFloat(paymentSummary.balance_due || 0).toFixed(2)}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Payment History */}
-        {payments.length > 0 ? (
-          <div className="space-y-2">
-            {payments.map((payment) => (
-              <div
-                key={payment.id}
-                className="flex justify-between items-center p-3 bg-gray-800 rounded-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      payment.amount < 0 ? "bg-red-500/20" : "bg-green-500/20"
-                    }`}
-                  >
-                    {payment.amount < 0 ? (
-                      <svg
-                        className="w-4 h-4 text-red-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-4 h-4 text-green-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                        />
-                      </svg>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-white font-medium">
-                      {payment.payment_number}
-                    </div>
-                    <div className="text-sm text-gray-400">
-                      {payment.payment_method}
-                      {payment.check_number && ` #${payment.check_number}`}
-                      {payment.transaction_id && ` - ${payment.transaction_id}`}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div
-                    className={`font-medium ${
-                      payment.amount < 0 ? "text-red-400" : "text-green-400"
-                    }`}
-                  >
-                    ${Math.abs(parseFloat(payment.amount)).toFixed(2)}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {new Date(payment.payment_date).toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-6 text-gray-500">
-            No payments recorded yet
-          </div>
-        )}
-      </div>
+      {/* Payments */}
+      <PaymentsSection
+        payments={payments}
+        paymentSummary={paymentSummary}
+        onRecordPayment={() => {
+          setIsRefund(false);
+          setShowPaymentModal(true);
+        }}
+        onRefund={() => {
+          setIsRefund(true);
+          setShowPaymentModal(true);
+        }}
+      />
 
       {/* Activity Timeline */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
@@ -1480,215 +904,20 @@ export default function OrderDetail() {
 
       {/* Cancel Order Modal */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-            <div
-              className="fixed inset-0 bg-black/70"
-              onClick={() => {
-                setShowCancelModal(false);
-                setCancellationReason("");
-              }}
-            />
-            <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full mx-auto p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Cancel Order {order.order_number}?
-              </h3>
-              <p className="text-gray-400 mb-4">
-                This will cancel the order. The order can still be deleted after
-                cancellation.
-              </p>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">
-                  Cancellation Reason (optional)
-                </label>
-                <textarea
-                  value={cancellationReason}
-                  onChange={(e) => setCancellationReason(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
-                  rows={3}
-                  placeholder="Enter reason for cancellation..."
-                />
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowCancelModal(false);
-                    setCancellationReason("");
-                  }}
-                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-                >
-                  Keep Order
-                </button>
-                <button
-                  onClick={handleCancelOrder}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500"
-                >
-                  Cancel Order
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CancelOrderModal
+          orderNumber={order.order_number}
+          onCancel={handleCancelOrder}
+          onClose={() => setShowCancelModal(false)}
+        />
       )}
 
       {/* Delete Order Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-            <div
-              className="fixed inset-0 bg-black/70"
-              onClick={() => setShowDeleteConfirm(false)}
-            />
-            <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full mx-auto p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Delete Order {order.order_number}?
-              </h3>
-              <p className="text-gray-400 mb-4">
-                This action cannot be undone. All order data, including line
-                items and payment records, will be permanently deleted.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-                >
-                  Keep Order
-                </button>
-                <button
-                  onClick={handleDeleteOrder}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
-                >
-                  Delete Permanently
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Production Progress Summary - Shows overall progress across all WOs
- */
-function ProductionProgressSummary({ orders }) {
-  const completed = orders.filter(o => o.status === "complete").length;
-  const inProgress = orders.filter(o => o.status === "in_progress").length;
-  const scrapped = orders.filter(o => o.status === "scrapped").length;
-  const total = orders.length;
-  const completionPercent = total > 0 ? (completed / total) * 100 : 0;
-
-  return (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-2">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm text-gray-400">Overall Progress</span>
-        <span className="text-sm text-white font-medium">{completed}/{total} Complete</span>
-      </div>
-      <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-        <div
-          className="bg-green-500 h-2 rounded-full transition-all"
-          style={{ width: `${completionPercent}%` }}
+        <DeleteOrderModal
+          orderNumber={order.order_number}
+          onDelete={handleDeleteOrder}
+          onClose={() => setShowDeleteConfirm(false)}
         />
-      </div>
-      <div className="flex gap-4 text-xs">
-        {inProgress > 0 && (
-          <span className="text-purple-400">{inProgress} In Progress</span>
-        )}
-        {completed > 0 && (
-          <span className="text-green-400">{completed} Complete</span>
-        )}
-        {scrapped > 0 && (
-          <span className="text-red-400">{scrapped} Scrapped</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Production Order Status Card - Read-only display of WO status
- */
-function ProductionOrderStatusCard({ order, onViewInProduction }) {
-  const statusConfig = {
-    draft: { color: "bg-gray-500", text: "Draft" },
-    released: { color: "bg-blue-500", text: "Released" },
-    in_progress: { color: "bg-purple-500", text: "In Progress" },
-    complete: { color: "bg-green-500", text: "Complete" },
-    scrapped: { color: "bg-red-500", text: "Scrapped" },
-    closed: { color: "bg-gray-400", text: "Closed" },
-  };
-  
-  const status = statusConfig[order.status] || { color: "bg-gray-500", text: order.status };
-  const progressPercent = order.quantity_ordered > 0
-    ? ((order.quantity_completed || 0) / order.quantity_ordered) * 100
-    : 0;
-
-  return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-white font-medium">{order.code || `WO-${order.id}`}</span>
-            <span className={`px-2 py-0.5 ${status.color} text-white text-xs rounded-full`}>
-              {status.text}
-            </span>
-          </div>
-          <p className="text-sm text-gray-400 mt-1">
-            {order.product_name || order.product_sku || "N/A"}
-          </p>
-        </div>
-        <button
-          onClick={onViewInProduction}
-          className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-          </svg>
-          View
-        </button>
-      </div>
-      
-      {/* Progress bar */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 bg-gray-700 rounded-full h-1.5">
-          <div
-            className={`h-1.5 rounded-full transition-all ${
-              order.status === "complete" ? "bg-green-500" :
-              order.status === "scrapped" ? "bg-red-500" : "bg-blue-500"
-            }`}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-        <span className="text-xs text-gray-400 w-20 text-right">
-          {order.quantity_completed || 0} / {order.quantity_ordered}
-        </span>
-      </div>
-      
-      {/* Operations summary if available */}
-      {order.operations && order.operations.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-700">
-          <div className="text-xs text-gray-500 mb-2">Operations:</div>
-          <div className="flex flex-wrap gap-1">
-            {order.operations.slice(0, 5).map((op, idx) => (
-              <span
-                key={idx}
-                className={`px-2 py-0.5 rounded text-xs ${
-                  op.status === "complete" ? "bg-green-500/20 text-green-400" :
-                  op.status === "running" ? "bg-purple-500/20 text-purple-400" :
-                  op.status === "queued" ? "bg-blue-500/20 text-blue-400" :
-                  "bg-gray-500/20 text-gray-400"
-                }`}
-              >
-                {op.sequence}. {op.operation_name || op.operation_code || "Op"}
-              </span>
-            ))}
-            {order.operations.length > 5 && (
-              <span className="text-xs text-gray-500">+{order.operations.length - 5} more</span>
-            )}
-          </div>
-        </div>
       )}
     </div>
   );
