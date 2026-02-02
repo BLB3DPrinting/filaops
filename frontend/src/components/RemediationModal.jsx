@@ -3,54 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { API_URL } from "../config/api";
 import { useToast } from "./Toast";
 import Modal from "./Modal";
-
-const CloseIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const CheckCircleIcon = () => (
-  <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const CopyIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-  </svg>
-);
-
-const MagicWandIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-  </svg>
-);
-
-const NotepadIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-  </svg>
-);
-
-const TerminalIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
-
-const RefreshIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-  </svg>
-);
-
-const ExternalLinkIcon = () => (
-  <svg className="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-  </svg>
-);
+import {
+  CloseIcon,
+  CheckCircleIcon,
+  MagicWandIcon,
+  TerminalIcon,
+} from "./remediation/icons";
+import ManualStepCard from "./remediation/ManualStepCard";
 
 const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const navigate = useNavigate();
@@ -985,225 +944,23 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
 
               {/* Steps - Hidden when auto-fix is complete */}
               {!autoFixComplete && guide.steps.map((step, index) => (
-                <div
+                <ManualStepCard
                   key={index}
-                  className={`border rounded-lg transition-all ${
-                    index === currentStep
-                      ? "border-blue-500 bg-blue-900/20"
-                      : completedSteps.has(index)
-                      ? "border-green-600 bg-green-900/10"
-                      : "border-gray-700 bg-gray-800/50 opacity-60"
-                  }`}
-                >
-                  <div
-                    className="p-4 cursor-pointer"
-                    onClick={() => setCurrentStep(index)}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                        completedSteps.has(index)
-                          ? "bg-green-600"
-                          : index === currentStep
-                          ? "bg-blue-600"
-                          : "bg-gray-700"
-                      }`}>
-                        {completedSteps.has(index) ? (
-                          <CheckCircleIcon />
-                        ) : (
-                          <span className="text-white font-semibold">{step.step}</span>
-                        )}
-                      </div>
-
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-white">{step.title}</h3>
-                        <p className="text-gray-300 text-sm mt-1">{step.description}</p>
-
-                        {index === currentStep && (
-                          <div className="mt-4 space-y-4">
-                            {/* Generate key action */}
-                            {step.action === "generate_key" && (
-                              <div className="space-y-3">
-                                {generatedKey ? (
-                                  <div className="bg-gray-900 border border-gray-600 rounded-lg p-4">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <span className="text-sm font-medium text-gray-300">Your New Key:</span>
-                                      <button
-                                        onClick={handleCopyKey}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                          copied
-                                            ? "bg-green-600 text-white"
-                                            : "bg-blue-600 hover:bg-blue-700 text-white"
-                                        }`}
-                                      >
-                                        <CopyIcon />
-                                        {copied ? "Copied!" : "Copy Key"}
-                                      </button>
-                                    </div>
-                                    <code className="block text-green-400 text-sm break-all font-mono bg-gray-950 p-3 rounded">
-                                      {generatedKey}
-                                    </code>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={handleGenerateKey}
-                                    disabled={generatingKey}
-                                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                                  >
-                                    {generatingKey ? (
-                                      <>
-                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        Generating...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <RefreshIcon />
-                                        Generate Secure Key
-                                      </>
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Navigate action */}
-                            {step.action === "navigate" && step.navigate_to && (
-                              <button
-                                onClick={() => handleNavigate(step.navigate_to)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-                              >
-                                Go to {step.title}
-                              </button>
-                            )}
-
-                            {/* File path with Open in Notepad button */}
-                            {step.file_path && (
-                              <div className="bg-gray-900 border border-gray-600 rounded-lg p-4">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <span className="text-sm text-gray-400">File: </span>
-                                    <code className="text-yellow-400 font-mono">{step.file_path}</code>
-                                  </div>
-                                  <button
-                                    onClick={handleOpenInNotepad}
-                                    disabled={openingFile}
-                                    className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
-                                  >
-                                    {openingFile ? (
-                                      <>
-                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        Opening...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <NotepadIcon />
-                                        Open in Notepad
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Code before/after */}
-                            {step.code_before && (
-                              <div className="space-y-2">
-                                <p className="text-sm font-medium text-red-400">Find this line:</p>
-                                <pre className="bg-gray-950 border-2 border-red-800 rounded-lg p-3 text-sm overflow-x-auto">
-                                  <code className="text-red-300">{step.code_before}</code>
-                                </pre>
-                              </div>
-                            )}
-                            {step.code_after && (
-                              <div className="space-y-2">
-                                <p className="text-sm font-medium text-green-400">Replace with:</p>
-                                <div className="relative">
-                                  <pre className="bg-gray-950 border-2 border-green-800 rounded-lg p-3 text-sm overflow-x-auto">
-                                    <code className="text-green-300">
-                                      {generatedKey
-                                        ? step.code_after.replace("<your-generated-key>", generatedKey)
-                                        : step.code_after}
-                                    </code>
-                                  </pre>
-                                  {generatedKey && (
-                                    <button
-                                      onClick={() => {
-                                        const text = step.code_after.replace("<your-generated-key>", generatedKey);
-                                        navigator.clipboard.writeText(text);
-                                        toast.success("Line copied!");
-                                      }}
-                                      className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors"
-                                    >
-                                      <CopyIcon />
-                                      Copy
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Code snippet */}
-                            {step.code_snippet && (
-                              <div className="relative">
-                                <pre className="bg-gray-950 border border-gray-600 rounded p-3 text-sm overflow-x-auto">
-                                  <code className="text-gray-300">{step.code_snippet}</code>
-                                </pre>
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(step.code_snippet);
-                                    toast.success("Code copied!");
-                                  }}
-                                  className="absolute top-2 right-2 p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                                >
-                                  <CopyIcon />
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Command */}
-                            {step.command && (
-                              <div className="bg-gray-950 border border-gray-600 rounded-lg p-3 flex items-center justify-between">
-                                <code className="text-cyan-400 font-mono text-sm">{step.command}</code>
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(step.command);
-                                    toast.success("Command copied!");
-                                  }}
-                                  className="p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                                >
-                                  <CopyIcon />
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Docs link */}
-                            {step.docs_url && (
-                              <a
-                                href={step.docs_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center text-blue-400 hover:text-blue-300 text-sm transition-colors"
-                              >
-                                View Documentation
-                                <ExternalLinkIcon />
-                              </a>
-                            )}
-
-                            {/* Mark complete button */}
-                            {!completedSteps.has(index) && (
-                              <button
-                                onClick={() => handleStepComplete(index)}
-                                className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-                              >
-                                <CheckCircleIcon />
-                                Mark as Complete
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  step={step}
+                  index={index}
+                  currentStep={currentStep}
+                  completedSteps={completedSteps}
+                  generatedKey={generatedKey}
+                  generatingKey={generatingKey}
+                  openingFile={openingFile}
+                  copied={copied}
+                  onSetCurrentStep={setCurrentStep}
+                  onGenerateKey={handleGenerateKey}
+                  onCopyKey={handleCopyKey}
+                  onOpenInNotepad={handleOpenInNotepad}
+                  onNavigate={handleNavigate}
+                  onStepComplete={handleStepComplete}
+                />
               ))}
             </div>
           ) : (
