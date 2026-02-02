@@ -15,6 +15,7 @@ export default function AiSettingsSection() {
     ai_api_key: "",
     ai_ollama_url: "http://localhost:11434",
     ai_ollama_model: "llama3.2",
+    ai_anthropic_model: "claude-haiku-3-5-20241022",
     external_ai_blocked: false,
   });
   const [savingAi, setSavingAi] = useState(false);
@@ -27,6 +28,15 @@ export default function AiSettingsSection() {
     fetchAiSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (aiForm.ai_provider === "anthropic") {
+      setAnthropicStatus((prev) => ({ ...prev, loading: true }));
+      checkAnthropicStatus();
+    } else {
+      setAnthropicStatus((prev) => ({ ...prev, loading: false }));
+    }
+  }, [aiForm.ai_provider]);
 
   const fetchAiSettings = async () => {
     try {
@@ -45,6 +55,7 @@ export default function AiSettingsSection() {
           ai_api_key: "", // Don't populate - it's masked
           ai_ollama_url: data.ai_ollama_url || "http://localhost:11434",
           ai_ollama_model: data.ai_ollama_model || "llama3.2",
+          ai_anthropic_model: data.ai_anthropic_model || "claude-haiku-3-5-20241022",
           external_ai_blocked: data.external_ai_blocked || false,
         });
         // Only check Anthropic package status if relevant (anthropic selected or no provider)
@@ -54,6 +65,10 @@ export default function AiSettingsSection() {
           // Not using Anthropic, so mark loading as done
           setAnthropicStatus((prev) => ({ ...prev, loading: false }));
         }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData.detail || `Error ${response.status}: Failed to load AI settings`);
+        setAnthropicStatus((prev) => ({ ...prev, loading: false }));
       }
     } catch (error) {
       console.error("Failed to fetch AI settings:", error);
