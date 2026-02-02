@@ -82,8 +82,13 @@ export function HelpIcon({ label }) {
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
+        role="img"
+        aria-label={label}
+        tabIndex={0}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
+        onFocus={() => setShowTooltip(true)}
+        onBlur={() => setShowTooltip(false)}
       >
         <path
           strokeLinecap="round"

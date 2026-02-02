@@ -11,6 +11,7 @@ export default function PeriodsTab({ token }) {
   const [periods, setPeriods] = useState([]);
   const [currentPeriod, setCurrentPeriod] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -21,6 +22,7 @@ export default function PeriodsTab({ token }) {
   }, []);
 
   const fetchPeriods = async () => {
+    if (!loading) setRefreshing(true);
     setLoading(true);
     setError(null);
     try {
@@ -39,6 +41,7 @@ export default function PeriodsTab({ token }) {
       setError(`Network error: ${err.message}`);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -158,12 +161,12 @@ export default function PeriodsTab({ token }) {
             )}
             <button
               onClick={fetchPeriods}
-              disabled={loading}
+              disabled={refreshing}
               className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Refresh data"
             >
               <svg
-                className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
