@@ -67,7 +67,7 @@ export default function CategoryModal({ category, categories, onSave, onClose })
       if (descErr) newErrors.description = descErr;
     }
 
-    const sortErr = validateNumber(formData.sort_order, "Sort Order", 0, 9999);
+    const sortErr = validateNumber(formData.sort_order, "Sort Order", { min: 0, max: 9999 });
     if (sortErr) newErrors.sort_order = sortErr;
 
     setErrors(newErrors);
