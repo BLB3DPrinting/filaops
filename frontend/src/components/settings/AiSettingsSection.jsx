@@ -41,7 +41,10 @@ export default function AiSettingsSection() {
   const fetchAiSettings = async () => {
     try {
       const token = localStorage.getItem("adminToken");
-      if (!token) return;
+      if (!token) {
+        setAnthropicStatus((prev) => ({ ...prev, loading: false }));
+        return;
+      }
 
       const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -128,22 +131,14 @@ export default function AiSettingsSection() {
     try {
       const token = localStorage.getItem("adminToken");
 
-      // Build payload - only include non-empty values
-      const payload = {};
-      if (aiForm.ai_provider !== undefined) {
-        payload.ai_provider = aiForm.ai_provider || null;
-      }
+      const payload = {
+        ai_provider: aiForm.ai_provider || null,
+        ai_ollama_url: aiForm.ai_ollama_url || null,
+        ai_ollama_model: aiForm.ai_ollama_model || null,
+        ai_anthropic_model: aiForm.ai_anthropic_model || null,
+      };
       if (aiForm.ai_api_key) {
         payload.ai_api_key = aiForm.ai_api_key;
-      }
-      if (aiForm.ai_ollama_url) {
-        payload.ai_ollama_url = aiForm.ai_ollama_url;
-      }
-      if (aiForm.ai_ollama_model) {
-        payload.ai_ollama_model = aiForm.ai_ollama_model;
-      }
-      if (aiForm.ai_anthropic_model) {
-        payload.ai_anthropic_model = aiForm.ai_anthropic_model;
       }
 
       const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
@@ -158,7 +153,14 @@ export default function AiSettingsSection() {
       if (response.ok) {
         const data = await response.json();
         setAiSettings(data);
-        setAiForm((prev) => ({ ...prev, ai_api_key: "" })); // Clear API key field
+        setAiForm({
+          ai_provider: data.ai_provider || "",
+          ai_api_key: "", // Don't populate - it's masked
+          ai_ollama_url: data.ai_ollama_url || "http://localhost:11434",
+          ai_ollama_model: data.ai_ollama_model || "llama3.2",
+          ai_anthropic_model: data.ai_anthropic_model || "claude-haiku-3-5-20241022",
+          external_ai_blocked: data.external_ai_blocked || false,
+        });
         toast.success("AI settings saved successfully!");
       } else {
         const errData = await response.json();
@@ -404,7 +406,12 @@ export default function AiSettingsSection() {
             </div>
 
             {/* Package Installation Check */}
-            {!anthropicStatus.installed && (
+            {anthropicStatus.loading && (
+              <div className="p-3 bg-gray-700 rounded-lg text-gray-300 text-sm">
+                Checking Anthropic package status...
+              </div>
+            )}
+            {!anthropicStatus.loading && !anthropicStatus.installed && (
               <div className="p-3 bg-red-900/30 border border-red-600 rounded-lg">
                 <p className="text-sm text-red-300 font-medium mb-2">
                   Required Package Not Installed
