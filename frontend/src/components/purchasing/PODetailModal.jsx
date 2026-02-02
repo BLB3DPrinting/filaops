@@ -4,15 +4,7 @@
 import Modal from "../Modal";
 import POActivityTimeline from "../POActivityTimeline";
 import DocumentUploadPanel from "./DocumentUploadPanel";
-
-const statusColors = {
-  draft: "bg-gray-600 text-gray-100",
-  ordered: "bg-blue-600/20 text-blue-400",
-  shipped: "bg-purple-600/20 text-purple-400",
-  received: "bg-green-600/20 text-green-400",
-  closed: "bg-gray-600/20 text-gray-400",
-  cancelled: "bg-red-600/20 text-red-400",
-};
+import { statusColors } from "./constants";
 
 export default function PODetailModal({
   po,

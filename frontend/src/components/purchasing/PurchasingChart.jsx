@@ -183,7 +183,7 @@ export default function PurchasingChart({ data, period, onPeriodChange, loading 
             </defs>
           </svg>
           {hoveredIndex !== null && getHoveredData() && (
-            <div className="absolute z-10 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-3 pointer-events-none" style={{ left: Math.min(mousePos.x + 10, chartWidth - 150), top: Math.max(mousePos.y - 70, 0), minWidth: '140px' }}>
+            <div className="absolute z-10 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-3 pointer-events-none" style={{ left: Math.max(0, Math.min(mousePos.x + 10, chartWidth - 150)), top: Math.max(mousePos.y - 70, 0), minWidth: '140px' }}>
               {(() => {
                 const d = getHoveredData();
                 return (
