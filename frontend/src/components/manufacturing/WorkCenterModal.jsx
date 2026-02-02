@@ -10,13 +10,13 @@ export default function WorkCenterModal({ workCenter, onClose, onSave }) {
     name: workCenter?.name || "",
     description: workCenter?.description || "",
     center_type: workCenter?.center_type || "station",
-    capacity_hours_per_day: workCenter?.capacity_hours_per_day || "",
-    capacity_units_per_hour: workCenter?.capacity_units_per_hour || "",
-    machine_rate_per_hour: workCenter?.machine_rate_per_hour || "",
-    labor_rate_per_hour: workCenter?.labor_rate_per_hour || "",
-    overhead_rate_per_hour: workCenter?.overhead_rate_per_hour || "",
-    is_bottleneck: workCenter?.is_bottleneck || false,
-    scheduling_priority: workCenter?.scheduling_priority || 50,
+    capacity_hours_per_day: workCenter?.capacity_hours_per_day ?? "",
+    capacity_units_per_hour: workCenter?.capacity_units_per_hour ?? "",
+    machine_rate_per_hour: workCenter?.machine_rate_per_hour ?? "",
+    labor_rate_per_hour: workCenter?.labor_rate_per_hour ?? "",
+    overhead_rate_per_hour: workCenter?.overhead_rate_per_hour ?? "",
+    is_bottleneck: workCenter?.is_bottleneck ?? false,
+    scheduling_priority: workCenter?.scheduling_priority ?? 50,
     is_active: workCenter?.is_active ?? true,
   });
 
@@ -50,14 +50,14 @@ export default function WorkCenterModal({ workCenter, onClose, onSave }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    // Convert empty strings to null for numeric fields
+    // Convert empty strings to null for numeric fields (preserve zero values)
     const data = {
       ...form,
-      capacity_hours_per_day: form.capacity_hours_per_day || null,
-      capacity_units_per_hour: form.capacity_units_per_hour || null,
-      machine_rate_per_hour: form.machine_rate_per_hour || null,
-      labor_rate_per_hour: form.labor_rate_per_hour || null,
-      overhead_rate_per_hour: form.overhead_rate_per_hour || null,
+      capacity_hours_per_day: form.capacity_hours_per_day === "" ? null : form.capacity_hours_per_day,
+      capacity_units_per_hour: form.capacity_units_per_hour === "" ? null : form.capacity_units_per_hour,
+      machine_rate_per_hour: form.machine_rate_per_hour === "" ? null : form.machine_rate_per_hour,
+      labor_rate_per_hour: form.labor_rate_per_hour === "" ? null : form.labor_rate_per_hour,
+      overhead_rate_per_hour: form.overhead_rate_per_hour === "" ? null : form.overhead_rate_per_hour,
     };
 
     onSave(data);
@@ -389,12 +389,14 @@ export default function WorkCenterModal({ workCenter, onClose, onSave }) {
                   min="0"
                   max="100"
                   value={form.scheduling_priority}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const value = e.target.value;
                     setForm({
                       ...form,
-                      scheduling_priority: parseInt(e.target.value),
-                    })
-                  }
+                      scheduling_priority:
+                        value === "" ? "" : parseInt(value, 10),
+                    });
+                  }}
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>

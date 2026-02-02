@@ -92,6 +92,12 @@ export default function ResourceModal({ resource, workCenter, onClose, onSave, t
             ? "available"
             : printer.status === "printing"
             ? "busy"
+            : printer.status === "error"
+            ? "offline"
+            : ["available", "busy", "maintenance", "offline"].includes(
+                printer.status
+              )
+            ? printer.status
             : "available",
         is_active: printer.is_active ?? true,
         printer_id: printer.id,

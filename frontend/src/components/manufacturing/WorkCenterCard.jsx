@@ -4,7 +4,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
-import { getTypeColor, getStatusColor } from "./constants";
+import {
+  getTypeColor,
+  getStatusColor,
+  TYPE_BADGE_CLASS,
+  STATUS_DOT_CLASS,
+  STATUS_BADGE_CLASS,
+} from "./constants";
 
 export default function WorkCenterCard({
   workCenter,
@@ -149,6 +155,7 @@ export default function WorkCenterCard({
   };
 
   const typeColor = getTypeColor(workCenter.center_type);
+  const typeBadgeClass = TYPE_BADGE_CLASS[typeColor] ?? TYPE_BADGE_CLASS.gray;
 
   return (
     <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
@@ -169,7 +176,7 @@ export default function WorkCenterCard({
               </span>
               <span className="text-white font-medium">{workCenter.name}</span>
               <span
-                className={`px-2 py-0.5 rounded text-xs bg-${typeColor}-900/30 text-${typeColor}-400`}
+                className={`px-2 py-0.5 rounded text-xs ${typeBadgeClass}`}
               >
                 {workCenter.center_type}
               </span>
@@ -243,9 +250,7 @@ export default function WorkCenterCard({
                 >
                   <div className="flex items-center gap-3">
                     <span
-                      className={`w-2 h-2 rounded-full bg-${getStatusColor(
-                        r.status
-                      )}-500`}
+                      className={`w-2 h-2 rounded-full ${STATUS_DOT_CLASS[getStatusColor(r.status)] ?? STATUS_DOT_CLASS.gray}`}
                     />
                     <span className="font-mono text-sm text-gray-300">
                       {r.code}
@@ -264,9 +269,7 @@ export default function WorkCenterCard({
                   </div>
                   <div className="flex items-center gap-3">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs bg-${getStatusColor(
-                        r.status
-                      )}-900/30 text-${getStatusColor(r.status)}-400`}
+                      className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGE_CLASS[getStatusColor(r.status)] ?? STATUS_BADGE_CLASS.gray}`}
                     >
                       {r.status}
                     </span>
