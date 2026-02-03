@@ -5,7 +5,9 @@ Extracted from vendors.py (ARCHITECT-003).
 """
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -73,29 +75,38 @@ def get_vendor(db: Session, vendor_id: int) -> Vendor:
     return get_or_404(db, Vendor, vendor_id, "Vendor not found")
 
 
-def create_vendor(db: Session, *, data: dict) -> Vendor:
+def create_vendor(db: Session, *, data: dict, _max_retries: int = 3) -> Vendor:
     """
     Create a new vendor.
 
-    Args:
-        db: Database session
-        data: Vendor fields (from VendorCreate schema model_dump)
+    Retries with a new auto-generated code on IntegrityError (race condition).
     """
-    code = data.pop("code", None) or generate_vendor_code(db)
+    explicit_code = data.pop("code", None)
+    code = explicit_code or generate_vendor_code(db)
     check_unique_or_400(db, Vendor, "code", code)
 
-    vendor = Vendor(
-        code=code,
-        **data,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-    db.add(vendor)
-    db.commit()
-    db.refresh(vendor)
+    now = datetime.now(timezone.utc)
+    for attempt in range(_max_retries):
+        try:
+            vendor = Vendor(
+                code=code,
+                **data,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(vendor)
+            db.commit()
+            db.refresh(vendor)
+            logger.info(f"Created vendor {vendor.code}: {vendor.name}")
+            return vendor
+        except IntegrityError:
+            db.rollback()
+            if explicit_code:
+                raise  # User-provided code conflict — don't retry
+            code = generate_vendor_code(db)
+            logger.warning(f"Vendor code collision, retrying with {code} (attempt {attempt + 2})")
 
-    logger.info(f"Created vendor {vendor.code}: {vendor.name}")
-    return vendor
+    raise HTTPException(status_code=409, detail="Failed to generate unique vendor code")
 
 
 def update_vendor(db: Session, vendor_id: int, *, data: dict) -> Vendor:
@@ -110,7 +121,7 @@ def update_vendor(db: Session, vendor_id: int, *, data: dict) -> Vendor:
     vendor = get_or_404(db, Vendor, vendor_id, "Vendor not found")
 
     if "code" in data and data["code"] != vendor.code:
-        check_unique_or_400(db, Vendor, "code", data["code"])
+        check_unique_or_400(db, Vendor, "code", data["code"], exclude_id=vendor.id)
 
     for field, value in data.items():
         setattr(vendor, field, value)

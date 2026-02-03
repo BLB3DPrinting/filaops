@@ -89,7 +89,7 @@ def list_products(
     if search:
         search_pattern = f"%{search}%"
         query = query.filter(
-            (Product.sku.like(search_pattern)) | (Product.name.like(search_pattern))
+            (Product.sku.ilike(search_pattern)) | (Product.name.ilike(search_pattern))
         )
 
     total = query.count()

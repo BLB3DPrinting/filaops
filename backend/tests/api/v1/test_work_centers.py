@@ -448,7 +448,7 @@ class TestResourceUpdate:
 # =============================================================================
 
 class TestResourceDelete:
-    """DELETE /api/v1/work-centers/resources/{resource_id} — hard delete."""
+    """DELETE /api/v1/work-centers/resources/{resource_id} — soft delete."""
 
     def test_delete_resource_returns_204(self, client):
         wc = _create_work_center(client)
@@ -456,13 +456,14 @@ class TestResourceDelete:
         resp = client.delete(f"{BASE_URL}/resources/{res['id']}")
         assert resp.status_code == 204
 
-    def test_deleted_resource_is_gone(self, client):
-        """After hard delete, the resource is no longer retrievable."""
+    def test_deleted_resource_is_inactive(self, client):
+        """After soft delete, the resource is marked inactive."""
         wc = _create_work_center(client)
         res = _create_resource(client, wc["id"])
         client.delete(f"{BASE_URL}/resources/{res['id']}")
         resp = client.get(f"{BASE_URL}/resources/{res['id']}")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is False
 
     def test_delete_nonexistent_resource_returns_404(self, client):
         resp = client.delete(f"{BASE_URL}/resources/999999")

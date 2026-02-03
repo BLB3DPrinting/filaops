@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app.models.inventory import InventoryLocation
 from app.core.utils import get_or_404, check_unique_or_400
 
+# Sentinel to distinguish "not provided" from None (clear parent)
+_UNSET = object()
+
 
 def list_locations(db: Session, *, include_inactive: bool = False) -> list[InventoryLocation]:
     """List all inventory locations, optionally including inactive."""
@@ -68,10 +71,13 @@ def update_location(
     code: str | None = None,
     name: str | None = None,
     type: str | None = None,
-    parent_id: int | None = None,
+    parent_id: int | object = _UNSET,
     active: bool | None = None,
 ) -> InventoryLocation:
-    """Update an inventory location."""
+    """Update an inventory location.
+
+    Pass parent_id=None to clear the parent; omit to leave unchanged.
+    """
     location = get_or_404(db, InventoryLocation, location_id, "Location not found")
 
     if code is not None and code != location.code:
@@ -82,8 +88,9 @@ def update_location(
         location.name = name
     if type is not None:
         location.type = type
-    if parent_id is not None:
-        _validate_parent(db, parent_id, exclude_id=location_id)
+    if parent_id is not _UNSET:
+        if parent_id is not None:
+            _validate_parent(db, parent_id, exclude_id=location_id)
         location.parent_id = parent_id
     if active is not None:
         location.active = active

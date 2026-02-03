@@ -177,12 +177,12 @@ def update_resource(db: Session, resource_id: int, *, data: dict) -> tuple[Resou
 
 
 def delete_resource(db: Session, resource_id: int) -> None:
-    """Hard-delete a resource."""
+    """Soft-delete a resource (mark as inactive)."""
     resource = get_or_404(db, Resource, resource_id, "Resource not found")
-    code = resource.code
-    db.delete(resource)
+    resource.is_active = False
+    resource.updated_at = datetime.now(timezone.utc)
     db.commit()
-    logger.info(f"Deleted resource: {code}")
+    logger.info(f"Deactivated resource: {resource.code}")
 
 
 def update_resource_status(db: Session, resource_id: int, new_status: str) -> dict:

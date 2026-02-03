@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.services import location_service
+from app.services.location_service import _UNSET
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -101,14 +102,25 @@ async def update_location(
     db: Session = Depends(get_db),
 ):
     """Update an inventory location"""
+    # Use model_fields_set to distinguish "not provided" from explicit None
+    update_kwargs = {}
+    if "code" in location.model_fields_set:
+        update_kwargs["code"] = location.code
+    if "name" in location.model_fields_set:
+        update_kwargs["name"] = location.name
+    if "type" in location.model_fields_set:
+        update_kwargs["type"] = location.type
+    if "parent_id" in location.model_fields_set:
+        update_kwargs["parent_id"] = location.parent_id
+    else:
+        update_kwargs["parent_id"] = _UNSET
+    if "active" in location.model_fields_set:
+        update_kwargs["active"] = location.active
+
     updated = location_service.update_location(
         db,
         location_id,
-        code=location.code,
-        name=location.name,
-        type=location.type,
-        parent_id=location.parent_id,
-        active=location.active,
+        **update_kwargs,
     )
     return _location_dict(updated)
 
