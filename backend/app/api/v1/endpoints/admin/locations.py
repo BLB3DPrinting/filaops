@@ -1,7 +1,9 @@
 """
 Inventory Locations Management API
+
+Uses location_service for business logic (ARCHITECT-003).
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -9,7 +11,7 @@ from typing import Optional
 from app.db.session import get_db
 from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
-from app.models.inventory import InventoryLocation
+from app.services import location_service
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -41,6 +43,17 @@ class LocationResponse(BaseModel):
         from_attributes = True
 
 
+def _location_dict(loc) -> dict:
+    return {
+        "id": loc.id,
+        "code": loc.code,
+        "name": loc.name,
+        "type": loc.type,
+        "parent_id": loc.parent_id,
+        "active": loc.active,
+    }
+
+
 @router.get("")
 async def list_locations(
     include_inactive: bool = False,
@@ -48,22 +61,8 @@ async def list_locations(
     db: Session = Depends(get_db),
 ):
     """List all inventory locations"""
-    query = db.query(InventoryLocation)
-    if not include_inactive:
-        query = query.filter(InventoryLocation.active.is_(True))  # noqa: E712  # noqa: E712
-
-    locations = query.order_by(InventoryLocation.code).all()
-    return [
-        {
-            "id": loc.id,
-            "code": loc.code,
-            "name": loc.name,
-            "type": loc.type,
-            "parent_id": loc.parent_id,
-            "active": loc.active,
-        }
-        for loc in locations
-    ]
+    locations = location_service.list_locations(db, include_inactive=include_inactive)
+    return [_location_dict(loc) for loc in locations]
 
 
 @router.get("/{location_id}")
@@ -73,18 +72,8 @@ async def get_location(
     db: Session = Depends(get_db),
 ):
     """Get a single location by ID"""
-    location = db.query(InventoryLocation).filter(InventoryLocation.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
-
-    return {
-        "id": location.id,
-        "code": location.code,
-        "name": location.name,
-        "type": location.type,
-        "parent_id": location.parent_id,
-        "active": location.active,
-    }
+    location = location_service.get_location(db, location_id)
+    return _location_dict(location)
 
 
 @router.post("")
@@ -94,38 +83,14 @@ async def create_location(
     db: Session = Depends(get_db),
 ):
     """Create a new inventory location"""
-    # Check for duplicate code
-    existing = db.query(InventoryLocation).filter(InventoryLocation.code == location.code).first()
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Location code '{location.code}' already exists")
-
-    # Validate parent if provided
-    if location.parent_id:
-        parent = db.query(InventoryLocation).filter(InventoryLocation.id == location.parent_id).first()
-        if not parent:
-            raise HTTPException(status_code=400, detail="Parent location not found")
-        if not parent.active:
-            raise HTTPException(status_code=400, detail="Parent location is inactive")
-
-    new_location = InventoryLocation(
+    new_location = location_service.create_location(
+        db,
         code=location.code,
         name=location.name,
         type=location.type,
         parent_id=location.parent_id,
-        active=True,
     )
-    db.add(new_location)
-    db.commit()
-    db.refresh(new_location)
-
-    return {
-        "id": new_location.id,
-        "code": new_location.code,
-        "name": new_location.name,
-        "type": new_location.type,
-        "parent_id": new_location.parent_id,
-        "active": new_location.active,
-    }
+    return _location_dict(new_location)
 
 
 @router.put("/{location_id}")
@@ -136,51 +101,16 @@ async def update_location(
     db: Session = Depends(get_db),
 ):
     """Update an inventory location"""
-    existing = db.query(InventoryLocation).filter(InventoryLocation.id == location_id).first()
-    if not existing:
-        raise HTTPException(status_code=404, detail="Location not found")
-
-    # Check for duplicate code if changing
-    if location.code and location.code != existing.code:
-        duplicate = db.query(InventoryLocation).filter(
-            InventoryLocation.code == location.code,
-            InventoryLocation.id != location_id
-        ).first()
-        if duplicate:
-            raise HTTPException(status_code=400, detail=f"Location code '{location.code}' already exists")
-
-    # Update fields
-    if location.code is not None:
-        existing.code = location.code
-    if location.name is not None:
-        existing.name = location.name
-    if location.type is not None:
-        existing.type = location.type
-    if location.parent_id is not None:
-        # Prevent self-reference
-        if location.parent_id == location_id:
-            raise HTTPException(status_code=400, detail="A location cannot be its own parent")
-        # Validate parent exists and is active
-        parent = db.query(InventoryLocation).filter(InventoryLocation.id == location.parent_id).first()
-        if not parent:
-            raise HTTPException(status_code=400, detail="Parent location not found")
-        if not parent.active:
-            raise HTTPException(status_code=400, detail="Parent location is inactive")
-        existing.parent_id = location.parent_id
-    if location.active is not None:
-        existing.active = location.active
-
-    db.commit()
-    db.refresh(existing)
-
-    return {
-        "id": existing.id,
-        "code": existing.code,
-        "name": existing.name,
-        "type": existing.type,
-        "parent_id": existing.parent_id,
-        "active": existing.active,
-    }
+    updated = location_service.update_location(
+        db,
+        location_id,
+        code=location.code,
+        name=location.name,
+        type=location.type,
+        parent_id=location.parent_id,
+        active=location.active,
+    )
+    return _location_dict(updated)
 
 
 @router.delete("/{location_id}")
@@ -190,15 +120,4 @@ async def delete_location(
     db: Session = Depends(get_db),
 ):
     """Soft delete (deactivate) an inventory location"""
-    location = db.query(InventoryLocation).filter(InventoryLocation.id == location_id).first()
-    if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
-
-    # Don't allow deleting MAIN warehouse
-    if location.code == "MAIN":
-        raise HTTPException(status_code=400, detail="Cannot delete the main warehouse")
-
-    location.active = False
-    db.commit()
-
-    return {"message": "Location deactivated"}
+    return location_service.delete_location(db, location_id)
