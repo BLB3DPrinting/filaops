@@ -140,6 +140,9 @@ def create_resource(db: Session, wc_id: int, *, data: dict) -> tuple[Resource, W
     if "status" in data and hasattr(data["status"], "value"):
         data["status"] = data["status"].value
 
+    # Remove work_center_id from data — it's set explicitly from the URL path
+    data.pop("work_center_id", None)
+
     resource = Resource(work_center_id=wc_id, **data)
     db.add(resource)
     db.commit()
