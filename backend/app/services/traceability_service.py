@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import desc, or_
+from sqlalchemy import Integer, cast, desc, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -167,12 +167,12 @@ def create_traceability_profile(
 
     profile = CustomerTraceabilityProfile(**data.model_dump())
     db.add(profile)
-    db.commit()
-    db.refresh(profile)
 
     # Also update user's traceability_level for quick access
     user.traceability_level = data.traceability_level
+
     db.commit()
+    db.refresh(profile)
 
     return profile
 
@@ -204,15 +204,15 @@ def update_traceability_profile(
         setattr(profile, field, value)
 
     profile.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(profile)
 
     # Update user's quick-access field
     if "traceability_level" in update_data:
         user = db.query(User).filter(User.id == user_id).first()
         if user:
             user.traceability_level = update_data["traceability_level"]
-            db.commit()
+
+    db.commit()
+    db.refresh(profile)
 
     return profile
 
@@ -321,27 +321,25 @@ def update_material_lot(
 
 
 def generate_lot_number(db: Session, material_code: str) -> dict:
-    """Generate the next lot number for a material."""
+    """Generate the next lot number for a material.
+
+    Uses DB-side numeric extraction to avoid lexicographic ordering issues.
+    """
     year = datetime.now(timezone.utc).year
     prefix = f"{material_code}-{year}-"
 
-    last_lot = (
-        db.query(MaterialLot)
+    max_seq = (
+        db.query(
+            func.max(
+                cast(func.replace(MaterialLot.lot_number, prefix, ""), Integer)
+            )
+        )
         .filter(MaterialLot.lot_number.like(f"{prefix}%"))
-        .order_by(desc(MaterialLot.lot_number))
-        .first()
+        .scalar()
+        or 0
     )
 
-    if last_lot:
-        try:
-            seq = int(last_lot.lot_number.replace(prefix, ""))
-            next_seq = seq + 1
-        except ValueError:
-            next_seq = 1
-    else:
-        next_seq = 1
-
-    return {"lot_number": f"{prefix}{next_seq:04d}"}
+    return {"lot_number": f"{prefix}{max_seq + 1:04d}"}
 
 
 # ---- Serial Numbers --------------------------------------------------------
@@ -426,21 +424,17 @@ def create_serial_numbers(db: Session, data: SerialNumberCreate) -> list[SerialN
     date_str = now.strftime("%Y%m%d")
     prefix = f"BLB-{date_str}-"
 
-    # Find highest existing sequence for today
-    last_serial = (
-        db.query(SerialNumber)
+    # DB-side numeric extraction to avoid lexicographic ordering issues
+    seq = (
+        db.query(
+            func.max(
+                cast(func.replace(SerialNumber.serial_number, prefix, ""), Integer)
+            )
+        )
         .filter(SerialNumber.serial_number.like(f"{prefix}%"))
-        .order_by(desc(SerialNumber.serial_number))
-        .first()
+        .scalar()
+        or 0
     )
-
-    if last_serial:
-        try:
-            seq = int(last_serial.serial_number.replace(prefix, ""))
-        except ValueError:
-            seq = 0
-    else:
-        seq = 0
 
     created_serials = []
     for _ in range(data.quantity):
@@ -945,7 +939,7 @@ def trace_backward_from_serial(db: Session, serial_number: str) -> dict:
                 set(
                     m["purchase_order"]["vendor_name"]
                     for m in material_lineage
-                    if m["purchase_order"]
+                    if m["purchase_order"] and m["purchase_order"].get("vendor_name")
                 )
             ),
         },

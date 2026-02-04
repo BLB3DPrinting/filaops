@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import desc, func
+from sqlalchemy import Integer, cast, desc, func
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -111,20 +111,23 @@ def _customer_response(customer: User, stats: dict) -> dict:
 # =============================================================================
 
 def generate_customer_number(db: Session) -> str:
-    """Generate next customer number (CUST-001, CUST-002, etc.)."""
-    last = (
-        db.query(User)
-        .filter(User.customer_number.isnot(None))
-        .order_by(desc(User.customer_number))
-        .first()
+    """Generate next customer number (CUST-001, CUST-002, etc.).
+
+    Uses DB-side numeric extraction to avoid lexicographic ordering issues
+    (e.g. CUST-100 sorting before CUST-099).
+    """
+    prefix = "CUST-"
+    max_seq = (
+        db.query(
+            func.max(
+                cast(func.replace(User.customer_number, prefix, ""), Integer)
+            )
+        )
+        .filter(User.customer_number.like(f"{prefix}%"))
+        .scalar()
+        or 0
     )
-    if last and last.customer_number:
-        try:
-            last_num = int(last.customer_number.split("-")[1])
-            return f"CUST-{last_num + 1:03d}"
-        except (IndexError, ValueError):
-            pass
-    return "CUST-001"
+    return f"CUST-{max_seq + 1:03d}"
 
 
 # =============================================================================
@@ -725,8 +728,7 @@ def preview_customer_import(db: Session, text: str) -> dict:
     detected_format = _detect_csv_format(headers)
 
     existing_emails = set(
-        e[0].lower()
-        for e in db.query(User.email).filter(User.account_type == "customer").all()
+        e[0].lower() for e in db.query(User.email).all()
     )
     seen_emails: set[str] = set()
 
@@ -831,12 +833,13 @@ def import_customers(db: Session, text: str, admin_id: int) -> dict:
         )
 
         try:
+            savepoint = db.begin_nested()
             db.add(customer)
             db.flush()
             existing_emails.add(email)
             imported += 1
         except Exception as e:
-            db.rollback()
+            savepoint.rollback()
             skipped += 1
             errors.append({"row": i, "reason": f"Database error: {str(e)}", "email": email})
             continue

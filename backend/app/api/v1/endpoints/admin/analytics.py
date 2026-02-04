@@ -20,6 +20,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 class RevenueMetrics(BaseModel):
     total_revenue: Decimal
+    period_revenue: Decimal
     revenue_30_days: Decimal
     revenue_90_days: Decimal
     revenue_365_days: Decimal

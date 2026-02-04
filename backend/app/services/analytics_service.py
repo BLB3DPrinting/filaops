@@ -6,7 +6,7 @@ Extracted from admin/analytics.py (ARCHITECT-003).
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, literal
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -28,6 +28,13 @@ def _compute_revenue_metrics(
     total_revenue = (
         db.query(func.sum(SalesOrder.total_price))
         .filter(completed_filter)
+        .scalar()
+        or Decimal("0")
+    )
+
+    period_revenue = (
+        db.query(func.sum(SalesOrder.total_price))
+        .filter(completed_filter, SalesOrder.created_at >= start_date)
         .scalar()
         or Decimal("0")
     )
@@ -73,10 +80,11 @@ def _compute_revenue_metrics(
         .scalar()
         or 0
     )
-    avg_order_value = revenue_30 / order_count if order_count > 0 else Decimal("0")
+    avg_order_value = period_revenue / order_count if order_count > 0 else Decimal("0")
 
     return {
         "total_revenue": total_revenue,
+        "period_revenue": period_revenue,
         "revenue_30_days": revenue_30,
         "revenue_90_days": revenue_90,
         "revenue_365_days": revenue_365,
@@ -98,7 +106,10 @@ def _compute_customer_metrics(
 
     active_customers = (
         db.query(func.count(func.distinct(SalesOrder.user_id)))
-        .filter(SalesOrder.created_at >= end_date - timedelta(days=30))
+        .filter(
+            SalesOrder.status == "completed",
+            SalesOrder.created_at >= end_date - timedelta(days=30),
+        )
         .scalar()
         or 0
     )
@@ -160,7 +171,7 @@ def _compute_product_metrics(db: Session, *, start_date: datetime) -> dict:
             Product.sku,
             Product.name,
             func.sum(SalesOrderLine.quantity).label("qty_sold"),
-            func.sum(SalesOrderLine.total_price).label("revenue"),
+            func.sum(SalesOrderLine.total).label("revenue"),
         )
         .join(SalesOrderLine, Product.id == SalesOrderLine.product_id)
         .join(SalesOrder)
@@ -205,8 +216,9 @@ def _compute_profit_metrics(
     db: Session, *, start_date: datetime, period_revenue: Decimal
 ) -> dict:
     """Compute cost, gross profit, margin, and per-product profit breakdown."""
+    safe_cost = func.coalesce(Product.standard_cost, literal(0))
     total_cost = (
-        db.query(func.sum(SalesOrderLine.quantity * Product.standard_cost))
+        db.query(func.sum(SalesOrderLine.quantity * safe_cost))
         .join(Product)
         .join(SalesOrder)
         .filter(SalesOrder.status == "completed", SalesOrder.created_at >= start_date)
@@ -222,18 +234,18 @@ def _compute_profit_metrics(
             Product.sku,
             Product.name,
             func.sum(SalesOrderLine.quantity).label("qty"),
-            func.sum(SalesOrderLine.total_price).label("revenue"),
-            func.sum(SalesOrderLine.quantity * Product.standard_cost).label("cost"),
+            func.sum(SalesOrderLine.total).label("revenue"),
+            func.sum(SalesOrderLine.quantity * safe_cost).label("cost"),
         )
         .join(SalesOrderLine, Product.id == SalesOrderLine.product_id)
         .join(SalesOrder)
         .filter(SalesOrder.status == "completed", SalesOrder.created_at >= start_date)
         .group_by(Product.id, Product.sku, Product.name)
-        .having(func.sum(SalesOrderLine.total_price) > 0)
+        .having(func.sum(SalesOrderLine.total) > 0)
         .order_by(
             (
-                func.sum(SalesOrderLine.total_price)
-                - func.sum(SalesOrderLine.quantity * Product.standard_cost)
+                func.sum(SalesOrderLine.total)
+                - func.sum(SalesOrderLine.quantity * safe_cost)
             ).desc()
         )
         .limit(10)
@@ -281,13 +293,13 @@ def get_analytics_dashboard(db: Session, *, days: int = 30) -> dict:
         db,
         end_date=end_date,
         start_date=start_date,
-        period_revenue=revenue["revenue_30_days"],
+        period_revenue=revenue["period_revenue"],
     )
 
     products = _compute_product_metrics(db, start_date=start_date)
 
     profit = _compute_profit_metrics(
-        db, start_date=start_date, period_revenue=revenue["revenue_30_days"]
+        db, start_date=start_date, period_revenue=revenue["period_revenue"]
     )
 
     return {

@@ -160,9 +160,9 @@ async def delete_customer(
     db: Session = Depends(get_db),
 ):
     """
-    Delete a customer (soft delete by setting status to 'deleted').
+    Delete a customer (soft-deactivate if orders exist, hard-delete otherwise).
 
-    Admin only. Customers with orders cannot be fully deleted.
+    Admin only. Customers with orders are set to 'inactive' instead of deleted.
     """
     info = svc.delete_customer(db, customer_id, current_admin.id)
 
