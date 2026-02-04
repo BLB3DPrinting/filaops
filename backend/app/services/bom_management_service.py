@@ -433,8 +433,25 @@ def explode_bom_recursive(
         inventory = get_component_inventory(component.id, db)
 
         # Get effective cost using fallback logic
+        from app.services.inventory_helpers import is_material
         cost = get_effective_cost(component)
         component_cost = float(cost) if cost else 0.0
+
+        # Calculate line cost with material-aware logic
+        line_cost = 0.0
+        if cost and cost > 0:
+            if is_material(component):
+                line_cost = float(calculate_material_line_cost(effective_qty, line.unit, cost, db))
+            else:
+                # Non-materials: convert units if needed
+                qty_for_cost = effective_qty
+                if line.unit and component.unit and line.unit.upper() != component.unit.upper():
+                    converted_qty, success = convert_quantity_safe(db, effective_qty, line.unit, component.unit)
+                    if success:
+                        qty_for_cost = converted_qty
+                line_cost = float(cost * qty_for_cost)
+        else:
+            line_cost = 0.0
 
         component_data = {
             "component_id": component.id,
@@ -450,7 +467,7 @@ def explode_bom_recursive(
             "is_sub_assembly": sub_bom is not None,
             "sub_bom_id": sub_bom.id if sub_bom else None,
             "inventory_available": inventory["available"],
-            "line_cost": component_cost * float(effective_qty),
+            "line_cost": line_cost,
         }
 
         exploded.append(component_data)
@@ -512,22 +529,24 @@ def calculate_rolled_up_cost(bom_id: int, db: Session, visited: set = None) -> D
             sub_cost = calculate_rolled_up_cost(sub_bom.id, db, visited.copy())
             total += sub_cost * effective_qty
         else:
-            # Use component's effective cost with UOM conversion
+            # Use component's effective cost with material-aware UOM conversion
+            from app.services.inventory_helpers import is_material
             component_cost = get_effective_cost(component)
             if component_cost and component_cost > 0:
-                component_unit = component.unit
-                line_unit = line.unit
+                if is_material(component):
+                    total += calculate_material_line_cost(effective_qty, line.unit, component_cost, db)
+                else:
+                    component_unit = component.unit
+                    line_unit = line.unit
 
-                if line_unit and component_unit and line_unit.upper() != component_unit.upper():
-                    # Convert effective_qty from line.unit to component.unit
-                    # Use _safe variant to handle empty UOM table with inline fallbacks
-                    converted_qty, success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
-                    if success:
-                        total += component_cost * converted_qty
+                    if line_unit and component_unit and line_unit.upper() != component_unit.upper():
+                        converted_qty, success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                        if success:
+                            total += component_cost * converted_qty
+                        else:
+                            total += component_cost * effective_qty
                     else:
                         total += component_cost * effective_qty
-                else:
-                    total += component_cost * effective_qty
 
     return total
 
@@ -669,8 +688,13 @@ def create_bom(
 
         # Add new lines to the existing BOM
         if bom_data.lines:
-            existing_line_count = db.query(BOMLine).filter(BOMLine.bom_id == existing_bom.id).count()
-            for seq, line_data in enumerate(bom_data.lines, start=existing_line_count + 1):
+            max_seq = (
+                db.query(func.max(BOMLine.sequence))
+                .filter(BOMLine.bom_id == existing_bom.id)
+                .scalar()
+            )
+            start_seq = (max_seq or 0) + 1
+            for seq, line_data in enumerate(bom_data.lines, start=start_seq):
                 # Verify component exists
                 component = db.query(Product).filter(Product.id == line_data.component_id).first()
                 if not component:
@@ -849,8 +873,12 @@ def add_bom_line(db: Session, bom_id: int, line_data: BOMLineCreate) -> dict:
 
     # Get next sequence if not provided
     if line_data.sequence is None:
-        max_seq = db.query(BOMLine).filter(BOMLine.bom_id == bom_id).count()
-        sequence = max_seq + 1
+        max_seq = (
+            db.query(func.max(BOMLine.sequence))
+            .filter(BOMLine.bom_id == bom_id)
+            .scalar()
+        )
+        sequence = (max_seq or 0) + 1
     else:
         sequence = line_data.sequence
 
@@ -1246,27 +1274,28 @@ def get_cost_rollup(db: Session, bom_id: int) -> dict:
             unit_cost = sub_cost
         else:
             # Apply UOM conversion for direct components using effective cost
+            from app.services.inventory_helpers import is_material
             component_cost = get_effective_cost(component)
             if component_cost and component_cost > 0:
-                component_unit = component.unit
-                line_unit = line.unit
                 unit_cost = component_cost
 
-                if line_unit and component_unit and line_unit.upper() != component_unit.upper():
-                    # Convert effective_qty from line.unit to component.unit
-                    # Use _safe variant to handle empty UOM table with inline fallbacks
-                    converted_qty, qty_success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
-                    if qty_success:
-                        line_cost = component_cost * converted_qty
-                        # Also adjust unit_cost to show cost per line unit
-                        # Derive factor from converted_qty to avoid second call
-                        if effective_qty:
-                            conversion_factor = converted_qty / effective_qty
-                            unit_cost = component_cost * conversion_factor
+                if is_material(component):
+                    line_cost = calculate_material_line_cost(effective_qty, line.unit, component_cost, db)
+                else:
+                    component_unit = component.unit
+                    line_unit = line.unit
+
+                    if line_unit and component_unit and line_unit.upper() != component_unit.upper():
+                        converted_qty, qty_success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                        if qty_success:
+                            line_cost = component_cost * converted_qty
+                            if effective_qty:
+                                conversion_factor = converted_qty / effective_qty
+                                unit_cost = component_cost * conversion_factor
+                        else:
+                            line_cost = component_cost * effective_qty
                     else:
                         line_cost = component_cost * effective_qty
-                else:
-                    line_cost = component_cost * effective_qty
                 cost_source = "direct"
             else:
                 line_cost = Decimal("0")

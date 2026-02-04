@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -26,25 +27,29 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def generate_quote_number(db: Session) -> str:
-    """Generate next quote number in format Q-YYYY-NNN"""
+    """Generate next quote number in format Q-YYYY-NNNNNN (zero-padded).
+
+    Uses numeric extraction to avoid lexicographic sort issues past 999.
+    """
     year = datetime.now(timezone.utc).year
+    prefix = f"Q-{year}-"
 
-    # Get the highest quote number for this year
-    last_quote = db.query(Quote).filter(
-        Quote.quote_number.like(f"Q-{year}-%")
-    ).order_by(desc(Quote.quote_number)).first()
+    # Find max numeric suffix for this year's quotes
+    all_quotes = db.query(Quote.quote_number).filter(
+        Quote.quote_number.like(f"{prefix}%")
+    ).all()
 
-    if last_quote:
-        # Extract sequence number and increment
+    max_seq = 0
+    for (qn,) in all_quotes:
         try:
-            seq = int(last_quote.quote_number.split("-")[2])
-            next_seq = seq + 1
+            seq = int(qn.split("-")[2])
+            if seq > max_seq:
+                max_seq = seq
         except (IndexError, ValueError):
-            next_seq = 1
-    else:
-        next_seq = 1
+            continue
 
-    return f"Q-{year}-{next_seq:03d}"
+    next_seq = max_seq + 1
+    return f"{prefix}{next_seq:06d}"
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +180,16 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
                 detail="Invalid customer_id - customer not found"
             )
 
-    # Validate material exists if both material_type and color provided
-    if request.material_type and request.color:
+    # Validate material exists if color provided (use effective material type)
+    effective_material_type = request.material_type or "PLA"
+    if request.color:
         from app.services.material_service import get_material_product
-        material_product = get_material_product(db, request.material_type, request.color)
+        material_product = get_material_product(db, effective_material_type, request.color)
         if not material_product:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Material not found: {request.material_type} in {request.color}. "
+                    f"Material not found: {effective_material_type} in {request.color}. "
                     f"Check available materials at /api/v1/materials/combinations"
                 )
             )
@@ -200,7 +206,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         tax_amount=tax_amount,
         shipping_cost=shipping_cost if shipping_cost > 0 else None,
         total_price=total_price,
-        material_type=request.material_type or "PLA",
+        material_type=effective_material_type,
         color=request.color,
         customer_id=request.customer_id,
         customer_name=request.customer_name,
@@ -214,7 +220,14 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     )
 
     db.add(quote)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote number collision, please retry"
+        )
     db.refresh(quote)
 
     logger.info(f"Quote {quote_number} created by user {user_id}")
@@ -270,6 +283,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         quantity = request.quantity if request.quantity is not None else quote.quantity
         subtotal = unit_price * quantity
         quote.subtotal = subtotal
+        shipping = quote.shipping_cost or Decimal("0")
 
         # Handle tax calculation
         if apply_tax is not None:
@@ -279,23 +293,23 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
                 if company_settings and company_settings.tax_rate:
                     quote.tax_rate = company_settings.tax_rate
                     quote.tax_amount = subtotal * company_settings.tax_rate
-                    quote.total_price = subtotal + quote.tax_amount
+                    quote.total_price = subtotal + quote.tax_amount + shipping
                 else:
                     quote.tax_rate = None
                     quote.tax_amount = None
-                    quote.total_price = subtotal
+                    quote.total_price = subtotal + shipping
             else:
                 # Remove tax
                 quote.tax_rate = None
                 quote.tax_amount = None
-                quote.total_price = subtotal
+                quote.total_price = subtotal + shipping
         else:
             # Keep existing tax settings, just recalculate with new subtotal
             if quote.tax_rate:
                 quote.tax_amount = subtotal * quote.tax_rate
-                quote.total_price = subtotal + quote.tax_amount
+                quote.total_price = subtotal + quote.tax_amount + shipping
             else:
-                quote.total_price = subtotal
+                quote.total_price = subtotal + shipping
 
     quote.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -505,7 +519,14 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     quote.converted_at = datetime.now(timezone.utc)
     quote.updated_at = datetime.now(timezone.utc)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Order number collision, please retry"
+        )
     db.refresh(sales_order)
 
     logger.info(f"Quote {quote.quote_number} converted to order {order_number}")
@@ -637,6 +658,12 @@ def delete_quote_image(db: Session, quote_id: int) -> str:
 
 def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     """Generate a PDF for a quote using ReportLab. Returns the BytesIO buffer."""
+    from xml.sax.saxutils import escape as _xml_escape
+
+    def esc(value: str | None) -> str:
+        """Escape user-provided text for ReportLab Paragraph XML."""
+        return _xml_escape(value) if value else ""
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -677,16 +704,16 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             # Company info for header
             company_info = []
             if company_settings.company_name:
-                company_info.append(f"<b>{company_settings.company_name}</b>")
+                company_info.append(f"<b>{esc(company_settings.company_name)}</b>")
             if company_settings.company_address_line1:
-                company_info.append(company_settings.company_address_line1)
+                company_info.append(esc(company_settings.company_address_line1))
             if company_settings.company_city or company_settings.company_state:
-                city_state = f"{company_settings.company_city or ''}, {company_settings.company_state or ''} {company_settings.company_zip or ''}".strip(", ")
+                city_state = f"{esc(company_settings.company_city or '')}, {esc(company_settings.company_state or '')} {esc(company_settings.company_zip or '')}".strip(", ")
                 company_info.append(city_state)
             if company_settings.company_phone:
-                company_info.append(company_settings.company_phone)
+                company_info.append(esc(company_settings.company_phone))
             if company_settings.company_email:
-                company_info.append(company_settings.company_email)
+                company_info.append(esc(company_settings.company_email))
 
             # Create header table with logo and company info
             header_data = [[logo_img, Paragraph("<br/>".join(company_info), normal_style)]]
@@ -701,20 +728,20 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             pass
     elif company_settings and company_settings.company_name:
         # No logo but have company name
-        content.append(Paragraph(f"<b>{company_settings.company_name}</b>", title_style))
+        content.append(Paragraph(f"<b>{esc(company_settings.company_name)}</b>", title_style))
         content.append(Spacer(1, 0.2*inch))
 
     # Quote title, customer info, and optional image in a compact layout
     # Build left column content (quote info + customer)
     left_content = []
     left_content.append(Paragraph("QUOTE", title_style))
-    left_content.append(Paragraph(f"<b>{quote.quote_number}</b>", normal_style))
+    left_content.append(Paragraph(f"<b>{esc(quote.quote_number)}</b>", normal_style))
     left_content.append(Paragraph(f"Date: {quote.created_at.strftime('%B %d, %Y')}", normal_style))
     left_content.append(Spacer(1, 0.15*inch))
     left_content.append(Paragraph("CUSTOMER", heading_style))
-    left_content.append(Paragraph(f"<b>{quote.customer_name or 'N/A'}</b>", normal_style))
+    left_content.append(Paragraph(f"<b>{esc(quote.customer_name or 'N/A')}</b>", normal_style))
     if quote.customer_email:
-        left_content.append(Paragraph(quote.customer_email, normal_style))
+        left_content.append(Paragraph(esc(quote.customer_email), normal_style))
 
     # If we have an image, create a two-column layout
     if quote.image_data:
@@ -749,9 +776,9 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     content.append(Paragraph("QUOTE DETAILS", heading_style))
     content.append(Spacer(1, 0.1*inch))
 
-    material_desc = quote.material_type or 'N/A'
+    material_desc = esc(quote.material_type or 'N/A')
     if quote.color:
-        material_desc += f" - {quote.color}"
+        material_desc += f" - {esc(quote.color)}"
 
     # Calculate subtotal
     subtotal = float(quote.subtotal) if quote.subtotal else float(quote.unit_price or 0) * quote.quantity
@@ -760,7 +787,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     table_data = [
         ['Description', 'Material', 'Qty', 'Unit Price', 'Amount'],
         [
-            quote.product_name or 'Custom Item',
+            esc(quote.product_name or 'Custom Item'),
             material_desc,
             str(quote.quantity),
             f"${float(quote.unit_price or 0):,.2f}",
@@ -776,7 +803,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         tax_percent = float(quote.tax_rate) * 100
         tax_name = "Sales Tax"
         if company_settings and company_settings.tax_name:
-            tax_name = company_settings.tax_name
+            tax_name = esc(company_settings.tax_name)
         table_data.append(['', '', '', f'{tax_name} ({tax_percent:.2f}%):', f"${float(quote.tax_amount):,.2f}"])
 
     # Add shipping row if applicable
@@ -811,7 +838,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     # Notes
     if quote.customer_notes:
         content.append(Paragraph("NOTES", heading_style))
-        content.append(Paragraph(quote.customer_notes, normal_style))
+        content.append(Paragraph(esc(quote.customer_notes), normal_style))
         content.append(Spacer(1, 0.2*inch))
 
     # Validity
@@ -825,13 +852,13 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
 
     # Terms (from company settings)
     if company_settings and company_settings.quote_terms:
-        content.append(Paragraph("TERMS & CONDITIONS", heading_style))
-        content.append(Paragraph(company_settings.quote_terms, small_style))
+        content.append(Paragraph("TERMS &amp; CONDITIONS", heading_style))
+        content.append(Paragraph(esc(company_settings.quote_terms), small_style))
         content.append(Spacer(1, 0.2*inch))
 
     # Footer
     if company_settings and company_settings.quote_footer:
-        content.append(Paragraph(company_settings.quote_footer, normal_style))
+        content.append(Paragraph(esc(company_settings.quote_footer), normal_style))
     else:
         content.append(Paragraph("Thank you for your business!", normal_style))
         content.append(Paragraph("To accept this quote, please contact us with your quote number.", normal_style))

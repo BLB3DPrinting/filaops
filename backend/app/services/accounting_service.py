@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -80,20 +80,33 @@ def get_trial_balance(
         as_of_date = date.today()
 
     # Query to sum debits and credits by account
-    # Only include journal entries on or before as_of_date
+    # Use conditional sums so accounts with only future entries still appear
     query = db.query(
         GLAccount.account_code,
         GLAccount.name,
         GLAccount.account_type,
-        func.coalesce(func.sum(GLJournalEntryLine.debit_amount), Decimal("0")).label("total_debits"),
-        func.coalesce(func.sum(GLJournalEntryLine.credit_amount), Decimal("0")).label("total_credits"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (GLJournalEntry.entry_date <= as_of_date, GLJournalEntryLine.debit_amount),
+                    else_=Decimal("0"),
+                )
+            ),
+            Decimal("0"),
+        ).label("total_debits"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (GLJournalEntry.entry_date <= as_of_date, GLJournalEntryLine.credit_amount),
+                    else_=Decimal("0"),
+                )
+            ),
+            Decimal("0"),
+        ).label("total_credits"),
     ).outerjoin(
         GLJournalEntryLine, GLAccount.id == GLJournalEntryLine.account_id
     ).outerjoin(
         GLJournalEntry, GLJournalEntryLine.journal_entry_id == GLJournalEntry.id
-    ).filter(
-        # Include accounts with no entries OR entries before as_of_date
-        (GLJournalEntry.entry_date <= as_of_date) | (GLJournalEntry.id.is_(None))
     ).group_by(
         GLAccount.id,
         GLAccount.account_code,
@@ -213,6 +226,10 @@ def get_inventory_valuation(db: Session, *, as_of_date: date | None = None) -> d
             Product.item_type == item_type,
         )
 
+        # Raw Materials category: only include products flagged as raw materials
+        if item_type == "supply":
+            inventory_query = inventory_query.filter(Product.is_raw_material.is_(True))
+
         inv_result = inventory_query.first()
 
         item_count = inv_result.item_count or 0
@@ -302,6 +319,12 @@ def get_transaction_ledger(
         raise HTTPException(
             status_code=404,
             detail=f"GL Account {account_code} not found"
+        )
+
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="end_date must be on or after start_date"
         )
 
     # Build base query for transactions
@@ -594,7 +617,7 @@ def get_accounting_summary(db: Session) -> dict:
 
     # Inventory by category
     category_map = {
-        "material": "Raw Materials",
+        "supply": "Raw Materials",
         "wip": "Work in Process",
         "finished_good": "Finished Goods",
         "packaging": "Packaging",
@@ -607,7 +630,7 @@ def get_accounting_summary(db: Session) -> dict:
         inv_query = db.query(
             func.count(Inventory.id).label("count"),
             func.coalesce(
-                func.sum(Inventory.on_hand_quantity * Product.standard_cost),
+                func.sum(Inventory.on_hand_quantity * func.coalesce(Product.standard_cost, Decimal("0"))),
                 Decimal("0")
             ).label("value"),
         ).join(
@@ -615,10 +638,16 @@ def get_accounting_summary(db: Session) -> dict:
         ).filter(
             Product.item_type == item_type,
             Product.active.is_(True),
-        ).first()
+        )
 
-        value = Decimal(str(inv_query.value or 0))
-        count = inv_query.count or 0
+        # Raw Materials category: only include products flagged as raw materials
+        if item_type == "supply":
+            inv_query = inv_query.filter(Product.is_raw_material.is_(True))
+
+        inv_result = inv_query.first()
+
+        value = Decimal(str(inv_result.value or 0))
+        count = inv_result.count or 0
 
         if value > 0 or count > 0:
             inventory_by_category.append({
