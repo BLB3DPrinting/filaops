@@ -153,7 +153,8 @@ def create_category(
     check_unique_or_400(db, ItemCategory, "code", code.upper())
 
     if parent_id:
-        get_or_404(db, ItemCategory, parent_id, "Parent category not found")
+        if not db.query(ItemCategory).filter(ItemCategory.id == parent_id).first():
+            raise HTTPException(status_code=400, detail="Parent category not found")
 
     category = ItemCategory(
         code=code.upper(),
@@ -201,7 +202,8 @@ def update_category(
                 status_code=400, detail="Category cannot be its own parent"
             )
         if parent_id:
-            get_or_404(db, ItemCategory, parent_id, "Parent category not found")
+            if not db.query(ItemCategory).filter(ItemCategory.id == parent_id).first():
+                raise HTTPException(status_code=400, detail="Parent category not found")
         category.parent_id = parent_id
 
     if description is not None:
@@ -473,7 +475,8 @@ def create_item(db: Session, *, data: dict) -> Product:
     check_unique_or_400(db, Product, "sku", data["sku"])
 
     if data.get("category_id"):
-        get_or_404(db, ItemCategory, data["category_id"], "Category not found")
+        if not db.query(ItemCategory).filter(ItemCategory.id == data["category_id"]).first():
+            raise HTTPException(status_code=400, detail="Category not found")
 
     # Auto-configure UOM for materials
     if item_type == "material":
@@ -516,7 +519,8 @@ def update_item(db: Session, item_id: int, *, data: dict) -> Product:
         data["sku"] = data["sku"].upper()
 
     if "category_id" in data and data["category_id"] and data["category_id"] != item.category_id:
-        get_or_404(db, ItemCategory, data["category_id"], "Category not found")
+        if not db.query(ItemCategory).filter(ItemCategory.id == data["category_id"]).first():
+            raise HTTPException(status_code=400, detail="Category not found")
 
     # Handle unit change with inventory conversion
     old_unit = item.unit
@@ -982,7 +986,8 @@ def bulk_update_items(
         raise HTTPException(status_code=400, detail="No items specified")
 
     if category_id and category_id != 0:
-        get_or_404(db, ItemCategory, category_id, "Category not found")
+        if not db.query(ItemCategory).filter(ItemCategory.id == category_id).first():
+            raise HTTPException(status_code=400, detail="Category not found")
 
     updated = 0
     errors = []
