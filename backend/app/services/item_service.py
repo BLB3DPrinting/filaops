@@ -495,6 +495,8 @@ def create_item(db: Session, *, data: dict) -> Product:
         if enum_field in data and data[enum_field] and hasattr(data[enum_field], "value"):
             data[enum_field] = data[enum_field].value
 
+    # Handle Pydantic alias: schema uses is_active, model uses active
+    data.pop("is_active", None)
     data["active"] = True
     item = Product(**data)
     db.add(item)
