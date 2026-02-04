@@ -491,7 +491,7 @@ class TestDeleteBOM:
 
     def test_delete_bom_lines_still_exist(self, client, db, finished_good, raw_material, make_bom):
         """Soft delete deactivates BOM but lines remain."""
-        from app.models.bom import BOM, BOMLine
+        from app.models.bom import BOMLine
 
         bom = make_bom(
             product_id=finished_good.id,
@@ -920,7 +920,7 @@ class TestGetEffectiveCost:
     """Tests for the get_effective_cost priority logic."""
 
     def test_standard_cost_takes_priority(self, make_product):
-        from app.api.v1.endpoints.admin.bom import get_effective_cost
+        from app.services.bom_management_service import get_effective_cost
 
         product = make_product(
             standard_cost=Decimal("10.00"),
@@ -929,7 +929,7 @@ class TestGetEffectiveCost:
         assert get_effective_cost(product) == Decimal("10.00")
 
     def test_falls_back_to_average_cost(self, make_product):
-        from app.api.v1.endpoints.admin.bom import get_effective_cost
+        from app.services.bom_management_service import get_effective_cost
 
         product = make_product(
             standard_cost=None,
@@ -938,7 +938,7 @@ class TestGetEffectiveCost:
         assert get_effective_cost(product) == Decimal("8.50")
 
     def test_returns_zero_when_no_cost(self, make_product):
-        from app.api.v1.endpoints.admin.bom import get_effective_cost
+        from app.services.bom_management_service import get_effective_cost
 
         product = make_product(
             standard_cost=None,
@@ -955,7 +955,7 @@ class TestCalculateMaterialLineCost:
     """Tests for material line cost calculation."""
 
     def test_grams_unit(self):
-        from app.api.v1.endpoints.admin.bom import calculate_material_line_cost
+        from app.services.bom_management_service import calculate_material_line_cost
 
         # 500 G at $20/KG = (500/1000) * 20 = $10.00
         result = calculate_material_line_cost(
@@ -966,7 +966,7 @@ class TestCalculateMaterialLineCost:
         assert result == Decimal("10")
 
     def test_kg_unit(self):
-        from app.api.v1.endpoints.admin.bom import calculate_material_line_cost
+        from app.services.bom_management_service import calculate_material_line_cost
 
         # 2 KG at $20/KG = (2000/1000) * 20 = $40.00
         result = calculate_material_line_cost(
@@ -977,7 +977,7 @@ class TestCalculateMaterialLineCost:
         assert result == Decimal("40")
 
     def test_none_unit_treated_as_grams(self):
-        from app.api.v1.endpoints.admin.bom import calculate_material_line_cost
+        from app.services.bom_management_service import calculate_material_line_cost
 
         # None unit -> treated as grams: 1000 G at $25/KG = $25.00
         result = calculate_material_line_cost(
