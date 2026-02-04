@@ -138,6 +138,10 @@ tables_output.txt
 # Screenshots/images
 *.png
 
+# Temporary review/API cache files
+*tmp_reviews.json
+*tmp_comments.json
+
 # Code Conclave / Review Council outputs
 .claude/reviews/
 .code-conclave/reviews/
