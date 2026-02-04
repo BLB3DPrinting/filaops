@@ -265,8 +265,24 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
                     detail="Invalid customer_id - customer not found"
                 )
 
-    # Update fields (exclude apply_tax as it's not a model field)
+    # Validate material/color combo if either is being changed
     update_data = request.model_dump(exclude_unset=True)
+    if "material_type" in update_data or "color" in update_data:
+        effective_material = update_data.get("material_type") or quote.material_type or "PLA"
+        effective_color = update_data.get("color") or quote.color
+        if effective_color:
+            from app.services.material_service import get_material_product
+            material_product = get_material_product(db, effective_material, effective_color)
+            if not material_product:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Material not found: {effective_material} in {effective_color}. "
+                        f"Check available materials at /api/v1/materials/combinations"
+                    )
+                )
+
+    # Update fields (exclude apply_tax as it's not a model field)
     apply_tax = update_data.pop("apply_tax", None)
     shipping_cost_updated = "shipping_cost" in update_data
 
@@ -400,47 +416,20 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
             detail="Quote has expired"
         )
 
-    # Generate order number - with collision check
+    # Generate order number using DB-side numeric max (same pattern as quote numbers)
     year = datetime.now(timezone.utc).year
-    max_attempts = 100  # Prevent infinite loop
+    order_prefix = f"SO-{year}-"
 
-    # Find the highest existing sequence number for this year
-    # Use CAST to sort numerically, not alphabetically
-    last_order = db.query(SalesOrder).filter(
-        SalesOrder.order_number.like(f"SO-{year}-%")
-    ).order_by(desc(SalesOrder.order_number)).first()
-
-    if last_order:
-        try:
-            next_seq = int(last_order.order_number.split("-")[2]) + 1
-        except (IndexError, ValueError):
-            next_seq = 1
-    else:
-        next_seq = 1
-
-    # Find next available order number
-    order_number = None
-    for attempt in range(max_attempts):
-        candidate = f"SO-{year}-{next_seq:04d}"
-
-        # Check if this order number already exists
-        existing = db.query(SalesOrder).filter(
-            SalesOrder.order_number == candidate
-        ).first()
-
-        if not existing:
-            order_number = candidate
-            break  # Found a unique order number
-
-        # Collision - increment and try again (don't re-query for max)
-        logger.warning(f"Order number collision: {candidate} already exists, trying next")
-        next_seq += 1
-
-    if not order_number:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to generate unique order number after multiple attempts"
+    max_seq = db.query(
+        func.max(
+            cast(func.replace(SalesOrder.order_number, order_prefix, ''), Integer)
         )
+    ).filter(
+        SalesOrder.order_number.like(f"{order_prefix}%")
+    ).scalar() or 0
+
+    next_seq = max_seq + 1
+    order_number = f"{order_prefix}{next_seq:04d}"
 
     # Create sales order
     # Note: quote.subtotal is pre-tax, quote.total_price includes tax

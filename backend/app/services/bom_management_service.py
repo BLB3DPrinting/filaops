@@ -935,8 +935,8 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
     # Update provided fields
     update_data = line_data.model_dump(exclude_unset=True)
 
-    # Inherit new component's unit when component changes without explicit unit
-    if new_component and "unit" not in update_data:
+    # Inherit new component's unit when component actually changes without explicit unit
+    if new_component and "unit" not in update_data and line_data.component_id != line.component_id:
         update_data["unit"] = new_component.unit or "EA"
 
     for field, value in update_data.items():
