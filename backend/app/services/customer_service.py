@@ -114,7 +114,9 @@ def generate_customer_number(db: Session) -> str:
     """Generate next customer number (CUST-001, CUST-002, etc.).
 
     Uses DB-side numeric extraction to avoid lexicographic ordering issues
-    (e.g. CUST-100 sorting before CUST-099).
+    (e.g. CUST-100 sorting before CUST-099).  Regex filter ensures only
+    simple ``CUST-NNN`` values are considered (excludes legacy formats
+    like ``CUST-2026-000001``).
     """
     prefix = "CUST-"
     max_seq = (
@@ -123,7 +125,7 @@ def generate_customer_number(db: Session) -> str:
                 cast(func.replace(User.customer_number, prefix, ""), Integer)
             )
         )
-        .filter(User.customer_number.like(f"{prefix}%"))
+        .filter(User.customer_number.op("~")(r"^CUST-\d+$"))
         .scalar()
         or 0
     )
