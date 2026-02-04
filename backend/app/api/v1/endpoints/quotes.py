@@ -76,6 +76,9 @@ class ManualQuoteUpdate(BaseModel):
     # Tax
     apply_tax: Optional[bool] = Field(None, description="Whether to apply tax")
 
+    # Shipping cost
+    shipping_cost: Optional[Decimal] = Field(None, ge=0, description="Shipping cost")
+
     customer_notes: Optional[str] = Field(None, max_length=1000)
     admin_notes: Optional[str] = Field(None, max_length=1000)
 

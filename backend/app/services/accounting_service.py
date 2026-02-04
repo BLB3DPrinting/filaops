@@ -26,6 +26,8 @@ logger = get_logger(__name__)
 
 def _get_period_name(year: int, period: int) -> str:
     """Convert year/period to human-readable name like 'January 2025'"""
+    if not 1 <= period <= 12:
+        return f"Period {period} {year}"
     return f"{calendar.month_name[period]} {year}"
 
 
@@ -389,6 +391,22 @@ def get_transaction_ledger(
     # Build transactions with running balance
     transactions = []
     running_balance = opening_balance
+
+    # Adjust running balance for skipped rows when paginating (offset > 0)
+    if offset > 0:
+        skipped_subq = query.limit(offset).subquery()
+        skipped_sums = db.query(
+            func.coalesce(func.sum(skipped_subq.c.debit_amount), Decimal("0")),
+            func.coalesce(func.sum(skipped_subq.c.credit_amount), Decimal("0")),
+        ).first()
+        if skipped_sums:
+            skipped_dr = Decimal(str(skipped_sums[0] or 0))
+            skipped_cr = Decimal(str(skipped_sums[1] or 0))
+            if account.account_type in ("asset", "expense"):
+                running_balance += skipped_dr - skipped_cr
+            else:
+                running_balance += skipped_cr - skipped_dr
+
     total_debits = Decimal("0")
     total_credits = Decimal("0")
 

@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func
+from sqlalchemy import Integer, cast, desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,24 +29,19 @@ logger = get_logger(__name__)
 def generate_quote_number(db: Session) -> str:
     """Generate next quote number in format Q-YYYY-NNNNNN (zero-padded).
 
-    Uses numeric extraction to avoid lexicographic sort issues past 999.
+    Uses DB-side numeric extraction to avoid loading all quote numbers into Python.
     """
     year = datetime.now(timezone.utc).year
     prefix = f"Q-{year}-"
 
-    # Find max numeric suffix for this year's quotes
-    all_quotes = db.query(Quote.quote_number).filter(
+    # DB-side max: strip prefix, cast remainder to integer, find max
+    max_seq = db.query(
+        func.max(
+            cast(func.replace(Quote.quote_number, prefix, ''), Integer)
+        )
+    ).filter(
         Quote.quote_number.like(f"{prefix}%")
-    ).all()
-
-    max_seq = 0
-    for (qn,) in all_quotes:
-        try:
-            seq = int(qn.split("-")[2])
-            if seq > max_seq:
-                max_seq = seq
-        except (IndexError, ValueError):
-            continue
+    ).scalar() or 0
 
     next_seq = max_seq + 1
     return f"{prefix}{next_seq:06d}"
@@ -273,12 +268,13 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     # Update fields (exclude apply_tax as it's not a model field)
     update_data = request.model_dump(exclude_unset=True)
     apply_tax = update_data.pop("apply_tax", None)
+    shipping_cost_updated = "shipping_cost" in update_data
 
     for field, value in update_data.items():
         setattr(quote, field, value)
 
-    # Recalculate pricing if price, quantity, or tax setting changed
-    if request.unit_price is not None or request.quantity is not None or apply_tax is not None:
+    # Recalculate pricing if price, quantity, tax, or shipping changed
+    if request.unit_price is not None or request.quantity is not None or apply_tax is not None or shipping_cost_updated:
         unit_price = request.unit_price if request.unit_price is not None else quote.unit_price
         quantity = request.quantity if request.quantity is not None else quote.quantity
         subtotal = unit_price * quantity

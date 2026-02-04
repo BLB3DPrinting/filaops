@@ -923,9 +923,10 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
         )
 
     # If changing component, verify it exists
+    new_component = None
     if line_data.component_id is not None:
-        component = db.query(Product).filter(Product.id == line_data.component_id).first()
-        if not component:
+        new_component = db.query(Product).filter(Product.id == line_data.component_id).first()
+        if not new_component:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Component not found"
@@ -933,6 +934,11 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
 
     # Update provided fields
     update_data = line_data.model_dump(exclude_unset=True)
+
+    # Inherit new component's unit when component changes without explicit unit
+    if new_component and "unit" not in update_data:
+        update_data["unit"] = new_component.unit or "EA"
+
     for field, value in update_data.items():
         setattr(line, field, value)
 
