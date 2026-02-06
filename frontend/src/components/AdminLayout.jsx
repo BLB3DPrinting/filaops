@@ -481,6 +481,15 @@ const navGroups = [
   },
 ];
 
+/**
+ * Application admin layout and navigation shell for the admin area.
+ *
+ * Renders the responsive sidebar (collapsible and mobile overlay), header with version and security badge, and a content Outlet.
+ * Manages persistent sidebar state, user and company settings (company logo, AI settings), automatic token refresh while active, periodic AI-settings polling, and current version refresh.
+ * Performs an authentication check and redirects to /admin/login when no admin token is present; the logout action clears admin session data and navigates to the login page.
+ *
+ * @returns {JSX.Element} The admin layout component containing navigation, header, and nested route Outlet.
+ */
 export default function AdminLayout() {
   const navigate = useNavigate();
   // Persist sidebar state in localStorage

@@ -406,7 +406,12 @@ async def get_scrap_reasons(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ScrapReasonsResponse:
-    """Get list of active scrap reasons."""
+    """
+    Provide active scrap reason codes and brief details for each reason.
+    
+    Returns:
+        ScrapReasonsResponse: Contains `reasons`, a list of scrap reason codes, and `details`, a list of ScrapReasonDetail entries with `id`, `code`, `name`, `description`, `sequence`, and `active`.
+    """
     reasons = production_order_service.get_scrap_reasons(db)
 
     return ScrapReasonsResponse(
@@ -430,7 +435,14 @@ async def get_all_scrap_reasons(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get all scrap reasons including inactive."""
+    """
+    Return all scrap reasons, including inactive ones, as a list of detail objects.
+    
+    Each returned item includes id, code, name, description, sequence (defaults to 0 when unset), and active flag. The response does not include category or requires_remake fields.
+    
+    Returns:
+        list[ScrapReasonDetail]: List of scrap reason detail objects for all reasons (active and inactive).
+    """
     reasons = production_order_service.get_scrap_reasons(db, include_inactive=True)
 
     return [

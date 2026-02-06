@@ -126,7 +126,14 @@ def _get_blocked_production_orders(db: Session) -> List[ActionItem]:
 
 
 def _get_overdue_sales_orders(db: Session) -> List[ActionItem]:
-    """Get sales orders past their due date that haven't shipped."""
+    """
+    Identify sales orders whose estimated completion date is before the current time and have not been shipped, producing action items for each overdue order.
+    
+    Each returned ActionItem corresponds to one overdue sales order and includes a title, description that states how many days it is overdue and the order status, suggested navigation actions, and metadata containing `days_overdue` and `customer`. The calculation of `days_overdue` correctly handles both naive and timezone-aware `estimated_completion_date` values.
+    
+    Returns:
+        List[ActionItem]: A list of action items representing overdue sales orders.
+    """
     items = []
     now = datetime.now(timezone.utc)
 

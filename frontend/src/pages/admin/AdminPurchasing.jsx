@@ -12,6 +12,10 @@ import PurchaseOrdersTab from "../../components/purchasing/PurchaseOrdersTab";
 import VendorsTab from "../../components/purchasing/VendorsTab";
 import LowStockTab from "../../components/purchasing/LowStockTab";
 
+/**
+ * AdminPurchasing component that provides the admin interface for managing vendors, purchase orders, low-stock items, purchasing trend visualization, and related modals and CRUD actions.
+ * @returns {JSX.Element} A React element rendering the admin purchasing interface.
+ */
 export default function AdminPurchasing() {
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();

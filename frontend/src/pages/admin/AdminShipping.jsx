@@ -301,6 +301,16 @@ const sortByDueDate = (orders) => {
   });
 };
 
+/**
+ * Renders the Shipping admin interface for viewing metrics and managing order shipment workflow.
+ *
+ * Displays a shipping trend chart and compact metrics, organizes orders into three workflow tabs
+ * (packaging, needs_label, ready_to_ship), shows a sortable orders table with due-date urgency,
+ * provides inline label entry (carrier + tracking) for assigning tracking numbers, and exposes
+ * actions to save tracking and mark orders as shipped.
+ *
+ * @returns {JSX.Element} The Shipping administration UI component.
+ */
 export default function AdminShipping() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();

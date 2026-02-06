@@ -1,5 +1,21 @@
 import { statusColors } from "./constants";
 
+/**
+ * Render the low-stock management tab with summary cards, an optional MRP shortage alert, and an actionable table of items requiring attention.
+ *
+ * @param {Object[]} lowStockItems - Array of items flagged for attention; each item should include fields like `id`, `name`, `sku`, `available_qty`, `reorder_point`, `shortfall`, `mrp_shortage`, `shortage_source`, `unit`, and `category_name`.
+ * @param {Object} [lowStockSummary] - Aggregate counts and values for summary cards; expected fields include `critical_count`, `urgent_count`, `low_count`, `total_shortfall_value`, and `mrp_shortage_count`.
+ * @param {boolean} lowStockLoading - Whether low-stock data is currently loading.
+ * @param {Set<number|string>} selectedLowStockIds - Set of item IDs currently selected in the table.
+ * @param {Object[]} selectedItemsByVendor - Groups of selected items keyed by vendor; each group should include `vendorId`, `vendorName`, `items` (array), and `totalValue`.
+ * @param {(id: number|string) => void} toggleLowStockItem - Toggle selection for a single item ID.
+ * @param {() => void} toggleAllLowStock - Toggle selection of all visible low-stock items.
+ * @param {() => void} clearLowStockSelection - Clear all selected low-stock items.
+ * @param {() => void} fetchLowStock - Refresh the low-stock data.
+ * @param {(item: Object) => void} onCreatePO - Create a purchase order for a single item.
+ * @param {(vendorGroup: Object) => void} onCreatePOFromSelection - Create a purchase order from a vendor group of selected items.
+ * @returns {JSX.Element} The rendered Low Stock tab UI.
+ */
 export default function LowStockTab({
   lowStockItems,
   lowStockSummary,
