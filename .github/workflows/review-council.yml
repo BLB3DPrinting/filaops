@@ -2,106 +2,101 @@ name: Review Council
 
 on:
   pull_request:
-    types: [opened, synchronize]
-  pull_request_target:
-    types: [labeled]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: 'Agents to run (comma-separated)'
+        required: false
+        default: 'guardian,sentinel,architect,navigator,herald,operator'
+      standard:
+        description: 'Compliance standard (e.g., cmmc-l2, itar)'
+        required: false
 
-# Cancel in-progress runs for the same PR
-concurrency:
-  group: review-council-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
 
 jobs:
-  # ──────────────────────────────────────────────────
-  # Default Review: GUARDIAN + ARCHITECT on every PR
-  # Skipped if 'full-review' label is present
-  # ──────────────────────────────────────────────────
-  default-review:
-    if: >-
-      github.event_name == 'pull_request' &&
-      !contains(github.event.pull_request.labels.*.name, 'full-review')
+  review:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        agent: [guardian, architect]
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Read agent prompt
-        id: prompt
+      - name: Checkout Review Council
+        uses: actions/checkout@v4
+        with:
+          repository: Blb3D/review-council
+          path: .review-council-tool
+          # Pin to specific version for stability:
+          # ref: v1.0.0
+
+      - name: Run Review Council
+        if: env.ANTHROPIC_API_KEY != ''
+        shell: pwsh
         run: |
-          {
-            echo 'PROMPT<<PROMPT_EOF'
-            cat .github/review-council/prompts/${{ matrix.agent }}.md
-            echo ''
-            echo '---'
-            echo 'Review PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}'
-            echo 'Base: ${{ github.event.pull_request.base.ref }} <- Head: ${{ github.event.pull_request.head.ref }}'
-            echo 'PROMPT_EOF'
-          } >> "$GITHUB_OUTPUT"
+          # Determine agents: full-review label → all 6, otherwise guardian + architect
+          $labels = '${{ join(github.event.pull_request.labels.*.name, ',') }}'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $agents = ('${{ github.event.inputs.agents }}' -split ',')
+          } elseif ($labels -match 'full-review') {
+            $agents = @('guardian','sentinel','architect','navigator','herald','operator')
+          } else {
+            $agents = @('guardian','architect')
+          }
 
-      - name: Run ${{ matrix.agent }} review
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: ${{ steps.prompt.outputs.PROMPT }}
-          claude_args: >-
-            --model claude-sonnet-4-5-20250929
-            --max-turns 15
-            --allowedTools "Read,Glob,Grep,Bash(grep:*),Bash(find:*),Bash(wc:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(npm audit:*),Bash(git log:*),Bash(git diff:*)"
+          Write-Host "Running agents: $($agents -join ', ')"
 
-  # ──────────────────────────────────────────────────
-  # Full Review: All 6 agents when 'full-review' label applied
-  # ──────────────────────────────────────────────────
-  full-review:
-    if: >-
-      (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'full-review')) ||
-      (github.event_name == 'pull_request_target' &&
-       github.event.label.name == 'full-review')
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        agent: [guardian, architect, sentinel, navigator, herald, operator]
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          $params = @{
+            Project      = '${{ github.workspace }}'
+            Agents       = $agents
+            OutputFormat  = 'junit'
+            CI           = $true
+          }
 
-      - name: Read agent prompt
-        id: prompt
+          # Diff-scoped review for PRs
+          $baseBranch = '${{ github.event.pull_request.base.ref }}'
+          if ($baseBranch) { $params.BaseBranch = $baseBranch }
+
+          # Compliance standard (manual dispatch only)
+          $standard = '${{ github.event.inputs.standard }}'
+          if ($standard) { $params.Standard = $standard }
+
+          ./.review-council-tool/cli/ccl.ps1 @params
+        continue-on-error: true
+
+      - name: Run Review Council (DryRun)
+        if: env.ANTHROPIC_API_KEY == ''
+        shell: pwsh
         run: |
-          {
-            echo 'PROMPT<<PROMPT_EOF'
-            cat .github/review-council/prompts/${{ matrix.agent }}.md
-            echo ''
-            echo '---'
-            echo 'Review PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}'
-            echo 'Base: ${{ github.event.pull_request.base.ref }} <- Head: ${{ github.event.pull_request.head.ref }}'
-            echo 'PROMPT_EOF'
-          } >> "$GITHUB_OUTPUT"
+          Write-Host "No ANTHROPIC_API_KEY secret — running DryRun mode"
+          ./.review-council-tool/cli/ccl.ps1 `
+            -Project '${{ github.workspace }}' `
+            -Agent guardian `
+            -DryRun `
+            -OutputFormat junit `
+            -CI
+        continue-on-error: true
 
-      - name: Run ${{ matrix.agent }} review
-        uses: anthropics/claude-code-action@v1
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: ${{ steps.prompt.outputs.PROMPT }}
-          claude_args: >-
-            --model claude-sonnet-4-5-20250929
-            --max-turns 20
-            --allowedTools "Read,Glob,Grep,Bash(grep:*),Bash(find:*),Bash(wc:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(npm audit:*),Bash(git log:*),Bash(git diff:*)"
+          files: .code-conclave/reviews/conclave-results.xml
+          check_name: 'Review Council'
+          comment_title: 'Review Council Results'
+          comment_mode: 'always'
+
+      - name: Upload Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: review-council-reports
+          path: .code-conclave/reviews/
+          retention-days: 30
