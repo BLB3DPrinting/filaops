@@ -15,7 +15,7 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.services import export_service as svc
-from app.services.export_service import _sanitize_csv_field as _san
+from app.services.export_service import sanitize_csv_field as _san
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -38,7 +38,7 @@ async def export_products(
     for r in rows:
         writer.writerow([
             _san(r["sku"]), _san(r["name"]), _san(r["description"]),
-            r["item_type"], r["procurement_type"], r["unit"],
+            _san(r["item_type"]), _san(r["procurement_type"]), _san(r["unit"]),
             r["standard_cost"], r["selling_price"], r["on_hand_qty"],
             r["reorder_point"], r["active"],
         ])
@@ -70,7 +70,7 @@ async def export_orders(
     ])
     for r in rows:
         writer.writerow([
-            _san(r["order_number"]), _san(r["customer"]), r["status"],
+            _san(r["order_number"]), _san(r["customer"]), _san(r["status"]),
             r["total"], r["created_at"], _san(r["line_items"]),
         ])
 

@@ -8,20 +8,41 @@ Business logic extracted from ``admin/export.py``.
 from datetime import datetime as dt
 from typing import Any, Dict, List, Optional
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
 
+_DANGEROUS_CSV_CHARS = {"=", "@", "+", "-", "\t", "\r"}
 
-def _sanitize_csv_field(value: Any) -> str:
-    """Prevent CSV formula injection by prefixing dangerous chars."""
+
+def sanitize_csv_field(value: Any) -> str:
+    """Prevent CSV formula injection by prefixing dangerous chars.
+
+    Strips leading whitespace before checking so that payloads like
+    ``" =CMD()"`` cannot bypass the guard.
+    """
     if value is None:
         return ""
     s = str(value)
-    if s and s[0] in ("=", "@", "+", "-", "\t", "\r"):
+    stripped = s.lstrip()
+    if stripped and stripped[0] in _DANGEROUS_CSV_CHARS:
         return "'" + s
     return s
+
+
+def _parse_date(value: str) -> dt:
+    """Parse an ISO date string, raising HTTP 400 on bad input.
+
+    Strips timezone info so that comparisons against naive DB timestamps
+    (``TIMESTAMP WITHOUT TIME ZONE``) don't raise ``TypeError``.
+    """
+    try:
+        parsed = dt.fromisoformat(value)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {value!r}")
+    return parsed.replace(tzinfo=None)
 
 
 def get_products_for_export(db: Session) -> List[Dict[str, Any]]:
@@ -57,9 +78,9 @@ def get_orders_for_export(
     query = db.query(SalesOrder)
 
     if start_date:
-        query = query.filter(SalesOrder.created_at >= dt.fromisoformat(start_date))
+        query = query.filter(SalesOrder.created_at >= _parse_date(start_date))
     if end_date:
-        query = query.filter(SalesOrder.created_at <= dt.fromisoformat(end_date))
+        query = query.filter(SalesOrder.created_at <= _parse_date(end_date))
 
     orders = query.all()
 
