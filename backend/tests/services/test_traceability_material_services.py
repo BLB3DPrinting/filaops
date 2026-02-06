@@ -684,10 +684,6 @@ class TestRecallQueries:
 class TestSpoolTraceability:
     """Tests for spool-based forward and backward traceability."""
 
-    @pytest.mark.xfail(
-        reason="Pre-existing bug: service references po.completed_date but model uses completed_at",
-        strict=True,
-    )
     def test_trace_forward_from_spool(self, db, make_product):
         raw = make_product(item_type="supply", unit="G")
         fg = make_product(item_type="finished_good")
@@ -712,10 +708,6 @@ class TestSpoolTraceability:
             traceability_service.trace_forward_from_spool(db, 999999)
         assert exc_info.value.status_code == 404
 
-    @pytest.mark.xfail(
-        reason="Pre-existing bug: service references po.completed_date but model uses completed_at",
-        strict=True,
-    )
     def test_trace_backward_from_serial(self, db, make_product):
         raw = make_product(item_type="supply", unit="G")
         fg = make_product(item_type="finished_good")

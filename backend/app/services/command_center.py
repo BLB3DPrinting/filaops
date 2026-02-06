@@ -207,7 +207,7 @@ def _get_due_today_sales_orders(db: Session) -> List[ActionItem]:
                     action_type="navigate"
                 )
             ],
-            created_at=so.order_date,
+            created_at=so.created_at,
             metadata={
                 "status": so.status,
                 "customer": so.customer.company_name if so.customer else "Unknown"

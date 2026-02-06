@@ -1696,11 +1696,12 @@ class TestConvertQuoteToSalesOrder:
         assert exc_info.value.status_code == 400
         assert "expired" in exc_info.value.detail.lower()
 
-    def test_raises_400_for_already_converted_quote(self, db, make_product):
+    def test_raises_400_for_already_converted_quote(self, db, make_product, make_sales_order):
         """Raises 400 when quote was already converted."""
         product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
         quote = self._make_quote(
-            db, status="accepted", product_id=product.id, sales_order_id=42,
+            db, status="accepted", product_id=product.id, sales_order_id=so.id,
         )
 
         with pytest.raises(HTTPException) as exc_info:

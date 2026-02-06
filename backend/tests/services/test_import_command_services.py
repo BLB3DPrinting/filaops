@@ -489,10 +489,6 @@ class TestOverdueSalesOrders:
 class TestDueTodaySalesOrders:
     """Tests for _get_due_today_sales_orders."""
 
-    @pytest.mark.xfail(
-        reason="Pre-existing bug: command_center references so.order_date but SalesOrder has no such attribute",
-        strict=True,
-    )
     def test_due_today_detected(self, db, make_product, make_sales_order):
         product = make_product(item_type="finished_good")
         so = make_sales_order(product_id=product.id, status="confirmed")
@@ -507,10 +503,6 @@ class TestDueTodaySalesOrders:
         due_ids = [item.entity_id for item in items]
         assert so.id in due_ids
 
-    @pytest.mark.xfail(
-        reason="Pre-existing bug: command_center references so.order_date but SalesOrder has no such attribute",
-        strict=True,
-    )
     def test_due_today_has_priority_2(self, db, make_product, make_sales_order):
         product = make_product(item_type="finished_good")
         so = make_sales_order(product_id=product.id, status="in_production")

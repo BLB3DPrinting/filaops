@@ -760,8 +760,8 @@ def trace_forward_from_spool(db: Session, spool_id: int) -> dict:
                     "product_name": po.product.name if po.product else None,
                     "quantity_produced": float(po.quantity_completed or 0),
                     "completed_date": (
-                        po.completed_date.isoformat()
-                        if po.completed_date
+                        po.completed_at.isoformat()
+                        if po.completed_at
                         else None
                     ),
                     "status": po.status,
@@ -926,7 +926,7 @@ def trace_backward_from_serial(db: Session, serial_number: str) -> dict:
             "code": po.code,
             "quantity_produced": float(po.quantity_completed or 0),
             "completed_date": (
-                po.completed_date.isoformat() if po.completed_date else None
+                po.completed_at.isoformat() if po.completed_at else None
             ),
             "status": po.status,
         },

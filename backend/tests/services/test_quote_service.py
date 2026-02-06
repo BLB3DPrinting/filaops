@@ -475,11 +475,13 @@ class TestConvertQuoteToOrder:
         assert exc_info.value.status_code == 400
         assert "approved or accepted" in exc_info.value.detail.lower()
 
-    def test_rejects_already_converted(self, db):
+    def test_rejects_already_converted(self, db, make_product, make_sales_order):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
         q = _make_quote(
             db, quote_number="Q-CONV-DUP-01",
             status="approved",
-            sales_order_id=123,
+            sales_order_id=so.id,
         )
 
         with pytest.raises(HTTPException) as exc_info:

@@ -718,16 +718,10 @@ class TestFailQC:
         assert data["reprint_created"] is False
         assert data["new_production_order_id"] is None
 
-    @pytest.mark.xfail(reason="Known bug: endpoint uses quantity= instead of quantity_ordered=")
-    def test_fail_qc_reprint_triggers_known_bug(
+    def test_fail_qc_reprint_creates_new_order(
         self, client, db, make_product, make_production_order
     ):
-        """Failing QC with reprint=true hits a known endpoint bug.
-
-        The endpoint passes quantity= to ProductionOrder() but 'quantity'
-        is a read-only property (alias for quantity_ordered). This results
-        in a 500 error. This test documents the bug.
-        """
+        """Failing QC with reprint=true creates a new production order."""
         product = make_product(
             item_type="finished_good",
             standard_cost=Decimal("5.00"),

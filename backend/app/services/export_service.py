@@ -5,6 +5,7 @@ Handles data export queries for products and orders.
 The endpoint layer handles CSV formatting and StreamingResponse.
 Business logic extracted from ``admin/export.py``.
 """
+from datetime import datetime as dt
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -13,13 +14,23 @@ from app.models.product import Product
 from app.models.sales_order import SalesOrder
 
 
+def _sanitize_csv_field(value: Any) -> str:
+    """Prevent CSV formula injection by prefixing dangerous chars."""
+    if value is None:
+        return ""
+    s = str(value)
+    if s and s[0] in ("=", "@", "+", "-", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 def get_products_for_export(db: Session) -> List[Dict[str, Any]]:
     """Get active products with inventory totals for CSV export."""
     products = db.query(Product).filter(Product.active.is_(True)).all()
 
     rows = []
     for p in products:
-        on_hand = sum(inv.on_hand_quantity for inv in p.inventory)
+        on_hand = sum(inv.on_hand_quantity for inv in p.inventory_items)
         rows.append({
             "sku": p.sku,
             "name": p.name,
@@ -46,9 +57,9 @@ def get_orders_for_export(
     query = db.query(SalesOrder)
 
     if start_date:
-        query = query.filter(SalesOrder.created_at >= start_date)
+        query = query.filter(SalesOrder.created_at >= dt.fromisoformat(start_date))
     if end_date:
-        query = query.filter(SalesOrder.created_at <= end_date)
+        query = query.filter(SalesOrder.created_at <= dt.fromisoformat(end_date))
 
     orders = query.all()
 

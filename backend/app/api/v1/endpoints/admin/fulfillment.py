@@ -1253,9 +1253,9 @@ async def fail_quality_check(
             code=new_code,
             product_id=po.product_id,
             bom_id=po.bom_id,
-            quantity=po.quantity,
+            quantity_ordered=po.quantity_ordered,
             status="scheduled",
-            priority="high",  # Reprints are high priority
+            priority=1,  # Reprints are high priority (1=highest)
             estimated_time_minutes=po.estimated_time_minutes,
             notes=f"REPRINT of {po.code}. Original failed QC: {failure_reason}",
         )
