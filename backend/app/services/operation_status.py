@@ -12,7 +12,7 @@ from app.models.production_order import (
     ProductionOrderOperation,
     ProductionOrderOperationMaterial
 )
-from app.models.work_center import Machine
+from app.models.manufacturing import Resource
 from app.services.operation_blocking import check_operation_blocking
 from app.services.resource_scheduling import check_resource_available_now
 from app.services.inventory_service import consume_operation_material, process_production_completion
@@ -333,7 +333,7 @@ def start_operation(
 
     # Validate resource if provided
     if resource_id:
-        resource = db.get(Machine, resource_id)
+        resource = db.get(Resource, resource_id)
         if not resource:
             raise OperationError(f"Resource {resource_id} not found", 404)
 

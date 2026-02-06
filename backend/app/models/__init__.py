@@ -14,7 +14,7 @@ from app.models.material import MaterialType, Color, MaterialColor, MaterialInve
 from app.models.vendor import Vendor
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.purchase_order_document import PurchaseOrderDocument, VendorItem
-from app.models.work_center import WorkCenter, Machine
+from app.models.work_center import WorkCenter
 from app.models.manufacturing import Routing, RoutingOperation, Resource, RoutingOperationMaterial
 from app.models.mrp import MRPRun, PlannedOrder
 from app.models.traceability import (
@@ -74,7 +74,6 @@ __all__ = [
     "VendorItem",
     # Manufacturing Routes
     "WorkCenter",
-    "Machine",
     "Resource",
     "Routing",
     "RoutingOperation",

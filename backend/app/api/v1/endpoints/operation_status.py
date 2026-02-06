@@ -52,7 +52,7 @@ from app.schemas.routing_operations import (
     GenerateOperationsResponse,
 )
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
-from app.models.work_center import Machine
+from app.models.manufacturing import Resource
 from app.models.printer import Printer
 
 
@@ -446,7 +446,7 @@ def schedule_operation_endpoint(
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
     else:
-        resource = db.get(Machine, request.resource_id)
+        resource = db.get(Resource, request.resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
 
@@ -496,7 +496,7 @@ def get_next_available_slot(
             raise HTTPException(status_code=404, detail="Printer not found")
         stored_resource_id = -request.resource_id
     else:
-        resource = db.get(Machine, request.resource_id)
+        resource = db.get(Resource, request.resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
         stored_resource_id = request.resource_id

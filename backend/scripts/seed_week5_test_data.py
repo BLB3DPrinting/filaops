@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from app.db.session import SessionLocal
 from app.models.product import Product
 from app.models.manufacturing import Routing, RoutingOperation
-from app.models.work_center import WorkCenter, Machine
+from app.models.work_center import WorkCenter
+from app.models.manufacturing import Resource
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 
 
@@ -56,41 +57,41 @@ def seed_data():
         
         db.flush()
         
-        # --- Machines (Resources) ---
+        # --- Resources ---
         print("  Creating machines/resources...")
-        res_p1 = db.query(Machine).filter(Machine.code == "P1S-01").first()
+        res_p1 = db.query(Resource).filter(Resource.code == "P1S-01").first()
         if not res_p1:
-            res_p1 = Machine(code="P1S-01", name="Bambu P1S #1", work_center_id=wc_print.id, status="available")
+            res_p1 = Resource(code="P1S-01", name="Bambu P1S #1", work_center_id=wc_print.id, status="available")
             db.add(res_p1)
         
-        res_p2 = db.query(Machine).filter(Machine.code == "P1S-02").first()
+        res_p2 = db.query(Resource).filter(Resource.code == "P1S-02").first()
         if not res_p2:
-            res_p2 = Machine(code="P1S-02", name="Bambu P1S #2", work_center_id=wc_print.id, status="available")
+            res_p2 = Resource(code="P1S-02", name="Bambu P1S #2", work_center_id=wc_print.id, status="available")
             db.add(res_p2)
         
-        res_x1 = db.query(Machine).filter(Machine.code == "X1C-01").first()
+        res_x1 = db.query(Resource).filter(Resource.code == "X1C-01").first()
         if not res_x1:
-            res_x1 = Machine(code="X1C-01", name="Bambu X1C #1", work_center_id=wc_print.id, status="available")
+            res_x1 = Resource(code="X1C-01", name="Bambu X1C #1", work_center_id=wc_print.id, status="available")
             db.add(res_x1)
         
-        res_finish = db.query(Machine).filter(Machine.code == "FINISH-01").first()
+        res_finish = db.query(Resource).filter(Resource.code == "FINISH-01").first()
         if not res_finish:
-            res_finish = Machine(code="FINISH-01", name="Finishing Station", work_center_id=wc_finish.id, status="available")
+            res_finish = Resource(code="FINISH-01", name="Finishing Station", work_center_id=wc_finish.id, status="available")
             db.add(res_finish)
         
-        res_assy = db.query(Machine).filter(Machine.code == "ASSY-01").first()
+        res_assy = db.query(Resource).filter(Resource.code == "ASSY-01").first()
         if not res_assy:
-            res_assy = Machine(code="ASSY-01", name="Assembly Bench", work_center_id=wc_assembly.id, status="available")
+            res_assy = Resource(code="ASSY-01", name="Assembly Bench", work_center_id=wc_assembly.id, status="available")
             db.add(res_assy)
         
-        res_qc = db.query(Machine).filter(Machine.code == "QC-01").first()
+        res_qc = db.query(Resource).filter(Resource.code == "QC-01").first()
         if not res_qc:
-            res_qc = Machine(code="QC-01", name="QC Station", work_center_id=wc_qc.id, status="available")
+            res_qc = Resource(code="QC-01", name="QC Station", work_center_id=wc_qc.id, status="available")
             db.add(res_qc)
         
-        res_pack = db.query(Machine).filter(Machine.code == "PACK-01").first()
+        res_pack = db.query(Resource).filter(Resource.code == "PACK-01").first()
         if not res_pack:
-            res_pack = Machine(code="PACK-01", name="Packing Station", work_center_id=wc_ship.id, status="available")
+            res_pack = Resource(code="PACK-01", name="Packing Station", work_center_id=wc_ship.id, status="available")
             db.add(res_pack)
         
         db.flush()
@@ -326,7 +327,7 @@ def seed_data():
         print("\n📋 Test Data Summary:")
         print("=" * 50)
         print("  Work Centers: 5")
-        print("  Machines: 7")
+        print("  Resources: 7")
         print("  Products: 2")
         print("  Routings: 2")
         print("  Production Orders: 5")

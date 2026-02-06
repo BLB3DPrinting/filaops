@@ -95,10 +95,3 @@ class WorkCenter(Base):
         """Alias for total_resource_count"""
         return self.total_resource_count
 
-
-# Import Resource from manufacturing for backward compatibility
-# Machine was removed - use Resource instead
-from app.models.manufacturing import Resource  # noqa: E402
-
-# Backward compatibility alias
-Machine = Resource

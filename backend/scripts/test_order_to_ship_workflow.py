@@ -37,7 +37,7 @@ from app.models.production_order import ProductionOrder
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.inventory import InventoryLocation
 from app.models.payment import Payment
-from app.models.work_center import WorkCenter, Machine
+from app.models.work_center import WorkCenter
 from app.models.manufacturing import Resource
 # Note: Routing imports moved to function to avoid table redefinition error
 from app.models.scrap_reason import ScrapReason
