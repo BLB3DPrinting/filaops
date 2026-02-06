@@ -9,7 +9,7 @@ from datetime import datetime as dt
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
@@ -21,13 +21,14 @@ def sanitize_csv_field(value: Any) -> str:
     """Prevent CSV formula injection by prefixing dangerous chars.
 
     Strips leading whitespace before checking so that payloads like
-    ``" =CMD()"`` cannot bypass the guard.
+    ``" =CMD()"`` cannot bypass the guard.  Returns the stripped
+    version prefixed with ``'`` so no whitespace sits before the
+    escape character.
     """
     if value is None:
         return ""
-    s = str(value)
-    stripped = s.lstrip()
-    if stripped and stripped[0] in _DANGEROUS_CSV_CHARS:
+    s = str(value).lstrip()
+    if s and s[0] in _DANGEROUS_CSV_CHARS:
         return "'" + s
     return s
 
@@ -47,7 +48,12 @@ def _parse_date(value: str) -> dt:
 
 def get_products_for_export(db: Session) -> List[Dict[str, Any]]:
     """Get active products with inventory totals for CSV export."""
-    products = db.query(Product).filter(Product.active.is_(True)).all()
+    products = (
+        db.query(Product)
+        .options(joinedload(Product.inventory_items))
+        .filter(Product.active.is_(True))
+        .all()
+    )
 
     rows = []
     for p in products:
