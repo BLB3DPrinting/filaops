@@ -60,7 +60,7 @@ def list_quotes(
     limit: int = 50,
 ) -> list[Quote]:
     """List all quotes with optional filtering."""
-    query = db.query(Quote).order_by(desc(Quote.created_at))
+    query = db.query(Quote).order_by(desc(Quote.created_at), desc(Quote.id))
 
     if status_filter:
         query = query.filter(Quote.status == status_filter)

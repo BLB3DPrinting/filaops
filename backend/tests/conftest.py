@@ -2,16 +2,24 @@
 Pytest configuration and fixtures for the test suite.
 
 Provides:
-- Session-scoped seed data (location, user, work center)
-- Database session fixture with rollback cleanup
+- Automatic filaops_test database targeting
+- Session-scoped schema creation and seed data
+- Transaction-isolated database sessions (services can commit without leaking)
 - FastAPI TestClient with auth overrides
 - Data factory fixtures for common domain objects
 """
+import os
 import uuid
 import pytest
 import sys
 from decimal import Decimal
 from pathlib import Path
+
+# =============================================================================
+# CRITICAL: Point to filaops_test BEFORE any app imports.
+# Settings are loaded at import time from env vars / .env file.
+# =============================================================================
+os.environ["DB_NAME"] = "filaops_test"
 
 # Add the backend directory to the path so imports work correctly
 backend_dir = Path(__file__).parent.parent
@@ -19,27 +27,33 @@ sys.path.insert(0, str(backend_dir))
 
 
 # =============================================================================
-# Session-scoped seed data
+# Session-scoped: create schema + seed data (runs once per test session)
 # =============================================================================
 
 @pytest.fixture(scope="session", autouse=True)
-def seed_test_data():
-    """Seed default records required by tests.
+def setup_database():
+    """Create tables and seed required data in filaops_test.
 
-    Seeds:
-    - InventoryLocation id=1 (tests create Inventory with location_id=1)
-    - User id=1 (tests create Quotes with user_id=1)
-    - WorkCenter id=1 (tests create ProductionOrderOperations with work_center_id)
-    - GLAccounts for core accounting (inventory, COGS, revenue, AP, AR, WIP, scrap)
+    Uses Base.metadata.create_all() which is idempotent — safe to run
+    even if tables already exist.
     """
-    from app.db.session import SessionLocal
+    from app.db.session import engine
+    from app.db.base import Base
+
+    # Import all models so Base.metadata knows about them
+    import app.models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
+    # Seed required data
+    from sqlalchemy.orm import Session as SASession
+    from sqlalchemy import text
     from app.models.inventory import InventoryLocation
     from app.models.user import User
     from app.models.work_center import WorkCenter
     from app.models.accounting import GLAccount
 
-    db = SessionLocal()
-    try:
+    with SASession(engine) as db:
         # Seed default inventory location
         if not db.query(InventoryLocation).filter(InventoryLocation.id == 1).first():
             db.add(InventoryLocation(
@@ -63,31 +77,35 @@ def seed_test_data():
             ))
 
         # Seed core GL accounts (idempotent)
+        # Format: (code, name, type, is_system, schedule_c_line)
         gl_accounts = [
-            ("1200", "Accounts Receivable", "asset"),
-            ("1210", "WIP Inventory", "asset"),
-            ("1220", "Finished Goods Inventory", "asset"),
-            ("1230", "Packaging Inventory", "asset"),
-            ("1300", "Inventory Asset", "asset"),
-            ("1310", "WIP Inventory (Legacy)", "asset"),
-            ("2000", "Accounts Payable", "liability"),
-            ("4000", "Sales Revenue", "revenue"),
-            ("5000", "Cost of Goods Sold", "expense"),
-            ("5010", "Shipping Supplies", "expense"),
-            ("5020", "Scrap Expense (Production)", "expense"),
-            ("5100", "Material Cost", "expense"),
-            ("5200", "Scrap Expense", "expense"),
-            ("5500", "Inventory Adjustment", "expense"),
+            ("1000", "Cash", "asset", True, None),
+            ("1200", "Accounts Receivable", "asset", True, None),
+            ("1210", "WIP Inventory", "asset", True, None),
+            ("1220", "Finished Goods Inventory", "asset", True, None),
+            ("1230", "Packaging Inventory", "asset", True, None),
+            ("1300", "Inventory Asset", "asset", True, None),
+            ("1310", "WIP Inventory (Legacy)", "asset", True, None),
+            ("2000", "Accounts Payable", "liability", True, None),
+            ("3000", "Retained Earnings", "equity", True, None),
+            ("4000", "Sales Revenue", "revenue", True, "1"),
+            ("5000", "Cost of Goods Sold", "expense", True, None),
+            ("5010", "Shipping Supplies", "expense", True, None),
+            ("5020", "Scrap Expense (Production)", "expense", True, None),
+            ("5100", "Material Cost", "expense", True, None),
+            ("5200", "Scrap Expense", "expense", True, None),
+            ("5500", "Inventory Adjustment", "expense", True, None),
         ]
-        for code, name, acct_type in gl_accounts:
+        for code, name, acct_type, is_sys, sched_line in gl_accounts:
             if not db.query(GLAccount).filter(GLAccount.account_code == code).first():
-                db.add(GLAccount(account_code=code, name=name, account_type=acct_type))
+                db.add(GLAccount(
+                    account_code=code, name=name, account_type=acct_type,
+                    is_system=is_sys, schedule_c_line=sched_line,
+                ))
 
         db.commit()
 
-        # Synchronize PostgreSQL sequences after explicit-ID inserts.
-        # Without this, auto-increment will try id=1 and collide with seeded rows.
-        from sqlalchemy import text
+        # Synchronize PostgreSQL sequences after explicit-ID inserts
         for table in ("users", "inventory_locations", "work_centers"):
             db.execute(text(
                 f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
@@ -95,25 +113,37 @@ def seed_test_data():
             ))
         db.commit()
 
-        yield
-    finally:
-        db.close()
+    yield
 
 
 # =============================================================================
-# Database session fixture
+# Database session fixture — transaction-isolated
 # =============================================================================
 
 @pytest.fixture
 def db():
-    """Create a database session that rolls back after each test."""
-    from app.db.session import SessionLocal
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.close()
+    """Create a database session wrapped in a transaction that rolls back.
+
+    Uses SQLAlchemy 2.0 join_transaction_mode pattern:
+    - Opens a real connection and begins a transaction
+    - Creates a Session joined to that transaction via a savepoint
+    - Service code calling session.commit() releases/recreates the savepoint
+      but does NOT commit the connection-level transaction
+    - At teardown, the connection transaction is rolled back — all test
+      data disappears regardless of how many commits the service made
+    """
+    from app.db.session import engine
+    from sqlalchemy.orm import Session as SASession
+
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = SASession(bind=connection, join_transaction_mode="create_savepoint")
+
+    yield session
+
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
 # =============================================================================
@@ -378,6 +408,52 @@ def make_bom(db):
             db.flush()
 
         return bom
+
+    yield _factory
+
+
+@pytest.fixture
+def make_production_order(db):
+    """Factory fixture to create ProductionOrder instances."""
+    from app.models.production_order import ProductionOrder
+
+    _counter = [0]
+
+    def _factory(product_id=None, status="draft", quantity=10, **kwargs):
+        uid = _uid()
+        _counter[0] += 1
+        po = ProductionOrder(
+            code=kwargs.pop("code", f"WO-TEST-{uid}"),
+            product_id=product_id or 1,
+            quantity_ordered=quantity,
+            status=status,
+            source=kwargs.pop("source", "manual"),
+            **kwargs,
+        )
+        db.add(po)
+        db.flush()
+        return po
+
+    yield _factory
+
+
+@pytest.fixture
+def make_work_center(db):
+    """Factory fixture to create WorkCenter instances."""
+    from app.models.work_center import WorkCenter
+
+    def _factory(name=None, code=None, center_type="printer", **kwargs):
+        uid = _uid()
+        wc = WorkCenter(
+            name=name or f"Test WC {uid}",
+            code=code or f"WC-{uid}",
+            center_type=center_type,
+            is_active=kwargs.pop("is_active", True),
+            **kwargs,
+        )
+        db.add(wc)
+        db.flush()
+        return wc
 
     yield _factory
 

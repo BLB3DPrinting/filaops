@@ -149,7 +149,6 @@ def create_purchase_order(
         product = line_products[line_data["product_id"]]
 
         line = PurchaseOrderLine(
-            purchase_order_id=po.id,
             line_number=i,
             product_id=line_data["product_id"],
             quantity_ordered=line_data["quantity_ordered"],
@@ -165,8 +164,7 @@ def create_purchase_order(
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        db.add(line)
-        po.lines.append(line)
+        po.lines.append(line)  # cascade="all" handles db.add
 
     calculate_totals(po)
 

@@ -660,7 +660,7 @@ def get_schedule_summary(db: Session) -> dict:
 
 def get_work_center_queues(db: Session) -> list[dict]:
     """Get queue of operations by work center."""
-    work_centers = db.query(WorkCenter).filter(WorkCenter.active.is_(True)).all()
+    work_centers = db.query(WorkCenter).filter(WorkCenter.is_active.is_(True)).all()
 
     result = []
     for wc in work_centers:
@@ -888,9 +888,7 @@ def create_scrap_reason(
     code: str,
     name: str,
     description: Optional[str] = None,
-    category: Optional[str] = None,
     sequence: int = 0,
-    requires_remake: bool = False,
 ) -> ScrapReason:
     """Create a new scrap reason."""
     # Check for duplicate code
@@ -902,9 +900,7 @@ def create_scrap_reason(
         code=code,
         name=name,
         description=description,
-        category=category,
         sequence=sequence,
-        requires_remake=requires_remake,
         active=True,
     )
     db.add(reason)
@@ -917,9 +913,7 @@ def update_scrap_reason(
     *,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    category: Optional[str] = None,
     sequence: Optional[int] = None,
-    requires_remake: Optional[bool] = None,
     active: Optional[bool] = None,
 ) -> ScrapReason:
     """Update a scrap reason."""
@@ -931,12 +925,8 @@ def update_scrap_reason(
         reason.name = name
     if description is not None:
         reason.description = description
-    if category is not None:
-        reason.category = category
     if sequence is not None:
         reason.sequence = sequence
-    if requires_remake is not None:
-        reason.requires_remake = requires_remake
     if active is not None:
         reason.active = active
 
@@ -950,7 +940,7 @@ def delete_scrap_reason(db: Session, reason_id: int) -> None:
         raise HTTPException(status_code=404, detail="Scrap reason not found")
 
     # Check if used
-    used = db.query(ScrapRecord).filter(ScrapRecord.reason_code == reason.code).first()
+    used = db.query(ScrapRecord).filter(ScrapRecord.scrap_reason_code == reason.code).first()
     if used:
         raise HTTPException(
             status_code=400,
@@ -1020,7 +1010,7 @@ def record_scrap(
     }
 
     # Create remake order if requested
-    if create_remake or reason.requires_remake:
+    if create_remake:
         remake_code = generate_production_order_code(db)
         remake_order = ProductionOrder(
             code=remake_code,
