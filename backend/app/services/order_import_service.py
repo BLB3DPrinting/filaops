@@ -11,14 +11,12 @@ Business logic extracted from ``admin/orders.py``.
 """
 import csv
 import io
-import secrets
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
 from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
@@ -87,7 +85,7 @@ def find_or_create_customer(
     customer = User(
         customer_number=customer_number,
         email=email_lower,
-        password_hash=hash_password(secrets.token_urlsafe(32)),
+        password_hash="!import-created-no-password",  # unusable hash; customer must reset password
         first_name=first_name or None,
         last_name=last_name or None,
         company_name=shipping_address.get("company") if shipping_address else None,

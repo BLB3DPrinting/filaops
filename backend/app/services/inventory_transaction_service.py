@@ -604,22 +604,22 @@ def batch_update_inventory(
                 "transaction_id": None,
                 "journal_entry_id": None,
                 "success": False,
-                "error": f"Accounting error: {str(e)}",
+                "error": "Accounting validation failed. Check GL account configuration.",
             })
             failed += 1
         except Exception as e:
             logger.error(f"Error processing batch item {product_id}: {e}")
             results.append({
                 "product_id": product_id,
-                "product_sku": "ERROR",
-                "product_name": "Error",
+                "product_sku": product.sku if product else "ERROR",
+                "product_name": product.name if product else "Error",
                 "previous_quantity": Decimal(0),
                 "counted_quantity": counted_quantity,
                 "variance": Decimal(0),
                 "transaction_id": None,
                 "journal_entry_id": None,
                 "success": False,
-                "error": str(e),
+                "error": "Internal processing error. Check server logs for details.",
             })
             failed += 1
 

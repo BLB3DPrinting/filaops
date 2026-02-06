@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
 from app.services import order_import_service as svc
+from app.api.v1.endpoints.admin.data_import import _read_csv_upload
 
 router = APIRouter(prefix="/orders", tags=["Admin Orders"])
 
@@ -65,17 +66,7 @@ async def import_orders_csv(
     Supports single-line orders (one product per row) or multi-line orders
     (multiple products per order, grouped by Order ID).
     """
-    if not file.filename or not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="File must be a CSV")
-
-    content = await file.read()
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        text = content.decode("latin-1")
-
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    text = await _read_csv_upload(file)
 
     result = svc.import_orders_from_csv(
         db,
