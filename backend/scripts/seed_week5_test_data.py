@@ -9,9 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from datetime import datetime, timedelta
 from app.db.session import SessionLocal
 from app.models.product import Product
-from app.models.manufacturing import Routing, RoutingOperation
+from app.models.manufacturing import Routing, RoutingOperation, Resource
 from app.models.work_center import WorkCenter
-from app.models.manufacturing import Resource
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 
 
@@ -58,7 +57,7 @@ def seed_data():
         db.flush()
         
         # --- Resources ---
-        print("  Creating machines/resources...")
+        print("  Creating resources...")
         res_p1 = db.query(Resource).filter(Resource.code == "P1S-01").first()
         if not res_p1:
             res_p1 = Resource(code="P1S-01", name="Bambu P1S #1", work_center_id=wc_print.id, status="available")

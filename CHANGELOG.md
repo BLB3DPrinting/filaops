@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sanitized domain input to prevent command injection (GUARDIAN-001)
 - Moved Sentry DSN to environment variable (GUARDIAN-002)
 - Used settings.SECRET_KEY instead of direct os.environ (GUARDIAN-004)
-- Medium priority security fixes: GUARDIAN-007/008/009/010 (PR #190)
+- Medium-priority security fixes: GUARDIAN-007/008/009/010 (PR #190)
 
 ## [3.0.0] - 2026-01-01
 

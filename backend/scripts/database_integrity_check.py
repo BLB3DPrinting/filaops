@@ -27,7 +27,7 @@ from app.db.session import SessionLocal
 from app.models import (
     Product, BOM, BOMLine, Inventory, ProductionOrder,
     SalesOrder, PurchaseOrder, PurchaseOrderLine, PlannedOrder,
-    ItemCategory, Vendor, User, WorkCenter, Machine
+    ItemCategory, Vendor, User, WorkCenter
 )
 from sqlalchemy import text, func
 from sqlalchemy.orm import sessionmaker

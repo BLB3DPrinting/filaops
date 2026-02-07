@@ -16,8 +16,10 @@ Thanks for your interest in contributing to FilaOps! This guide covers everythin
 cd backend
 python -m venv venv
 
-# Windows
-.\venv\Scripts\Activate
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+# Windows (cmd.exe)
+venv\Scripts\activate.bat
 # Linux/Mac
 source venv/bin/activate
 

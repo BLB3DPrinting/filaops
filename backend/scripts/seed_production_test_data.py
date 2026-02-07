@@ -4,7 +4,7 @@
 FilaOps - Production Test Data Seeder
 
 Creates comprehensive test data to enable E2E testing and workflow validation:
-- Work Centers and Machines
+- Work Centers and Resources (machines/stations)
 - Products with BOMs (raw materials, components, assemblies)  
 - Production Orders in various states
 - Inventory for materials
@@ -33,11 +33,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.db.session import SessionLocal
 from app.core.settings import settings
 from app.models import (
-    Product, BOM, BOMLine, WorkCenter, Machine, 
+    Product, BOM, BOMLine, WorkCenter,
     ProductionOrder, Inventory, InventoryLocation,
     SalesOrder, PurchaseOrder, PurchaseOrderLine,
     ItemCategory, Vendor, User
 )
+from app.models.manufacturing import Resource
 
 def create_test_data():
     """Create comprehensive test data for production workflows"""
@@ -172,9 +173,9 @@ def create_test_data():
         ]
         
         for machine_data in machines:
-            existing = db.query(Machine).filter(Machine.name == machine_data["name"]).first()
+            existing = db.query(Resource).filter(Resource.name == machine_data["name"]).first()
             if not existing:
-                machine = Machine(
+                machine = Resource(
                     code=machine_data["code"],
                     name=machine_data["name"],
                     work_center_id=machine_data["work_center"].id,
@@ -743,7 +744,7 @@ def create_test_data():
         print(f"   • Purchase Orders: {len(purchase_orders_data)}")
         print(f"   • Sales Orders: {len(sales_orders_data)}")
         print(f"   • Work Centers: 2")
-        print(f"   • Machines: 4")
+        print(f"   • Resources: 4")
         print(f"   • Vendors: {len(vendors_data)}")
         print(f"   • Inventory Locations: {len(locations_data)}")
         
