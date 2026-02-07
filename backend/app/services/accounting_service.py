@@ -192,12 +192,13 @@ def get_inventory_valuation(db: Session, *, as_of_date: date | None = None) -> d
 
     # Define category mappings
     # item_type -> (category_name, gl_account_code)
-    # Note: 'supply' with is_raw_material=True maps to Raw Materials
+    # Valid item_types: finished_good, component, supply, service (see Product model)
+    # Note: WIP (1210) and Packaging (1230) GL accounts exist for journal entries
+    # but have no corresponding item_type — they track cost flow, not inventory categories
     category_map = {
-        "supply": ("Raw Materials", "1200"),  # Raw materials are stored as supply
-        "wip": ("Work in Process", "1210"),
+        "supply": ("Raw Materials", "1200"),
+        "component": ("Components", "1200"),
         "finished_good": ("Finished Goods", "1220"),
-        "packaging": ("Packaging", "1230"),
     }
 
     categories = []
@@ -633,12 +634,11 @@ def get_accounting_summary(db: Session) -> dict:
     week_ago = today - timedelta(days=7)
     month_start = today.replace(day=1)
 
-    # Inventory by category
+    # Inventory by category (valid item_types only)
     category_map = {
         "supply": "Raw Materials",
-        "wip": "Work in Process",
+        "component": "Components",
         "finished_good": "Finished Goods",
-        "packaging": "Packaging",
     }
 
     inventory_by_category = []

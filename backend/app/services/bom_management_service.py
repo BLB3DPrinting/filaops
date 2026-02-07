@@ -162,6 +162,18 @@ def build_line_response(line: BOMLine, component: Optional[Product], comp_cost: 
         if success:
             display_cost = comp_cost * converted_factor
 
+    # Track whether a UOM conversion actually happened for non-materials
+    converted = (
+        not is_mat
+        and db is not None
+        and line.unit
+        and component_unit
+        and line.unit != component_unit
+        and comp_cost
+        and comp_cost > 0
+        and display_cost != comp_cost  # conversion was applied
+    )
+
     # Calculate line cost
     # For materials: line_cost = (quantity_g / 1000) x cost_per_kg
     # For others: line_cost = quantity x cost_per_unit
@@ -190,7 +202,7 @@ def build_line_response(line: BOMLine, component: Optional[Product], comp_cost: 
         "component_name": component.name if component else None,
         "component_unit": component_unit,
         "component_cost": float(display_cost) if display_cost else None,
-        "component_cost_unit": "KG" if is_mat else component_unit,  # Show /KG for materials
+        "component_cost_unit": "KG" if is_mat else (line.unit if converted else component_unit),
         "line_cost": line_cost,
         "qty_needed": float(effective_qty),
         "is_material": is_mat,  # Flag for frontend display
@@ -1010,16 +1022,37 @@ def recalculate_bom_endpoint(db: Session, bom_id: int) -> dict:
         components = db.query(Product).filter(Product.id.in_(component_ids)).all()
         components_by_id = {c.id: c for c in components}
 
+    # Batch-prefetch active sub-BOMs to avoid N+1 queries in the loop
+    sub_bom_map: dict[int, BOM] = {}
+    if component_ids:
+        sub_boms = (
+            db.query(BOM)
+            .filter(BOM.product_id.in_(component_ids), BOM.active.is_(True))
+            .order_by(desc(BOM.version))
+            .all()
+        )
+        for sb in sub_boms:
+            if sb.product_id not in sub_bom_map:  # first = highest version
+                sub_bom_map[sb.product_id] = sb
+
     line_costs = []
     for line in bom.lines:
         component = components_by_id.get(line.component_id)
         component_cost = get_effective_cost(component) if component else Decimal("0")
 
-        if component and component_cost and component_cost > 0:
-            qty = line.quantity or Decimal("0")
-            scrap = line.scrap_factor or Decimal("0")
-            effective_qty = qty * (1 + scrap / 100)
+        # Check if this component has a sub-assembly BOM
+        sub_bom = sub_bom_map.get(line.component_id)
 
+        qty = line.quantity or Decimal("0")
+        scrap = line.scrap_factor or Decimal("0")
+        effective_qty = qty * (1 + scrap / 100)
+
+        if sub_bom:
+            # Sub-assembly: use rolled-up cost (includes all nested components)
+            sub_cost = calculate_rolled_up_cost(sub_bom.id, db)
+            unit_cost = sub_cost  # cost for 1x of the sub-assembly
+            line_cost = float(sub_cost * effective_qty)
+        elif component and component_cost and component_cost > 0:
             is_mat = is_material(component)
             component_unit = component.unit
             line_unit = line.unit

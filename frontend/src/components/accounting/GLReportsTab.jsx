@@ -284,7 +284,7 @@ export default function GLReportsTab({ token }) {
             <div className="p-4 border-b border-gray-800">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-white">By Category</h3>
-                <HelpIcon label="Breakdown by inventory type: Raw Materials (1200), WIP (1210), Finished Goods (1220), Packaging (1230)." />
+                <HelpIcon label="Breakdown by inventory type: Raw Materials (1200), Components (1200), Finished Goods (1220)." />
               </div>
             </div>
             <table className="w-full">
