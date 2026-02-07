@@ -182,7 +182,11 @@ app = FastAPI(
 # Optional rate limiting (no crash if slowapi isn't installed)
 app.state.limiter, RATE_LIMITS_ENABLED = apply_rate_limiting(app)
 
-# Security headers middleware (outermost)
+# Correlation ID middleware (outermost — runs first, available to all other middleware)
+from app.middleware import CorrelationIdMiddleware
+app.add_middleware(CorrelationIdMiddleware)
+
+# Security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware — uses settings.ALLOWED_ORIGINS directly (no wildcard fallback)

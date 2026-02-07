@@ -14,7 +14,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: filaops
           POSTGRES_PASSWORD: testpassword
@@ -135,7 +135,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: filaops
           POSTGRES_PASSWORD: testpassword
@@ -246,7 +246,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: filaops
           POSTGRES_PASSWORD: testpassword

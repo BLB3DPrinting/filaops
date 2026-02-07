@@ -21,10 +21,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p /app/uploads
+# Create uploads directory and non-root user
+RUN mkdir -p /app/uploads \
+    && addgroup --system appgroup \
+    && adduser --system --ingroup appgroup appuser \
+    && chown -R appuser:appgroup /app/uploads
 
 EXPOSE 8000
+
+USER appuser
 
 # Start server only - migrations run via separate 'migrate' service in docker-compose
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

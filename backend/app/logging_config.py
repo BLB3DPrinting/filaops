@@ -41,12 +41,18 @@ class JSONFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        log_data = {
+        # Include correlation ID from contextvar if available
+        from app.middleware.correlation_id import correlation_id_var
+        cid = correlation_id_var.get("")
+
+        log_data: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
         }
+        if cid:
+            log_data["correlation_id"] = cid
 
         # Add location info for errors
         if record.levelno >= logging.ERROR:

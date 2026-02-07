@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:17
+    image: postgres:16
     container_name: filaops-db
     environment:
       POSTGRES_DB: ${DB_NAME:-filaops}
@@ -81,7 +81,7 @@ services:
         VITE_API_URL: ""
     container_name: filaops-frontend
     ports:
-      - "80:80"
+      - "80:8080"
     depends_on:
       - backend
     networks:
