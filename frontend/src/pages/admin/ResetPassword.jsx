@@ -102,12 +102,12 @@ export default function ResetPassword() {
 
   if (checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="w-full max-w-md">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-              <p className="text-gray-400">Verifying reset token...</p>
+              <div className="animate-spin rounded-full h-12 w-12 mx-auto mb-4" style={{ borderBottom: '2px solid var(--primary)' }}></div>
+              <p style={{ color: 'var(--text-secondary)' }}>Verifying reset token...</p>
             </div>
           </div>
         </div>
@@ -117,7 +117,7 @@ export default function ResetPassword() {
 
   if (!canReset) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="w-full max-w-md">
           {/* Logo */}
           <div className="text-center mb-8">
@@ -130,7 +130,7 @@ export default function ResetPassword() {
           </div>
 
           {/* Error Message */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
             <div className="text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-500/20 mb-4">
                 <svg
@@ -147,13 +147,14 @@ export default function ResetPassword() {
                   />
                 </svg>
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">
+              <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
                 Cannot Reset Password
               </h2>
-              <p className="text-gray-400 mb-6">{statusMessage}</p>
+              <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>{statusMessage}</p>
               <Link
                 to="/forgot-password"
-                className="inline-block px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all"
+                className="inline-block px-6 py-2 rounded-lg transition-all"
+                style={{ background: 'linear-gradient(90deg, var(--primary), var(--primary-light))', color: 'white' }}
               >
                 Request New Reset Link
               </Link>
@@ -165,7 +166,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -175,17 +176,18 @@ export default function ResetPassword() {
           >
             FilaOps
           </Link>
-          <h1 className="text-xl text-white mt-4">Reset Password</h1>
-          <p className="text-gray-400 mt-2">Enter your new password</p>
+          <h1 className="text-xl mt-4" style={{ color: 'var(--text-primary)' }}>Reset Password</h1>
+          <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>Enter your new password</p>
         </div>
 
         {/* Form */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-gray-300 mb-2"
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 New Password
               </label>
@@ -197,7 +199,13 @@ export default function ResetPassword() {
                 required
                 minLength={8}
                 autoComplete="new-password"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full rounded-lg px-4 py-3 placeholder-gray-500 focus:outline-none focus:ring-2 transition-all"
+                style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                  '--tw-ring-color': 'var(--primary)'
+                }}
                 placeholder="Minimum 8 characters"
               />
             </div>
@@ -205,7 +213,8 @@ export default function ResetPassword() {
             <div>
               <label
                 htmlFor="confirmPassword"
-                className="block text-sm font-medium text-gray-300 mb-2"
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 Confirm Password
               </label>
@@ -217,7 +226,13 @@ export default function ResetPassword() {
                 required
                 minLength={8}
                 autoComplete="new-password"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full rounded-lg px-4 py-3 placeholder-gray-500 focus:outline-none focus:ring-2 transition-all"
+                style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                  '--tw-ring-color': 'var(--primary)'
+                }}
                 placeholder="Re-enter your password"
               />
             </div>
@@ -225,7 +240,11 @@ export default function ResetPassword() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                color: 'white'
+              }}
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -258,7 +277,8 @@ export default function ResetPassword() {
             <div className="text-center">
               <Link
                 to="/admin/login"
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                className="text-sm transition-colors"
+                style={{ color: 'var(--primary)' }}
               >
                 Back to Login
               </Link>

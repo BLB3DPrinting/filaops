@@ -62,7 +62,7 @@ export default function ForgotPassword() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="w-full max-w-md">
           {/* Logo */}
           <div className="text-center mb-8">
@@ -75,7 +75,7 @@ export default function ForgotPassword() {
           </div>
 
           {/* Success Message */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
             <div className="text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-500/20 mb-4">
                 <svg
@@ -92,18 +92,18 @@ export default function ForgotPassword() {
                   />
                 </svg>
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">
+              <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
                 {resetUrl ? "Password Reset Link Ready" : "Request Submitted"}
               </h2>
               {resetUrl ? (
                 <>
-                  <p className="text-gray-400 mb-4">
+                  <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
                     Your password reset link has been generated. Click the
                     button below to reset your password.
                   </p>
-                  <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4">
-                    <p className="text-xs text-gray-500 mb-2">Reset Link:</p>
-                    <p className="text-blue-400 text-sm break-all">
+                  <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                    <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>Reset Link:</p>
+                    <p className="text-sm break-all" style={{ color: 'var(--primary)' }}>
                       {window.location.origin}
                       {resetUrl}
                     </p>
@@ -111,13 +111,15 @@ export default function ForgotPassword() {
                   <div className="flex gap-3">
                     <Link
                       to={resetUrl}
-                      className="inline-block px-6 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-500 hover:to-emerald-500 transition-all"
+                      className="inline-block px-6 py-2 rounded-lg transition-all"
+                      style={{ background: 'linear-gradient(90deg, #16a34a, #059669)', color: 'white' }}
                     >
                       Reset My Password
                     </Link>
                     <Link
                       to="/admin/login"
-                      className="inline-block px-6 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all"
+                      className="inline-block px-6 py-2 rounded-lg transition-all"
+                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
                     >
                       Back to Login
                     </Link>
@@ -125,7 +127,7 @@ export default function ForgotPassword() {
                 </>
               ) : (
                 <>
-                  <p className="text-gray-400 mb-6">
+                  <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
                     If an account exists with this email, a password reset
                     request has been submitted for review. An administrator will
                     review your request and you will receive an email with reset
@@ -133,7 +135,8 @@ export default function ForgotPassword() {
                   </p>
                   <Link
                     to="/admin/login"
-                    className="inline-block px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all"
+                    className="inline-block px-6 py-2 rounded-lg transition-all"
+                    style={{ background: 'linear-gradient(90deg, var(--primary), var(--primary-light))', color: 'white' }}
                   >
                     Back to Login
                   </Link>
@@ -147,7 +150,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -157,19 +160,20 @@ export default function ForgotPassword() {
           >
             FilaOps
           </Link>
-          <h1 className="text-xl text-white mt-4">Reset Password</h1>
-          <p className="text-gray-400 mt-2">
+          <h1 className="text-xl mt-4" style={{ color: 'var(--text-primary)' }}>Reset Password</h1>
+          <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
             Enter your email to request a password reset
           </p>
         </div>
 
         {/* Form */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-300 mb-2"
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 Email Address
               </label>
@@ -180,7 +184,13 @@ export default function ForgotPassword() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full rounded-lg px-4 py-3 placeholder-gray-500 focus:outline-none focus:ring-2 transition-all"
+                style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
+                  '--tw-ring-color': 'var(--primary)'
+                }}
                 placeholder="admin@example.com"
               />
             </div>
@@ -188,7 +198,11 @@ export default function ForgotPassword() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                color: 'white'
+              }}
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -221,7 +235,8 @@ export default function ForgotPassword() {
             <div className="text-center">
               <Link
                 to="/admin/login"
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                className="text-sm transition-colors"
+                style={{ color: 'var(--primary)' }}
               >
                 Back to Login
               </Link>
@@ -229,13 +244,14 @@ export default function ForgotPassword() {
           </form>
 
           {/* Info Box */}
-          <div className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+          <div className="mt-6 rounded-lg p-4" style={{ backgroundColor: 'rgba(2, 109, 248, 0.1)', border: '1px solid rgba(2, 109, 248, 0.3)' }}>
             <div className="flex items-start gap-3">
               <svg
-                className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0"
+                className="w-5 h-5 mt-0.5 flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                style={{ color: 'var(--primary)' }}
               >
                 <path
                   strokeLinecap="round"
@@ -245,10 +261,10 @@ export default function ForgotPassword() {
                 />
               </svg>
               <div>
-                <h3 className="text-blue-400 font-medium mb-1">
+                <h3 className="font-medium mb-1" style={{ color: 'var(--primary)' }}>
                   Admin Approval Required
                 </h3>
-                <p className="text-blue-300 text-sm">
+                <p className="text-sm" style={{ color: 'var(--primary-light)' }}>
                   Your password reset request will be reviewed by an
                   administrator. You will receive an email with reset
                   instructions if approved.

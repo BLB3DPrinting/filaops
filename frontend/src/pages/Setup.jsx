@@ -133,8 +133,8 @@ export default function Setup() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-white">Checking setup status...</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div style={{ color: 'var(--text-primary)' }}>Checking setup status...</div>
       </div>
     );
   }
@@ -144,20 +144,20 @@ export default function Setup() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="max-w-md w-full">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
+          <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
             Welcome to FilaOps
           </h1>
-          <p className="text-gray-400">
+          <p style={{ color: 'var(--text-secondary)' }}>
             Create your admin account to get started
           </p>
         </div>
 
         {/* Setup Form */}
-        <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="rounded-xl p-6 space-y-4" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
               {error}
@@ -165,7 +165,7 @@ export default function Setup() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               Your Name
             </label>
             <input
@@ -174,13 +174,18 @@ export default function Setup() {
               value={formData.full_name}
               onChange={handleChange}
               required
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)'
+              }}
               placeholder="John Smith"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               Email Address
             </label>
             <input
@@ -189,13 +194,18 @@ export default function Setup() {
               value={formData.email}
               onChange={handleChange}
               required
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)'
+              }}
               placeholder="you@yourcompany.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               Password
             </label>
             <input
@@ -205,10 +215,15 @@ export default function Setup() {
               onChange={handleChange}
               required
               minLength={8}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)'
+              }}
               placeholder="••••••••"
             />
-            <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
+            <ul className="text-xs mt-1 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
               <li>• At least 8 characters</li>
               <li>• Uppercase and lowercase letters</li>
               <li>• At least one number</li>
@@ -217,7 +232,7 @@ export default function Setup() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
               Confirm Password
             </label>
             <input
@@ -226,21 +241,31 @@ export default function Setup() {
               value={formData.confirmPassword}
               onChange={handleChange}
               required
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)'
+              }}
               placeholder="••••••••"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
-              Company Name <span className="text-gray-500">(optional)</span>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+              Company Name <span style={{ color: 'var(--text-secondary)' }}>(optional)</span>
             </label>
             <input
               type="text"
               name="company_name"
               value={formData.company_name}
               onChange={handleChange}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)'
+              }}
               placeholder="Your Print Farm"
             />
           </div>
@@ -248,14 +273,18 @@ export default function Setup() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{
+              background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+              color: 'white'
+            }}
           >
             {submitting ? "Creating Account..." : "Create Admin Account"}
           </button>
         </form>
 
         {/* Footer */}
-        <p className="text-center text-gray-500 text-sm mt-6">
+        <p className="text-center text-sm mt-6" style={{ color: 'var(--text-secondary)' }}>
           This creates the first admin account for your FilaOps installation.
         </p>
       </div>

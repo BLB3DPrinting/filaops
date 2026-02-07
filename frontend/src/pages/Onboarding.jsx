@@ -389,8 +389,8 @@ export default function Onboarding() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-white">Checking setup status...</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
+        <div style={{ color: 'var(--text-primary)' }}>Checking setup status...</div>
       </div>
     );
   }
@@ -429,32 +429,32 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="max-w-2xl w-full">
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-400">
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               Step {getStepNumber()} of {getTotalSteps()}
             </span>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               {Math.round((getStepNumber() / getTotalSteps()) * 100)}%
             </span>
           </div>
-          <div className="w-full bg-gray-800 rounded-full h-2">
+          <div className="w-full rounded-full h-2" style={{ backgroundColor: 'var(--bg-secondary)' }}>
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(getStepNumber() / getTotalSteps()) * 100}%` }}
+              className="h-2 rounded-full transition-all duration-300"
+              style={{ backgroundColor: 'var(--primary)', width: `${(getStepNumber() / getTotalSteps()) * 100}%` }}
             />
           </div>
         </div>
 
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
+          <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
             {getStepTitle()}
           </h1>
-          <p className="text-gray-400">
+          <p style={{ color: 'var(--text-secondary)' }}>
             {currentStep === STEPS.ACCOUNT &&
               "Create your admin account to get started"}
             {currentStep === STEPS.EXAMPLE_DATA &&
@@ -480,12 +480,13 @@ export default function Onboarding() {
         )}
 
         {/* Step Content */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
           {/* Step 1: Account Creation */}
           {currentStep === STEPS.ACCOUNT && (
             <form onSubmit={handleCreateAccount} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
                   Your Name
                 </label>
                 <input
@@ -494,13 +495,19 @@ export default function Onboarding() {
                   value={accountData.full_name}
                   onChange={handleAccountChange}
                   required
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                   placeholder="John Smith"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
                   Email Address
                 </label>
                 <input
@@ -509,13 +516,19 @@ export default function Onboarding() {
                   value={accountData.email}
                   onChange={handleAccountChange}
                   required
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                   placeholder="you@yourcompany.com"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
                   Password
                 </label>
                 <input
@@ -525,10 +538,16 @@ export default function Onboarding() {
                   onChange={handleAccountChange}
                   required
                   minLength={8}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                   placeholder="••••••••"
                 />
-                <ul className="text-xs text-gray-500 mt-1 space-y-0.5">
+                <ul className="text-xs mt-1 space-y-0.5"
+                style={{ color: 'var(--text-secondary)' }}>
                   <li>• At least 8 characters</li>
                   <li>• Uppercase and lowercase letters</li>
                   <li>• At least one number</li>
@@ -537,7 +556,8 @@ export default function Onboarding() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
                   Confirm Password
                 </label>
                 <input
@@ -546,21 +566,32 @@ export default function Onboarding() {
                   value={accountData.confirmPassword}
                   onChange={handleAccountChange}
                   required
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                   placeholder="••••••••"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Company Name <span className="text-gray-500">(optional)</span>
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
+                  Company Name <span style={{ color: 'var(--text-secondary)' }}>(optional)</span>
                 </label>
                 <input
                   type="text"
                   name="company_name"
                   value={accountData.company_name}
                   onChange={handleAccountChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                   placeholder="Your Print Farm"
                 />
               </div>
@@ -568,7 +599,11 @@ export default function Onboarding() {
               <button
                 type="submit"
                 disabled={submittingAccount}
-                className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                style={{
+                  background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                  color: 'white'
+                }}
               >
                 {submittingAccount
                   ? "Creating Account..."
@@ -580,14 +615,14 @@ export default function Onboarding() {
           {/* Step 2: Example Data */}
           {currentStep === STEPS.EXAMPLE_DATA && (
             <div className="space-y-6">
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                <h3 className="text-white font-medium mb-2">
+              <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(2, 109, 248, 0.1)', border: '1px solid rgba(2, 109, 248, 0.3)' }}>
+                <h3 className="font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
                   Load BambuLab Materials & Example Data?
                 </h3>
-                <p className="text-gray-400 text-sm mb-4">
+                <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
                   We can populate your database with BambuLab-compatible materials:
                 </p>
-                <ul className="text-gray-300 text-sm space-y-2 mb-4">
+                <ul className="text-sm space-y-2 mb-4" style={{ color: 'var(--text-primary)' }}>
                   <li>
                     • <strong>18 material types</strong> (PLA Basic, PLA Matte, PLA Silk, PETG, ABS, ASA, TPU, PA-CF, PC)
                   </li>
@@ -599,7 +634,7 @@ export default function Onboarding() {
                   </li>
                   <li>• Example items for each category (packaging, hardware, finished goods)</li>
                 </ul>
-                <p className="text-gray-400 text-sm">
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                   This gives you a head start with ready-to-use material options. You can always add more materials and colors later!
                 </p>
               </div>
@@ -620,11 +655,17 @@ export default function Onboarding() {
                   id="seedData"
                   checked={seedExampleData}
                   onChange={(e) => setSeedExampleData(e.target.checked)}
-                  className="w-5 h-5 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                  className="w-5 h-5 rounded"
+                  style={{
+                    borderColor: 'var(--border-subtle)',
+                    backgroundColor: 'var(--bg-secondary)',
+                    accentColor: 'var(--primary)'
+                  }}
                 />
                 <label
                   htmlFor="seedData"
-                  className="text-gray-300 cursor-pointer"
+                  className="cursor-pointer"
+                  style={{ color: 'var(--text-primary)' }}
                 >
                   Yes, load example data (recommended)
                 </label>
@@ -635,7 +676,7 @@ export default function Onboarding() {
                   <div className="text-green-400 font-medium mb-2">
                     ✅ Example data loaded successfully!
                   </div>
-                  <div className="text-gray-300 text-sm space-y-1">
+                  <div className="text-sm space-y-1" style={{ color: 'var(--text-primary)' }}>
                     <div>
                       • {seedResult.items_created} example items created
                     </div>
@@ -650,7 +691,7 @@ export default function Onboarding() {
                         seedResult.links_created}{" "}
                       material product SKUs created (0 on-hand)
                     </div>
-                    <div className="text-gray-400 text-xs mt-2">
+                    <div className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
                       💡 Just update inventory quantities to start using!
                     </div>
                   </div>
@@ -662,14 +703,19 @@ export default function Onboarding() {
                   type="button"
                   onClick={prevStep}
                   disabled={seedingData}
-                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   Back
                 </button>
                 <button
                   onClick={handleSeedExampleData}
                   disabled={seedingData}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                    color: 'white'
+                  }}
                 >
                   {seedingData
                     ? "Loading..."
@@ -685,16 +731,23 @@ export default function Onboarding() {
           {currentStep === STEPS.PRODUCTS && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Products CSV File
                 </label>
                 <input
                   type="file"
                   accept=".csv"
                   onChange={(e) => setProductsFile(e.target.files[0])}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                 />
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs mt-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   CSV should include: SKU, Name, Description, Item Type, Unit,
                   Standard Cost, Selling Price
                 </p>
@@ -717,14 +770,19 @@ export default function Onboarding() {
                   type="button"
                   onClick={prevStep}
                   disabled={importingProducts}
-                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   Back
                 </button>
                 <button
                   onClick={handleProductsImport}
                   disabled={importingProducts}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                    color: 'white'
+                  }}
                 >
                   {importingProducts
                     ? "Importing..."
@@ -740,16 +798,23 @@ export default function Onboarding() {
           {currentStep === STEPS.CUSTOMERS && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Customers CSV File
                 </label>
                 <input
                   type="file"
                   accept=".csv"
                   onChange={(e) => setCustomersFile(e.target.files[0])}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                 />
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs mt-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   CSV should include: Email, First Name, Last Name, Company,
                   Phone, Address fields
                 </p>
@@ -767,14 +832,19 @@ export default function Onboarding() {
                   type="button"
                   onClick={prevStep}
                   disabled={importingCustomers}
-                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   Back
                 </button>
                 <button
                   onClick={handleCustomersImport}
                   disabled={importingCustomers}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                    color: 'white'
+                  }}
                 >
                   {importingCustomers
                     ? "Importing..."
@@ -790,13 +860,19 @@ export default function Onboarding() {
           {currentStep === STEPS.ORDERS && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Order Source
                 </label>
                 <select
                   value={ordersSource}
                   onChange={(e) => setOrdersSource(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                 >
                   <option value="manual">Manual / Generic</option>
                   <option value="squarespace">Squarespace</option>
@@ -807,16 +883,23 @@ export default function Onboarding() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Orders CSV File
                 </label>
                 <input
                   type="file"
                   accept=".csv"
                   onChange={(e) => setOrdersFile(e.target.files?.[0] || null)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                 />
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs mt-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Required: Order ID, Customer Email, Product SKU, Quantity.
                   Optional: Customer Name, Shipping Address, Unit Price, Shipping
                   Cost, Tax Amount.
@@ -842,14 +925,19 @@ export default function Onboarding() {
                   type="button"
                   onClick={prevStep}
                   disabled={importingOrders}
-                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   Back
                 </button>
                 <button
                   onClick={handleOrdersImport}
                   disabled={importingOrders}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                    color: 'white'
+                  }}
                 >
                   {importingOrders
                     ? "Importing..."
@@ -865,16 +953,23 @@ export default function Onboarding() {
           {currentStep === STEPS.INVENTORY && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   Inventory CSV File (Optional)
                 </label>
                 <input
                   type="file"
                   accept=".csv"
                   onChange={(e) => setInventoryFile(e.target.files[0])}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm"
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
                 />
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs mt-2"
+                style={{ color: 'var(--text-secondary)' }}>
                   CSV should include: SKU, Location, Quantity
                 </p>
               </div>
@@ -896,14 +991,19 @@ export default function Onboarding() {
                   type="button"
                   onClick={prevStep}
                   disabled={importingInventory}
-                  className="px-4 py-3 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   Back
                 </button>
                 <button
                   onClick={handleInventoryImport}
                   disabled={importingInventory}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                    color: 'white'
+                  }}
                 >
                   {importingInventory
                     ? "Importing..."
@@ -919,16 +1019,20 @@ export default function Onboarding() {
           {currentStep === STEPS.COMPLETE && (
             <div className="text-center space-y-6">
               <div className="text-6xl mb-4">🎉</div>
-              <h2 className="text-2xl font-bold text-white">
+              <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
                 Welcome to FilaOps!
               </h2>
-              <p className="text-gray-400">
+              <p style={{ color: 'var(--text-secondary)' }}>
                 Your ERP system is ready to use. Start managing your print farm
                 operations.
               </p>
               <button
                 onClick={handleComplete}
-                className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                className="w-full py-3 rounded-lg font-medium transition-colors"
+                style={{
+                  background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                  color: 'white'
+                }}
               >
                 Go to Dashboard
               </button>
@@ -937,7 +1041,7 @@ export default function Onboarding() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-gray-500 text-sm mt-6">
+        <p className="text-center text-sm mt-6" style={{ color: 'var(--text-secondary)' }}>
           You can always import data later from the admin panel.
         </p>
       </div>

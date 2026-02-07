@@ -285,13 +285,14 @@ export default function ItemForm({
             {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-sku" className="block text-sm font-medium text-gray-300 mb-1">
                   SKU{" "}
                   <span className="text-gray-500 text-xs">
                     (auto-generated if empty)
                   </span>
                 </label>
                 <input
+                  id="item-sku"
                   type="text"
                   value={formData.sku}
                   onChange={(e) =>
@@ -300,6 +301,8 @@ export default function ItemForm({
                       sku: e.target.value.toUpperCase(),
                     })
                   }
+                  aria-invalid={!!errors.sku}
+                  aria-describedby={errors.sku ? "item-sku-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
                     errors.sku
                       ? "border-red-500 focus:border-red-500"
@@ -308,19 +311,22 @@ export default function ItemForm({
                   placeholder="Leave empty for auto-generation"
                 />
                 {errors.sku && (
-                  <div className="text-red-400 text-sm mt-1">{errors.sku}</div>
+                  <p id="item-sku-error" role="alert" className="text-red-400 text-sm mt-1">{errors.sku}</p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-unit" className="block text-sm font-medium text-gray-300 mb-1">
                   Unit <RequiredIndicator />
                 </label>
                 <select
+                  id="item-unit"
                   value={formData.unit}
                   onChange={(e) =>
                     setFormData({ ...formData, unit: e.target.value })
                   }
+                  aria-invalid={!!errors.unit}
+                  aria-describedby={errors.unit ? "item-unit-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none ${
                     errors.unit
                       ? "border-red-500 focus:border-red-500"
@@ -357,21 +363,24 @@ export default function ItemForm({
                   )}
                 </select>
                 {errors.unit && (
-                  <div className="text-red-400 text-sm mt-1">{errors.unit}</div>
+                  <p id="item-unit-error" role="alert" className="text-red-400 text-sm mt-1">{errors.unit}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="item-name" className="block text-sm font-medium text-gray-300 mb-1">
                 Name <RequiredIndicator />
               </label>
               <input
+                id="item-name"
                 type="text"
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
                 }
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? "item-name-error" : undefined}
                 className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
                   errors.name
                     ? "border-red-500 focus:border-red-500"
@@ -380,15 +389,16 @@ export default function ItemForm({
                 placeholder="Item name"
               />
               {errors.name && (
-                <div className="text-red-400 text-sm mt-1">{errors.name}</div>
+                <p id="item-name-error" role="alert" className="text-red-400 text-sm mt-1">{errors.name}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="item-description" className="block text-sm font-medium text-gray-300 mb-1">
                 Description
               </label>
               <textarea
+                id="item-description"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
@@ -401,13 +411,14 @@ export default function ItemForm({
 
             {/* Image URL / Upload */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="item-image-url" className="block text-sm font-medium text-gray-300 mb-1">
                 Product Image
               </label>
               <div className="flex gap-3 items-start">
                 <div className="flex-1">
                   <div className="flex gap-2">
                     <input
+                      id="item-image-url"
                       type="url"
                       value={formData.image_url}
                       onChange={(e) =>
@@ -498,14 +509,17 @@ export default function ItemForm({
             {/* Classification */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-type" className="block text-sm font-medium text-gray-300 mb-1">
                   Item Type <RequiredIndicator />
                 </label>
                 <select
+                  id="item-type"
                   value={formData.item_type}
                   onChange={(e) =>
                     setFormData({ ...formData, item_type: e.target.value })
                   }
+                  aria-invalid={!!errors.item_type}
+                  aria-describedby={errors.item_type ? "item-type-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none ${
                     errors.item_type
                       ? "border-red-500 focus:border-red-500"
@@ -524,17 +538,18 @@ export default function ItemForm({
                   </p>
                 )}
                 {errors.item_type && (
-                  <div className="text-red-400 text-sm mt-1">
+                  <p id="item-type-error" role="alert" className="text-red-400 text-sm mt-1">
                     {errors.item_type}
-                  </div>
+                  </p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-procurement-type" className="block text-sm font-medium text-gray-300 mb-1">
                   Procurement Type <RequiredIndicator />
                 </label>
                 <select
+                  id="item-procurement-type"
                   value={formData.procurement_type}
                   onChange={(e) =>
                     setFormData({
@@ -542,6 +557,8 @@ export default function ItemForm({
                       procurement_type: e.target.value,
                     })
                   }
+                  aria-invalid={!!errors.procurement_type}
+                  aria-describedby={errors.procurement_type ? "item-procurement-type-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white focus:outline-none ${
                     errors.procurement_type
                       ? "border-red-500 focus:border-red-500"
@@ -555,9 +572,9 @@ export default function ItemForm({
                   ))}
                 </select>
                 {errors.procurement_type && (
-                  <div className="text-red-400 text-sm mt-1">
+                  <p id="item-procurement-type-error" role="alert" className="text-red-400 text-sm mt-1">
                     {errors.procurement_type}
-                  </div>
+                  </p>
                 )}
               </div>
             </div>
@@ -565,10 +582,11 @@ export default function ItemForm({
             {/* Stocking Policy */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-stocking-policy" className="block text-sm font-medium text-gray-300 mb-1">
                   Stocking Policy
                 </label>
                 <select
+                  id="item-stocking-policy"
                   value={formData.stocking_policy}
                   onChange={(e) =>
                     setFormData({
@@ -593,10 +611,11 @@ export default function ItemForm({
 
               {formData.stocking_policy === "stocked" && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label htmlFor="item-reorder-point" className="block text-sm font-medium text-gray-300 mb-1">
                     Reorder Point
                   </label>
                   <input
+                    id="item-reorder-point"
                     type="number"
                     step="1"
                     min="0"
@@ -612,10 +631,11 @@ export default function ItemForm({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="item-category" className="block text-sm font-medium text-gray-300 mb-1">
                 Category
               </label>
               <select
+                id="item-category"
                 value={formData.category_id || ""}
                 onChange={(e) =>
                   setFormData({
@@ -639,16 +659,19 @@ export default function ItemForm({
             {/* Pricing */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-standard-cost" className="block text-sm font-medium text-gray-300 mb-1">
                   Standard Cost
                 </label>
                 <input
+                  id="item-standard-cost"
                   type="number"
                   step="0.01"
                   value={formData.standard_cost}
                   onChange={(e) =>
                     setFormData({ ...formData, standard_cost: e.target.value })
                   }
+                  aria-invalid={!!errors.standard_cost}
+                  aria-describedby={errors.standard_cost ? "item-standard-cost-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
                     errors.standard_cost
                       ? "border-red-500 focus:border-red-500"
@@ -657,23 +680,26 @@ export default function ItemForm({
                   placeholder="0.00"
                 />
                 {errors.standard_cost && (
-                  <div className="text-red-400 text-sm mt-1">
+                  <p id="item-standard-cost-error" role="alert" className="text-red-400 text-sm mt-1">
                     {errors.standard_cost}
-                  </div>
+                  </p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="item-selling-price" className="block text-sm font-medium text-gray-300 mb-1">
                   Selling Price
                 </label>
                 <input
+                  id="item-selling-price"
                   type="number"
                   step="0.01"
                   value={formData.selling_price}
                   onChange={(e) =>
                     setFormData({ ...formData, selling_price: e.target.value })
                   }
+                  aria-invalid={!!errors.selling_price}
+                  aria-describedby={errors.selling_price ? "item-selling-price-error" : undefined}
                   className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
                     errors.selling_price
                       ? "border-red-500 focus:border-red-500"
@@ -682,9 +708,9 @@ export default function ItemForm({
                   placeholder="0.00"
                 />
                 {errors.selling_price && (
-                  <div className="text-red-400 text-sm mt-1">
+                  <p id="item-selling-price-error" role="alert" className="text-red-400 text-sm mt-1">
                     {errors.selling_price}
-                  </div>
+                  </p>
                 )}
               </div>
             </div>

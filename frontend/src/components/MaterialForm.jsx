@@ -209,10 +209,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Material Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="material-type" className="block text-sm font-medium text-gray-300 mb-1">
                 Material Type <span className="text-red-400">*</span>
               </label>
               <select
+                id="material-type"
                 required
                 value={formData.material_type_code}
                 onChange={(e) => {
@@ -241,13 +242,14 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
 
             {/* Color */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="material-color" className="block text-sm font-medium text-gray-300 mb-1">
                 Color <span className="text-red-400">*</span>
               </label>
 
               {!showColorForm ? (
                 <>
                   <select
+                    id="material-color"
                     required={!showColorForm}
                     value={formData.color_code}
                     onChange={(e) =>
@@ -300,10 +302,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">
+                    <label htmlFor="material-new-color-name" className="block text-xs text-gray-400 mb-1">
                       Color Name *
                     </label>
                     <input
+                      id="material-new-color-name"
                       type="text"
                       value={newColorName}
                       onChange={(e) => setNewColorName(e.target.value)}
@@ -313,7 +316,7 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">
+                    <label htmlFor="material-new-color-hex" className="block text-xs text-gray-400 mb-1">
                       Hex Color (optional)
                     </label>
                     <div className="flex gap-2 items-center">
@@ -321,9 +324,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
                         type="color"
                         value={newColorHex}
                         onChange={(e) => setNewColorHex(e.target.value)}
+                        aria-label="Color picker"
                         className="w-10 h-10 border border-gray-600 rounded cursor-pointer bg-gray-700"
                       />
                       <input
+                        id="material-new-color-hex"
                         type="text"
                         value={newColorHex}
                         onChange={(e) => setNewColorHex(e.target.value)}
@@ -347,10 +352,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
 
             {/* Initial Quantity */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="material-initial-qty" className="block text-sm font-medium text-gray-300 mb-1">
                 Initial Quantity (kg)
               </label>
               <input
+                id="material-initial-qty"
                 type="number"
                 step="0.001"
                 min="0"
@@ -366,10 +372,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
             {/* Pricing */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="material-cost-per-kg" className="block text-sm font-medium text-gray-300 mb-1">
                   Cost per kg
                 </label>
                 <input
+                  id="material-cost-per-kg"
                   type="number"
                   step="0.01"
                   min="0"
@@ -383,10 +390,11 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label htmlFor="material-selling-price" className="block text-sm font-medium text-gray-300 mb-1">
                   Selling Price per kg
                 </label>
                 <input
+                  id="material-selling-price"
                   type="number"
                   step="0.01"
                   min="0"
