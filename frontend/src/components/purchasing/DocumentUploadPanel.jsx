@@ -130,20 +130,27 @@ export default function DocumentUploadPanel({ poId, onDocumentsChange }) {
       }
     });
 
-    const results = await Promise.all(uploadPromises);
+    try {
+      const results = await Promise.all(uploadPromises);
 
-    // Clear progress after a delay
-    setTimeout(() => setUploadProgress({}), 2000);
+      // Clear progress after a delay
+      setTimeout(() => setUploadProgress({}), 2000);
 
-    // Handle results
-    const failures = results.filter((r) => !r.success);
-    if (failures.length > 0) {
-      setError(`Failed to upload: ${failures.map((f) => f.fileName).join(', ')}`);
+      // Handle results
+      const failures = results.filter((r) => !r.success);
+      if (failures.length > 0) {
+        setError(`Failed to upload: ${failures.map((f) => f.fileName).join(', ')}`);
+      }
+
+      // Reload documents
+      await loadDocuments();
+    } catch (err) {
+      console.error("Failed to upload documents:", err);
+      setError("Failed to upload one or more documents");
+    } finally {
+      setUploadProgress({});
+      setIsUploading(false);
     }
-
-    // Reload documents
-    await loadDocuments();
-    setIsUploading(false);
   };
 
   // Handle drag events

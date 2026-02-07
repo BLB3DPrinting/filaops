@@ -6,7 +6,7 @@ Uses location_service for business logic (ARCHITECT-003).
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_staff_user
@@ -55,7 +55,7 @@ def _location_dict(loc) -> dict:
     }
 
 
-@router.get("")
+@router.get("", response_model=List[LocationResponse])
 async def list_locations(
     include_inactive: bool = False,
     current_user: User = Depends(get_current_staff_user),
@@ -66,7 +66,7 @@ async def list_locations(
     return [_location_dict(loc) for loc in locations]
 
 
-@router.get("/{location_id}")
+@router.get("/{location_id}", response_model=LocationResponse)
 async def get_location(
     location_id: int,
     current_user: User = Depends(get_current_staff_user),
@@ -77,7 +77,7 @@ async def get_location(
     return _location_dict(location)
 
 
-@router.post("")
+@router.post("", response_model=LocationResponse, status_code=201)
 async def create_location(
     location: LocationCreate,
     current_user: User = Depends(get_current_staff_user),
@@ -94,7 +94,7 @@ async def create_location(
     return _location_dict(new_location)
 
 
-@router.put("/{location_id}")
+@router.put("/{location_id}", response_model=LocationResponse)
 async def update_location(
     location_id: int,
     location: LocationUpdate,

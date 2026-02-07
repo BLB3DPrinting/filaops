@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../../config/api';
 import { formatDuration, formatDate } from '../../utils/formatting';
+import { PRODUCTION_ORDER_BADGE_CONFIGS } from '../../lib/statusColors.js';
 import Modal from '../Modal';
 import OperationCard from './OperationCard';
 import SkipOperationModal from './SkipOperationModal';
@@ -10,15 +11,7 @@ import ShortageModal from './ShortageModal';
  * Status badge component
  */
 function StatusBadge({ status }) {
-  const configs = {
-    draft: { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Draft' },
-    released: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Released' },
-    in_progress: { bg: 'bg-purple-500/20', text: 'text-purple-400', label: 'In Progress' },
-    complete: { bg: 'bg-green-500/20', text: 'text-green-400', label: 'Complete' },
-    short: { bg: 'bg-orange-500/20', text: 'text-orange-400', label: 'Short' },
-    cancelled: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Cancelled' },
-  };
-  const config = configs[status] || configs.draft;
+  const config = PRODUCTION_ORDER_BADGE_CONFIGS[status] || PRODUCTION_ORDER_BADGE_CONFIGS.draft;
   return (
     <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
       {config.label}

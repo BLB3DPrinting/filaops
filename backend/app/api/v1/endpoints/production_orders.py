@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.api.v1.deps import get_pagination_params
-from app.schemas.common import PaginationParams
+from app.schemas.common import MessageResponse, PaginationParams
 from app.models import User, Product, SalesOrder
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 from app.models.work_center import WorkCenter
@@ -385,7 +385,7 @@ async def update_production_order(
     return build_production_order_response(order, db)
 
 
-@router.delete("/{order_id}")
+@router.delete("/{order_id}", response_model=MessageResponse)
 async def delete_production_order(
     order_id: int,
     db: Session = Depends(get_db),
@@ -425,7 +425,7 @@ async def get_scrap_reasons(
     )
 
 
-@router.get("/scrap-reasons/all")
+@router.get("/scrap-reasons/all", response_model=List[ScrapReasonDetail])
 async def get_all_scrap_reasons(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -504,7 +504,7 @@ async def update_scrap_reason(
     )
 
 
-@router.delete("/scrap-reasons/{reason_id}")
+@router.delete("/scrap-reasons/{reason_id}", response_model=MessageResponse)
 async def delete_scrap_reason(
     reason_id: int,
     db: Session = Depends(get_db),
@@ -554,7 +554,7 @@ async def get_operation_statuses(
 # Status Management Endpoints
 # =============================================================================
 
-@router.post("/{order_id}/release")
+@router.post("/{order_id}/release", response_model=ProductionOrderResponse)
 async def release_production_order(
     order_id: int,
     force: bool = Query(False, description="Force release even with shortages"),

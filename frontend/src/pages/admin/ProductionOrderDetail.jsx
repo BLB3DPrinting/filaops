@@ -17,6 +17,7 @@ import {
   OperationSchedulerModal,
   OperationsTimeline
 } from "../../components/production";
+import { PRODUCTION_ORDER_COLORS, getStatusColor } from "../../lib/statusColors.js";
 
 /**
  * Wrapper to fetch operations for timeline
@@ -114,18 +115,8 @@ export default function ProductionOrderDetail() {
     }
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      draft: "bg-gray-500/20 text-gray-400",
-      released: "bg-blue-500/20 text-blue-400",
-      in_progress: "bg-purple-500/20 text-purple-400",
-      complete: "bg-green-500/20 text-green-400",
-      scrapped: "bg-red-500/20 text-red-400",
-      on_hold: "bg-yellow-500/20 text-yellow-400",
-      cancelled: "bg-gray-500/20 text-gray-400",
-    };
-    return colors[status] || "bg-gray-500/20 text-gray-400";
-  };
+  const getProductionStatusColor = (status) =>
+    getStatusColor(PRODUCTION_ORDER_COLORS, status);
 
   if (loading) {
     return (
@@ -240,7 +231,7 @@ export default function ProductionOrderDetail() {
           </div>
           <div>
             <div className="text-sm text-gray-400">Status</div>
-            <span className={`inline-block px-2 py-1 rounded-full text-sm ${getStatusColor(order.status)}`}>
+            <span className={`inline-block px-2 py-1 rounded-full text-sm ${getProductionStatusColor(order.status)}`}>
               {order.status}
             </span>
           </div>

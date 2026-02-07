@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
-
-const statusColors = {
-  active: "bg-green-500/20 text-green-400",
-  empty: "bg-gray-500/20 text-gray-400",
-  expired: "bg-red-500/20 text-red-400",
-  damaged: "bg-orange-500/20 text-orange-400",
-};
+import { SPOOL_COLORS as statusColors } from "../../lib/statusColors.js";
 
 export default function AdminSpools() {
   const toast = useToast();

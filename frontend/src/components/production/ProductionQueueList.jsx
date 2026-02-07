@@ -7,22 +7,14 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../../config/api';
 import { formatDuration } from '../../utils/formatting';
+import { PRODUCTION_ORDER_BADGE_CONFIGS } from '../../lib/statusColors.js';
 import ElapsedTimer from './ElapsedTimer';
 
 /**
  * Status badge component
  */
 function StatusBadge({ status }) {
-  const configs = {
-    draft: { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Draft' },
-    released: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Released' },
-    in_progress: { bg: 'bg-purple-500/20', text: 'text-purple-400', label: 'In Progress' },
-    complete: { bg: 'bg-green-500/20', text: 'text-green-400', label: 'Complete' },
-    short: { bg: 'bg-orange-500/20', text: 'text-orange-400', label: 'Short' },
-    cancelled: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Cancelled' },
-  };
-
-  const config = configs[status] || configs.draft;
+  const config = PRODUCTION_ORDER_BADGE_CONFIGS[status] || PRODUCTION_ORDER_BADGE_CONFIGS.draft;
 
   return (
     <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
@@ -225,26 +217,30 @@ export default function ProductionQueueList({
 
       const newOpsMap = {};
 
-      // Fetch operations for each order (batch in parallel, max 5 at a time)
-      const batchSize = 5;
-      for (let i = 0; i < orders.length; i += batchSize) {
-        const batch = orders.slice(i, i + batchSize);
-        await Promise.all(
-          batch.map(async (order) => {
-            try {
-              const res = await fetch(
-                `${API_URL}/api/v1/production-orders/${order.id}/operations`,
-                { credentials: "include" }
-              );
-              if (res.ok) {
-                const data = await res.json();
-                newOpsMap[order.id] = data.operations || data || [];
+      try {
+        // Fetch operations for each order (batch in parallel, max 5 at a time)
+        const batchSize = 5;
+        for (let i = 0; i < orders.length; i += batchSize) {
+          const batch = orders.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (order) => {
+              try {
+                const res = await fetch(
+                  `${API_URL}/api/v1/production-orders/${order.id}/operations`,
+                  { credentials: "include" }
+                );
+                if (res.ok) {
+                  const data = await res.json();
+                  newOpsMap[order.id] = data.operations || data || [];
+                }
+              } catch {
+                // Skip failed fetches
               }
-            } catch {
-              // Skip failed fetches
-            }
-          })
-        );
+            })
+          );
+        }
+      } catch (err) {
+        console.error("Failed to fetch operations batch:", err);
       }
 
       setOperationsMap(newOpsMap);

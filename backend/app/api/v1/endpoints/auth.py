@@ -32,6 +32,7 @@ from app.schemas.auth import (
 )
 import secrets
 from app.core.config import settings
+from app.schemas.common import MessageResponse
 from app.services.email_service import email_service
 from app.core.security import (
     hash_password,
@@ -358,7 +359,7 @@ async def get_current_user_profile(
 # ENDPOINT: Logout
 # ============================================================================
 
-@router.post("/logout")
+@router.post("/logout", response_model=MessageResponse)
 async def logout(
     request: Request,
     response: Response,

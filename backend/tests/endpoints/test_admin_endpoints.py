@@ -354,7 +354,7 @@ class TestLocationCreate:
             "name": f"Test Location {uid}",
             "type": "shelf",
         })
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         body = resp.json()
         assert body["code"] == f"LOC-{uid}"
         assert body["name"] == f"Test Location {uid}"
@@ -377,7 +377,7 @@ class TestLocationCreate:
         child_resp = client.post(LOCATIONS, json={
             "code": f"CHD-{uid}", "name": f"Child {uid}", "parent_id": parent_id,
         })
-        assert child_resp.status_code == 200
+        assert child_resp.status_code == 201
         assert child_resp.json()["parent_id"] == parent_id
 
 

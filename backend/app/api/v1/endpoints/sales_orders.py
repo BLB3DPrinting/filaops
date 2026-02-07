@@ -525,7 +525,7 @@ class MaterialRequirementsResponse(BaseModel):
     summary: dict
 
 
-@router.get("/{order_id}/material-requirements")
+@router.get("/{order_id}/material-requirements", response_model=MaterialRequirementsResponse)
 async def get_material_requirements(
     order_id: int,
     current_user: User = Depends(get_current_user),

@@ -1,12 +1,5 @@
-// Printer status badge classes (static for Tailwind purge safety)
-export const statusColors = {
-  offline: "bg-gray-500/20 text-gray-400",
-  idle: "bg-green-500/20 text-green-400",
-  printing: "bg-blue-500/20 text-blue-400",
-  paused: "bg-yellow-500/20 text-yellow-400",
-  error: "bg-red-500/20 text-red-400",
-  maintenance: "bg-orange-500/20 text-orange-400",
-};
+// Printer status badge classes - sourced from shared palette
+export { PRINTER_COLORS as statusColors } from "../../lib/statusColors.js";
 
 export const brandLabels = {
   bambulab: "BambuLab",
