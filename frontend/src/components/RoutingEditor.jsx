@@ -18,7 +18,6 @@ export default function RoutingEditor({
   onSuccess,
   products = [], // Optional - for product selection when productId not provided
 }) {
-  const token = localStorage.getItem("adminToken");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [routing, setRouting] = useState(null);
@@ -54,7 +53,7 @@ export default function RoutingEditor({
   const fetchRouting = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/${routingId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -64,7 +63,7 @@ export default function RoutingEditor({
     } catch {
       // Routing fetch failure - will show empty editor
     }
-  }, [routingId, token]);
+  }, [routingId]);
 
   const fetchRoutingByProduct = useCallback(async () => {
     const finalProductId = selectedProductId || productId;
@@ -73,7 +72,7 @@ export default function RoutingEditor({
       const res = await fetch(
         `${API_URL}/api/v1/routings/product/${finalProductId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -88,14 +87,14 @@ export default function RoutingEditor({
     } catch {
       // Routing fetch failure - will show empty editor
     }
-  }, [selectedProductId, productId, token]);
+  }, [selectedProductId, productId]);
 
   const fetchWorkCenters = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers?active_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -105,14 +104,14 @@ export default function RoutingEditor({
     } catch {
       // Work centers fetch failure is non-critical - work center selector will be empty
     }
-  }, [token]);
+  }, []);
 
   const fetchTemplates = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/routings?templates_only=true&active_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -122,7 +121,7 @@ export default function RoutingEditor({
     } catch {
       // Templates fetch failure is non-critical - templates list will be empty
     }
-  }, [token]);
+  }, []);
 
   // Fetch materials for a specific operation
   const fetchOperationMaterials = useCallback(async (operationId) => {
@@ -130,7 +129,7 @@ export default function RoutingEditor({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/routings/operations/${operationId}/materials`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -142,7 +141,7 @@ export default function RoutingEditor({
     } catch {
       // Material fetch failure - materials will show as empty
     }
-  }, [token]);
+  }, []);
 
   // Fetch materials for all operations when routing loads
   useEffect(() => {
@@ -186,9 +185,9 @@ export default function RoutingEditor({
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/from-template`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           template_routing_id: parseInt(selectedTemplate),
@@ -225,9 +224,9 @@ export default function RoutingEditor({
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           product_id: finalProductId,
@@ -281,9 +280,9 @@ export default function RoutingEditor({
             `${API_URL}/api/v1/routings/operations/${op.id}`,
             {
               method: "PUT",
+              credentials: "include",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({
                 work_center_id: op.work_center_id,
@@ -307,9 +306,9 @@ export default function RoutingEditor({
             `${API_URL}/api/v1/routings/${routing.id}/operations`,
             {
               method: "POST",
+              credentials: "include",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({
                 work_center_id: op.work_center_id,
@@ -405,7 +404,7 @@ export default function RoutingEditor({
           `${API_URL}/api/v1/routings/operations/${operation.id}`,
           {
             method: "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
 

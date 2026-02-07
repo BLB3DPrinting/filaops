@@ -22,7 +22,6 @@ export default function QuoteDetailModal({
   onRefresh,
 }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageUrl, setImageUrl] = useState(null);
   const imageUrlRef = useRef(null);
@@ -35,7 +34,7 @@ export default function QuoteDetailModal({
   useEffect(() => {
     if (quote.has_image) {
       fetch(`${API_URL}/api/v1/quotes/${quote.id}/image`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       })
         .then((res) => {
           if (res.ok) return res.blob();
@@ -58,7 +57,7 @@ export default function QuoteDetailModal({
         imageUrlRef.current = null;
       }
     };
-  }, [quote.id, quote.has_image, token]);
+  }, [quote.id, quote.has_image]);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -83,7 +82,7 @@ export default function QuoteDetailModal({
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/image`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
@@ -95,7 +94,7 @@ export default function QuoteDetailModal({
       toast.success("Image uploaded successfully");
       // Refresh image by fetching with auth
       const imgRes = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/image`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (imgRes.ok) {
         const blob = await imgRes.blob();
@@ -120,7 +119,7 @@ export default function QuoteDetailModal({
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/image`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {

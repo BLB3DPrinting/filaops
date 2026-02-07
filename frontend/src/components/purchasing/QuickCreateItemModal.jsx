@@ -38,12 +38,11 @@ export default function QuickCreateItemModal({ onClose, onCreated, initialName =
 
     setLoading(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const res = await fetch(`${API_URL}/api/v1/items`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           sku: form.sku.trim(),

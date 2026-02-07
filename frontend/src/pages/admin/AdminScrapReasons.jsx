@@ -10,16 +10,13 @@ export default function AdminScrapReasons() {
   const [showModal, setShowModal] = useState(false);
   const [editingReason, setEditingReason] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   const fetchReasons = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/scrap-reasons/all`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) throw new Error("Failed to fetch scrap reasons");
@@ -30,7 +27,7 @@ export default function AdminScrapReasons() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchReasons();
@@ -54,8 +51,8 @@ export default function AdminScrapReasons() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
@@ -88,7 +85,7 @@ export default function AdminScrapReasons() {
         `${API_URL}/api/v1/production-orders/scrap-reasons/${reason.id}?${params}`,
         {
           method: "PUT",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

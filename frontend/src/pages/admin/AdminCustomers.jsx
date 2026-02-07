@@ -26,8 +26,6 @@ export default function AdminCustomers() {
   const [viewingCustomer, setViewingCustomer] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   // Check for action=new parameter and open modal
   useEffect(() => {
     const action = searchParams.get("action");
@@ -51,7 +49,6 @@ export default function AdminCustomers() {
   }, [filters.status]);
 
   const fetchCustomers = async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -59,7 +56,7 @@ export default function AdminCustomers() {
       if (filters.status !== "all") params.set("status", filters.status);
 
       const res = await fetch(`${API_URL}/api/v1/admin/customers?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch customers");
       const data = await res.json();
@@ -104,8 +101,8 @@ export default function AdminCustomers() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(customerData),
@@ -152,7 +149,7 @@ export default function AdminCustomers() {
       const res = await fetch(
         `${API_URL}/api/v1/admin/customers/${customerId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) throw new Error("Failed to fetch customer details");
@@ -170,7 +167,7 @@ export default function AdminCustomers() {
       const res = await fetch(
         `${API_URL}/api/v1/admin/customers/${customerId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) throw new Error("Failed to fetch customer details");

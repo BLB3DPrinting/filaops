@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { RESOURCE_STATUSES } from "./constants";
 
-export default function ResourceModal({ resource, workCenter, onClose, onSave, token }) {
+export default function ResourceModal({ resource, workCenter, onClose, onSave }) {
   const [form, setForm] = useState({
     code: resource?.code || "",
     name: resource?.name || "",
@@ -32,15 +32,11 @@ export default function ResourceModal({ resource, workCenter, onClose, onSave, t
       Promise.all([
         fetch(
           `${API_URL}/api/v1/work-centers/${workCenter.id}/printers?active_only=true`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
+          { credentials: "include" }
         ).then((res) => (res.ok ? res.json() : [])),
         fetch(
           `${API_URL}/api/v1/work-centers/${workCenter.id}/resources?active_only=false`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
+          { credentials: "include" }
         ).then((res) => (res.ok ? res.json() : [])),
       ])
         .then(([printersData, resourcesData]) => {
@@ -53,7 +49,7 @@ export default function ResourceModal({ resource, workCenter, onClose, onSave, t
         })
         .finally(() => setLoadingPrinters(false));
     }
-  }, [workCenter, resource, token]);
+  }, [workCenter, resource]);
 
   // Filter out printers that are already added as resources
   const availablePrinters = printers.filter(

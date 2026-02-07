@@ -119,8 +119,6 @@ export default function OperationCompletionModal({
   const [notes, setNotes] = useState('');
   const [createReplacement, setCreateReplacement] = useState(true);
 
-  const token = localStorage.getItem('adminToken');
-
   // Validation
   const total = qtyGood + qtyBad;
   const hasScrap = qtyBad > 0;
@@ -134,7 +132,7 @@ export default function OperationCompletionModal({
     const fetchReasons = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/production-orders/scrap-reasons`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -146,7 +144,7 @@ export default function OperationCompletionModal({
     };
 
     fetchReasons();
-  }, [isOpen, token]);
+  }, [isOpen]);
 
   // Fetch cascade preview when scrapping
   const fetchCascade = useCallback(async () => {
@@ -159,7 +157,7 @@ export default function OperationCompletionModal({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/scrap-cascade?quantity=${qtyBad}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
 
       if (res.ok) {
@@ -174,7 +172,7 @@ export default function OperationCompletionModal({
     } finally {
       setLoading(false);
     }
-  }, [isOpen, productionOrderId, operation?.id, qtyBad, token]);
+  }, [isOpen, productionOrderId, operation?.id, qtyBad]);
 
   // Debounced cascade fetch
   useEffect(() => {
@@ -233,8 +231,8 @@ export default function OperationCompletionModal({
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/complete`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({

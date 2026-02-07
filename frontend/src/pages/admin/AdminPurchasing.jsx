@@ -61,8 +61,6 @@ export default function AdminPurchasing() {
   const [trendPeriod, setTrendPeriod] = useState("MTD");
   const [trendLoading, setTrendLoading] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   // Handle create_po URL param - auto-open PO modal with pre-filled item
   useEffect(() => {
     const createPO = searchParams.get("create_po");
@@ -209,12 +207,11 @@ export default function AdminPurchasing() {
   };
 
   const fetchPurchasingTrend = async (period) => {
-    if (!token) return;
     setTrendLoading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/dashboard/purchasing-trend?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -273,7 +270,7 @@ export default function AdminPurchasing() {
       params.set("limit", "100");
 
       const res = await fetch(`${API_URL}/api/v1/purchase-orders?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch orders");
       const data = await res.json();
@@ -291,7 +288,7 @@ export default function AdminPurchasing() {
     if (showLoading) setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/vendors?active_only=false`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch vendors");
       const data = await res.json();
@@ -308,7 +305,7 @@ export default function AdminPurchasing() {
   const fetchProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/items?limit=2000`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -327,7 +324,7 @@ export default function AdminPurchasing() {
     setLowStockLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/items/low-stock`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -344,7 +341,7 @@ export default function AdminPurchasing() {
   const fetchCompanySettings = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/settings/company`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -359,7 +356,7 @@ export default function AdminPurchasing() {
   const fetchPODetails = async (poId) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/purchase-orders/${poId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -387,8 +384,8 @@ export default function AdminPurchasing() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(vendorData),
@@ -413,7 +410,7 @@ export default function AdminPurchasing() {
     try {
       const res = await fetch(`${API_URL}/api/v1/vendors/${vendorId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to delete vendor");
       toast.success("Vendor deleted");
@@ -436,8 +433,8 @@ export default function AdminPurchasing() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(poData),
@@ -463,8 +460,8 @@ export default function AdminPurchasing() {
         `${API_URL}/api/v1/purchase-orders/${poId}/status`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: newStatus, ...extraData }),
@@ -492,8 +489,8 @@ export default function AdminPurchasing() {
         `${API_URL}/api/v1/purchase-orders/${selectedPO.id}/receive`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(receiveData),
@@ -528,7 +525,7 @@ export default function AdminPurchasing() {
     try {
       const res = await fetch(`${API_URL}/api/v1/purchase-orders/${poId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -555,8 +552,8 @@ export default function AdminPurchasing() {
         `${API_URL}/api/v1/purchase-orders/${poId}/status`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: "cancelled" }),

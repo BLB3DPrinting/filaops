@@ -4,14 +4,15 @@ First-run setup endpoint for FilaOps
 Allows creating the initial admin account when no users exist.
 This endpoint is disabled once any user has been created.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 import sys
 
 from app.db.session import get_db
 from app.models.user import User
-from app.core.security import hash_password, create_access_token, validate_password_strength
+from app.core.security import hash_password, create_access_token, validate_password_strength, set_auth_cookies
+from app.core.config import settings
 from app.api.v1.deps import get_current_admin_user
 from app.logging_config import get_logger
 
@@ -64,18 +65,20 @@ def get_setup_status(db: Session = Depends(get_db)):
     )
 
 
-@router.post("/initial-admin", response_model=SetupCompleteResponse)
+@router.post("/initial-admin")
 def create_initial_admin(
     admin_data: InitialAdminCreate,
-    db: Session = Depends(get_db)
+    response: Response,
+    db: Session = Depends(get_db),
 ):
     """
     Create the initial admin user during first-run setup.
-    
+
     This endpoint ONLY works when no users exist in the database.
     Once any user is created, this endpoint returns 403 Forbidden.
-    
-    Security: This prevents unauthorized admin creation after initial setup.
+
+    In cookie mode, the access token is set as an httpOnly cookie.
+    In header mode, the token is returned in the response body.
     """
     # Check if any users already exist
     user_count = db.query(User).count()
@@ -84,7 +87,7 @@ def create_initial_admin(
             status_code=403,
             detail="Setup already complete. Admin creation is disabled."
         )
-    
+
     # Check if email already exists (shouldn't happen, but be safe)
     existing = db.query(User).filter(User.email == admin_data.email).first()
     if existing:
@@ -92,7 +95,7 @@ def create_initial_admin(
             status_code=400,
             detail="Email already registered"
         )
-    
+
     # Validate password strength
     is_valid, error_msg = validate_password_strength(admin_data.password)
     if not is_valid:
@@ -100,13 +103,13 @@ def create_initial_admin(
             status_code=400,
             detail=error_msg
         )
-    
+
     # Create the admin user
     # Parse full_name into first/last
     name_parts = admin_data.full_name.strip().split(' ', 1)
     first_name = name_parts[0]
     last_name = name_parts[1] if len(name_parts) > 1 else ''
-    
+
     admin = User(
         email=admin_data.email,
         password_hash=hash_password(admin_data.password),
@@ -117,18 +120,26 @@ def create_initial_admin(
         status="active",
         email_verified=True
     )
-    
+
     db.add(admin)
     db.commit()
     db.refresh(admin)
-    
+
     # Generate access token so they're logged in immediately
     access_token = create_access_token(user_id=admin.id)
-    
+
+    if settings.AUTH_MODE.lower() == "cookie":
+        set_auth_cookies(response, access_token)
+        return {
+            "message": "Admin account created successfully! Welcome to FilaOps.",
+            "email": admin.email,
+            "token_type": "cookie",
+        }
+
     return SetupCompleteResponse(
         message="Admin account created successfully! Welcome to FilaOps.",
         email=admin.email,
-        access_token=access_token
+        access_token=access_token,
     )
 
 

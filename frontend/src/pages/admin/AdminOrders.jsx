@@ -35,8 +35,6 @@ export default function AdminOrders() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingOrder, setDeletingOrder] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   // Check if returning from customer/item creation
   useEffect(() => {
     const pendingData = sessionStorage.getItem("pendingOrderData");
@@ -53,8 +51,6 @@ export default function AdminOrders() {
   }, [fulfillmentFilter, sortValue, location.key]);
 
   const fetchOrders = async () => {
-    if (!token) return;
-
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -73,7 +69,7 @@ export default function AdminOrders() {
       if (sortOrder) params.set("sort_order", sortOrder);
 
       const res = await fetch(`${API_URL}/api/v1/sales-orders/?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to fetch orders");
@@ -93,8 +89,8 @@ export default function AdminOrders() {
         `${API_URL}/api/v1/sales-orders/${orderId}/status`,
         {
           method: "PATCH",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: newStatus }),
@@ -132,8 +128,8 @@ export default function AdminOrders() {
         `${API_URL}/api/v1/sales-orders/${orderId}/generate-production-orders`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         }
@@ -235,8 +231,8 @@ export default function AdminOrders() {
         `${API_URL}/api/v1/sales-orders/${cancellingOrder.id}/cancel`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ cancellation_reason: cancellationReason }),
@@ -268,9 +264,7 @@ export default function AdminOrders() {
         `${API_URL}/api/v1/sales-orders/${deletingOrder.id}`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: "include",
         }
       );
 

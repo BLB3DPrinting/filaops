@@ -8,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 
-export default function QuoteFormModal({ quote, onSave, onClose, token }) {
+export default function QuoteFormModal({ quote, onSave, onClose }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [step, setStep] = useState(quote ? 2 : 1); // 1=product, 2=customer+details
@@ -48,7 +48,7 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
   const fetchProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/products?limit=500&active_only=true`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -64,7 +64,7 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
   const fetchCustomers = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/customers?limit=200`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -78,7 +78,7 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
   const fetchCompanySettings = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/settings/company`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -142,8 +142,8 @@ export default function QuoteFormModal({ quote, onSave, onClose, token }) {
 
         const customerRes = await fetch(`${API_URL}/api/v1/admin/customers`, {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

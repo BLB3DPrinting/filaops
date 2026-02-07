@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-export default function SalesJournalTab({ token }) {
+export default function SalesJournalTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,7 +34,7 @@ export default function SalesJournalTab({ token }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/sales-journal?${params}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -58,12 +58,10 @@ export default function SalesJournalTab({ token }) {
         end_date: new Date(endDate).toISOString(),
       });
 
-      // Use fetch with Authorization header to keep credentials secure
-      // (avoids exposing tokens in URL query strings, browser history, and server logs)
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/sales-journal/export?${params}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

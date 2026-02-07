@@ -6,7 +6,6 @@ export default function CreateProductionOrderModal({
   bom,
   quoteContext,
   onClose,
-  token,
   onSuccess,
 }) {
   // Calculate max producible based on inventory
@@ -75,10 +74,8 @@ export default function CreateProductionOrderModal({
         `${API_URL}/api/v1/production-orders?auto_start_print=false`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             product_id: bom.product_id,
             quantity_ordered: produceQty,

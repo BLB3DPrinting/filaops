@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Auth tokens migrated from localStorage to httpOnly cookies** — prevents XSS token theft
+  - All browser-based auth now uses httpOnly cookies with `SameSite=Lax`
+  - `AUTH_MODE` env var (`cookie`/`header`) for rollback safety
+  - `COOKIE_SECURE` env var — set `true` in production (requires HTTPS)
+  - Programmatic API access via `Authorization: Bearer` header still supported
+  - Tokens are **no longer returned** in login/register response bodies (cookie mode)
+- Password reset approve/deny changed from GET to POST — prevents CSRF and browser prefetch side effects
+- Rate limiting added to token refresh endpoint (`10/minute`)
+- Rate limiting added to password reset approve/deny endpoints (`10/minute`)
+- Server-side refresh token revocation on logout
+
 ### Changed
 - Removed deprecated `Machine` model alias; use `Resource` from `manufacturing.py` directly
 - Expanded `.env.example` to cover all settings groups
+- Frontend: all 70+ components migrated from manual `Authorization` header to `credentials: "include"`
 
 ## [3.0.1] - 2026-02-06
 

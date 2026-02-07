@@ -27,8 +27,6 @@ export default function AdminManufacturing() {
   const [routingProductId, setRoutingProductId] = useState(null);
   const [selectedWorkCenter, setSelectedWorkCenter] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   // Fetch both on initial mount so tab badges show correct counts
   useEffect(() => {
     fetchWorkCenters();
@@ -42,7 +40,7 @@ export default function AdminManufacturing() {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers/?active_only=false`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) throw new Error("Failed to fetch work centers");
@@ -59,7 +57,7 @@ export default function AdminManufacturing() {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch routings");
       const data = await res.json();
@@ -74,7 +72,7 @@ export default function AdminManufacturing() {
   const fetchProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/products?limit=500`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -95,9 +93,9 @@ export default function AdminManufacturing() {
 
       const res = await fetch(url, {
         method: editingWorkCenter ? "PUT" : "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(data),
       });
@@ -124,7 +122,7 @@ export default function AdminManufacturing() {
     try {
       const res = await fetch(`${API_URL}/api/v1/work-centers/${wc.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to delete");
@@ -144,7 +142,7 @@ export default function AdminManufacturing() {
         `${API_URL}/api/v1/work-centers/resources/${resource.id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -164,9 +162,9 @@ export default function AdminManufacturing() {
 
       const res = await fetch(url, {
         method: editingResource ? "PUT" : "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(data),
       });
@@ -433,7 +431,6 @@ export default function AdminManufacturing() {
         <ResourceModal
           resource={editingResource}
           workCenter={selectedWorkCenter}
-          token={token}
           onClose={() => {
             setShowResourceModal(false);
             setEditingResource(null);

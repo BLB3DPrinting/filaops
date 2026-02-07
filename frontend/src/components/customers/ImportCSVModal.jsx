@@ -8,7 +8,6 @@ import { API_URL } from "../../config/api";
 import Modal from "../Modal";
 
 export default function ImportCSVModal({ onClose, onImportComplete }) {
-  const token = localStorage.getItem("adminToken");
   const [step, setStep] = useState("upload"); // upload, preview, importing, complete
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -51,7 +50,7 @@ export default function ImportCSVModal({ onClose, onImportComplete }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/customers/import/preview`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
@@ -79,7 +78,7 @@ export default function ImportCSVModal({ onClose, onImportComplete }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/customers/import`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 

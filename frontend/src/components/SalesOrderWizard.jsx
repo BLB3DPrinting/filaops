@@ -71,8 +71,6 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const token = localStorage.getItem("adminToken");
-
   // Data loaded from API
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -268,7 +266,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const fetchCustomers = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/customers?limit=200`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -291,7 +289,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       const res = await fetch(
         `${API_URL}/api/v1/products?limit=500&active_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -306,7 +304,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const fetchCategories = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/items/categories`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -323,13 +321,13 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       const itemsRes = await fetch(
         `${API_URL}/api/v1/items?limit=500&active_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
       // Fetch materials with real product IDs (creates products if needed)
       const materialsRes = await fetch(`${API_URL}/api/v1/materials/for-bom`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       let allComponents = [];
@@ -365,7 +363,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const fetchWorkCenters = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/work-centers/`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -381,7 +379,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       const res = await fetch(
         `${API_URL}/api/v1/routings/?templates_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -398,7 +396,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       const typesRes = await fetch(
         `${API_URL}/api/v1/materials/types?customer_visible_only=false`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (typesRes.ok) {
@@ -413,7 +411,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const fetchTaxSettings = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/settings/company`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -437,7 +435,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/materials/types/${materialTypeCode}/colors?in_stock_only=false&customer_visible_only=false`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -459,8 +457,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/materials/inventory`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(newMaterial),
@@ -598,8 +596,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/items`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(subComponent),
@@ -793,8 +791,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
 
       const itemRes = await fetch(`${API_URL}/api/v1/items`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(itemPayload),
@@ -821,8 +819,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
 
         const bomRes = await fetch(`${API_URL}/api/v1/admin/bom/`, {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(bomPayload),
@@ -853,8 +851,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
 
         const routingRes = await fetch(`${API_URL}/api/v1/routings/`, {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(routingPayload),
@@ -963,8 +961,8 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
 
       const res = await fetch(`${API_URL}/api/v1/sales-orders/`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),

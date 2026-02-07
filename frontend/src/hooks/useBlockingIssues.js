@@ -35,16 +35,15 @@ export function useBlockingIssues(orderType, orderId) {
     setError(null);
 
     try {
-      const token = localStorage.getItem('adminToken');
       const endpoint = orderType === 'sales'
         ? `${API_URL}/api/v1/sales-orders/${orderId}/blocking-issues`
         : `${API_URL}/api/v1/production-orders/${orderId}/blocking-issues`;
 
       const response = await fetch(endpoint, {
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
       });
 
       if (!response.ok) {

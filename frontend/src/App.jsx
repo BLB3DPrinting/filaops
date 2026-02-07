@@ -53,15 +53,13 @@ export default function App() {
     () =>
       createApiClient({
         baseUrl: API_URL,
-        getToken: () => localStorage.getItem("adminToken"),
         onUnauthorized: async () => {
-          localStorage.removeItem("adminToken");
+          localStorage.removeItem("adminUser");
           // eslint-disable-next-line react-hooks/immutability -- Redirect in callback, not during render
           window.location.href = "/admin/login";
         },
         onError: (err) => {
           // why: centralized logging hook (also toasts via ApiErrorToaster)
-           
           console.warn("API error:", err.status, err.message);
         },
       }),

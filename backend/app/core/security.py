@@ -245,3 +245,47 @@ def hash_refresh_token(token: str) -> str:
         SHA256 hash of token (hex string, 64 characters)
     """
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+# ============================================================================
+# AUTH COOKIE HELPERS
+# ============================================================================
+
+def set_auth_cookies(
+    response,
+    access_token: str,
+    refresh_token: Optional[str] = None,
+) -> None:
+    """
+    Set httpOnly auth cookies on a FastAPI Response.
+
+    Args:
+        response: FastAPI/Starlette Response object
+        access_token: JWT access token
+        refresh_token: JWT refresh token (optional, e.g. setup only returns access)
+    """
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",
+        path="/api",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    if refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite="lax",
+            path="/api/v1/auth",
+            max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        )
+
+
+def clear_auth_cookies(response) -> None:
+    """Clear auth cookies from a FastAPI Response."""
+    response.delete_cookie("access_token", path="/api")
+    response.delete_cookie("refresh_token", path="/api/v1/auth")

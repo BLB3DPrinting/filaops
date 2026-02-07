@@ -28,15 +28,12 @@ export default function AdminQuotes() {
   const [editingQuote, setEditingQuote] = useState(null);
   const [viewingQuote, setViewingQuote] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchQuotes();
     fetchStats();
   }, [filters.status]);
 
   const fetchQuotes = async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -44,7 +41,7 @@ export default function AdminQuotes() {
       if (filters.status !== "all") params.set("status", filters.status);
 
       const res = await fetch(`${API_URL}/api/v1/quotes?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch quotes");
       const data = await res.json();
@@ -57,10 +54,9 @@ export default function AdminQuotes() {
   };
 
   const fetchStats = async () => {
-    if (!token) return;
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/stats`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -91,8 +87,8 @@ export default function AdminQuotes() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(quoteData),
@@ -117,8 +113,8 @@ export default function AdminQuotes() {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}/status`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -148,9 +144,7 @@ export default function AdminQuotes() {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}/convert`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -174,7 +168,7 @@ export default function AdminQuotes() {
   const handleDownloadPDF = async (quote) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to generate PDF");
@@ -198,7 +192,7 @@ export default function AdminQuotes() {
   const handlePrintPDF = async (quote) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to generate PDF");
@@ -243,8 +237,8 @@ export default function AdminQuotes() {
 
       const res = await fetch(`${API_URL}/api/v1/quotes`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(newQuoteData),
@@ -283,7 +277,7 @@ export default function AdminQuotes() {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -605,7 +599,6 @@ export default function AdminQuotes() {
             setShowQuoteModal(false);
             setEditingQuote(null);
           }}
-          token={token}
         />
       )}
 
@@ -630,7 +623,7 @@ export default function AdminQuotes() {
           onRefresh={async () => {
             // Refresh the viewing quote to get updated has_image flag
             const res = await fetch(`${API_URL}/api/v1/quotes/${viewingQuote.id}`, {
-              headers: { Authorization: `Bearer ${token}` },
+              credentials: "include",
             });
             if (res.ok) {
               const updated = await res.json();

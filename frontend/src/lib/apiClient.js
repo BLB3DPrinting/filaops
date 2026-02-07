@@ -1,6 +1,8 @@
 /**
  * Fetch wrapper with auth, JSON parsing, retries, and typed errors.
- * Usage: const api = createApiClient({ baseUrl: API_URL, getToken: () => localStorage.getItem('adminToken') });
+ *
+ * Auth: Uses httpOnly cookies (credentials: 'include'). No manual token handling.
+ * Usage: const api = createApiClient({ baseUrl: API_URL });
  */
 import { emit } from "./events";
 
@@ -19,17 +21,12 @@ export class ApiError extends Error {
 /**
  * @typedef {Object} ApiConfig
  * @property {string} baseUrl
- * @property {() => string|null} [getToken]
  * @property {() => (void|Promise<void>)} [onUnauthorized]
  * @property {(err:ApiError)=>void} [onError]
  * @property {Record<string,string>} [defaultHeaders]
  */
 export function createApiClient(/** @type {ApiConfig} */ cfg) {
   const base = cfg.baseUrl.replace(/\/+$/, "");
-  const getAuth = () => {
-    const t = cfg.getToken?.();
-    return t ? { Authorization: `Bearer ${t}` } : {};
-  };
 
   /** @param {RequestInit & {json?: any, retry?: number}} init */
   async function doFetch(
@@ -43,7 +40,6 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
       Accept: "application/json",
       ...(init.json !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(cfg.defaultHeaders || {}),
-      ...getAuth(),
       ...(init.headers || {}),
     };
     const retry = Math.max(0, init.retry ?? 2);
@@ -52,6 +48,7 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
     while (true) {
       const res = await fetch(url, {
         ...init,
+        credentials: "include",
         headers,
         body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
       }).catch((e) => ({
@@ -60,11 +57,9 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
         text: async () => String(e?.message || "Network error"),
       }));
 
-      // 401: optional handler (token refresh hook point)
+      // 401: clear auth state and redirect to login
       if (res.status === 401 && cfg.onUnauthorized) {
         await cfg.onUnauthorized();
-        // update auth header and retry once
-        Object.assign(headers, getAuth());
       }
 
       if (res.ok) {

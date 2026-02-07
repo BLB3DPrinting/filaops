@@ -10,11 +10,8 @@ const ExportImport = ({ type }) => {
 
   const handleExport = async () => {
     try {
-      const token = localStorage.getItem("access_token");
       const response = await fetch(`${API_URL}/api/v1/admin/export/${type}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -45,15 +42,12 @@ const ExportImport = ({ type }) => {
     setFile(selectedFile);
 
     try {
-      const token = localStorage.getItem("access_token");
       const formData = new FormData();
       formData.append("file", selectedFile);
 
       const response = await fetch(`${API_URL}/api/v1/admin/import/${type}`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 

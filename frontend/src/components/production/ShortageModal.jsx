@@ -22,8 +22,6 @@ export default function ShortageModal({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem('adminToken');
-
   const handleCreateReplacement = async () => {
     setCreating(true);
     setError(null);
@@ -32,8 +30,8 @@ export default function ShortageModal({
       // Create a new PO for the shortage quantity
       const res = await fetch(`${API_URL}/api/v1/production-orders`, {
         method: 'POST',
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
 // Purchase Request Modal content - Creates actual PO from BOM shortage
-export default function PurchaseRequestModal({ line, onClose, token, onSuccess }) {
+export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
   const [quantity, setQuantity] = useState(line?.shortage || 1);
   const [vendorId, setVendorId] = useState("");
   const [unitCost, setUnitCost] = useState(line?.component_cost || 0);
@@ -18,7 +18,7 @@ export default function PurchaseRequestModal({ line, onClose, token, onSuccess }
     const fetchVendors = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/vendors/?active_only=true`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -31,7 +31,7 @@ export default function PurchaseRequestModal({ line, onClose, token, onSuccess }
       }
     };
     fetchVendors();
-  }, [token]);
+  }, []);
 
   const handleSubmit = async () => {
     if (!vendorId) {
@@ -53,10 +53,8 @@ export default function PurchaseRequestModal({ line, onClose, token, onSuccess }
     try {
       const res = await fetch(`${API_URL}/api/v1/purchase-orders/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           vendor_id: parseInt(vendorId),
           notes: notes || `PO for ${line.component_name}`,

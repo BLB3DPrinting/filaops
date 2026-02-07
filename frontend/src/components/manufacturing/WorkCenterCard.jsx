@@ -28,15 +28,13 @@ export default function WorkCenterCard({
   const resourcesLoaded = useRef(false);
   const printersLoaded = useRef(false);
 
-  const token = localStorage.getItem("adminToken");
-
   const fetchResources = useCallback(async () => {
     if (resourcesLoaded.current) return;
     setLoadingResources(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers/${workCenter.id}/resources?active_only=false`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -48,14 +46,14 @@ export default function WorkCenterCard({
     } finally {
       setLoadingResources(false);
     }
-  }, [workCenter.id, token]);
+  }, [workCenter.id]);
 
   const fetchPrinters = useCallback(async () => {
     if (printersLoaded.current) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers/${workCenter.id}/printers?active_only=false`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -65,7 +63,7 @@ export default function WorkCenterCard({
     } catch {
       // Printers fetch failure is non-critical
     }
-  }, [workCenter.id, token]);
+  }, [workCenter.id]);
 
   useEffect(() => {
     if (expanded) {
@@ -116,9 +114,9 @@ export default function WorkCenterCard({
           `${API_URL}/api/v1/work-centers/${workCenter.id}/resources`,
           {
             method: "POST",
+            credentials: "include",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(resourceData),
           }

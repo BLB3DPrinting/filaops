@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-export default function TaxCenterTab({ token }) {
+export default function TaxCenterTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +23,7 @@ export default function TaxCenterTab({ token }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/tax-summary?period=${period}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -42,11 +42,10 @@ export default function TaxCenterTab({ token }) {
   const handleExport = async () => {
     setExportError(null); // Clear previous errors
     try {
-      // Use fetch with Authorization header to keep credentials secure
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/tax-summary/export?period=${period}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

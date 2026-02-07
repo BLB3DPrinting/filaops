@@ -166,10 +166,8 @@ export default function ActivityTimeline({ orderId, className = "" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
-    if (!orderId || !token) return;
+    if (!orderId) return;
 
     const fetchEvents = async () => {
       setLoading(true);
@@ -179,7 +177,7 @@ export default function ActivityTimeline({ orderId, className = "" }) {
         const res = await fetch(
           `${API_URL}/api/v1/sales-orders/${orderId}/events`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
 
@@ -197,7 +195,7 @@ export default function ActivityTimeline({ orderId, className = "" }) {
     };
 
     fetchEvents();
-  }, [orderId, token]);
+  }, [orderId]);
 
   if (loading) {
     return (

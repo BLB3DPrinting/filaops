@@ -17,8 +17,6 @@ import PricingStep from "./items/PricingStep";
  * - showPricing: boolean - Whether to show pricing step (default: true)
  */
 export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = null, categories: propCategories = null, showPricing = true }) {
-  const token = localStorage.getItem("adminToken");
-
   // Wizard step tracking
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -148,7 +146,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
   const fetchCategories = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/items/categories`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -162,10 +160,10 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
   const fetchComponents = async () => {
     try {
       const itemsRes = await fetch(`${API_URL}/api/v1/items?limit=500&active_only=true`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       const materialsRes = await fetch(`${API_URL}/api/v1/materials/for-bom`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       let allComponents = [];
@@ -195,7 +193,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
   const fetchWorkCenters = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/work-centers/`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -209,7 +207,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
   const fetchRoutingTemplates = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/?templates_only=true`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -223,7 +221,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
   const fetchMaterialTypesAndColors = async () => {
     try {
       const typesRes = await fetch(`${API_URL}/api/v1/materials/types?customer_visible_only=false`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (typesRes.ok) {
         const data = await typesRes.json();
@@ -243,7 +241,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
     try {
       const res = await fetch(
         `${API_URL}/api/v1/materials/types/${materialTypeCode}/colors?in_stock_only=false&customer_visible_only=false`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -307,8 +305,8 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
       const sku = subComponent.sku || `CP-${Date.now().toString(36).toUpperCase()}`;
       const res = await fetch(`${API_URL}/api/v1/items`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -345,8 +343,8 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
     try {
       const res = await fetch(`${API_URL}/api/v1/materials/inventory`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(newMaterial),
@@ -432,8 +430,8 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
         : `${API_URL}/api/v1/items`;
       const itemRes = await fetch(itemUrl, {
         method: editingItem ? "PATCH" : "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(itemPayload),
@@ -459,8 +457,8 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
 
         const bomRes = await fetch(`${API_URL}/api/v1/admin/bom/`, {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(bomPayload),
@@ -491,8 +489,8 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
 
         const routingRes = await fetch(`${API_URL}/api/v1/routings/`, {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(routingPayload),

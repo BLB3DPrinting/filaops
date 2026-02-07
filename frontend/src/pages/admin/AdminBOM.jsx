@@ -24,7 +24,6 @@ export default function AdminBOM() {
     active: searchParams.get("active") || "all",
   });
 
-  const token = localStorage.getItem("adminToken");
   const productId = searchParams.get("product");
   const quotedQuantity = searchParams.get("quantity");
   const quoteId = searchParams.get("quote_id");
@@ -33,8 +32,6 @@ export default function AdminBOM() {
   const [quoteContext, setQuoteContext] = useState(null);
 
   const fetchBOMs = useCallback(async () => {
-    if (!token) return;
-
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -43,7 +40,7 @@ export default function AdminBOM() {
         params.set("active", filters.active === "active");
 
       const res = await fetch(`${API_URL}/api/v1/admin/bom?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to fetch BOMs");
@@ -55,7 +52,7 @@ export default function AdminBOM() {
     } finally {
       setLoading(false);
     }
-  }, [token, filters]);
+  }, [filters]);
 
   useEffect(() => {
     fetchBOMs();
@@ -66,7 +63,7 @@ export default function AdminBOM() {
     async (bomId) => {
       try {
         const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
 
         if (!res.ok) throw new Error("Failed to fetch BOM details");
@@ -81,7 +78,7 @@ export default function AdminBOM() {
         setError(`Failed to load BOM: ${err.message || "Unknown error"}`);
       }
     },
-    [token]
+    []
   );
 
   // Track whether URL-driven auto-open has been performed
@@ -128,7 +125,7 @@ export default function AdminBOM() {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {
@@ -149,7 +146,7 @@ export default function AdminBOM() {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}/copy`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {
@@ -356,7 +353,6 @@ export default function AdminBOM() {
                 fetchBOMs();
                 handleViewBOM(selectedBOM.id);
               }}
-              token={token}
               onCreateProductionOrder={handleCreateProductionOrder}
             />
           )}
@@ -394,7 +390,6 @@ export default function AdminBOM() {
                 setProductionBOM(null);
                 setQuoteContext(null);
               }}
-              token={token}
               onSuccess={handleProductionOrderCreated}
             />
           )}
@@ -424,7 +419,6 @@ export default function AdminBOM() {
               fetchBOMs();
               handleViewBOM(newBom.id);
             }}
-            token={token}
             existingBoms={boms}
           />
         </div>

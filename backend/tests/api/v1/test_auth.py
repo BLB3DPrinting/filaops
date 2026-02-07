@@ -7,10 +7,11 @@ Covers:
 - POST /api/v1/auth/register
 - POST /api/v1/auth/login
 - POST /api/v1/auth/refresh
+- POST /api/v1/auth/logout
 - GET  /api/v1/auth/me
 - POST /api/v1/auth/password-reset/request
-- GET  /api/v1/auth/password-reset/approve/{approval_token}
-- GET  /api/v1/auth/password-reset/deny/{approval_token}
+- POST /api/v1/auth/password-reset/approve
+- POST /api/v1/auth/password-reset/deny
 - GET  /api/v1/auth/password-reset/status/{token}
 - POST /api/v1/auth/password-reset/complete
 """
@@ -28,6 +29,16 @@ def _disable_rate_limits():
     limiter.enabled = False
     yield
     limiter.enabled = original_enabled
+
+
+@pytest.fixture(autouse=True)
+def _force_header_mode(monkeypatch):
+    """Force header (bearer-in-body) mode for existing tests.
+
+    Cookie-mode tests are in a dedicated class that overrides this.
+    """
+    import app.api.v1.endpoints.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_USE_COOKIES", False)
 
 
 # =============================================================================
@@ -383,7 +394,9 @@ class TestPasswordResetFullFlow:
             },
         )
         assert resp.status_code == 200
-        assert "access_token" in resp.json()
+        # In header mode: token in body; in cookie mode: token in cookie
+        data = resp.json()
+        assert "access_token" in data or data.get("token_type") == "cookie"
 
     def test_reset_with_weak_password_fails(self, unauthed_client, registered_user):
         # Request reset
@@ -409,13 +422,121 @@ class TestPasswordResetFullFlow:
 class TestPasswordResetApproval:
 
     def test_approve_invalid_token(self, unauthed_client):
-        resp = unauthed_client.get(
-            f"{BASE_URL}/password-reset/approve/nonexistent-approval-token",
+        resp = unauthed_client.post(
+            f"{BASE_URL}/password-reset/approve",
+            json={"approval_token": "nonexistent-approval-token"},
         )
         assert resp.status_code == 404
 
     def test_deny_invalid_token(self, unauthed_client):
-        resp = unauthed_client.get(
-            f"{BASE_URL}/password-reset/deny/nonexistent-approval-token",
+        resp = unauthed_client.post(
+            f"{BASE_URL}/password-reset/deny",
+            json={"approval_token": "nonexistent-approval-token"},
         )
         assert resp.status_code == 404
+
+    def test_approve_old_get_endpoint_returns_405(self, unauthed_client):
+        """Old GET-style approve endpoint should no longer exist."""
+        resp = unauthed_client.get(
+            f"{BASE_URL}/password-reset/approve/some-token",
+        )
+        assert resp.status_code in (404, 405)
+
+    def test_deny_old_get_endpoint_returns_405(self, unauthed_client):
+        """Old GET-style deny endpoint should no longer exist."""
+        resp = unauthed_client.get(
+            f"{BASE_URL}/password-reset/deny/some-token",
+        )
+        assert resp.status_code in (404, 405)
+
+
+# =============================================================================
+# Cookie-Mode Tests
+# =============================================================================
+
+class TestCookieMode:
+    """Test httpOnly cookie auth delivery."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_cookie_mode(self, monkeypatch):
+        """Override the module-level header-mode fixture for this class."""
+        import app.api.v1.endpoints.auth as auth_mod
+        monkeypatch.setattr(auth_mod, "_USE_COOKIES", True)
+
+    def test_login_sets_httponly_cookies(self, unauthed_client, registered_user):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/login",
+            data={"username": registered_user.email, "password": "TestPass123!"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Body should NOT contain tokens
+        assert "access_token" not in data
+        assert "refresh_token" not in data
+        assert data["token_type"] == "cookie"
+        assert "user" in data
+
+        # Cookies should be set
+        assert "access_token" in resp.cookies
+        assert "refresh_token" in resp.cookies
+
+    def test_cookie_auth_works(self, unauthed_client, registered_user):
+        """Request with cookie, no Authorization header → 200."""
+        # Login to get cookies
+        login_resp = unauthed_client.post(
+            f"{BASE_URL}/login",
+            data={"username": registered_user.email, "password": "TestPass123!"},
+        )
+        assert login_resp.status_code == 200
+
+        # /me should work using cookie from login (TestClient carries cookies)
+        me_resp = unauthed_client.get(f"{BASE_URL}/me")
+        assert me_resp.status_code == 200
+        assert me_resp.json()["email"] == registered_user.email
+
+    def test_header_auth_fallback(self, unauthed_client, registered_user):
+        """Request with Authorization header, no cookie → 200."""
+        from app.core.security import create_access_token
+        token = create_access_token(registered_user.id)
+        resp = unauthed_client.get(
+            f"{BASE_URL}/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+
+    def test_no_auth_returns_401(self, unauthed_client):
+        """No cookie, no header → 401."""
+        resp = unauthed_client.get(f"{BASE_URL}/me")
+        assert resp.status_code == 401
+
+    def test_logout_clears_cookies(self, unauthed_client, registered_user):
+        # Login first
+        unauthed_client.post(
+            f"{BASE_URL}/login",
+            data={"username": registered_user.email, "password": "TestPass123!"},
+        )
+
+        # Logout
+        resp = unauthed_client.post(f"{BASE_URL}/logout")
+        assert resp.status_code == 200
+
+        # Cookies should be cleared — next /me should fail
+        me_resp = unauthed_client.get(f"{BASE_URL}/me")
+        assert me_resp.status_code == 401
+
+    def test_refresh_via_cookie(self, unauthed_client, registered_user):
+        """Refresh endpoint should read refresh_token from cookie."""
+        # Login to set cookies
+        login_resp = unauthed_client.post(
+            f"{BASE_URL}/login",
+            data={"username": registered_user.email, "password": "TestPass123!"},
+        )
+        assert login_resp.status_code == 200
+
+        # Refresh — no body needed, cookie is sent automatically by TestClient
+        resp = unauthed_client.post(f"{BASE_URL}/refresh")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["token_type"] == "cookie"
+        assert "access_token" not in data

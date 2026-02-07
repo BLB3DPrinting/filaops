@@ -15,11 +15,9 @@ export function useResources(workCenterId = null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem('adminToken');
-
   useEffect(() => {
     const fetchResources = async () => {
-      if (!token) {
+      if (!localStorage.getItem('adminUser')) {
         setError('Not authenticated');
         setLoading(false);
         return;
@@ -33,11 +31,11 @@ export function useResources(workCenterId = null) {
           const [resourcesRes, printersRes] = await Promise.all([
             fetch(
               `${API_URL}/api/v1/work-centers/${workCenterId}/resources`,
-              { headers: { Authorization: `Bearer ${token}` } }
+              { credentials: 'include' }
             ),
             fetch(
               `${API_URL}/api/v1/work-centers/${workCenterId}/printers`,
-              { headers: { Authorization: `Bearer ${token}` } }
+              { credentials: 'include' }
             )
           ]);
 
@@ -64,7 +62,7 @@ export function useResources(workCenterId = null) {
           // Fetch all work centers and extract resources + printers
           const res = await fetch(
             `${API_URL}/api/v1/work-centers/`,
-            { headers: { Authorization: `Bearer ${token}` } }
+            { credentials: 'include' }
           );
 
           if (!res.ok) throw new Error('Failed to fetch work centers');
@@ -77,11 +75,11 @@ export function useResources(workCenterId = null) {
               const [wcResources, wcPrinters] = await Promise.all([
                 fetch(
                   `${API_URL}/api/v1/work-centers/${wc.id}/resources`,
-                  { headers: { Authorization: `Bearer ${token}` } }
+                  { credentials: 'include' }
                 ).then(r => r.ok ? r.json() : []),
                 fetch(
                   `${API_URL}/api/v1/work-centers/${wc.id}/printers`,
-                  { headers: { Authorization: `Bearer ${token}` } }
+                  { credentials: 'include' }
                 ).then(r => r.ok ? r.json() : [])
               ]);
 
@@ -120,7 +118,7 @@ export function useResources(workCenterId = null) {
     };
 
     fetchResources();
-  }, [token, workCenterId]);
+  }, [workCenterId]);
 
   return { resources, loading, error };
 }
@@ -136,8 +134,6 @@ export function useResourceConflicts(resourceId, startTime, endTime) {
   const [conflicts, setConflicts] = useState([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
-
-  const token = localStorage.getItem('adminToken');
 
   useEffect(() => {
     const checkConflicts = async () => {
@@ -158,7 +154,7 @@ export function useResourceConflicts(resourceId, startTime, endTime) {
 
         const res = await fetch(
           `${API_URL}/api/v1/scheduling/resource-conflicts?${params}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: 'include' }
         );
 
         if (res.ok) {
@@ -183,7 +179,7 @@ export function useResourceConflicts(resourceId, startTime, endTime) {
     // Debounce the conflict check
     const timer = setTimeout(checkConflicts, 300);
     return () => clearTimeout(timer);
-  }, [token, resourceId, startTime, endTime]);
+  }, [resourceId, startTime, endTime]);
 
   return { conflicts, checking, error, hasConflicts: conflicts.length > 0 };
 }

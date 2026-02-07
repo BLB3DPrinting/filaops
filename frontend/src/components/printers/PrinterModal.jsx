@@ -27,7 +27,6 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
     active: printer?.active !== false,
   });
 
-  const token = localStorage.getItem("adminToken");
   const isEdit = !!printer;
 
   // Fetch machine-type work centers on mount
@@ -35,7 +34,7 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
     const fetchWorkCenters = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/work-centers/?center_type=machine`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -46,7 +45,7 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
       }
     };
     fetchWorkCenters();
-  }, [token]);
+  }, []);
 
   // Get models for selected brand
   const selectedBrand = brandInfo.find((b) => b.code === form.brand);
@@ -70,8 +69,8 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
 
       const res = await fetch(url, {
         method: isEdit ? "PUT" : "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
@@ -95,7 +94,7 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
     try {
       const prefix = form.brand === "generic" ? "PRT" : form.brand.toUpperCase().slice(0, 3);
       const res = await fetch(`${API_URL}/api/v1/printers/generate-code?prefix=${prefix}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();

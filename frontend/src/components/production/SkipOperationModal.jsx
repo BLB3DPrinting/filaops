@@ -18,8 +18,6 @@ export default function SkipOperationModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem('adminToken');
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -36,8 +34,8 @@ export default function SkipOperationModal({
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/skip`,
         {
           method: 'POST',
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ reason: reason.trim() })

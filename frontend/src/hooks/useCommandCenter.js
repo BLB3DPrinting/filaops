@@ -17,10 +17,8 @@ export function useActionItems(autoRefresh = false, refreshInterval = 60000) {
   const [error, setError] = useState(null);
   const intervalRef = useRef(null);
 
-  const token = localStorage.getItem('adminToken');
-
   const fetchData = useCallback(async () => {
-    if (!token) {
+    if (!localStorage.getItem('adminUser')) {
       setError('Not authenticated');
       setLoading(false);
       return;
@@ -28,9 +26,7 @@ export function useActionItems(autoRefresh = false, refreshInterval = 60000) {
 
     try {
       const res = await fetch(`${API_URL}/api/v1/command-center/action-items`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -46,7 +42,7 @@ export function useActionItems(autoRefresh = false, refreshInterval = 60000) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -74,10 +70,8 @@ export function useSummary(autoRefresh = false, refreshInterval = 60000) {
   const [error, setError] = useState(null);
   const intervalRef = useRef(null);
 
-  const token = localStorage.getItem('adminToken');
-
   const fetchData = useCallback(async () => {
-    if (!token) {
+    if (!localStorage.getItem('adminUser')) {
       setError('Not authenticated');
       setLoading(false);
       return;
@@ -85,9 +79,7 @@ export function useSummary(autoRefresh = false, refreshInterval = 60000) {
 
     try {
       const res = await fetch(`${API_URL}/api/v1/command-center/summary`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -102,7 +94,7 @@ export function useSummary(autoRefresh = false, refreshInterval = 60000) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -131,10 +123,8 @@ export function useResourceStatuses(autoRefresh = false, refreshInterval = 30000
   const [error, setError] = useState(null);
   const intervalRef = useRef(null);
 
-  const token = localStorage.getItem('adminToken');
-
   const fetchData = useCallback(async () => {
-    if (!token) {
+    if (!localStorage.getItem('adminUser')) {
       setError('Not authenticated');
       setLoading(false);
       return;
@@ -142,9 +132,7 @@ export function useResourceStatuses(autoRefresh = false, refreshInterval = 30000
 
     try {
       const res = await fetch(`${API_URL}/api/v1/command-center/resources`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -160,7 +148,7 @@ export function useResourceStatuses(autoRefresh = false, refreshInterval = 30000
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchData();

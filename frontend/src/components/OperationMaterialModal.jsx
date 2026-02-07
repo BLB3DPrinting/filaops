@@ -14,7 +14,6 @@ export default function OperationMaterialModal({
   material = null, // If provided, editing existing material
   onSave,
 }) {
-  const token = localStorage.getItem('adminToken');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [products, setProducts] = useState([]);
@@ -78,7 +77,7 @@ export default function OperationMaterialModal({
         }
 
         const res = await fetch(`${API_URL}/api/v1/products?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -91,7 +90,7 @@ export default function OperationMaterialModal({
 
     const timer = setTimeout(fetchProducts, 300);
     return () => clearTimeout(timer);
-  }, [isOpen, searchTerm, token]);
+  }, [isOpen, searchTerm]);
 
   const handleSubmit = async () => {
     if (!formData.component_id) {
@@ -124,9 +123,9 @@ export default function OperationMaterialModal({
         // Update existing material
         res = await fetch(`${API_URL}/api/v1/routings/materials/${material.id}`, {
           method: 'PUT',
+          credentials: "include",
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify(payload),
         });
@@ -134,9 +133,9 @@ export default function OperationMaterialModal({
         // Add new material
         res = await fetch(`${API_URL}/api/v1/routings/operations/${operationId}/materials`, {
           method: 'POST',
+          credentials: "include",
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify(payload),
         });
@@ -170,7 +169,7 @@ export default function OperationMaterialModal({
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/materials/${material.id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {

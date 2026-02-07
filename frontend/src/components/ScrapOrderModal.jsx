@@ -15,8 +15,6 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
   const [scrapReasons, setScrapReasons] = useState([]);  // Array of { code, name, description }
   const [loading, setLoading] = useState(true);
 
-  const token = localStorage.getItem("adminToken");
-
   // Calculate remaining quantity that can be scrapped
   const remainingQty = productionOrder.quantity_ordered - (productionOrder.quantity_completed || 0) - (productionOrder.quantity_scrapped || 0);
   const isPartialScrap = quantityScrapped < remainingQty;
@@ -27,7 +25,7 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
       try {
         console.log("Fetching scrap reasons from:", `${API_URL}/api/v1/production-orders/scrap-reasons`);
         const res = await fetch(`${API_URL}/api/v1/production-orders/scrap-reasons`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         console.log("Scrap reasons response:", res.status, res.statusText);
         if (res.ok) {
@@ -53,7 +51,7 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
       }
     };
     fetchReasons();
-  }, [token]);
+  }, []);
 
   const handleSubmit = async () => {
     if (!scrapReason) {
@@ -86,8 +84,8 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/scrap?${params}`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         }

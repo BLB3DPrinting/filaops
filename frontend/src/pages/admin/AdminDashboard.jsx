@@ -26,14 +26,11 @@ export default function AdminDashboard() {
   }, [salesPeriod]);
 
   const fetchSalesData = async (period) => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     setSalesLoading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/dashboard/sales-trend?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -55,13 +52,6 @@ export default function AdminDashboard() {
   };
 
   const fetchDashboardData = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) {
-      setError("Authentication required");
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
 
@@ -69,7 +59,7 @@ export default function AdminDashboard() {
       const summaryRes = await fetch(
         `${API_URL}/api/v1/admin/dashboard/summary`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -81,7 +71,7 @@ export default function AdminDashboard() {
       const ordersRes = await fetch(
         `${API_URL}/api/v1/admin/dashboard/recent-orders?limit=5`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -94,7 +84,7 @@ export default function AdminDashboard() {
       const posRes = await fetch(
         `${API_URL}/api/v1/purchase-orders?status=draft,ordered&limit=5`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

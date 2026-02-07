@@ -13,8 +13,6 @@ export default function QCInspectionModal({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
@@ -22,8 +20,8 @@ export default function QCInspectionModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/qc`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

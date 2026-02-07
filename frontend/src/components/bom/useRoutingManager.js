@@ -6,7 +6,7 @@ import { API_URL } from "../../config/api.js";
  * for a BOM detail view: product routing, templates, operations,
  * operation materials, and time overrides.
  */
-export default function useRoutingManager({ bom, token, toast }) {
+export default function useRoutingManager({ bom, toast }) {
   // Process Path / Routing state
   const [routingTemplates, setRoutingTemplates] = useState([]);
   const [productRouting, setProductRouting] = useState(null);
@@ -43,11 +43,11 @@ export default function useRoutingManager({ bom, token, toast }) {
   // ─── Data fetching ───────────────────────────────────────────
 
   const fetchProductRouting = useCallback(async () => {
-    if (!bom.product_id || !token) return;
+    if (!bom.product_id) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/routings?product_id=${bom.product_id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -56,7 +56,7 @@ export default function useRoutingManager({ bom, token, toast }) {
         if (activeRouting) {
           const detailRes = await fetch(
             `${API_URL}/api/v1/routings/${activeRouting.id}`,
-            { headers: { Authorization: `Bearer ${token}` } }
+            { credentials: "include" }
           );
           if (detailRes.ok) {
             const routingDetail = await detailRes.json();
@@ -77,14 +77,14 @@ export default function useRoutingManager({ bom, token, toast }) {
     } catch {
       // Product routing fetch failure is non-critical
     }
-  }, [token, bom.product_id]);
+  }, [bom.product_id]);
 
   const fetchManufacturingBOM = useCallback(async () => {
-    if (!bom?.product_id || !token) return;
+    if (!bom?.product_id) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/routings/manufacturing-bom/${bom.product_id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -97,7 +97,7 @@ export default function useRoutingManager({ bom, token, toast }) {
     } catch {
       // Non-critical failure
     }
-  }, [bom?.product_id, token]);
+  }, [bom?.product_id]);
 
   // Fetch manufacturing BOM when productRouting is loaded
   useEffect(() => {
@@ -127,10 +127,8 @@ export default function useRoutingManager({ bom, token, toast }) {
         `${API_URL}/api/v1/routings/operations/${operationId}/materials`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             component_id: parseInt(newMaterial.component_id),
             quantity: parseFloat(newMaterial.quantity),
@@ -162,7 +160,7 @@ export default function useRoutingManager({ bom, token, toast }) {
         `${API_URL}/api/v1/routings/materials/${materialId}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -205,10 +203,8 @@ export default function useRoutingManager({ bom, token, toast }) {
 
       const res = await fetch(`${API_URL}/api/v1/routings/apply-template`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           product_id: bom.product_id,
           template_id: parseInt(selectedTemplateId),
@@ -261,10 +257,8 @@ export default function useRoutingManager({ bom, token, toast }) {
         `${API_URL}/api/v1/routings/operations/${operationId}`,
         {
           method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             [field]: parseFloat(value) || 0,
           }),
@@ -302,7 +296,7 @@ export default function useRoutingManager({ bom, token, toast }) {
         `${API_URL}/api/v1/routings/operations/${operationId}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -360,10 +354,8 @@ export default function useRoutingManager({ bom, token, toast }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/routings/`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           product_id: bom.product_id,
           operations: pendingOperations.map((op) => ({
@@ -408,10 +400,8 @@ export default function useRoutingManager({ bom, token, toast }) {
         `${API_URL}/api/v1/routings/${productRouting.id}/operations`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             work_center_id: parseInt(newOperation.work_center_id),
             sequence: nextSequence,
@@ -467,7 +457,7 @@ export default function useRoutingManager({ bom, token, toast }) {
       try {
         const res = await fetch(
           `${API_URL}/api/v1/routings?templates_only=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         );
         if (res.ok) {
           const data = await res.json();
@@ -482,7 +472,7 @@ export default function useRoutingManager({ bom, token, toast }) {
       try {
         const res = await fetch(
           `${API_URL}/api/v1/work-centers/?active_only=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         );
         if (res.ok) {
           const data = await res.json();

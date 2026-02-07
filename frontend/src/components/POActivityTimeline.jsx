@@ -145,10 +145,8 @@ export default function POActivityTimeline({ poId, className = "" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
-    if (!poId || !token) return;
+    if (!poId) return;
 
     const fetchEvents = async () => {
       setLoading(true);
@@ -158,7 +156,7 @@ export default function POActivityTimeline({ poId, className = "" }) {
         const res = await fetch(
           `${API_URL}/api/v1/purchase-orders/${poId}/events`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
 
@@ -176,7 +174,7 @@ export default function POActivityTimeline({ poId, className = "" }) {
     };
 
     fetchEvents();
-  }, [poId, token]);
+  }, [poId]);
 
   if (loading) {
     return (

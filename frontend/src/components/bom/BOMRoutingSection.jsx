@@ -23,7 +23,6 @@ export default function BOMRoutingSection({
   savingRouting,
   addingOperation,
   setShowAddMaterialModal,
-  token,
   handleAddPendingOperation,
   handleRemovePendingOperation,
   handleSaveRouting,
@@ -346,10 +345,8 @@ export default function BOMRoutingSection({
                                       `${API_URL}/api/v1/routings/operations/${op.id}`,
                                       {
                                         method: "PUT",
-                                        headers: {
-                                          Authorization: `Bearer ${token}`,
-                                          "Content-Type": "application/json",
-                                        },
+                                        headers: { "Content-Type": "application/json" },
+                                        credentials: "include",
                                         body: JSON.stringify({
                                           sequence: newSequence,
                                         }),

@@ -32,8 +32,6 @@ const UpdateNotification = () => {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("adminToken");
-      
       // Show immediate feedback
       alert("Upgrade started!\n\nContainers are rebuilding. This page will automatically reload in 60 seconds.\n\nDo not close this window.");
       
@@ -44,7 +42,8 @@ const UpdateNotification = () => {
       // Fire upgrade request (may not get response as server restarts)
       fetch(`${API_URL}/api/v1/system/updates/upgrade`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
       }).catch(() => console.log("Connection lost during upgrade (expected)"));
       
       // Wait for upgrade to start

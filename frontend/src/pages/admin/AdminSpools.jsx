@@ -20,8 +20,6 @@ export default function AdminSpools() {
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchSpools();
     fetchProducts();
@@ -40,7 +38,7 @@ export default function AdminSpools() {
       if (filters.search) params.set("search", filters.search);
 
       const res = await fetch(`${API_URL}/api/v1/spools?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to fetch spools");
@@ -57,7 +55,7 @@ export default function AdminSpools() {
   const fetchProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/products?type=material&limit=200`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -71,7 +69,7 @@ export default function AdminSpools() {
   const fetchLocations = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/inventory/locations`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -88,7 +86,7 @@ export default function AdminSpools() {
     try {
       const res = await fetch(`${API_URL}/api/v1/spools/${spoolId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {
@@ -286,7 +284,6 @@ export default function AdminSpools() {
 
 function SpoolModal({ spool, products, locations, onClose, onSave }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   const [form, setForm] = useState({
     spool_number: spool?.spool_number || "",
     product_id: spool?.product_id || "",
@@ -327,7 +324,7 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
 
       const res = await fetch(`${url}?${params}`, {
         method,
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import SearchableSelect from "../SearchableSelect";
 
-export default function CreateBOMForm({ onClose, onCreate, token, existingBoms = [] }) {
+export default function CreateBOMForm({ onClose, onCreate, existingBoms = [] }) {
   const [formData, setFormData] = useState({
     product_id: "",
     name: "",
@@ -20,7 +20,7 @@ export default function CreateBOMForm({ onClose, onCreate, token, existingBoms =
       const res = await fetch(
         `${API_URL}/api/v1/products?limit=500&is_raw_material=false`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) {
@@ -32,7 +32,7 @@ export default function CreateBOMForm({ onClose, onCreate, token, existingBoms =
     } catch (err) {
       setError(err.message || "Failed to load products. Please refresh the page.");
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -102,10 +102,8 @@ export default function CreateBOMForm({ onClose, onCreate, token, existingBoms =
 
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           product_id: parseInt(formData.product_id),
           name: formData.name || null,

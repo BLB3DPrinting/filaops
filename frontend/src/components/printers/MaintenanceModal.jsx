@@ -31,8 +31,6 @@ export default function MaintenanceModal({ printers, selectedPrinterId, onClose,
     notes: "",
   });
 
-  const token = localStorage.getItem("adminToken");
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -58,8 +56,8 @@ export default function MaintenanceModal({ printers, selectedPrinterId, onClose,
 
       const res = await fetch(`${API_URL}/api/v1/maintenance/printers/${form.printer_id}/maintenance`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),

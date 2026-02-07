@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-export default function COGSTab({ token }) {
+export default function COGSTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,7 +22,7 @@ export default function COGSTab({ token }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/cogs-summary?days=${days}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {

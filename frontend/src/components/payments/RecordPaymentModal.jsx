@@ -32,8 +32,6 @@ export default function RecordPaymentModal({
   onSuccess,
 }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
-
   const [loading, setLoading] = useState(false);
   const [orders, setOrders] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,7 +52,7 @@ export default function RecordPaymentModal({
     try {
       // Fetch orders that might need payment (not cancelled, not fully paid for payments)
       const res = await fetch(`${API_URL}/api/v1/sales-orders?page_size=100`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -63,13 +61,13 @@ export default function RecordPaymentModal({
     } catch {
       // Non-critical: Order list fetch failure doesn't block user - they can still search
     }
-  }, [token]);
+  }, []);
 
   const fetchOrderDetails = useCallback(
     async (id) => {
       try {
         const res = await fetch(`${API_URL}/api/v1/sales-orders/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const order = await res.json();
@@ -80,7 +78,7 @@ export default function RecordPaymentModal({
         // Non-critical: Pre-selected order fetch failure - user can select manually
       }
     },
-    [token]
+    []
   );
 
   const fetchPaymentSummary = useCallback(
@@ -89,7 +87,7 @@ export default function RecordPaymentModal({
         const res = await fetch(
           `${API_URL}/api/v1/payments/order/${orderId}/summary`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
         if (res.ok) {
@@ -99,7 +97,7 @@ export default function RecordPaymentModal({
         // Non-critical: Payment summary fetch failure - form still works without it
       }
     },
-    [token]
+    []
   );
 
   // Fetch orders for selection
@@ -148,13 +146,6 @@ export default function RecordPaymentModal({
         ? `${API_URL}/api/v1/payments/refund`
         : `${API_URL}/api/v1/payments`;
 
-      // Debug: Check if token exists
-      if (!token) {
-        toast.error("Not authenticated. Please log in again.");
-        setLoading(false);
-        return;
-      }
-
       // Parse date as local time (noon to avoid timezone date shifts)
       let paymentDate = null;
       if (form.payment_date) {
@@ -174,21 +165,11 @@ export default function RecordPaymentModal({
         notes: form.notes || null,
       };
 
-      // Debug logging
-      console.log("Payment request:", {
-        endpoint,
-        body,
-        API_URL,
-        tokenPresent: !!token,
-        tokenLength: token?.length,
-      });
-
       const res = await fetch(endpoint, {
         method: "POST",
-        mode: "cors",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),
       });

@@ -9,7 +9,6 @@ import { useToast } from "../Toast";
 
 export default function ShippingAddressSection({ order, onOrderUpdated }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   const [editingAddress, setEditingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [addressForm, setAddressForm] = useState({});
@@ -33,10 +32,8 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
         `${API_URL}/api/v1/sales-orders/${order.id}/address`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify(addressForm),
         }
       );

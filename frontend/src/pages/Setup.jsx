@@ -88,6 +88,7 @@ export default function Setup() {
     try {
       const res = await fetch(`${API_URL}/api/v1/setup/initial-admin`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: formData.email,
@@ -103,15 +104,14 @@ export default function Setup() {
         throw new Error(data.detail || "Setup failed");
       }
 
-      // Store the token - user is now logged in
-      localStorage.setItem("adminToken", data.access_token);
-
+      // Token is now in an httpOnly cookie (or in body for header mode)
       // Fetch and store user data so AdminLayout knows the user is an admin
       try {
         const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${data.access_token}`,
-          },
+          credentials: "include",
+          headers: data.access_token
+            ? { Authorization: `Bearer ${data.access_token}` }
+            : {},
         });
         if (meRes.ok) {
           const userData = await meRes.json();

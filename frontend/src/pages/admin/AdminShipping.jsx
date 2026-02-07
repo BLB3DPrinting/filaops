@@ -320,8 +320,6 @@ export default function AdminShipping() {
   const [shippingPeriod, setShippingPeriod] = useState("MTD");
   const [trendLoading, setTrendLoading] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -333,12 +331,11 @@ export default function AdminShipping() {
   }, [shippingPeriod]);
 
   const fetchShippingTrend = async (period) => {
-    if (!token) return;
     setTrendLoading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/dashboard/shipping-trend?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -371,14 +368,12 @@ export default function AdminShipping() {
   }, [orderIdParam, orders, productionStatus]);
 
   const fetchOrders = async () => {
-    if (!token) return;
-
     setLoading(true);
     try {
       // Fetch orders ready to ship
       const res = await fetch(
         `${API_URL}/api/v1/sales-orders/?status=confirmed&status=in_production&status=ready_to_ship&status=qc_passed&limit=100`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
 
       if (!res.ok) throw new Error("Failed to fetch orders");
@@ -404,7 +399,7 @@ export default function AdminShipping() {
       const today = new Date().toISOString().split("T")[0];
       const res = await fetch(
         `${API_URL}/api/v1/sales-orders/?status=shipped&shipped_after=${today}&limit=100`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -432,11 +427,11 @@ export default function AdminShipping() {
 
   // Batch fetch: one API call for all production orders, group by sales_order_id
   const fetchAllProductionStatuses = async (orderList) => {
-    if (!token || orderList.length === 0) return;
+    if (orderList.length === 0) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders?limit=500`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -463,11 +458,10 @@ export default function AdminShipping() {
 
   // Single order fetch (used for individual refresh)
   const fetchProductionStatus = async (orderId) => {
-    if (!token) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders?sales_order_id=${orderId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -492,8 +486,8 @@ export default function AdminShipping() {
     try {
       const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}/ship`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -524,8 +518,8 @@ export default function AdminShipping() {
     try {
       const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}/status`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ status: "shipped" }),

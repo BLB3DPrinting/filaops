@@ -16,7 +16,6 @@ export default function BOMEditor({
   bomId = null, // If editing existing BOM
   onSuccess,
 }) {
-  const token = localStorage.getItem("adminToken");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [bom, setBom] = useState(null);
@@ -40,7 +39,7 @@ export default function BOMEditor({
   const fetchBOM = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -50,14 +49,14 @@ export default function BOMEditor({
     } catch {
       // BOM fetch failure - will show empty editor
     }
-  }, [bomId, token]);
+  }, [bomId]);
 
   const fetchBOMByProduct = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/bom/product/${productId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -72,14 +71,14 @@ export default function BOMEditor({
     } catch {
       // BOM fetch failure - will show empty editor
     }
-  }, [productId, token]);
+  }, [productId]);
 
   const fetchComponents = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/items?limit=500&active_only=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -89,12 +88,12 @@ export default function BOMEditor({
     } catch {
       // Components fetch failure is non-critical
     }
-  }, [token]);
+  }, []);
 
   const fetchMaterials = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/materials/for-bom`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -103,12 +102,12 @@ export default function BOMEditor({
     } catch {
       // Materials fetch failure is non-critical
     }
-  }, [token]);
+  }, []);
 
   const fetchUomClasses = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/uom/classes`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -117,7 +116,7 @@ export default function BOMEditor({
     } catch {
       setUomClasses([]);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -156,9 +155,9 @@ export default function BOMEditor({
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/bom/`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           product_id: productId,
@@ -205,9 +204,9 @@ export default function BOMEditor({
             `${API_URL}/api/v1/admin/bom/${bom.id}/lines/${line.id}`,
             {
               method: "PATCH",
+              credentials: "include",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({
                 quantity: line.quantity,
@@ -226,9 +225,9 @@ export default function BOMEditor({
             `${API_URL}/api/v1/admin/bom/${bom.id}/lines`,
             {
               method: "POST",
+              credentials: "include",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({
                 component_id: line.component_id,
@@ -248,7 +247,7 @@ export default function BOMEditor({
       // Recalculate BOM cost
       await fetch(`${API_URL}/api/v1/admin/bom/${bom.id}/recalculate`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       onSuccess?.();

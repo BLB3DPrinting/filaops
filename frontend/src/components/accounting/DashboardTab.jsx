@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-export default function DashboardTab({ token }) {
+export default function DashboardTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -18,7 +18,7 @@ export default function DashboardTab({ token }) {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/accounting/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setData(await res.json());

@@ -11,8 +11,6 @@ export default function AdminMaterialImport() {
   const [updateExisting, setUpdateExisting] = useState(false);
   const [importCategories, setImportCategories] = useState(true);
 
-  const token = localStorage.getItem("adminToken") || localStorage.getItem("access_token");
-
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -51,7 +49,7 @@ export default function AdminMaterialImport() {
   const downloadTemplate = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/materials/import/template`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -96,7 +94,7 @@ export default function AdminMaterialImport() {
       
       const res = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 

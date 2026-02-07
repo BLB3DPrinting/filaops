@@ -80,6 +80,14 @@ class Settings(BaseSettings):
         default=30, description="JWT token expiration in minutes"
     )
     API_KEY: Optional[str] = Field(default=None, description="API key for integrations")
+    COOKIE_SECURE: bool = Field(
+        default=False,
+        description="Set Secure flag on auth cookies (requires HTTPS). Must be true in production.",
+    )
+    AUTH_MODE: str = Field(
+        default="cookie",
+        description="Auth token delivery: 'cookie' (httpOnly) or 'header' (bearer in body). Use 'header' to rollback.",
+    )
 
     @field_validator("SECRET_KEY")
     @classmethod

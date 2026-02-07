@@ -43,9 +43,6 @@ export default function AdminCycleCount() {
   }, [filters.location_id, filters.category_id, filters.show_zero]);
 
   const fetchInventorySummary = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -60,7 +57,7 @@ export default function AdminCycleCount() {
       const res = await fetch(
         `${API_URL}/api/v1/admin/inventory/transactions/inventory-summary?${params.toString()}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -75,14 +72,11 @@ export default function AdminCycleCount() {
   };
 
   const fetchLocations = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/inventory/transactions/locations`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -144,9 +138,6 @@ export default function AdminCycleCount() {
   };
 
   const handleSubmit = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     // Build items array from entries that have changes
     const items = [];
     for (const [productId, value] of Object.entries(countEntries)) {
@@ -183,8 +174,8 @@ export default function AdminCycleCount() {
         `${API_URL}/api/v1/admin/inventory/transactions/batch`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

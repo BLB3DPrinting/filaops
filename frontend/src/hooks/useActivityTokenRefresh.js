@@ -2,48 +2,22 @@
  * Activity-Based Token Refresh Hook
  *
  * Prevents users from losing work due to session expiration while actively working.
- * Tracks user activity and automatically refreshes the access token before it expires.
+ * Tracks user activity and calls POST /auth/refresh periodically.
+ *
+ * With httpOnly cookies the JS layer cannot read token expiry, so we refresh
+ * on a fixed interval while the user is active.
  */
 import { useEffect, useRef, useCallback } from "react";
 import { API_URL } from "../config/api";
 
-// How often to check if token needs refresh (in ms)
-const CHECK_INTERVAL = 60 * 1000; // 1 minute
-
-// Refresh token when it will expire within this many minutes
-const REFRESH_THRESHOLD_MINUTES = 5;
+// How often to attempt a refresh (in ms)
+const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 // Consider user inactive after this many minutes of no activity
 const INACTIVITY_TIMEOUT_MINUTES = 25;
 
 /**
- * Decode JWT token to get expiration time
- * @param {string} token - JWT token
- * @returns {number|null} - Expiration timestamp in ms, or null if invalid
- */
-function getTokenExpiration(token) {
-  if (!token) return null;
-
-  try {
-    // JWT format: header.payload.signature
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    // Decode payload (base64url)
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-
-    // exp is in seconds, convert to ms
-    if (payload.exp) {
-      return payload.exp * 1000;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Hook to automatically refresh auth tokens based on user activity
+ * Hook to automatically refresh auth tokens based on user activity.
  *
  * Usage:
  *   useActivityTokenRefresh(); // Call once in your app root or layout
@@ -57,38 +31,23 @@ export default function useActivityTokenRefresh() {
     lastActivityRef.current = Date.now();
   }, []);
 
-  // Refresh the access token using the refresh token
+  // Refresh the access token by calling POST /auth/refresh (cookie-based)
   const refreshToken = useCallback(async () => {
     if (isRefreshingRef.current) return false;
-
-    const refreshTokenValue = localStorage.getItem("adminRefreshToken");
-    if (!refreshTokenValue) {
-      return false;
-    }
-
     isRefreshingRef.current = true;
 
     try {
       const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ refresh_token: refreshTokenValue }),
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
-        // Refresh token is invalid/expired - user needs to log in again
-        console.warn("Token refresh failed - session may have expired");
+        // Refresh failed — session expired, user needs to log in again
+        console.warn("Token refresh failed — session may have expired");
         return false;
-      }
-
-      const data = await response.json();
-
-      // Update stored tokens
-      localStorage.setItem("adminToken", data.access_token);
-      if (data.refresh_token) {
-        localStorage.setItem("adminRefreshToken", data.refresh_token);
       }
 
       console.debug("Token refreshed successfully");
@@ -101,26 +60,18 @@ export default function useActivityTokenRefresh() {
     }
   }, []);
 
-  // Check if token needs refresh
+  // Check if user is active, then refresh
   const checkAndRefresh = useCallback(() => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
-    const expiration = getTokenExpiration(token);
-    if (!expiration) return;
+    // Only refresh if we appear to be logged in (adminUser in localStorage)
+    if (!localStorage.getItem("adminUser")) return;
 
     const now = Date.now();
-    const timeUntilExpiry = expiration - now;
-    const thresholdMs = REFRESH_THRESHOLD_MINUTES * 60 * 1000;
     const inactivityMs = INACTIVITY_TIMEOUT_MINUTES * 60 * 1000;
-
-    // Check if user has been active recently
     const timeSinceActivity = now - lastActivityRef.current;
     const isUserActive = timeSinceActivity < inactivityMs;
 
-    // If token expires soon and user is active, refresh it
-    if (timeUntilExpiry < thresholdMs && timeUntilExpiry > 0 && isUserActive) {
-      console.debug(`Token expires in ${Math.round(timeUntilExpiry / 1000 / 60)} min, user active - refreshing`);
+    if (isUserActive) {
+      console.debug("User active — refreshing token");
       refreshToken();
     }
   }, [refreshToken]);
@@ -145,11 +96,8 @@ export default function useActivityTokenRefresh() {
       window.addEventListener(event, throttledActivity, { passive: true });
     });
 
-    // Set up periodic token check
-    const intervalId = setInterval(checkAndRefresh, CHECK_INTERVAL);
-
-    // Initial check
-    checkAndRefresh();
+    // Set up periodic token refresh
+    const intervalId = setInterval(checkAndRefresh, REFRESH_INTERVAL);
 
     // Cleanup
     return () => {

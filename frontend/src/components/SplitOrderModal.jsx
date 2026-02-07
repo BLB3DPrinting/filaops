@@ -46,13 +46,12 @@ export default function SplitOrderModal({ productionOrder, onClose, onSplit }) {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/split`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

@@ -156,16 +156,13 @@ export default function Onboarding() {
         throw new Error(data.detail || "Setup failed");
       }
 
-      // Store the token - user is now logged in
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("adminToken", data.access_token); // Also store as adminToken for consistency
-
       // Fetch and store user data so AdminLayout knows the user is an admin
       try {
         const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${data.access_token}`,
-          },
+          credentials: "include",
+          headers: data.access_token
+            ? { Authorization: `Bearer ${data.access_token}` }
+            : {},
         });
         if (meRes.ok) {
           const userData = await meRes.json();
@@ -195,13 +192,10 @@ export default function Onboarding() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("access_token");
       const res = await fetch(`${API_URL}/api/v1/setup/seed-example-data`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await res.json();
@@ -230,15 +224,12 @@ export default function Onboarding() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("access_token");
       const formData = new FormData();
       formData.append("file", productsFile);
 
       const res = await fetch(`${API_URL}/api/v1/items/import`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 
@@ -268,15 +259,12 @@ export default function Onboarding() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("access_token");
       const formData = new FormData();
       formData.append("file", customersFile);
 
       const res = await fetch(`${API_URL}/api/v1/admin/customers/import`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 
@@ -306,7 +294,6 @@ export default function Onboarding() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("access_token");
       const formData = new FormData();
       formData.append("file", ordersFile);
 
@@ -315,12 +302,10 @@ export default function Onboarding() {
       params.set("source", ordersSource);
 
       const url = `${API_URL}/api/v1/admin/orders/import?${params}`;
-      
+
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 
@@ -356,15 +341,12 @@ export default function Onboarding() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("access_token");
       const formData = new FormData();
       formData.append("file", inventoryFile);
 
       const res = await fetch(`${API_URL}/api/v1/admin/import/inventory`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
         body: formData,
       });
 

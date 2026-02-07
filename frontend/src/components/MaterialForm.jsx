@@ -10,7 +10,6 @@ import { API_URL } from "../config/api";
 import Modal from "./Modal";
 
 export default function MaterialForm({ isOpen, onClose, onSuccess }) {
-  const token = localStorage.getItem("adminToken");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -37,7 +36,7 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
       const res = await fetch(
         `${API_URL}/api/v1/materials/types?customer_visible_only=false`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -47,7 +46,7 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
     } catch {
       // Material types fetch failure is non-critical
     }
-  }, [token]);
+  }, []);
 
   const fetchColors = useCallback(
     async (materialTypeCode) => {
@@ -55,7 +54,7 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
         const res = await fetch(
           `${API_URL}/api/v1/materials/types/${materialTypeCode}/colors?in_stock_only=false&customer_visible_only=false`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
         if (res.ok) {
@@ -66,7 +65,7 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
         setColors([]);
       }
     },
-    [token]
+    []
   );
 
   useEffect(() => {
@@ -109,9 +108,9 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
         `${API_URL}/api/v1/materials/types/${selectedMaterialType}/colors`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             name: newColorName.trim(),
@@ -160,9 +159,9 @@ export default function MaterialForm({ isOpen, onClose, onSuccess }) {
 
       const res = await fetch(`${API_URL}/api/v1/items/material`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });

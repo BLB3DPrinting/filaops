@@ -88,7 +88,6 @@ function PortalSettingsTab({ customerId: _customerId, portalDetails, loading, on
 }
 
 export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
-  const token = localStorage.getItem("adminToken");
   const { isPro } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState("overview");
   const [orders, setOrders] = useState([]);
@@ -111,7 +110,7 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/customers/${customer.id}/orders?limit=10`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -131,7 +130,7 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/customers/${customer.id}/portal-details`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {

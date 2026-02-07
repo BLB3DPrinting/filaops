@@ -36,8 +36,6 @@ const statusColors = {
 
 export default function AdminPayments() {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
-
   // State
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState(null);
@@ -77,7 +75,7 @@ export default function AdminPayments() {
   const fetchDashboard = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/payments/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setDashboard(await res.json());
@@ -104,7 +102,7 @@ export default function AdminPayments() {
       if (filters.toDate) params.append("to_date", filters.toDate);
 
       const res = await fetch(`${API_URL}/api/v1/payments?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {
@@ -130,7 +128,7 @@ export default function AdminPayments() {
     try {
       const res = await fetch(`${API_URL}/api/v1/payments/${paymentId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {

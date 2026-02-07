@@ -54,9 +54,9 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const fetchRemediationGuide = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/${check.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -77,10 +77,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const handleAutoFix = async () => {
     setAutoFixing(true);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/update-secret-key`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -106,10 +106,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
     setFixingDependencies(true);
     setDependencyFixResult(null);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/fix-dependencies`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -136,10 +136,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
     setFixingRateLimiting(true);
     setRateLimitingFixResult(null);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/fix-rate-limiting`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -170,11 +170,11 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
     setHttpsFixing(true);
     setHttpsFixResult(null);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/setup-https`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ domain: httpsDomain.trim() })
@@ -203,10 +203,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
     setFixingDotfiles(true);
     setDotfileFixResult(null);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/fix-dotfile-blocking`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -231,10 +231,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const handleOpenInNotepad = async () => {
     setOpeningFile(true);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/open-env-file`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -254,10 +254,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const handleOpenTerminal = async () => {
     setOpeningTerminal(true);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/open-restart-terminal`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -277,10 +277,10 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
   const handleGenerateKey = async () => {
     setGeneratingKey(true);
     try {
-      const token = localStorage.getItem("adminToken");
+
       const response = await fetch(`${API_URL}/api/v1/security/remediate/generate-secret-key`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {

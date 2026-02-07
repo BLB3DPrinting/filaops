@@ -161,6 +161,12 @@ class MultiCustomerLoginResponse(BaseModel):
 # PASSWORD RESET SCHEMAS
 # ============================================================================
 
+class PasswordResetApprovalRequest(BaseModel):
+    """Schema for admin approval/denial of password reset via POST"""
+    approval_token: str
+    reason: Optional[str] = None
+
+
 class PasswordResetRequestCreate(BaseModel):
     """Schema for requesting a password reset"""
     email: EmailStr

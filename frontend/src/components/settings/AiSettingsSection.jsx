@@ -40,14 +40,8 @@ export default function AiSettingsSection() {
 
   const fetchAiSettings = async () => {
     try {
-      const token = localStorage.getItem("adminToken");
-      if (!token) {
-        setAnthropicStatus((prev) => ({ ...prev, loading: false }));
-        return;
-      }
-
       const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -81,9 +75,8 @@ export default function AiSettingsSection() {
 
   const checkAnthropicStatus = async () => {
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/ai/anthropic-status`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (response.ok) {
         const data = await response.json();
@@ -100,10 +93,9 @@ export default function AiSettingsSection() {
   const handleInstallAnthropic = async () => {
     setInstallingAnthropic(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/ai/install-anthropic`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -129,8 +121,6 @@ export default function AiSettingsSection() {
   const handleSaveAiSettings = async () => {
     setSavingAi(true);
     try {
-      const token = localStorage.getItem("adminToken");
-
       const payload = {
         ai_provider: aiForm.ai_provider || null,
         ai_ollama_url: aiForm.ai_ollama_url || null,
@@ -143,8 +133,8 @@ export default function AiSettingsSection() {
 
       const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
@@ -176,10 +166,9 @@ export default function AiSettingsSection() {
   const handleTestAiConnection = async () => {
     setTestingAi(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/ai/test`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -200,11 +189,10 @@ export default function AiSettingsSection() {
 
     setSavingAi(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -230,10 +218,9 @@ export default function AiSettingsSection() {
   const handleStartOllama = async () => {
     setStartingOllama(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/ai/start-ollama`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -281,11 +268,10 @@ export default function AiSettingsSection() {
               const newValue = !aiForm.external_ai_blocked;
               setSavingAi(true);
               try {
-                const token = localStorage.getItem("adminToken");
                 const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
                   method: "PATCH",
+                  credentials: "include",
                   headers: {
-                    Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                   },
                   body: JSON.stringify({ external_ai_blocked: newValue }),

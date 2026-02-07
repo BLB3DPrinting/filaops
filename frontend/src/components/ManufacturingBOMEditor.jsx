@@ -25,7 +25,6 @@ export default function ManufacturingBOMEditor({
   onSuccess,
 }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,7 +58,7 @@ export default function ManufacturingBOMEditor({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/routings/manufacturing-bom/${productId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       
       if (res.status === 404) {
@@ -84,14 +83,14 @@ export default function ManufacturingBOMEditor({
     } finally {
       setLoading(false);
     }
-  }, [productId, token]);
+  }, [productId]);
 
   // Fetch components (for material selection)
   const fetchComponents = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/products?item_type=component,supply&limit=500`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -100,7 +99,7 @@ export default function ManufacturingBOMEditor({
     } catch {
       // Non-critical - component selector will be empty
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (isOpen && productId) {
@@ -178,9 +177,9 @@ export default function ManufacturingBOMEditor({
           `${API_URL}/api/v1/routings/materials/${editingMaterial.id}`,
           {
             method: "PUT",
+            credentials: "include",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(payload),
           }
@@ -191,9 +190,9 @@ export default function ManufacturingBOMEditor({
           `${API_URL}/api/v1/routings/operations/${selectedOperationId}/materials`,
           {
             method: "POST",
+            credentials: "include",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify(payload),
           }
@@ -225,7 +224,7 @@ export default function ManufacturingBOMEditor({
         `${API_URL}/api/v1/routings/materials/${materialId}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

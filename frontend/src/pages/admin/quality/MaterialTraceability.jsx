@@ -15,8 +15,6 @@ export default function MaterialTraceability() {
   const [spools, setSpools] = useState([]);
   const [loadingSpools, setLoadingSpools] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   // Fetch spools for forward trace
   useEffect(() => {
     if (activeTab === "forward" && spools.length === 0) {
@@ -24,7 +22,7 @@ export default function MaterialTraceability() {
         setLoadingSpools(true);
         try {
           const res = await fetch(`${API_URL}/api/v1/spools?limit=200`, {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           });
           const data = await res.json();
           // Handle error responses and ensure we always set an array
@@ -43,7 +41,7 @@ export default function MaterialTraceability() {
       };
       fetchSpools();
     }
-  }, [activeTab, token, spools.length]);
+  }, [activeTab, spools.length]);
 
   return (
     <div className="space-y-6 p-6">
@@ -90,7 +88,6 @@ export default function MaterialTraceability() {
  */
 function ForwardTrace({ spools, loadingSpools }) {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   const [spoolId, setSpoolId] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -109,7 +106,7 @@ function ForwardTrace({ spools, loadingSpools }) {
       const res = await fetch(
         `${API_URL}/api/v1/traceability/forward/spool/${spoolId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -298,7 +295,6 @@ function ForwardTrace({ spools, loadingSpools }) {
  */
 function BackwardTrace() {
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
   const [traceType, setTraceType] = useState("serial");
   const [searchValue, setSearchValue] = useState("");
   const [loading, setLoading] = useState(false);
@@ -321,7 +317,7 @@ function BackwardTrace() {
           : `/api/v1/traceability/backward/sales-order/${searchValue}`;
 
       const res = await fetch(`${API_URL}${endpoint}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (res.ok) {

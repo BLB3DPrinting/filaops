@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { ErrorAlert, TableSkeleton, CardSkeleton, HelpIcon } from "./AccountingShared";
 
-export default function GLReportsTab({ token }) {
+export default function GLReportsTab() {
   const [activeReport, setActiveReport] = useState("trial-balance");
   const [trialBalance, setTrialBalance] = useState(null);
   const [inventoryVal, setInventoryVal] = useState(null);
@@ -21,7 +21,7 @@ export default function GLReportsTab({ token }) {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/trial-balance`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setTrialBalance(await res.json());
@@ -41,7 +41,7 @@ export default function GLReportsTab({ token }) {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/inventory-valuation`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setInventoryVal(await res.json());
@@ -62,7 +62,7 @@ export default function GLReportsTab({ token }) {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/ledger/${accountCode}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setLedger(await res.json());

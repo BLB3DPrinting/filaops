@@ -63,8 +63,6 @@ export default function OperationSchedulerModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem('adminToken');
-
   // Get available resources for the operation's work center
   const { resources, loading: loadingResources } = useResources(operation?.work_center_id);
 
@@ -129,8 +127,8 @@ export default function OperationSchedulerModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${operation.id}/schedule`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({

@@ -66,14 +66,8 @@ const AdminSettings = () => {
 
   const fetchSettings = async () => {
     try {
-      const token = localStorage.getItem("adminToken");
-      if (!token) {
-        toast.error("Not logged in. Please log in again.");
-        setLoading(false);
-        return;
-      }
       const response = await fetch(`${API_URL}/api/v1/settings/company`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -134,11 +128,10 @@ const AdminSettings = () => {
     setSaving(true);
 
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/company`, {
         method: "PATCH",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -177,10 +170,9 @@ const AdminSettings = () => {
     formData.append("file", file);
 
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/company/logo`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
@@ -202,10 +194,9 @@ const AdminSettings = () => {
     if (!confirm("Are you sure you want to delete the company logo?")) return;
 
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/settings/company/logo`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {

@@ -282,15 +282,12 @@ export default function AdminProduction() {
   const [trendPeriod, setTrendPeriod] = useState("MTD");
   const [trendLoading, setTrendLoading] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   const fetchProductionTrend = useCallback(async (period) => {
-    if (!token) return;
     setTrendLoading(true);
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/dashboard/production-trend?period=${period}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -301,11 +298,9 @@ export default function AdminProduction() {
     } finally {
       setTrendLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const fetchProductionOrders = useCallback(async () => {
-    if (!token) return;
-
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -318,7 +313,7 @@ export default function AdminProduction() {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/?${params}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -331,14 +326,14 @@ export default function AdminProduction() {
     } finally {
       setLoading(false);
     }
-  }, [token, filters.status]);
+  }, [filters.status]);
 
   const fetchProducts = useCallback(async () => {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/products?limit=500&active=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -348,7 +343,7 @@ export default function AdminProduction() {
     } catch {
       // Products fetch failure is non-critical - product selector will just be empty
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchProductionOrders();
@@ -384,8 +379,8 @@ export default function AdminProduction() {
     try {
       const res = await fetch(`${API_URL}/api/v1/production-orders/`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

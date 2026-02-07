@@ -12,7 +12,6 @@ import { API_URL } from '../../config/api';
  */
 function StartButton({ operation, productionOrderId, onSuccess, onError }) {
   const [loading, setLoading] = useState(false);
-  const token = localStorage.getItem('adminToken');
 
   const handleStart = async () => {
     setLoading(true);
@@ -20,7 +19,7 @@ function StartButton({ operation, productionOrderId, onSuccess, onError }) {
       // First check if operation can start (blocking issues)
       const checkRes = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/can-start`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
 
       if (checkRes.ok) {
@@ -40,8 +39,8 @@ function StartButton({ operation, productionOrderId, onSuccess, onError }) {
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/start`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({

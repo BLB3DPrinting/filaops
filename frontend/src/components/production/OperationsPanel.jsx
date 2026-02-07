@@ -150,8 +150,6 @@ export default function OperationsPanel({ productionOrderId, productionOrder, or
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
   const [operationToComplete, setOperationToComplete] = useState(null);
 
-  const token = localStorage.getItem('adminToken');
-
   useEffect(() => {
     fetchOperations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,12 +166,12 @@ export default function OperationsPanel({ productionOrderId, productionOrder, or
   }, [operations]);
 
   const fetchOperations = async () => {
-    if (!token || !productionOrderId) return;
+    if (!productionOrderId) return;
 
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
 
       if (!res.ok) throw new Error('Failed to fetch operations');

@@ -5,7 +5,7 @@ import { API_URL } from "../../config/api";
  * Work Order Request Modal content - Creates a production/work order for make items.
  * Used when a component has its own BOM (sub-assembly).
  */
-export default function WorkOrderRequestModal({ line, onClose, token, onSuccess }) {
+export default function WorkOrderRequestModal({ line, onClose, onSuccess }) {
   const [quantity, setQuantity] = useState(line?.shortage || 1);
   const [priority, setPriority] = useState(3);
   const [dueDate, setDueDate] = useState("");
@@ -26,10 +26,8 @@ export default function WorkOrderRequestModal({ line, onClose, token, onSuccess 
     try {
       const res = await fetch(`${API_URL}/api/v1/production-orders/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           product_id: line.component_id,
           quantity_ordered: quantity,

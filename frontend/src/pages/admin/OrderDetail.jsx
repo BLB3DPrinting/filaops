@@ -28,7 +28,6 @@ export default function OrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
 
   const [order, setOrder] = useState(null);
   const [materialRequirements, setMaterialRequirements] = useState([]);
@@ -91,12 +90,6 @@ export default function OrderDetail() {
   }, [orderId]);
 
   const fetchOrder = async () => {
-    if (!token) {
-      setError("Not authenticated. Please log in.");
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
@@ -104,7 +97,7 @@ export default function OrderDetail() {
 
     try {
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         cache: "no-cache",
       });
 
@@ -134,7 +127,7 @@ export default function OrderDetail() {
           const quoteRes = await fetch(
             `${API_URL}/api/v1/quotes/${data.quote_id}`,
             {
-              headers: { Authorization: `Bearer ${token}` },
+              credentials: "include",
             }
           );
           if (quoteRes.ok) {
@@ -163,12 +156,12 @@ export default function OrderDetail() {
   };
 
   const fetchProductionOrders = async () => {
-    if (!token || !orderId) return;
+    if (!orderId) return;
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders?sales_order_id=${orderId}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -181,11 +174,11 @@ export default function OrderDetail() {
   };
 
   const fetchPaymentData = async () => {
-    if (!token || !orderId) return;
+    if (!orderId) return;
     try {
       const summaryRes = await fetch(
         `${API_URL}/api/v1/payments/order/${orderId}/summary`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (summaryRes.ok) {
         setPaymentSummary(await summaryRes.json());
@@ -193,7 +186,7 @@ export default function OrderDetail() {
 
       const paymentsRes = await fetch(
         `${API_URL}/api/v1/payments?order_id=${orderId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (paymentsRes.ok) {
         const data = await paymentsRes.json();
@@ -235,7 +228,7 @@ export default function OrderDetail() {
       const matReqRes = await fetch(
         `${API_URL}/api/v1/sales-orders/${orderId}/material-requirements`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -264,7 +257,7 @@ export default function OrderDetail() {
         const res = await fetch(
           `${API_URL}/api/v1/mrp/requirements?product_id=${productId}`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
 
@@ -304,7 +297,7 @@ export default function OrderDetail() {
           const bomRes = await fetch(
             `${API_URL}/api/v1/mrp/explode-bom/${productId}?quantity=${quantity}`,
             {
-              headers: { Authorization: `Bearer ${token}` },
+              credentials: "include",
             }
           );
 
@@ -334,7 +327,7 @@ export default function OrderDetail() {
         const routingRes = await fetch(
           `${API_URL}/api/v1/routings/product/${productId}`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
           }
         );
 
@@ -382,9 +375,9 @@ export default function OrderDetail() {
         `${API_URL}/api/v1/sales-orders/${orderId}/generate-production-orders`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
         }
       );
@@ -412,9 +405,9 @@ export default function OrderDetail() {
     try {
       const res = await fetch(`${API_URL}/api/v1/production-orders`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           product_id: materialReq.product_id,
@@ -447,8 +440,8 @@ export default function OrderDetail() {
         `${API_URL}/api/v1/sales-orders/${orderId}/cancel`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ cancellation_reason: cancellationReason }),
@@ -472,9 +465,7 @@ export default function OrderDetail() {
     try {
       const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
       });
 
       if (res.ok || res.status === 204) {
@@ -529,7 +520,7 @@ export default function OrderDetail() {
             const res = await fetch(
               `${API_URL}/api/v1/production-orders/${po.id}/material-availability`,
               {
-                headers: { Authorization: `Bearer ${token}` },
+                credentials: "include",
               }
             );
             if (res.ok) {

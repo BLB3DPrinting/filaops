@@ -79,8 +79,6 @@ export default function ProductionOrderModal({
   const [scheduledStart, setScheduledStart] = useState('');
   const [suggestedSlot, setSuggestedSlot] = useState(null); // { start, end } when conflict occurs
 
-  const token = localStorage.getItem('adminToken');
-
   // Fetch operations on mount
   useEffect(() => {
     if (productionOrder?.id) {
@@ -108,7 +106,7 @@ export default function ProductionOrderModal({
       setLoading(true);
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -132,7 +130,7 @@ export default function ProductionOrderModal({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/work-centers/?center_type=machine&active_only=true`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         setWorkCenters(await res.json());
@@ -147,11 +145,11 @@ export default function ProductionOrderModal({
       const [resourcesRes, printersRes] = await Promise.all([
         fetch(
           `${API_URL}/api/v1/work-centers/${workCenterId}/resources?active_only=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         ),
         fetch(
           `${API_URL}/api/v1/work-centers/${workCenterId}/printers?active_only=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         ),
       ]);
 
@@ -233,8 +231,8 @@ export default function ProductionOrderModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${operationToSchedule.id}/schedule`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -256,8 +254,8 @@ export default function ProductionOrderModal({
               `${API_URL}/api/v1/production-orders/resources/next-available`,
               {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
-                  Authorization: `Bearer ${token}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
@@ -318,8 +316,8 @@ export default function ProductionOrderModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${operation.id}/start`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({}),
@@ -359,8 +357,8 @@ export default function ProductionOrderModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${operationId}/complete`,
         {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
@@ -417,8 +415,8 @@ export default function ProductionOrderModal({
     try {
       await fetch(`${API_URL}/api/v1/production-orders/${productionOrder.id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ notes }),

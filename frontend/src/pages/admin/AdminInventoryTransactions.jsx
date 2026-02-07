@@ -35,9 +35,6 @@ export default function AdminInventoryTransactions() {
   }, [filters]);
 
   const fetchTransactions = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -50,7 +47,7 @@ export default function AdminInventoryTransactions() {
       const res = await fetch(
         `${API_URL}/api/v1/admin/inventory/transactions?${params.toString()}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -80,14 +77,11 @@ export default function AdminInventoryTransactions() {
   };
 
   const fetchLocations = async () => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
-
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/inventory/transactions/locations`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -102,8 +96,6 @@ export default function AdminInventoryTransactions() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem("adminToken");
-    if (!token) return;
 
     try {
       const payload = {
@@ -129,8 +121,8 @@ export default function AdminInventoryTransactions() {
         `${API_URL}/api/v1/admin/inventory/transactions`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),

@@ -84,16 +84,13 @@ export default function AdminItems() {
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [showRecostConfirm, setShowRecostConfirm] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   const fetchCategories = useCallback(async () => {
-    if (!token) return;
     try {
       // Fetch flat list
       const res = await fetch(
         `${API_URL}/api/v1/items/categories?include_inactive=true`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) throw new Error("Failed to fetch categories");
@@ -102,7 +99,7 @@ export default function AdminItems() {
 
       // Fetch tree structure
       const treeRes = await fetch(`${API_URL}/api/v1/items/categories/tree`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (treeRes.ok) {
         const treeData = await treeRes.json();
@@ -111,14 +108,13 @@ export default function AdminItems() {
     } catch {
       // Category fetch failure is non-critical - category tree will just be empty
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
 
   const fetchItems = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -134,7 +130,7 @@ export default function AdminItems() {
       if (filters.search) params.set("search", filters.search);
 
       const res = await fetch(`${API_URL}/api/v1/items?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch items");
       const data = await res.json();
@@ -146,7 +142,6 @@ export default function AdminItems() {
       setLoading(false);
     }
   }, [
-    token,
     pagination.pageSize,
     pagination.page,
     filters.activeOnly,
@@ -309,7 +304,7 @@ export default function AdminItems() {
         `${API_URL}/api/v1/items/categories/${categoryToDelete.id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (!res.ok) {
@@ -338,8 +333,8 @@ export default function AdminItems() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(catData),
@@ -420,8 +415,8 @@ export default function AdminItems() {
         `${API_URL}/api/v1/inventory/adjust-quantity?${params}`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         }
@@ -478,8 +473,8 @@ export default function AdminItems() {
     try {
       const res = await fetch(`${API_URL}/api/v1/items/bulk-update`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -520,7 +515,7 @@ export default function AdminItems() {
 
       const res = await fetch(`${API_URL}/api/v1/items/recost-all?${params}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {

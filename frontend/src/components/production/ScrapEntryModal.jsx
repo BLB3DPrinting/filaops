@@ -122,8 +122,6 @@ export default function ScrapEntryModal({
   const [notes, setNotes] = useState('');
   const [createReplacement, setCreateReplacement] = useState(true);
 
-  const token = localStorage.getItem('adminToken');
-
   // Calculate max scrap quantity (from operation input or PO remaining)
   const maxQuantity = operation?.quantity_input
     ? Number(operation.quantity_input) - Number(operation.quantity_completed || 0)
@@ -138,7 +136,7 @@ export default function ScrapEntryModal({
     const fetchReasons = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/production-orders/scrap-reasons`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -150,7 +148,7 @@ export default function ScrapEntryModal({
     };
 
     fetchReasons();
-  }, [isOpen, token]);
+  }, [isOpen]);
 
   // Fetch cascade preview when quantity changes
   const fetchCascade = useCallback(async () => {
@@ -163,7 +161,7 @@ export default function ScrapEntryModal({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/scrap-cascade?quantity=${quantity}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
 
       if (res.ok) {
@@ -180,7 +178,7 @@ export default function ScrapEntryModal({
     } finally {
       setLoading(false);
     }
-  }, [isOpen, productionOrderId, operation?.id, quantity, token]);
+  }, [isOpen, productionOrderId, operation?.id, quantity]);
 
   // Debounced cascade fetch
   useEffect(() => {
@@ -216,8 +214,8 @@ export default function ScrapEntryModal({
         `${API_URL}/api/v1/production-orders/${productionOrderId}/operations/${operation.id}/scrap`,
         {
           method: 'POST',
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({

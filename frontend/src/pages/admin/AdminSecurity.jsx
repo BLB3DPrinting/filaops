@@ -116,14 +116,8 @@ const AdminSecurity = () => {
     setError(null);
 
     try {
-      const token = localStorage.getItem("adminToken");
-      if (!token) {
-        setError("Not logged in. Please log in again.");
-        return;
-      }
-
       const response = await fetch(`${API_URL}/api/v1/security/audit`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {
@@ -149,9 +143,8 @@ const AdminSecurity = () => {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const token = localStorage.getItem("adminToken");
       const response = await fetch(`${API_URL}/api/v1/security/audit/export?format=json`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (response.ok) {

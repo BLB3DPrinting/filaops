@@ -198,14 +198,12 @@ export default function ProductionQueueList({
   const [loadingOps, setLoadingOps] = useState(false);
   const [workCenters, setWorkCenters] = useState([]);
 
-  const token = localStorage.getItem('adminToken');
-
   // Fetch work centers on mount
   useEffect(() => {
     const fetchWorkCenters = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/work-centers`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -216,7 +214,7 @@ export default function ProductionQueueList({
       }
     };
     fetchWorkCenters();
-  }, [token]);
+  }, []);
 
   // Fetch operations for all orders
   useEffect(() => {
@@ -236,7 +234,7 @@ export default function ProductionQueueList({
             try {
               const res = await fetch(
                 `${API_URL}/api/v1/production-orders/${order.id}/operations`,
-                { headers: { Authorization: `Bearer ${token}` } }
+                { credentials: "include" }
               );
               if (res.ok) {
                 const data = await res.json();
@@ -254,7 +252,7 @@ export default function ProductionQueueList({
     };
 
     fetchAllOperations();
-  }, [orders, token]);
+  }, [orders]);
 
   // Filter orders
   const filteredOrders = orders?.filter((order) => {

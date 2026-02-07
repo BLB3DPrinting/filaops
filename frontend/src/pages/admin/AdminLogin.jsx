@@ -59,6 +59,7 @@ export default function AdminLogin() {
 
       const res = await fetch(`${API_URL}/api/v1/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
@@ -72,18 +73,26 @@ export default function AdminLogin() {
 
       const data = await res.json();
 
-      // Verify this is an admin user
-      const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${data.access_token}`,
-        },
-      });
+      // In cookie mode, tokens are in httpOnly cookies — verify user via /me
+      // In header mode (legacy), tokens are in the body
+      let userData;
+      if (data.user) {
+        // Cookie mode: user info returned directly in login response
+        userData = data.user;
+      } else {
+        // Header mode fallback: use access_token to call /me
+        const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
+          credentials: "include",
+          headers: data.access_token
+            ? { Authorization: `Bearer ${data.access_token}` }
+            : {},
+        });
 
-      if (!meRes.ok) {
-        throw new Error("Failed to verify user");
+        if (!meRes.ok) {
+          throw new Error("Failed to verify user");
+        }
+        userData = await meRes.json();
       }
-
-      const userData = await meRes.json();
 
       if (!["admin", "operator"].includes(userData.account_type)) {
         throw new Error(
@@ -91,11 +100,7 @@ export default function AdminLogin() {
         );
       }
 
-      // Store tokens and user data
-      localStorage.setItem("adminToken", data.access_token);
-      if (data.refresh_token) {
-        localStorage.setItem("adminRefreshToken", data.refresh_token);
-      }
+      // Store non-sensitive user info for display (name, role, etc.)
       localStorage.setItem("adminUser", JSON.stringify(userData));
 
       // Redirect to admin dashboard

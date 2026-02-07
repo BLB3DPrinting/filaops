@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 
-export default function PaymentsTab({ token }) {
+export default function PaymentsTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -30,7 +30,7 @@ export default function PaymentsTab({ token }) {
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/payments-journal?${params}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
       if (res.ok) {
@@ -58,11 +58,10 @@ export default function PaymentsTab({ token }) {
         end_date: new Date(endDate).toISOString(),
       });
 
-      // Use fetch with Authorization header to keep credentials secure
       const res = await fetch(
         `${API_URL}/api/v1/admin/accounting/payments-journal/export?${params}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

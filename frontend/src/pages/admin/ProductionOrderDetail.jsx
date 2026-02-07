@@ -23,15 +23,14 @@ import {
  */
 function OperationsTimelineWrapper({ productionOrderId }) {
   const [operations, setOperations] = useState([]);
-  const token = localStorage.getItem('adminToken');
 
   useEffect(() => {
     const fetchOps = async () => {
-      if (!token || !productionOrderId) return;
+      if (!productionOrderId) return;
       try {
         const res = await fetch(
           `${API_URL}/api/v1/production-orders/${productionOrderId}/operations`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         );
         if (res.ok) {
           const data = await res.json();
@@ -42,7 +41,7 @@ function OperationsTimelineWrapper({ productionOrderId }) {
       }
     };
     fetchOps();
-  }, [productionOrderId, token]);
+  }, [productionOrderId]);
 
   if (operations.length === 0) return null;
 
@@ -53,7 +52,6 @@ export default function ProductionOrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const token = localStorage.getItem("adminToken");
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -70,18 +68,12 @@ export default function ProductionOrderDetail() {
   }, [orderId]);
 
   const fetchOrder = async () => {
-    if (!token) {
-      setError("Not authenticated. Please log in.");
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
       const res = await fetch(`${API_URL}/api/v1/production-orders/${orderId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -104,7 +96,7 @@ export default function ProductionOrderDetail() {
         `${API_URL}/api/v1/production-orders/${orderId}/${action}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

@@ -534,12 +534,11 @@ export default function AdminLayout() {
 
   useEffect(() => {
     const fetchAiSettings = async () => {
-      const token = localStorage.getItem("adminToken");
-      if (!token) return;
+      if (!localStorage.getItem("adminUser")) return;
 
       try {
         const response = await fetch(`${API_URL}/api/v1/settings/ai`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (response.ok) {
           const data = await response.json();
@@ -577,8 +576,7 @@ export default function AdminLayout() {
     .filter((group) => group.items.length > 0);
 
   useEffect(() => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) {
+    if (!localStorage.getItem("adminUser")) {
       navigate("/admin/login");
     }
   }, [navigate]);
@@ -596,8 +594,10 @@ export default function AdminLayout() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("adminRefreshToken");
+    fetch(`${API_URL}/api/v1/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
     localStorage.removeItem("adminUser");
     navigate("/admin/login");
   };

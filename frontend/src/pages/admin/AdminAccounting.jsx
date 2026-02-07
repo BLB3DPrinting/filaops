@@ -10,7 +10,6 @@ import PeriodsTab from "../../components/accounting/PeriodsTab";
 
 export default function AdminAccounting() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const token = localStorage.getItem("adminToken");
   const { isPro, isEnterprise } = useFeatureFlags();
 
   const tabs = [
@@ -191,13 +190,13 @@ export default function AdminAccounting() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === "dashboard" && <DashboardTab token={token} />}
-      {activeTab === "sales" && <SalesJournalTab token={token} />}
-      {activeTab === "payments" && <PaymentsTab token={token} />}
-      {activeTab === "cogs" && <COGSTab token={token} />}
-      {activeTab === "tax" && <TaxCenterTab token={token} />}
-      {activeTab === "glreports" && <GLReportsTab token={token} />}
-      {activeTab === "periods" && <PeriodsTab token={token} />}
+      {activeTab === "dashboard" && <DashboardTab />}
+      {activeTab === "sales" && <SalesJournalTab />}
+      {activeTab === "payments" && <PaymentsTab />}
+      {activeTab === "cogs" && <COGSTab />}
+      {activeTab === "tax" && <TaxCenterTab />}
+      {activeTab === "glreports" && <GLReportsTab />}
+      {activeTab === "periods" && <PeriodsTab />}
     </div>
   );
 }

@@ -30,14 +30,13 @@ export function useFulfillmentStatus(orderId) {
     setError(null);
 
     try {
-      const token = localStorage.getItem('adminToken');
       const response = await fetch(
         `${API_URL}/api/v1/sales-orders/${orderId}/fulfillment-status`,
         {
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
         }
       );
 

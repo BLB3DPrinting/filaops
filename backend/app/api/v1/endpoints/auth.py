@@ -1,13 +1,17 @@
 """
 Authentication endpoints for FilaOps Core
 
-Handles user registration, login, token refresh, and profile retrieval
+Handles user registration, login, token refresh, and profile retrieval.
+
+Auth delivery is controlled by ``settings.AUTH_MODE``:
+- ``cookie`` (default): tokens are set as httpOnly cookies — never exposed to JS.
+- ``header``: tokens are returned in the JSON body (legacy / programmatic use).
 """
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.core.limiter import limiter
 
@@ -21,6 +25,7 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     PasswordResetRequestCreate,
     PasswordResetRequestResponse,
+    PasswordResetApprovalRequest,
     PasswordResetApprovalResponse,
     PasswordResetComplete,
     PasswordResetStatus,
@@ -35,9 +40,12 @@ from app.core.security import (
     create_refresh_token,
     get_user_from_token,
     hash_refresh_token,
+    set_auth_cookies,
+    clear_auth_cookies,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from app.logging_config import get_logger
+from app.api.v1.deps import get_current_user  # noqa: F401
 # Re-exports for backwards compatibility (prefer importing from app.api.v1.deps directly)
 from app.api.v1.deps import get_current_admin_user as get_current_admin_user  # noqa: F401, E402
 from app.api.v1.deps import get_current_staff_user as get_current_staff_user  # noqa: F401, E402
@@ -46,83 +54,27 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# OAuth2 scheme for token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-
-
-# ============================================================================
-# DEPENDENCY: Get Current User
-# ============================================================================
-
-async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
-    db: Session = Depends(get_db)
-) -> User:
-    """
-    Dependency to get the current authenticated user from access token
-
-    Args:
-        token: JWT access token from Authorization header
-        db: Database session
-
-    Returns:
-        User object if token is valid
-
-    Raises:
-        HTTPException 401 if token is invalid or user not found
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    # Decode token and extract user ID
-    user_id = get_user_from_token(token, expected_type="access")
-    if user_id is None:
-        raise credentials_exception
-
-    # Get user from database
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
-        raise credentials_exception
-
-    # Check if user is active
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
-        )
-
-    return user
+_USE_COOKIES = settings.AUTH_MODE.lower() == "cookie"
 
 
 # ============================================================================
 # ENDPOINT: User Registration
 # ============================================================================
 
-@router.post("/register", response_model=UserWithTokens, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")  # type: ignore
 async def register_user(
     request: Request,
+    response: Response,
     user_data: UserRegister,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Register a new user
 
     Creates a new user account with the provided email and password.
-    Returns the user profile along with access and refresh tokens for immediate login.
-
-    Args:
-        user_data: User registration data (email, password, name, etc.)
-        db: Database session
-
-    Returns:
-        User profile with access and refresh tokens
-
-    Raises:
-        HTTPException 400 if email is already registered
+    In cookie mode, tokens are set as httpOnly cookies.
+    In header mode, tokens are returned in the response body.
     """
     # Check if email already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
@@ -167,13 +119,18 @@ async def register_user(
     db.add(refresh_token_record)
     db.commit()
 
-    # Return user profile with tokens
     user_dict = UserResponse.model_validate(new_user).model_dump()
+
+    if _USE_COOKIES:
+        set_auth_cookies(response, access_token, refresh_token)
+        return {**user_dict, "token_type": "cookie"}
+
+    # Header mode — return tokens in body
     return {
         **user_dict,
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 
@@ -181,28 +138,19 @@ async def register_user(
 # ENDPOINT: User Login
 # ============================================================================
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @limiter.limit("5/minute")  # type: ignore
 async def login_user(
     request: Request,
+    response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    Login with email and password
+    Login with email and password.
 
-    Authenticates user credentials and returns access and refresh tokens.
-    Uses OAuth2 password flow (username field contains email).
-
-    Args:
-        form_data: OAuth2 form with username (email) and password
-        db: Database session
-
-    Returns:
-        Access and refresh tokens
-
-    Raises:
-        HTTPException 401 if credentials are incorrect
+    In cookie mode, tokens are set as httpOnly cookies and user info is returned.
+    In header mode, tokens are returned in the response body (legacy).
     """
     try:
         # Get user by email (username field in OAuth2 form)
@@ -215,7 +163,7 @@ async def login_user(
                 detail="Incorrect email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # Verify password
         try:
             password_valid = verify_password(form_data.password, user.password_hash)  # type: ignore[arg-type]
@@ -226,7 +174,7 @@ async def login_user(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication error. Please contact support."
             )
-        
+
         if not password_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -253,12 +201,12 @@ async def login_user(
         # Store refresh token in database
         token_hash = hash_refresh_token(refresh_token)
         expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        
+
         # Check if token hash already exists (shouldn't happen, but handle it)
         existing_token = db.query(RefreshToken).filter(
             RefreshToken.token_hash == token_hash
         ).first()
-        
+
         if existing_token:
             # Revoke old token
             existing_token.revoked = True  # type: ignore[assignment]
@@ -268,7 +216,7 @@ async def login_user(
             refresh_token = create_refresh_token(user.id)  # type: ignore[arg-type]
             token_hash = hash_refresh_token(refresh_token)
             expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        
+
         refresh_token_record = RefreshToken(
             user_id=user.id,
             token_hash=token_hash,
@@ -278,10 +226,16 @@ async def login_user(
         db.add(refresh_token_record)
         db.commit()
 
+        if _USE_COOKIES:
+            set_auth_cookies(response, access_token, refresh_token)
+            user_dict = UserResponse.model_validate(user).model_dump()
+            return {"message": "Login successful", "user": user_dict, "token_type": "cookie"}
+
+        # Header mode — return tokens in body
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
         }
     except HTTPException:
         raise
@@ -298,26 +252,20 @@ async def login_user(
 # ENDPOINT: Refresh Token
 # ============================================================================
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh")
+@limiter.limit("10/minute")  # type: ignore
 async def refresh_access_token(
-    refresh_data: RefreshTokenRequest,
-    db: Session = Depends(get_db)
+    request: Request,
+    response: Response,
+    refresh_data: RefreshTokenRequest | None = None,
+    db: Session = Depends(get_db),
 ):
     """
-    Refresh access token using refresh token
+    Refresh access token using refresh token.
 
-    Validates the refresh token and issues a new access token and refresh token.
-    The old refresh token is revoked after successful refresh.
-
-    Args:
-        refresh_data: Refresh token request with token string
-        db: Database session
-
-    Returns:
-        New access and refresh tokens
-
-    Raises:
-        HTTPException 401 if refresh token is invalid or expired
+    In cookie mode, reads the refresh token from the httpOnly cookie.
+    In header mode, reads from the JSON body.
+    The old refresh token is always revoked (token rotation).
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -325,13 +273,20 @@ async def refresh_access_token(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    # Resolve the raw refresh token: cookie first, then body
+    raw_refresh_token: str | None = request.cookies.get("refresh_token")
+    if not raw_refresh_token and refresh_data:
+        raw_refresh_token = refresh_data.refresh_token
+    if not raw_refresh_token:
+        raise credentials_exception
+
     # Decode refresh token and extract user ID
-    user_id = get_user_from_token(refresh_data.refresh_token, expected_type="refresh")
+    user_id = get_user_from_token(raw_refresh_token, expected_type="refresh")
     if user_id is None:
         raise credentials_exception
 
     # Verify refresh token exists in database and is not revoked
-    token_hash = hash_refresh_token(refresh_data.refresh_token)
+    token_hash = hash_refresh_token(raw_refresh_token)
     stored_token = db.query(RefreshToken).filter(
         RefreshToken.token_hash == token_hash,
         RefreshToken.user_id == user_id,
@@ -365,10 +320,14 @@ async def refresh_access_token(
     db.add(new_refresh_token_record)
     db.commit()
 
+    if _USE_COOKIES:
+        set_auth_cookies(response, new_access_token, new_refresh_token)
+        return {"message": "Token refreshed", "token_type": "cookie"}
+
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 
@@ -393,6 +352,41 @@ async def get_current_user_profile(
         User profile data
     """
     return current_user
+
+
+# ============================================================================
+# ENDPOINT: Logout
+# ============================================================================
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Logout the current user.
+
+    Clears httpOnly cookies and revokes the refresh token server-side.
+    """
+    # Attempt to revoke refresh token if present in cookie
+    raw_refresh = request.cookies.get("refresh_token")
+    if raw_refresh:
+        user_id = get_user_from_token(raw_refresh, expected_type="refresh")
+        if user_id is not None:
+            token_hash = hash_refresh_token(raw_refresh)
+            stored = db.query(RefreshToken).filter(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked.is_(False),
+            ).first()
+            if stored:
+                stored.revoked = True  # type: ignore[assignment]
+                stored.revoked_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+                db.commit()
+
+    clear_auth_cookies(response)
+    return {"message": "Logged out"}
 
 
 # ============================================================================
@@ -514,19 +508,22 @@ async def request_password_reset(
         )
 
 
-@router.get("/password-reset/approve/{approval_token}", response_model=PasswordResetApprovalResponse)
+@router.post("/password-reset/approve", response_model=PasswordResetApprovalResponse)
+@limiter.limit("10/minute")  # type: ignore
 async def approve_password_reset(
-    approval_token: str,
-    db: Session = Depends(get_db)
+    request: Request,
+    body: PasswordResetApprovalRequest,
+    db: Session = Depends(get_db),
 ):
     """
-    Approve a password reset request (admin action via email link).
+    Approve a password reset request (admin action).
 
+    Moved from GET to POST to prevent CSRF and browser-prefetch side effects.
     After approval, the user will receive an email with the reset link.
     """
     # Find the reset request
     reset_request = db.query(PasswordResetRequest).filter(
-        PasswordResetRequest.approval_token == approval_token
+        PasswordResetRequest.approval_token == body.approval_token
     ).first()
 
     if not reset_request:
@@ -588,20 +585,22 @@ async def approve_password_reset(
     )
 
 
-@router.get("/password-reset/deny/{approval_token}", response_model=PasswordResetApprovalResponse)
+@router.post("/password-reset/deny", response_model=PasswordResetApprovalResponse)
+@limiter.limit("10/minute")  # type: ignore
 async def deny_password_reset(
-    approval_token: str,
-    reason: str | None = None,
-    db: Session = Depends(get_db)
+    request: Request,
+    body: PasswordResetApprovalRequest,
+    db: Session = Depends(get_db),
 ):
     """
-    Deny a password reset request (admin action via email link).
+    Deny a password reset request (admin action).
 
+    Moved from GET to POST to prevent CSRF and browser-prefetch side effects.
     The user will be notified that their request was denied.
     """
     # Find the reset request
     reset_request = db.query(PasswordResetRequest).filter(
-        PasswordResetRequest.approval_token == approval_token
+        PasswordResetRequest.approval_token == body.approval_token
     ).first()
 
     if not reset_request:
@@ -626,14 +625,14 @@ async def deny_password_reset(
 
     # Deny the request
     reset_request.status = 'denied'  # type: ignore[assignment]
-    reset_request.admin_notes = reason  # type: ignore[assignment]
+    reset_request.admin_notes = body.reason  # type: ignore[assignment]
     db.commit()
 
     # Notify user
     email_service.send_password_reset_denied(
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
-        reason=reason
+        reason=body.reason
     )
 
     logger.info(
@@ -642,7 +641,7 @@ async def deny_password_reset(
             "user_id": user.id,
             "email": user.email,
             "request_id": reset_request.id,
-            "reason": reason
+            "reason": body.reason
         }
     )
 

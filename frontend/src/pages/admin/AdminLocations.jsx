@@ -20,21 +20,18 @@ export default function AdminLocations() {
   const [editingLocation, setEditingLocation] = useState(null);
   const [includeInactive, setIncludeInactive] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchLocations();
   }, [includeInactive]);
 
   const fetchLocations = async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (includeInactive) params.set("include_inactive", "true");
 
       const res = await fetch(`${API_URL}/api/v1/admin/locations?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch locations");
       const data = await res.json();
@@ -67,8 +64,8 @@ export default function AdminLocations() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(locationData),
@@ -100,7 +97,7 @@ export default function AdminLocations() {
         `${API_URL}/api/v1/admin/locations/${location.id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -122,8 +119,8 @@ export default function AdminLocations() {
         `${API_URL}/api/v1/admin/locations/${location.id}`,
         {
           method: "PUT",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ active: true }),

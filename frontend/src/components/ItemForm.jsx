@@ -41,7 +41,6 @@ export default function ItemForm({
   onSuccess,
   editingItem = null,
 }) {
-  const token = localStorage.getItem("adminToken");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [errors, setErrors] = useState({});
@@ -68,7 +67,7 @@ export default function ItemForm({
   const fetchCategories = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/items/categories`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -83,12 +82,12 @@ export default function ItemForm({
         });
       }
     }
-  }, [token]);
+  }, []);
 
   const fetchUomClasses = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/uom/classes`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -104,7 +103,7 @@ export default function ItemForm({
       }
       setUomClasses([]);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -231,9 +230,9 @@ export default function ItemForm({
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
@@ -443,9 +442,7 @@ export default function ItemForm({
                             `${API_URL}/api/v1/admin/uploads/product-image`,
                             {
                               method: "POST",
-                              headers: {
-                                Authorization: `Bearer ${token}`,
-                              },
+                              credentials: "include",
                               body: uploadData,
                             }
                           );

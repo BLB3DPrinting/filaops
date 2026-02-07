@@ -5,7 +5,7 @@ import { API_URL } from "../../config/api.js";
  * Custom hook that manages BOM line CRUD operations,
  * product/UOM reference data, and the exploded BOM view.
  */
-export default function useBOMLines({ bom, token, toast, onUpdate }) {
+export default function useBOMLines({ bom, toast, onUpdate }) {
   const [lines, setLines] = useState(bom.lines || []);
   const [loading, setLoading] = useState(false);
   const [editingLine, setEditingLine] = useState(null);
@@ -33,7 +33,7 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
       try {
         const res = await fetch(
           `${API_URL}/api/v1/products?limit=500&is_raw_material=true`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         );
         if (res.ok) {
           const data = await res.json();
@@ -47,7 +47,7 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
     const fetchUOMs = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/admin/uom`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         });
         if (res.ok) {
           const data = await res.json();
@@ -62,7 +62,7 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
       try {
         const res = await fetch(
           `${API_URL}/api/v1/admin/bom/${bom.id}/cost-rollup`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { credentials: "include" }
         );
         if (res.ok) {
           const data = await res.json();
@@ -85,7 +85,7 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
     try {
       const res = await fetch(
         `${API_URL}/api/v1/admin/bom/${bom.id}/explode`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       if (res.ok) {
         const data = await res.json();
@@ -112,10 +112,8 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/bom/${bom.id}/lines`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           component_id: parseInt(newLine.component_id),
           quantity: parseFloat(newLine.quantity),
@@ -161,10 +159,8 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
         `${API_URL}/api/v1/admin/bom/${bom.id}/lines/${lineId}`,
         {
           method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify(updates),
         }
       );
@@ -198,7 +194,7 @@ export default function useBOMLines({ bom, token, toast, onUpdate }) {
         `${API_URL}/api/v1/admin/bom/${bom.id}/lines/${lineId}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 

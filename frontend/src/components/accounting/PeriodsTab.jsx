@@ -7,7 +7,7 @@ import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 import { ErrorAlert, Skeleton, TableSkeleton, HelpIcon } from "./AccountingShared";
 
-export default function PeriodsTab({ token }) {
+export default function PeriodsTab() {
   const [periods, setPeriods] = useState([]);
   const [currentPeriod, setCurrentPeriod] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -27,7 +27,7 @@ export default function PeriodsTab({ token }) {
     setError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/periods`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -56,10 +56,8 @@ export default function PeriodsTab({ token }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/periods/${periodId}/close`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ confirm: true }),
       });
       if (res.ok) {
@@ -83,7 +81,7 @@ export default function PeriodsTab({ token }) {
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/periods/${periodId}/reopen`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const result = await res.json();

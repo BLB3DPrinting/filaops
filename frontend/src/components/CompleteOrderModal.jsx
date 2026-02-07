@@ -22,8 +22,6 @@ export default function CompleteOrderModal({
   const [acknowledgeShort, setAcknowledgeShort] = useState(false);
   const [createRemakeForShortfall, setCreateRemakeForShortfall] = useState(true); // Default to creating remake
 
-  const token = localStorage.getItem("adminToken");
-
   const quantityOrdered = productionOrder.quantity_ordered || 1;
   const quantityScrapped = productionOrder.quantity_scrapped || 0;
   const isOverrun = quantityCompleted > quantityOrdered;
@@ -39,14 +37,14 @@ export default function CompleteOrderModal({
   }, [productionOrder.id]);
 
   const fetchBomMaterials = async () => {
-    if (!token || !productionOrder.product_id) return;
+    if (!productionOrder.product_id) return;
     
     setLoadingMaterials(true);
     try {
       // Get BOM for the product
       const bomRes = await fetch(
         `${API_URL}/api/v1/admin/bom/product/${productionOrder.product_id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       
       if (bomRes.ok) {
@@ -71,7 +69,7 @@ export default function CompleteOrderModal({
             try {
               const spoolsRes = await fetch(
                 `${API_URL}/api/v1/spools/product/${material.component_id}/available`,
-                { headers: { Authorization: `Bearer ${token}` } }
+                { credentials: "include" }
               );
               if (spoolsRes.ok) {
                 const spoolsData = await spoolsRes.json();
@@ -134,8 +132,8 @@ export default function CompleteOrderModal({
         `${API_URL}/api/v1/production-orders/${productionOrder.id}/complete?${params}`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(requestBody),
@@ -150,8 +148,8 @@ export default function CompleteOrderModal({
           try {
             const remakeRes = await fetch(`${API_URL}/api/v1/production-orders/`, {
               method: "POST",
+              credentials: "include",
               headers: {
-                Authorization: `Bearer ${token}`,
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({

@@ -48,6 +48,13 @@ def _disable_rate_limits():
     limiter.enabled = original_enabled
 
 
+@pytest.fixture(autouse=True)
+def _force_header_mode(monkeypatch):
+    """Force header (bearer-in-body) mode so existing tests see tokens in body."""
+    import app.api.v1.endpoints.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_USE_COOKIES", False)
+
+
 @pytest.fixture
 def non_admin_user(db):
     """Create a non-admin user (account_type=customer) for 403 tests."""
@@ -536,8 +543,9 @@ class TestPasswordResetApprovalFlow:
     ):
         """Approving a pending request should succeed."""
         mock_email.send_password_reset_approved.return_value = True
-        resp = unauthed_client.get(
-            f"{AUTH_URL}/password-reset/approve/{reset_request_pending.approval_token}"
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": reset_request_pending.approval_token},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -550,8 +558,9 @@ class TestPasswordResetApprovalFlow:
     ):
         """Denying a pending request should succeed."""
         mock_email.send_password_reset_denied.return_value = True
-        resp = unauthed_client.get(
-            f"{AUTH_URL}/password-reset/deny/{reset_request_pending.approval_token}"
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/deny",
+            json={"approval_token": reset_request_pending.approval_token},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -561,8 +570,9 @@ class TestPasswordResetApprovalFlow:
         self, unauthed_client, reset_request_approved
     ):
         """Approving an already-approved request should fail."""
-        resp = unauthed_client.get(
-            f"{AUTH_URL}/password-reset/approve/{reset_request_approved.approval_token}"
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": reset_request_approved.approval_token},
         )
         assert resp.status_code == 400
         assert "already been" in resp.json()["detail"].lower()
@@ -571,8 +581,9 @@ class TestPasswordResetApprovalFlow:
         self, unauthed_client, reset_request_denied
     ):
         """Denying an already-denied request should fail."""
-        resp = unauthed_client.get(
-            f"{AUTH_URL}/password-reset/deny/{reset_request_denied.approval_token}"
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/deny",
+            json={"approval_token": reset_request_denied.approval_token},
         )
         assert resp.status_code == 400
 
@@ -595,9 +606,9 @@ class TestPasswordResetApprovalFlow:
 
         with patch("app.api.v1.endpoints.auth.email_service") as mock_email:
             mock_email.send_password_reset_denied.return_value = True
-            resp = unauthed_client.get(
-                f"{AUTH_URL}/password-reset/deny/{approval_token}",
-                params={"reason": "Suspicious request"},
+            resp = unauthed_client.post(
+                f"{AUTH_URL}/password-reset/deny",
+                json={"approval_token": approval_token, "reason": "Suspicious request"},
             )
         assert resp.status_code == 200
         assert resp.json()["status"] == "denied"
@@ -626,8 +637,9 @@ class TestPasswordResetApprovalExpired:
         db.add(req)
         db.flush()
 
-        resp = unauthed_client.get(
-            f"{AUTH_URL}/password-reset/approve/{approval_token}"
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": approval_token},
         )
         assert resp.status_code == 400
         assert "expired" in resp.json()["detail"].lower()

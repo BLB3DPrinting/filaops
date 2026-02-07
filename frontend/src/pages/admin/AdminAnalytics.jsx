@@ -15,18 +15,10 @@ const AdminAnalytics = () => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
       const response = await fetch(
         `${API_URL}/api/v1/admin/analytics/dashboard?days=${days}`,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: "include",
         }
       );
 

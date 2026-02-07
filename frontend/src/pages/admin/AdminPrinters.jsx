@@ -50,8 +50,6 @@ export default function AdminPrinters() {
   // Active work tracking
   const [activeWork, setActiveWork] = useState({}); // printer_id -> work info
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchPrinters();
     fetchBrandInfo();
@@ -87,7 +85,7 @@ export default function AdminPrinters() {
       params.set("page_size", "100");
 
       const res = await fetch(`${API_URL}/api/v1/printers?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch printers");
       const data = await res.json();
@@ -102,7 +100,7 @@ export default function AdminPrinters() {
   const fetchBrandInfo = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/brands/info`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -116,7 +114,7 @@ export default function AdminPrinters() {
   const fetchActiveWork = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/active-work`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -131,7 +129,7 @@ export default function AdminPrinters() {
     setMaintenanceLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/maintenance/?page_size=50`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -147,7 +145,7 @@ export default function AdminPrinters() {
   const fetchMaintenanceDue = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/maintenance/due?days_ahead=14`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -170,8 +168,8 @@ export default function AdminPrinters() {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/discover`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ timeout_seconds: 10 }),
@@ -199,8 +197,8 @@ export default function AdminPrinters() {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -246,8 +244,8 @@ export default function AdminPrinters() {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/test-connection`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -266,8 +264,8 @@ export default function AdminPrinters() {
         // Update printer status to idle
         await fetch(`${API_URL}/api/v1/printers/${printer.id}/status`, {
           method: "PATCH",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: "idle" }),
@@ -291,7 +289,7 @@ export default function AdminPrinters() {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/${printer.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error("Failed to delete printer");
@@ -315,8 +313,8 @@ export default function AdminPrinters() {
     try {
       const res = await fetch(`${API_URL}/api/v1/printers/import-csv`, {
         method: "POST",
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ csv_data: csvData, skip_duplicates: true }),
@@ -611,7 +609,6 @@ export default function AdminPrinters() {
         <div className="space-y-6">
           {/* IP Probe - works from Docker */}
           <IPProbeSection
-            token={token}
             onPrinterFound={(printer) => {
               setDiscoveredPrinters((prev) => {
                 // Don't add duplicates

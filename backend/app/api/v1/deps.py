@@ -6,7 +6,7 @@ that can be safely imported without triggering rate limiter initialization issue
 """
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -15,26 +15,32 @@ from app.models.user import User
 from app.core.security import get_user_from_token
 from app.schemas.common import PaginationParams
 
-# OAuth2 scheme for token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# OAuth2 scheme — auto_error=False so we can fall back to cookies
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
-    db: Session = Depends(get_db)
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+    db: Session = Depends(get_db),
 ) -> User:
     """
-    Dependency to get the current authenticated user from access token
+    Dependency to get the current authenticated user.
+
+    Checks for auth token in this order:
+    1. httpOnly cookie ``access_token`` (browser sessions)
+    2. Authorization: Bearer header (programmatic / API access)
 
     Args:
-        token: JWT access token from Authorization header
+        request: FastAPI Request (for cookie access)
+        token: JWT access token from Authorization header (may be None)
         db: Database session
 
     Returns:
         User object if token is valid
 
     Raises:
-        HTTPException 401 if token is invalid or user not found
+        HTTPException 401 if no valid token found
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -42,8 +48,13 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    # Try cookie first, then Authorization header
+    access_token = request.cookies.get("access_token") or token
+    if not access_token:
+        raise credentials_exception
+
     # Decode token and extract user ID
-    user_id = get_user_from_token(token, expected_type="access")
+    user_id = get_user_from_token(access_token, expected_type="access")
     if user_id is None:
         raise credentials_exception
 

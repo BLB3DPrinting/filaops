@@ -45,14 +45,11 @@ export default function AdminUsers() {
   const [savingUser, setSavingUser] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
 
-  const token = localStorage.getItem("adminToken");
-
   useEffect(() => {
     fetchUsers();
   }, [filters.role, filters.includeInactive]);
 
   const fetchUsers = async () => {
-    if (!token) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -61,7 +58,7 @@ export default function AdminUsers() {
       if (filters.includeInactive) params.set("include_inactive", "true");
 
       const res = await fetch(`${API_URL}/api/v1/admin/users?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch users");
       const data = await res.json();
@@ -124,8 +121,8 @@ export default function AdminUsers() {
 
       const res = await fetch(url, {
         method,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(userData),
@@ -159,7 +156,7 @@ export default function AdminUsers() {
     try {
       const res = await fetch(`${API_URL}/api/v1/admin/users/${user.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -181,7 +178,7 @@ export default function AdminUsers() {
         `${API_URL}/api/v1/admin/users/${user.id}/reactivate`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
@@ -207,8 +204,8 @@ export default function AdminUsers() {
         `${API_URL}/api/v1/admin/users/${resetPasswordUser.id}/reset-password`,
         {
           method: "POST",
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ new_password: newPassword }),

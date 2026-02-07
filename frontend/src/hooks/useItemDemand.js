@@ -29,12 +29,11 @@ export function useItemDemand(itemId) {
     setError(null);
 
     try {
-      const token = localStorage.getItem('adminToken');
       const response = await fetch(`${API_URL}/api/v1/items/${itemId}/demand-summary`, {
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -116,15 +115,14 @@ export function useMultipleItemDemands(itemIds) {
       setError(null);
 
       try {
-        const token = localStorage.getItem('adminToken');
         const results = await Promise.all(
           itemIds.map(async (id) => {
             try {
               const response = await fetch(`${API_URL}/api/v1/items/${id}/demand-summary`, {
                 headers: {
-                  'Authorization': token ? `Bearer ${token}` : '',
                   'Content-Type': 'application/json',
                 },
+                credentials: 'include',
               });
               if (!response.ok) return null;
               return response.json();

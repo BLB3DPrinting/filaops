@@ -7,7 +7,7 @@ import { useState } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 
-export default function IPProbeSection({ token, onPrinterFound }) {
+export default function IPProbeSection({ onPrinterFound }) {
   const toast = useToast();
   const [ipAddress, setIpAddress] = useState("");
   const [probing, setProbing] = useState(false);
@@ -34,7 +34,7 @@ export default function IPProbeSection({ token, onPrinterFound }) {
         `${API_URL}/api/v1/printers/probe-ip?ip_address=${encodeURIComponent(ipAddress.trim())}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
         }
       );
 
