@@ -28,7 +28,7 @@ jobs:
       DB_USER: postgres
       DB_PASSWORD: Admin
       ENVIRONMENT: production
-      SECRET_KEY: "ci-test-secret-key-not-for-production-use"
+      SECRET_KEY: ${{ secrets.SECRET_KEY || 'ci-test-secret-key-not-for-production-use' }}
       DEBUG: "false"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
@@ -73,7 +73,7 @@ jobs:
           DB_USER: postgres
           DB_PASSWORD: Admin
           ENVIRONMENT: production
-          SECRET_KEY: "ci-test-secret-key-not-for-production-use"
+          SECRET_KEY: ${{ secrets.SECRET_KEY || 'ci-test-secret-key-not-for-production-use' }}
           DEBUG: "false"
         run: |
           uvicorn app.main:app --host 127.0.0.1 --port 8001 &

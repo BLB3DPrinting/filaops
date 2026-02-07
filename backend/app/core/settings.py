@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 
+# Read version from VERSION file (single source of truth)
+_VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
+_VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0.0"
+
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,7 +46,7 @@ class Settings(BaseSettings):
     # Application Settings
     # ===================
     PROJECT_NAME: str = "FilaOps"
-    VERSION: str = "3.0.0"
+    VERSION: str = _VERSION
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = Field(default=False, description="Enable debug mode")
     ENVIRONMENT: str = Field(default="development", description="Deployment environment")

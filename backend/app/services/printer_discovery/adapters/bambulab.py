@@ -109,11 +109,7 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
         Requires valid BambuLab account credentials.
         Note: Cloud API integration is a future enhancement.
         """
-        # TODO: Implement BambuLab cloud API integration
-        # This requires:
-        # 1. OAuth flow with BambuLab
-        # 2. API calls to get device list
-        # 3. Device status queries
+        # BambuLab cloud API integration planned (requires OAuth flow + device API)
         logger.info("BambuLab cloud discovery not yet implemented")
         return []
 
@@ -166,8 +162,7 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
         config: PrinterConnectionConfig
     ) -> Optional[PrinterStatus]:
         """Get printer status via MQTT or HTTP"""
-        # TODO: Implement MQTT status monitoring
-        # For now, just check if reachable
+        # MQTT status monitoring planned — for now just check reachability
         if not config.ip_address:
             return PrinterStatus.OFFLINE
 

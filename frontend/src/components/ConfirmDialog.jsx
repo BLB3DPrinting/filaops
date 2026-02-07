@@ -55,13 +55,13 @@ export default function ConfirmDialog({
   onCancel,
   isLoading = false,
 }) {
-  const confirmButtonRef = useRef(null);
+  const cancelButtonRef = useRef(null);
   const dialogRef = useRef(null);
 
-  // Focus the confirm button when dialog opens
+  // Focus the cancel button when dialog opens (safer default for destructive actions)
   useEffect(() => {
-    if (isOpen && confirmButtonRef.current) {
-      confirmButtonRef.current.focus();
+    if (isOpen && cancelButtonRef.current) {
+      cancelButtonRef.current.focus();
     }
   }, [isOpen]);
 
@@ -152,6 +152,7 @@ export default function ConfirmDialog({
 
         <div className="flex justify-end gap-3 mt-6">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             disabled={isLoading}
@@ -160,7 +161,6 @@ export default function ConfirmDialog({
             {cancelLabel}
           </button>
           <button
-            ref={confirmButtonRef}
             type="button"
             onClick={onConfirm}
             disabled={isLoading}

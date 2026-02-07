@@ -97,7 +97,7 @@ async def register_user(
         phone=user_data.phone,
         status="active",
         account_type="customer",
-        email_verified=False,  # TODO: Implement email verification
+        email_verified=False,  # Email verification not yet implemented
     )
 
     db.add(new_user)

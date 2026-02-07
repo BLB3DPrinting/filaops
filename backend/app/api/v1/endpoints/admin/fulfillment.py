@@ -2394,7 +2394,7 @@ async def mark_order_shipped(
 
     db.commit()
 
-    # TODO: Send email notification if request.notify_customer
+    # Future: Send email notification when request.notify_customer is set
 
     return {
         "success": True,

@@ -113,8 +113,7 @@ def trigger_mrp_recalculation(
             }
         )
         
-        # TODO: Implement actual incremental MRP when needed
-        # For now, this is a placeholder that logs the request
+        # Incremental MRP is not yet implemented — logs the request for now
         
         return {
             "context_id": context_id,
@@ -164,8 +163,7 @@ def trigger_incremental_mrp(
             extra={"product_ids": product_ids}
         )
         
-        # TODO: Implement incremental MRP calculation
-        # For now, this is a placeholder
+        # Incremental MRP calculation is not yet implemented
         
         return {
             "product_ids": product_ids,

@@ -95,12 +95,6 @@ class LotPolicyService:
             )
             return True
         
-        # Check category if available
-        if hasattr(product, "category_id") and product.category_id:
-            # TODO: Check if category is in REQUIRED_CATEGORIES
-            # This would require category lookup
-            pass
-        
         # Default: not required
         return False
 

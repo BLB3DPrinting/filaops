@@ -617,6 +617,7 @@ export default function AdminLayout() {
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
           style={{ backgroundColor: 'var(--bg-card)' }}
+          aria-label="Open navigation menu"
         >
           <MenuIcon />
         </button>

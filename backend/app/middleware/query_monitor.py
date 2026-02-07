@@ -3,7 +3,6 @@ Query Performance Monitoring Middleware
 
 Monitors database query performance and logs slow queries for optimization.
 
-Sprint 1 - Agent 1: Backend Performance
 Target: Log queries >1s, warn on queries >500ms
 """
 import time
@@ -11,7 +10,7 @@ import logging
 from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
@@ -84,11 +83,7 @@ def setup_query_logging(engine: Engine):
 
     @event.listens_for(engine, "after_cursor_execute")
     def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
-        """
-        Record query end time and log slow queries.
-
-        Also increments query count and total time on the current request if available.
-        """
+        """Record query end time and log slow queries."""
         total = time.time() - conn.info["query_start_time"].pop(-1)
 
         # Log slow queries
@@ -101,15 +96,6 @@ def setup_query_logging(engine: Engine):
                 f"Slow query ({total:.3f}s): {statement[:200]}{'...' if len(statement) > 200 else ''}"
             )
 
-        # Track query performance in request context (if available)
-        # This allows per-request aggregation of query stats
-        try:
-            # In production, you'd use a context variable to track the current request
-            # For now, we just log individual queries
-            pass
-        except Exception:
-            pass
-
 
 def log_query_plan(db_session, sql: str):
     """
@@ -120,7 +106,7 @@ def log_query_plan(db_session, sql: str):
         log_query_plan(db, "SELECT * FROM sales_orders WHERE status = 'pending'")
     """
     try:
-        result = db_session.execute(f"EXPLAIN QUERY PLAN {sql}")
+        result = db_session.execute(text(f"EXPLAIN {sql}"))
         plan = "\n".join([str(row) for row in result])
         logger.info(f"Query plan:\n{plan}")
     except Exception as e:
