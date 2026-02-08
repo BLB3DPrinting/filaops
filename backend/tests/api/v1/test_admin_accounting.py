@@ -164,12 +164,11 @@ class TestOrderCostBreakdown:
     """Tests for GET /admin/accounting/order-cost-breakdown/{order_id}"""
 
     def test_nonexistent_order_returns_error(self, client):
-        """Should return an error message for a missing order."""
+        """Should return 404 for a missing order."""
         resp = client.get(f"{BASE}/order-cost-breakdown/999999")
-        assert resp.status_code == 200  # Endpoint returns 200 with error key
+        assert resp.status_code == 404
         data = resp.json()
-        assert "error" in data
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["detail"].lower()
 
     def test_existing_order_returns_breakdown(self, client, db, make_sales_order):
         """Should return cost breakdown structure for a valid order."""

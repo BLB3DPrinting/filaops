@@ -10,17 +10,22 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.services.transaction_audit_service import TransactionAuditService
+from app.schemas.audit import (
+    AuditTransactionsResponse,
+    AuditTimelineResponse,
+    AuditSummaryResponse,
+)
 
 
 router = APIRouter(prefix="/audit", tags=["Audit"])
 
 
-@router.get("/transactions")
+@router.get("/transactions", response_model=AuditTransactionsResponse)
 async def run_transaction_audit(
     db: Session = Depends(get_db),
     statuses: Optional[str] = Query(None, description="Comma-separated list of order statuses to check"),
     order_ids: Optional[str] = Query(None, description="Comma-separated list of order IDs to check"),
-):
+) -> AuditTransactionsResponse:
     """
     Run a transaction audit to find gaps in inventory tracking.
 
@@ -60,11 +65,11 @@ async def run_transaction_audit(
     return result.to_dict()
 
 
-@router.get("/transactions/order/{order_id}")
+@router.get("/transactions/order/{order_id}", response_model=AuditTransactionsResponse)
 async def audit_single_order(
     order_id: int,
     db: Session = Depends(get_db),
-):
+) -> AuditTransactionsResponse:
     """
     Audit a single order for transaction gaps.
 
@@ -76,11 +81,11 @@ async def audit_single_order(
     return result.to_dict()
 
 
-@router.get("/transactions/timeline/{order_id}")
+@router.get("/transactions/timeline/{order_id}", response_model=AuditTimelineResponse)
 async def get_order_timeline(
     order_id: int,
     db: Session = Depends(get_db),
-):
+) -> AuditTimelineResponse:
     """
     Get the complete transaction timeline for an order.
 
@@ -97,10 +102,10 @@ async def get_order_timeline(
     }
 
 
-@router.get("/transactions/summary")
+@router.get("/transactions/summary", response_model=AuditSummaryResponse)
 async def get_audit_summary(
     db: Session = Depends(get_db),
-):
+) -> AuditSummaryResponse:
     """
     Get a quick summary of transaction health across all active orders.
 

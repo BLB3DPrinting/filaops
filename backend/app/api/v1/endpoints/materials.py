@@ -101,6 +101,60 @@ class MaterialCSVImportResult(BaseModel):
     errors: List[dict]
 
 
+class MaterialTypeItem(BaseModel):
+    """A single material type entry for the types list"""
+    code: str
+    name: str
+    base_material: str
+    description: str | None
+    price_multiplier: float
+    strength_rating: int | None
+    requires_enclosure: bool
+
+
+class MaterialTypesResponse(BaseModel):
+    """Response for GET /types — list of material type options"""
+    materials: List[MaterialTypeItem]
+
+
+class BOMItemEntry(BaseModel):
+    """A single material entry formatted for BOM selection"""
+    id: int
+    sku: str
+    name: str
+    description: str
+    item_type: str
+    procurement_type: str
+    unit: str
+    standard_cost: float
+    in_stock: bool
+    quantity_available: float
+    material_code: str
+    color_code: str
+    color_hex: str | None
+
+
+class MaterialsForBOMResponse(BaseModel):
+    """Response for GET /for-bom — materials formatted for BOM selection"""
+    items: List[BOMItemEntry]
+
+
+class MaterialPricingResponse(BaseModel):
+    """Response for GET /pricing/{material_type_code} — pricing info"""
+    code: str
+    name: str
+    base_material: str
+    density: float
+    base_price_per_kg: float
+    price_multiplier: float
+    volumetric_flow_limit: float | None
+    nozzle_temp_min: int | None
+    nozzle_temp_max: int | None
+    bed_temp_min: int | None
+    bed_temp_max: int | None
+    requires_enclosure: bool
+
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -143,11 +197,11 @@ def get_material_options(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/types")
+@router.get("/types", response_model=MaterialTypesResponse)
 def list_material_types(
     customer_visible_only: bool = True,
     db: Session = Depends(get_db),
-):
+) -> MaterialTypesResponse:
     """Get list of material types (for first dropdown)."""
     try:
         materials = get_available_material_types(
@@ -234,8 +288,8 @@ def create_color_for_material_endpoint(
     )
 
 
-@router.get("/for-bom")
-def get_materials_for_bom(db: Session = Depends(get_db)):
+@router.get("/for-bom", response_model=MaterialsForBOMResponse)
+def get_materials_for_bom(db: Session = Depends(get_db)) -> MaterialsForBOMResponse:
     """Get all materials formatted for BOM usage."""
     try:
         materials = get_available_material_types(db, customer_visible_only=False)
@@ -294,11 +348,11 @@ def get_materials_for_bom(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/pricing/{material_type_code}")
+@router.get("/pricing/{material_type_code}", response_model=MaterialPricingResponse)
 def get_material_pricing(
     material_type_code: str,
     db: Session = Depends(get_db),
-):
+) -> MaterialPricingResponse:
     """Get pricing information for a material type."""
     try:
         materials = get_available_material_types(db, customer_visible_only=False)

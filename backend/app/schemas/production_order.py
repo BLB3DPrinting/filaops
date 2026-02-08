@@ -4,7 +4,7 @@ Production Order Pydantic Schemas
 Manufacturing Orders (MOs) for tracking production of finished goods.
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
@@ -755,3 +755,157 @@ class OperationPartialCompleteRequest(BaseModel):
                 "create_replacement": True
             }
         }
+
+
+# ============================================================================
+# Endpoint Response Models (for endpoints missing response_model)
+# ============================================================================
+
+class StatusTransitionDetail(BaseModel):
+    """Detail for a single status transition entry."""
+    allowed_transitions: List[str]
+    is_terminal: bool
+
+
+class StatusTransitionsResponse(BaseModel):
+    """Response for GET /status-transitions.
+
+    When current_status is provided, returns that status with its transitions.
+    When not provided, returns all statuses and their transition maps.
+    """
+    # Returned when current_status query param is provided
+    current_status: Optional[str] = None
+    allowed_transitions: Optional[List[str]] = None
+    is_terminal: Optional[bool] = None
+
+    # Returned when no current_status query param
+    statuses: Optional[List[str]] = None
+    transitions: Optional[Dict[str, StatusTransitionDetail]] = None
+
+
+class QCStatusesResponse(BaseModel):
+    """Response for GET /qc-statuses."""
+    statuses: List[str]
+    descriptions: Dict[str, str]
+
+
+class OperationStatusesResponse(BaseModel):
+    """Response for GET /operation-statuses."""
+    statuses: List[str]
+    descriptions: Dict[str, str]
+
+
+class MaterialAvailabilityItem(BaseModel):
+    """A single material availability line."""
+    operation_id: int
+    operation_name: Optional[str] = None
+    component_id: int
+    component_sku: Optional[str] = None
+    component_name: Optional[str] = None
+    unit: str
+    quantity_required: float
+    quantity_available: float
+    quantity_allocated: float
+    quantity_short: float
+    status: str
+
+
+class MaterialAvailabilitySummary(BaseModel):
+    """Summary of material availability."""
+    total_materials: int
+    materials_available: int
+    materials_short: int
+    can_start: bool
+
+
+class MaterialAvailabilityResponse(BaseModel):
+    """Response for GET /{order_id}/material-availability."""
+    order_id: int
+    order_code: str
+    materials: List[MaterialAvailabilityItem]
+    summary: MaterialAvailabilitySummary
+
+
+class RequiredOrderItem(BaseModel):
+    """A single required order (work order or purchase order)."""
+    product_id: int
+    product_sku: Optional[str] = None
+    product_name: Optional[str] = None
+    quantity_required: float
+    quantity_available: float
+    quantity_short: float
+    bom_level: int
+    has_bom: bool
+
+
+class RequiredOrdersSummary(BaseModel):
+    """Summary of required orders."""
+    work_orders: int
+    purchase_orders: int
+    total: int
+
+
+class RequiredOrdersResponse(BaseModel):
+    """Response for GET /{order_id}/required-orders."""
+    order_id: int
+    order_code: str
+    work_orders_needed: List[RequiredOrderItem]
+    purchase_orders_needed: List[RequiredOrderItem]
+    summary: RequiredOrdersSummary
+
+
+class MaterialCostItem(BaseModel):
+    """A single material cost line."""
+    component_sku: Optional[str] = None
+    component_name: Optional[str] = None
+    quantity: float
+    unit_cost: float
+    total_cost: float
+
+
+class LaborCostItem(BaseModel):
+    """A single labor cost line."""
+    operation: Optional[str] = None
+    minutes: float
+    hourly_rate: float
+    cost: float
+
+
+class CostBreakdownSummary(BaseModel):
+    """Summary of cost breakdown."""
+    total_material_cost: float
+    total_labor_cost: float
+    total_cost: float
+    quantity_ordered: Any  # Decimal from DB
+    unit_cost: float
+
+
+class CostBreakdownResponse(BaseModel):
+    """Response for GET /{order_id}/cost-breakdown."""
+    order_id: int
+    order_code: str
+    material_costs: List[MaterialCostItem]
+    labor_costs: List[LaborCostItem]
+    summary: CostBreakdownSummary
+
+
+class SpoolListItem(BaseModel):
+    """A single spool assignment."""
+    spool_id: int
+    spool_code: Optional[str] = None
+    product_sku: Optional[str] = None
+    product_name: Optional[str] = None
+    quantity_remaining: float
+    assigned_at: Optional[str] = None
+
+
+# Type alias for the spools list endpoint response
+SpoolsListResponse = List[SpoolListItem]
+
+
+class SpoolAssignmentResponse(BaseModel):
+    """Response for POST /{order_id}/spools/{spool_id}."""
+    order_id: int
+    spool_id: int
+    spool_code: Optional[str] = None
+    assigned: bool

@@ -41,6 +41,14 @@ from app.schemas.production_order import (
     QCInspectionResponse,
     OperationMaterialResponse,
     OperationScrapRequest,
+    StatusTransitionsResponse,
+    QCStatusesResponse,
+    OperationStatusesResponse,
+    MaterialAvailabilityResponse,
+    RequiredOrdersResponse,
+    CostBreakdownResponse,
+    SpoolListItem,
+    SpoolAssignmentResponse,
 )
 from app.core.status_config import (
     ProductionOrderStatus,
@@ -315,11 +323,11 @@ async def create_production_order(
 
 
 # Static routes MUST be defined before /{order_id} to avoid route conflicts
-@router.get("/status-transitions")
+@router.get("/status-transitions", response_model=StatusTransitionsResponse)
 async def get_status_transitions(
     current_status: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
-):
+) -> StatusTransitionsResponse:
     """Get valid status transitions for production orders."""
     all_statuses = [s.value for s in ProductionOrderStatus]
 
@@ -516,10 +524,10 @@ async def delete_scrap_reason(
     return {"message": "Scrap reason deleted"}
 
 
-@router.get("/qc-statuses")
+@router.get("/qc-statuses", response_model=QCStatusesResponse)
 async def get_qc_statuses(
     current_user: User = Depends(get_current_user),
-):
+) -> QCStatusesResponse:
     """Get valid QC status values."""
     return {
         "statuses": [s.value for s in QCStatus],
@@ -532,10 +540,10 @@ async def get_qc_statuses(
     }
 
 
-@router.get("/operation-statuses")
+@router.get("/operation-statuses", response_model=OperationStatusesResponse)
 async def get_operation_statuses(
     current_user: User = Depends(get_current_user),
-):
+) -> OperationStatusesResponse:
     """Get valid operation status values."""
     return {
         "statuses": [s.value for s in OperationStatus],
@@ -924,12 +932,12 @@ async def update_operation(
 # Material Availability / Blocking Issues
 # =============================================================================
 
-@router.get("/{order_id}/material-availability")
+@router.get("/{order_id}/material-availability", response_model=MaterialAvailabilityResponse)
 async def get_material_availability(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> MaterialAvailabilityResponse:
     """Get material availability analysis for a production order."""
     return production_order_service.get_material_availability(db, order_id)
 
@@ -947,22 +955,22 @@ async def get_blocking_issues(
     return result
 
 
-@router.get("/{order_id}/required-orders")
+@router.get("/{order_id}/required-orders", response_model=RequiredOrdersResponse)
 async def get_required_orders(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> RequiredOrdersResponse:
     """Get MRP cascade of required orders."""
     return production_order_service.get_required_orders(db, order_id)
 
 
-@router.get("/{order_id}/cost-breakdown")
+@router.get("/{order_id}/cost-breakdown", response_model=CostBreakdownResponse)
 async def get_cost_breakdown(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> CostBreakdownResponse:
     """Get cost breakdown for a production order."""
     return production_order_service.get_cost_breakdown(db, order_id)
 
@@ -971,23 +979,23 @@ async def get_cost_breakdown(
 # Spool Management
 # =============================================================================
 
-@router.get("/{order_id}/spools")
+@router.get("/{order_id}/spools", response_model=List[SpoolListItem])
 async def get_order_spools(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> List[SpoolListItem]:
     """Get spools assigned to a production order."""
     return production_order_service.get_order_spools(db, order_id)
 
 
-@router.post("/{order_id}/spools/{spool_id}")
+@router.post("/{order_id}/spools/{spool_id}", response_model=SpoolAssignmentResponse)
 async def assign_spool_to_order(
     order_id: int,
     spool_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> SpoolAssignmentResponse:
     """Assign a spool to a production order."""
     result = production_order_service.assign_spool_to_order(
         db, order_id, spool_id, current_user.email

@@ -18,7 +18,7 @@ These are views into the business data, formatted for accounting purposes.
 from typing import Optional, Dict, Any
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta, date
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -35,6 +35,16 @@ from app.models.payment import Payment
 from app.models.company_settings import CompanySettings
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
+from app.schemas.accounting import (
+    InventoryByAccountResponse,
+    TransactionsJournalResponse,
+    OrderCostBreakdownResponse,
+    COGSSummaryResponse,
+    DashboardResponse,
+    SalesJournalResponse,
+    TaxSummaryResponse,
+    PaymentsJournalResponse,
+)
 
 
 router = APIRouter(prefix="/accounting", tags=["Accounting"])
@@ -69,10 +79,10 @@ ACCOUNTS = {
 }
 
 
-@router.get("/inventory-by-account")
+@router.get("/inventory-by-account", response_model=InventoryByAccountResponse)
 async def get_inventory_by_account(
     db: Session = Depends(get_db),
-):
+) -> InventoryByAccountResponse:
     """
     Get inventory balances organized by accounting category.
 
@@ -175,12 +185,12 @@ async def get_inventory_by_account(
     }
 
 
-@router.get("/transactions-journal")
+@router.get("/transactions-journal", response_model=TransactionsJournalResponse)
 async def get_transactions_as_journal(
     db: Session = Depends(get_db),
     days: int = Query(30, description="Number of days to look back"),
     order_id: Optional[int] = Query(None, description="Filter by sales order"),
-):
+) -> TransactionsJournalResponse:
     """
     Get inventory transactions formatted as journal entries.
 
@@ -286,11 +296,11 @@ async def get_transactions_as_journal(
     }
 
 
-@router.get("/order-cost-breakdown/{order_id}")
+@router.get("/order-cost-breakdown/{order_id}", response_model=OrderCostBreakdownResponse)
 async def get_order_cost_breakdown(
     order_id: int,
     db: Session = Depends(get_db),
-):
+) -> OrderCostBreakdownResponse:
     """
     Get a cost breakdown for a specific sales order.
 
@@ -304,7 +314,7 @@ async def get_order_cost_breakdown(
     """
     order = db.query(SalesOrder).filter(SalesOrder.id == order_id).first()
     if not order:
-        return {"error": "Order not found"}
+        raise HTTPException(status_code=404, detail="Order not found")
 
     # Get production orders
     production_orders = db.query(ProductionOrder).filter(
@@ -402,11 +412,11 @@ async def get_order_cost_breakdown(
     }
 
 
-@router.get("/cogs-summary")
+@router.get("/cogs-summary", response_model=COGSSummaryResponse)
 async def get_cogs_summary(
     db: Session = Depends(get_db),
     days: int = Query(30, description="Number of days"),
-):
+) -> COGSSummaryResponse:
     """
     Get COGS summary for recent period.
 
@@ -525,10 +535,10 @@ async def get_cogs_summary(
 # Financial Dashboard
 # ==============================================================================
 
-@router.get("/dashboard")
+@router.get("/dashboard", response_model=DashboardResponse)
 async def get_accounting_dashboard(
     db: Session = Depends(get_db),
-):
+) -> DashboardResponse:
     """
     Get accounting dashboard with key financial metrics.
 
@@ -703,14 +713,14 @@ async def get_accounting_dashboard(
 # Sales Journal
 # ==============================================================================
 
-@router.get("/sales-journal")
+@router.get("/sales-journal", response_model=SalesJournalResponse)
 async def get_sales_journal(
     db: Session = Depends(get_db),
     start_date: Optional[datetime] = Query(None, description="Start date (defaults to 30 days ago)"),
     end_date: Optional[datetime] = Query(None, description="End date (defaults to today)"),
     status: Optional[str] = Query(None, description="Filter by order status"),
     include_cancelled: bool = Query(False, description="Include cancelled orders"),
-):
+) -> SalesJournalResponse:
     """
     Get sales journal - all sales transactions for the period.
     Uses shipped_at for accrual accounting (revenue recognized when earned).
@@ -872,11 +882,11 @@ async def export_sales_journal_csv(
 # Tax Center
 # ==============================================================================
 
-@router.get("/tax-summary")
+@router.get("/tax-summary", response_model=TaxSummaryResponse)
 async def get_tax_summary(
     db: Session = Depends(get_db),
     period: str = Query("month", description="Period: month, quarter, year"),
-):
+) -> TaxSummaryResponse:
     """
     Get tax summary for filing preparation.
 
@@ -1092,13 +1102,13 @@ async def export_tax_summary_csv(
 # Payments Journal
 # ==============================================================================
 
-@router.get("/payments-journal")
+@router.get("/payments-journal", response_model=PaymentsJournalResponse)
 async def get_payments_journal(
     db: Session = Depends(get_db),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     payment_method: Optional[str] = Query(None),
-):
+) -> PaymentsJournalResponse:
     """
     Get payments journal - all payment transactions for the period.
     """
