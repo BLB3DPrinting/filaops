@@ -18,7 +18,7 @@ class PurchaseOrder(Base):
     po_number = Column(String(50), unique=True, nullable=False, index=True)
 
     # Vendor reference
-    vendor_id = Column(Integer, ForeignKey('vendors.id'), nullable=False)
+    vendor_id = Column(Integer, ForeignKey('vendors.id'), nullable=False, index=True)
 
     # Status workflow: draft -> ordered -> shipped -> received -> closed
     # Also: cancelled
@@ -71,10 +71,10 @@ class PurchaseOrderLine(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Parent PO
-    purchase_order_id = Column(Integer, ForeignKey('purchase_orders.id', ondelete='CASCADE'), nullable=False)
+    purchase_order_id = Column(Integer, ForeignKey('purchase_orders.id', ondelete='CASCADE'), nullable=False, index=True)
 
     # Product reference
-    product_id = Column(Integer, ForeignKey('products.id'), nullable=False)
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False, index=True)
 
     # Line number for ordering
     line_number = Column(Integer, nullable=False)

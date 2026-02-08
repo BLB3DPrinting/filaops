@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { createContext, useMemo } from "react";
+import { createContext, useMemo, lazy, Suspense } from "react";
 import { ToastProvider } from "./components/Toast";
 import { createApiClient } from "./lib/apiClient";
 import { API_URL } from "./config/api";
@@ -12,41 +12,52 @@ import Onboarding from "./pages/Onboarding";
 // eslint-disable-next-line react-refresh/only-export-components
 export const ApiContext = createContext(null);
 
-// Admin pages
+// Auth pages (eager — needed on first load)
 import AdminLogin from "./pages/admin/AdminLogin";
 import ForgotPassword from "./pages/admin/ForgotPassword";
 import ResetPassword from "./pages/admin/ResetPassword";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminOrders from "./pages/admin/AdminOrders";
-import OrderDetail from "./pages/admin/OrderDetail";
-import AdminBOM from "./pages/admin/AdminBOM";
-import AdminItems from "./pages/admin/AdminItems";
-import AdminPurchasing from "./pages/admin/AdminPurchasing";
-import AdminProduction from "./pages/admin/AdminProduction";
-import ProductionOrderDetail from "./pages/admin/ProductionOrderDetail";
-import AdminShipping from "./pages/admin/AdminShipping";
-import AdminManufacturing from "./pages/admin/AdminManufacturing";
 import AdminPasswordResetApproval from "./pages/admin/AdminPasswordResetApproval";
-import AdminCustomers from "./pages/admin/AdminCustomers";
-import AdminInventoryTransactions from "./pages/admin/AdminInventoryTransactions";
-import AdminAnalytics from "./pages/admin/AdminAnalytics";
-import AdminMaterialImport from "./pages/admin/AdminMaterialImport";
-import AdminOrderImport from "./pages/admin/AdminOrderImport";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminQuotes from "./pages/admin/AdminQuotes";
-import AdminPayments from "./pages/admin/AdminPayments";
-import AdminSettings from "./pages/admin/AdminSettings";
-import AdminLocations from "./pages/admin/AdminLocations";
-import AdminAccounting from "./pages/admin/AdminAccounting";
-import AdminPrinters from "./pages/admin/AdminPrinters";
-import AdminScrapReasons from "./pages/admin/AdminScrapReasons";
-import AdminSpools from "./pages/admin/AdminSpools";
-import AdminSecurity from "./pages/admin/AdminSecurity";
-import AdminCycleCount from "./pages/admin/AdminCycleCount";
-import MaterialTraceability from "./pages/admin/quality/MaterialTraceability";
-import CommandCenter from "./pages/CommandCenter";
-import Pricing from "./pages/Pricing";
 import NotFound from "./pages/NotFound";
+import Pricing from "./pages/Pricing";
+
+// Admin pages (lazy-loaded for smaller initial bundle)
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminOrders = lazy(() => import("./pages/admin/AdminOrders"));
+const OrderDetail = lazy(() => import("./pages/admin/OrderDetail"));
+const AdminBOM = lazy(() => import("./pages/admin/AdminBOM"));
+const AdminItems = lazy(() => import("./pages/admin/AdminItems"));
+const AdminPurchasing = lazy(() => import("./pages/admin/AdminPurchasing"));
+const AdminProduction = lazy(() => import("./pages/admin/AdminProduction"));
+const ProductionOrderDetail = lazy(() => import("./pages/admin/ProductionOrderDetail"));
+const AdminShipping = lazy(() => import("./pages/admin/AdminShipping"));
+const AdminManufacturing = lazy(() => import("./pages/admin/AdminManufacturing"));
+const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers"));
+const AdminInventoryTransactions = lazy(() => import("./pages/admin/AdminInventoryTransactions"));
+const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
+const AdminMaterialImport = lazy(() => import("./pages/admin/AdminMaterialImport"));
+const AdminOrderImport = lazy(() => import("./pages/admin/AdminOrderImport"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminQuotes = lazy(() => import("./pages/admin/AdminQuotes"));
+const AdminPayments = lazy(() => import("./pages/admin/AdminPayments"));
+const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
+const AdminLocations = lazy(() => import("./pages/admin/AdminLocations"));
+const AdminAccounting = lazy(() => import("./pages/admin/AdminAccounting"));
+const AdminPrinters = lazy(() => import("./pages/admin/AdminPrinters"));
+const AdminScrapReasons = lazy(() => import("./pages/admin/AdminScrapReasons"));
+const AdminSpools = lazy(() => import("./pages/admin/AdminSpools"));
+const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
+const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
+const MaterialTraceability = lazy(() => import("./pages/admin/quality/MaterialTraceability"));
+const CommandCenter = lazy(() => import("./pages/CommandCenter"));
+
+// Suspense fallback for lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+    </div>
+  );
+}
 
 export default function App() {
   const api = useMemo(
@@ -95,44 +106,44 @@ export default function App() {
 
           {/* ERP Admin Panel */}
           <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<AdminDashboard />} />
-            <Route path="orders" element={<AdminOrders />} />
-            <Route path="orders/:orderId" element={<OrderDetail />} />
-            <Route path="quotes" element={<AdminQuotes />} />
-            <Route path="payments" element={<AdminPayments />} />
-            <Route path="customers" element={<AdminCustomers />} />
-            <Route path="bom" element={<AdminBOM />} />
+            <Route index element={<Suspense fallback={<PageLoader />}><AdminDashboard /></Suspense>} />
+            <Route path="orders" element={<Suspense fallback={<PageLoader />}><AdminOrders /></Suspense>} />
+            <Route path="orders/:orderId" element={<Suspense fallback={<PageLoader />}><OrderDetail /></Suspense>} />
+            <Route path="quotes" element={<Suspense fallback={<PageLoader />}><AdminQuotes /></Suspense>} />
+            <Route path="payments" element={<Suspense fallback={<PageLoader />}><AdminPayments /></Suspense>} />
+            <Route path="customers" element={<Suspense fallback={<PageLoader />}><AdminCustomers /></Suspense>} />
+            <Route path="bom" element={<Suspense fallback={<PageLoader />}><AdminBOM /></Suspense>} />
             <Route
               path="products"
               element={<Navigate to="/admin/items" replace />}
             />
-            <Route path="items" element={<AdminItems />} />
-            <Route path="purchasing" element={<AdminPurchasing />} />
-            <Route path="manufacturing" element={<AdminManufacturing />} />
-            <Route path="production" element={<AdminProduction />} />
-            <Route path="production/:orderId" element={<ProductionOrderDetail />} />
-            <Route path="shipping" element={<AdminShipping />} />
-            <Route path="analytics" element={<AdminAnalytics />} />
-            <Route path="materials/import" element={<AdminMaterialImport />} />
-            <Route path="orders/import" element={<AdminOrderImport />} />
+            <Route path="items" element={<Suspense fallback={<PageLoader />}><AdminItems /></Suspense>} />
+            <Route path="purchasing" element={<Suspense fallback={<PageLoader />}><AdminPurchasing /></Suspense>} />
+            <Route path="manufacturing" element={<Suspense fallback={<PageLoader />}><AdminManufacturing /></Suspense>} />
+            <Route path="production" element={<Suspense fallback={<PageLoader />}><AdminProduction /></Suspense>} />
+            <Route path="production/:orderId" element={<Suspense fallback={<PageLoader />}><ProductionOrderDetail /></Suspense>} />
+            <Route path="shipping" element={<Suspense fallback={<PageLoader />}><AdminShipping /></Suspense>} />
+            <Route path="analytics" element={<Suspense fallback={<PageLoader />}><AdminAnalytics /></Suspense>} />
+            <Route path="materials/import" element={<Suspense fallback={<PageLoader />}><AdminMaterialImport /></Suspense>} />
+            <Route path="orders/import" element={<Suspense fallback={<PageLoader />}><AdminOrderImport /></Suspense>} />
             <Route
               path="inventory/transactions"
-              element={<AdminInventoryTransactions />}
+              element={<Suspense fallback={<PageLoader />}><AdminInventoryTransactions /></Suspense>}
             />
             <Route
               path="inventory/cycle-count"
-              element={<AdminCycleCount />}
+              element={<Suspense fallback={<PageLoader />}><AdminCycleCount /></Suspense>}
             />
-            <Route path="users" element={<AdminUsers />} />
-            <Route path="locations" element={<AdminLocations />} />
-            <Route path="accounting" element={<AdminAccounting />} />
-            <Route path="printers" element={<AdminPrinters />} />
-            <Route path="scrap-reasons" element={<AdminScrapReasons />} />
-            <Route path="spools" element={<AdminSpools />} />
-            <Route path="quality/traceability" element={<MaterialTraceability />} />
-            <Route path="command-center" element={<CommandCenter />} />
-            <Route path="settings" element={<AdminSettings />} />
-            <Route path="security" element={<AdminSecurity />} />
+            <Route path="users" element={<Suspense fallback={<PageLoader />}><AdminUsers /></Suspense>} />
+            <Route path="locations" element={<Suspense fallback={<PageLoader />}><AdminLocations /></Suspense>} />
+            <Route path="accounting" element={<Suspense fallback={<PageLoader />}><AdminAccounting /></Suspense>} />
+            <Route path="printers" element={<Suspense fallback={<PageLoader />}><AdminPrinters /></Suspense>} />
+            <Route path="scrap-reasons" element={<Suspense fallback={<PageLoader />}><AdminScrapReasons /></Suspense>} />
+            <Route path="spools" element={<Suspense fallback={<PageLoader />}><AdminSpools /></Suspense>} />
+            <Route path="quality/traceability" element={<Suspense fallback={<PageLoader />}><MaterialTraceability /></Suspense>} />
+            <Route path="command-center" element={<Suspense fallback={<PageLoader />}><CommandCenter /></Suspense>} />
+            <Route path="settings" element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
+            <Route path="security" element={<Suspense fallback={<PageLoader />}><AdminSecurity /></Suspense>} />
           </Route>
 
           {/* Catch-all 404 - must be last */}

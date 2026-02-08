@@ -21,7 +21,7 @@ class Resource(Base):
     __tablename__ = "resources"
 
     id = Column(Integer, primary_key=True, index=True)
-    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False)
+    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False, index=True)
     code = Column(String(50), nullable=False, index=True)
     name = Column(String(200), nullable=False)
 
@@ -148,8 +148,8 @@ class RoutingOperation(Base):
     __tablename__ = "routing_operations"
 
     id = Column(Integer, primary_key=True, index=True)
-    routing_id = Column(Integer, ForeignKey("routings.id", ondelete="CASCADE"), nullable=False)
-    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False)
+    routing_id = Column(Integer, ForeignKey("routings.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False, index=True)
 
     # Sequence
     sequence = Column(Integer, nullable=False)
