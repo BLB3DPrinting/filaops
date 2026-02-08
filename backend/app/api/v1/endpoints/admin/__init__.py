@@ -3,7 +3,7 @@ Admin endpoints - requires admin authentication
 """
 from fastapi import APIRouter
 from . import (
-    bom, dashboard, fulfillment, audit, accounting, traceability,
+    bom, dashboard, fulfillment_queue, fulfillment_shipping, audit, accounting, traceability,
     customers, inventory_transactions, analytics, export, data_import, orders,
     users, uom, locations, system, uploads
 )
@@ -26,7 +26,8 @@ router.include_router(dashboard.router)
 router.include_router(analytics.router)
 
 # Fulfillment (Quote-to-Ship workflow)
-router.include_router(fulfillment.router)
+router.include_router(fulfillment_queue.router)
+router.include_router(fulfillment_shipping.router)
 
 # Transaction Audit
 router.include_router(audit.router)
