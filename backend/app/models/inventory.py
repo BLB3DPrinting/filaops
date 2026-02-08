@@ -99,6 +99,7 @@ class InventoryTransaction(Base):
 
     # Notes
     notes = Column(Text, nullable=True)
+    reason_code = Column(String(50), nullable=True)  # Links to adjustment_reasons.code
 
     # Negative Inventory Approval (for transactions that would cause negative inventory)
     requires_approval = Column(Boolean, default=False, nullable=False)

@@ -20,6 +20,7 @@ from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
+from app.models.adjustment_reason import AdjustmentReason
 from app.models.inventory import Inventory, InventoryLocation, InventoryTransaction
 from app.models.product import Product
 from app.services.inventory_helpers import is_material
@@ -332,6 +333,7 @@ def create_transaction(
     serial_number: Optional[str] = None,
     notes: Optional[str] = None,
     to_location_id: Optional[int] = None,
+    reason_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create an inventory transaction and update inventory.
 
@@ -397,6 +399,7 @@ def create_transaction(
             serial_number=serial_number,
             notes=f"Transfer to {to_location.name if to_location else 'location'}: {notes or ''}",
             created_by=created_by,
+            reason_code=reason_code,
         )
         db.add(from_transaction)
 
@@ -417,6 +420,7 @@ def create_transaction(
             serial_number=serial_number,
             notes=f"Transfer from {location.name}: {notes or ''}",
             created_by=created_by,
+            reason_code=reason_code,
         )
         db.add(to_transaction)
 
@@ -441,6 +445,7 @@ def create_transaction(
             serial_number=serial_number,
             notes=notes,
             created_by=created_by,
+            reason_code=reason_code,
         )
         db.add(transaction)
 
@@ -574,6 +579,13 @@ def batch_update_inventory(
                 location_id=location.id,
                 user_id=admin_id,
             )
+
+            # Store reason_code if the reason matches a known adjustment reason code
+            known_reason = db.query(AdjustmentReason).filter(
+                AdjustmentReason.code == reason
+            ).first()
+            if known_reason:
+                inv_txn.reason_code = reason
 
             inventory.last_counted = datetime.now(timezone.utc)
             db.flush()

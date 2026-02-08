@@ -45,9 +45,17 @@ def setup_database():
 
     Base.metadata.create_all(bind=engine)
 
+    # Patch columns that create_all() won't add to pre-existing tables
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE inventory_transactions "
+            "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
+        ))
+        conn.commit()
+
     # Seed required data
     from sqlalchemy.orm import Session as SASession
-    from sqlalchemy import text
     from app.models.inventory import InventoryLocation
     from app.models.user import User
     from app.models.work_center import WorkCenter

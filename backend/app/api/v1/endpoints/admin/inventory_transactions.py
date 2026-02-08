@@ -114,6 +114,33 @@ class BatchUpdateResponse(BaseModel):
 # ENDPOINTS
 # ============================================================================
 
+@router.get("/adjustment-reasons")
+async def list_adjustment_reasons(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_staff_user),
+):
+    """List all adjustment reasons for dropdown selection."""
+    from app.models.adjustment_reason import AdjustmentReason
+
+    query = db.query(AdjustmentReason)
+    if not include_inactive:
+        query = query.filter(AdjustmentReason.active.is_(True))
+    reasons = query.order_by(AdjustmentReason.sequence).all()
+
+    return [
+        {
+            "id": r.id,
+            "code": r.code,
+            "name": r.name,
+            "description": r.description,
+            "active": r.active,
+            "sequence": r.sequence,
+        }
+        for r in reasons
+    ]
+
+
 @router.get("", response_model=List[TransactionResponse])
 async def list_transactions(
     product_id: Optional[int] = Query(None, description="Filter by product"),

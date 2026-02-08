@@ -24,6 +24,7 @@ from app.models.company_settings import CompanySettings
 from app.models.uom import UnitOfMeasure
 from app.models.uom import UnitOfMeasure as UOM
 from app.models.scrap_reason import ScrapReason
+from app.models.adjustment_reason import AdjustmentReason
 from app.models.order_event import OrderEvent
 from app.models.purchasing_event import PurchasingEvent
 from app.models.shipping_event import ShippingEvent
@@ -95,6 +96,8 @@ __all__ = [
     "UOM",
     # Scrap Reasons
     "ScrapReason",
+    # Adjustment Reasons
+    "AdjustmentReason",
     # Order Events (Activity Timeline)
     "OrderEvent",
     "PurchasingEvent",

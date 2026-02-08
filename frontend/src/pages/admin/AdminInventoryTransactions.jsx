@@ -7,6 +7,7 @@ export default function AdminInventoryTransactions() {
   const [transactions, setTransactions] = useState([]);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [adjustmentReasons, setAdjustmentReasons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -22,6 +23,7 @@ export default function AdminInventoryTransactions() {
     serial_number: "",
     notes: "",
     to_location_id: "",
+    reason_code: "",
   });
   const [filters, setFilters] = useState({
     product_id: "",
@@ -34,6 +36,13 @@ export default function AdminInventoryTransactions() {
     fetchProducts();
     fetchLocations();
   }, [filters]);
+
+  // Fetch adjustment reasons for dropdown
+  useEffect(() => {
+    api.get("/api/v1/admin/inventory/transactions/adjustment-reasons")
+      .then(data => setAdjustmentReasons(data))
+      .catch(() => {}); // Non-critical, will fallback to empty dropdown
+  }, []);
 
   const fetchTransactions = async () => {
     try {
@@ -93,6 +102,7 @@ export default function AdminInventoryTransactions() {
           formData.transaction_type === "transfer" && formData.to_location_id
             ? parseInt(formData.to_location_id)
             : null,
+        ...(formData.reason_code && { reason_code: formData.reason_code }),
       };
 
       await api.post(`/api/v1/admin/inventory/transactions`, payload);
@@ -110,6 +120,7 @@ export default function AdminInventoryTransactions() {
         serial_number: "",
         notes: "",
         to_location_id: "",
+        reason_code: "",
       });
       setShowForm(false);
       fetchTransactions();
@@ -371,6 +382,28 @@ export default function AdminInventoryTransactions() {
               />
             </div>
 
+            {formData.transaction_type === "adjustment" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Adjustment Reason
+                </label>
+                <select
+                  value={formData.reason_code}
+                  onChange={(e) =>
+                    setFormData({ ...formData, reason_code: e.target.value })
+                  }
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                >
+                  <option value="">Select reason...</option>
+                  {adjustmentReasons.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="flex gap-4">
               <button
                 type="submit"
@@ -492,6 +525,9 @@ export default function AdminInventoryTransactions() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase">
                   Notes
                 </th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase">
+                  Reason
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -560,11 +596,14 @@ export default function AdminInventoryTransactions() {
                     <td className="py-3 px-4 text-gray-500 text-sm max-w-xs truncate">
                       {txn.notes || "-"}
                     </td>
+                    <td className="py-3 px-4 text-gray-500 text-sm">
+                      {txn.reason_code || "-"}
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-gray-500">
+                  <td colSpan={11} className="py-8 text-center text-gray-500">
                     No transactions found
                   </td>
                 </tr>
