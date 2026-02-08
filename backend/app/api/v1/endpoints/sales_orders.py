@@ -455,6 +455,38 @@ async def get_sales_order_details(
 
 
 # =============================================================================
+# PDF Generation
+# =============================================================================
+
+@router.get("/{order_id}/packing-slip/pdf")
+async def get_packing_slip_pdf(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate and return a packing slip PDF for a sales order."""
+    from starlette.responses import StreamingResponse
+
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only administrators can generate packing slips")
+
+    pdf_buffer = sales_order_service.generate_packing_slip_pdf(db, order_id)
+
+    # Get order number for filename
+    order = db.query(SalesOrder).filter(SalesOrder.id == order_id).first()
+    filename = f"packing-slip-{order.order_number}.pdf" if order else f"packing-slip-{order_id}.pdf"
+
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"'
+        },
+    )
+
+
+# =============================================================================
 # MRP / Requirements Endpoints
 # =============================================================================
 

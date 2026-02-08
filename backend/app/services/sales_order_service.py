@@ -3,6 +3,7 @@ Sales Order Service — CRUD, status management, production orders, and fulfillm
 
 Extracted from sales_orders.py (ARCHITECT-003).
 """
+import io
 import math
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -1877,3 +1878,305 @@ def add_order_event(
 
     db.add(event)
     return event
+
+
+# =============================================================================
+# Packing Slip PDF
+# =============================================================================
+
+def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
+    """Generate a packing slip PDF for a sales order using ReportLab.
+
+    The packing slip includes:
+    - Company header (logo, name, address, phone, email)
+    - "PACKING SLIP" title
+    - Order info (order number, order date, ship date)
+    - Ship-to address
+    - Items table (SKU, Description, Qty Ordered, Qty Shipped)
+    - Notes (if any)
+    - Footer
+
+    Returns the BytesIO buffer positioned at the start.
+    """
+    from xml.sax.saxutils import escape as _xml_escape
+
+    def esc(value: Optional[str]) -> str:
+        """Escape user-provided text for ReportLab Paragraph XML."""
+        return _xml_escape(value) if value else ""
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        Image,
+    )
+
+    order = db.query(SalesOrder).filter(SalesOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sales order {order_id} not found",
+        )
+
+    # Get company settings
+    company_settings = (
+        db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+    )
+
+    # Create PDF buffer
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=letter,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+
+    # Styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "Title",
+        parent=styles["Heading1"],
+        fontSize=24,
+        textColor=colors.HexColor("#2563eb"),
+    )
+    heading_style = ParagraphStyle(
+        "Heading",
+        parent=styles["Heading2"],
+        fontSize=12,
+        textColor=colors.gray,
+    )
+    normal_style = styles["Normal"]
+
+    # Build content
+    content = []
+
+    # ---- Company Header ----
+    if company_settings and company_settings.logo_data:
+        try:
+            logo_buffer = io.BytesIO(company_settings.logo_data)
+            logo_img = Image(logo_buffer, width=1.5 * inch, height=1.5 * inch)
+            logo_img.hAlign = "LEFT"
+
+            company_info = []
+            if company_settings.company_name:
+                company_info.append(
+                    f"<b>{esc(company_settings.company_name)}</b>"
+                )
+            if company_settings.company_address_line1:
+                company_info.append(esc(company_settings.company_address_line1))
+            if company_settings.company_city or company_settings.company_state:
+                city_state = (
+                    f"{esc(company_settings.company_city or '')}, "
+                    f"{esc(company_settings.company_state or '')} "
+                    f"{esc(company_settings.company_zip or '')}"
+                ).strip(", ")
+                company_info.append(city_state)
+            if company_settings.company_phone:
+                company_info.append(esc(company_settings.company_phone))
+            if company_settings.company_email:
+                company_info.append(esc(company_settings.company_email))
+
+            header_data = [
+                [logo_img, Paragraph("<br/>".join(company_info), normal_style)]
+            ]
+            header_table = Table(
+                header_data, colWidths=[2 * inch, 4.5 * inch]
+            )
+            header_table.setStyle(
+                TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
+            )
+            content.append(header_table)
+            content.append(Spacer(1, 0.3 * inch))
+        except Exception:
+            # If logo fails, continue without it
+            pass
+    elif company_settings and company_settings.company_name:
+        content.append(
+            Paragraph(
+                f"<b>{esc(company_settings.company_name)}</b>", title_style
+            )
+        )
+        content.append(Spacer(1, 0.2 * inch))
+
+    # ---- Title ----
+    content.append(Paragraph("PACKING SLIP", title_style))
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ---- Order Info ----
+    content.append(Paragraph("ORDER INFORMATION", heading_style))
+    content.append(Spacer(1, 0.05 * inch))
+
+    order_date_str = (
+        order.created_at.strftime("%B %d, %Y") if order.created_at else "N/A"
+    )
+    ship_date_str = (
+        order.shipped_at.strftime("%B %d, %Y") if order.shipped_at else "N/A"
+    )
+
+    order_info_data = [
+        ["Order Number:", esc(order.order_number)],
+        ["Order Date:", order_date_str],
+        ["Ship Date:", ship_date_str],
+    ]
+    order_info_table = Table(
+        order_info_data, colWidths=[1.5 * inch, 4 * inch]
+    )
+    order_info_table.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
+    content.append(order_info_table)
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ---- Ship To ----
+    content.append(Paragraph("SHIP TO", heading_style))
+    content.append(Spacer(1, 0.05 * inch))
+
+    ship_to_parts = []
+    if order.customer_name:
+        ship_to_parts.append(f"<b>{esc(order.customer_name)}</b>")
+    if order.shipping_address_line1:
+        ship_to_parts.append(esc(order.shipping_address_line1))
+    if order.shipping_address_line2:
+        ship_to_parts.append(esc(order.shipping_address_line2))
+    city_state_zip = ""
+    if order.shipping_city:
+        city_state_zip += esc(order.shipping_city)
+    if order.shipping_state:
+        city_state_zip += f", {esc(order.shipping_state)}"
+    if order.shipping_zip:
+        city_state_zip += f" {esc(order.shipping_zip)}"
+    if city_state_zip:
+        ship_to_parts.append(city_state_zip)
+    if order.shipping_country and order.shipping_country != "USA":
+        ship_to_parts.append(esc(order.shipping_country))
+
+    if ship_to_parts:
+        content.append(
+            Paragraph("<br/>".join(ship_to_parts), normal_style)
+        )
+    else:
+        content.append(Paragraph("No shipping address on file", normal_style))
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ---- Items Table ----
+    content.append(Paragraph("ITEMS", heading_style))
+    content.append(Spacer(1, 0.1 * inch))
+
+    table_data = [["SKU", "Description", "Qty Ordered", "Qty Shipped"]]
+
+    # Eagerly load lines for multi-line orders
+    lines = (
+        db.query(SalesOrderLine)
+        .filter(SalesOrderLine.sales_order_id == order.id)
+        .all()
+    )
+
+    if lines:
+        # Multi-line order
+        for line in lines:
+            product = (
+                db.query(Product)
+                .filter(Product.id == line.product_id)
+                .first()
+            )
+            sku = product.sku if product else ""
+            description = product.name if product else ""
+            qty_ordered = str(int(line.quantity)) if line.quantity else "0"
+            qty_shipped = (
+                str(int(line.shipped_quantity))
+                if line.shipped_quantity
+                else qty_ordered
+            )
+            table_data.append(
+                [sku, esc(description), qty_ordered, qty_shipped]
+            )
+    else:
+        # Single-product order (quote-based)
+        product = None
+        if order.product_id:
+            product = (
+                db.query(Product)
+                .filter(Product.id == order.product_id)
+                .first()
+            )
+        sku = product.sku if product else ""
+        description = esc(
+            order.product_name or (product.name if product else "")
+        )
+        qty_ordered = str(order.quantity or 0)
+        qty_shipped = qty_ordered  # Assume full shipment for single-product
+        table_data.append([sku, description, qty_ordered, qty_shipped])
+
+    items_table = Table(
+        table_data,
+        colWidths=[1.5 * inch, 3 * inch, 1 * inch, 1 * inch],
+    )
+    items_table.setStyle(
+        TableStyle(
+            [
+                # Header row
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, 0),
+                    colors.HexColor("#f3f4f6"),
+                ),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                # Data rows
+                ("FONTSIZE", (0, 1), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+                # Grid
+                (
+                    "LINEBELOW",
+                    (0, 0),
+                    (-1, 0),
+                    1,
+                    colors.HexColor("#e5e7eb"),
+                ),
+                (
+                    "LINEBELOW",
+                    (0, 1),
+                    (-1, -1),
+                    0.5,
+                    colors.HexColor("#e5e7eb"),
+                ),
+                # Center-align quantity columns
+                ("ALIGN", (2, 0), (-1, -1), "CENTER"),
+            ]
+        )
+    )
+    content.append(items_table)
+    content.append(Spacer(1, 0.3 * inch))
+
+    # ---- Notes ----
+    if order.customer_notes:
+        content.append(Paragraph("NOTES", heading_style))
+        content.append(Paragraph(esc(order.customer_notes), normal_style))
+        content.append(Spacer(1, 0.2 * inch))
+
+    # ---- Footer ----
+    content.append(Spacer(1, 0.3 * inch))
+    content.append(Paragraph("Thank you for your business!", normal_style))
+
+    # Build PDF
+    doc.build(content)
+    pdf_buffer.seek(0)
+
+    return pdf_buffer

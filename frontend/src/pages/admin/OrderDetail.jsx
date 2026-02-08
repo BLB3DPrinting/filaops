@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import { API_URL } from "../../config/api";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 import ActivityTimeline from "../../components/ActivityTimeline";
 import ShippingTimeline from "../../components/ShippingTimeline";
@@ -455,6 +456,18 @@ export default function OrderDetail() {
             title="Refresh order data"
           >
             {refreshing ? "Refreshing..." : "\u21BB Refresh"}
+          </button>
+          <button
+            onClick={() =>
+              window.open(
+                `${API_URL}/api/v1/sales-orders/${order.id}/packing-slip/pdf`,
+                "_blank"
+              )
+            }
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            title="Print packing slip PDF"
+          >
+            Print Packing Slip
           </button>
           {order.status !== "shipped" && order.status !== "delivered" && (
             <button

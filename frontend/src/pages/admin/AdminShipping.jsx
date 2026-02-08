@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import { API_URL } from "../../config/api";
 
 // Shipping Trend Chart Component
 function ShippingChart({ data, period, onPeriodChange, loading }) {
@@ -490,6 +491,10 @@ export default function AdminShipping() {
     }
   };
 
+  const handlePackingSlip = (orderId) => {
+    window.open(`${API_URL}/api/v1/sales-orders/${orderId}/packing-slip/pdf`, "_blank");
+  };
+
   // Categorize orders into workflow stages
   const categorizeOrders = () => {
     const packaging = []; // Production not complete
@@ -697,24 +702,51 @@ export default function AdminShipping() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-2 justify-end">
                         {activeTab === "packaging" && (
-                          <span className="text-gray-500 text-xs italic">Awaiting production</span>
+                          <>
+                            <button
+                              onClick={() => handlePackingSlip(order.id)}
+                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              title="Print packing slip"
+                            >
+                              Packing Slip
+                            </button>
+                            <span className="text-gray-500 text-xs italic">Awaiting production</span>
+                          </>
                         )}
                         {activeTab === "needs_label" && (
-                          <button
-                            onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
-                            className="px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
-                          >
-                            {isExpanded ? "Cancel" : "Add Label"}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handlePackingSlip(order.id)}
+                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              title="Print packing slip"
+                            >
+                              Packing Slip
+                            </button>
+                            <button
+                              onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                              className="px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
+                            >
+                              {isExpanded ? "Cancel" : "Add Label"}
+                            </button>
+                          </>
                         )}
                         {activeTab === "ready_to_ship" && (
-                          <button
-                            onClick={() => handleMarkShipped(order.id)}
-                            disabled={saving}
-                            className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                          >
-                            {saving ? "..." : "Ship"}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handlePackingSlip(order.id)}
+                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              title="Print packing slip"
+                            >
+                              Packing Slip
+                            </button>
+                            <button
+                              onClick={() => handleMarkShipped(order.id)}
+                              disabled={saving}
+                              className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {saving ? "..." : "Ship"}
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
