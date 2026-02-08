@@ -1,15 +1,78 @@
 import { useState } from "react";
 import { useToast } from "../../components/Toast";
 import { useCRUD } from "../../hooks/useCRUD";
+import { Badge, Button, Input, Select } from "../../components/ui";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  TableEmpty,
+} from "../../components/ui";
 
-// Location type options
 const TYPE_OPTIONS = [
-  { value: "warehouse", label: "Warehouse", color: "blue" },
-  { value: "shelf", label: "Shelf", color: "green" },
-  { value: "bin", label: "Bin", color: "yellow" },
-  { value: "staging", label: "Staging Area", color: "purple" },
-  { value: "quality", label: "Quality/QC", color: "orange" },
+  { value: "warehouse", label: "Warehouse", badge: "info" },
+  { value: "shelf", label: "Shelf", badge: "success" },
+  { value: "bin", label: "Bin", badge: "warning" },
+  { value: "staging", label: "Staging Area", badge: "purple" },
+  { value: "quality", label: "Quality/QC", badge: "warning" },
 ];
+
+const TYPE_SELECT_OPTIONS = TYPE_OPTIONS.map(({ value, label }) => ({
+  value,
+  label,
+}));
+
+function getTypeBadgeVariant(type) {
+  const found = TYPE_OPTIONS.find((t) => t.value === type);
+  return found ? found.badge : "neutral";
+}
+
+function getTypeLabel(type) {
+  const found = TYPE_OPTIONS.find((t) => t.value === type);
+  return found ? found.label : type;
+}
+
+const PlusIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+  </svg>
+);
+
+const EditIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+    />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
+  </svg>
+);
+
+const RefreshIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+    />
+  </svg>
+);
 
 export default function AdminLocations() {
   const toast = useToast();
@@ -29,18 +92,6 @@ export default function AdminLocations() {
 
   // Refetch when includeInactive changes
   useState(() => { refetch(); });
-
-  const getTypeStyle = (type) => {
-    const found = TYPE_OPTIONS.find((t) => t.value === type);
-    if (!found) return "bg-gray-500/20 text-gray-400";
-    return {
-      blue: "bg-blue-500/20 text-blue-400",
-      green: "bg-green-500/20 text-green-400",
-      yellow: "bg-yellow-500/20 text-yellow-400",
-      purple: "bg-purple-500/20 text-purple-400",
-      orange: "bg-orange-500/20 text-orange-400",
-    }[found.color];
-  };
 
   const handleSave = async (locationData) => {
     try {
@@ -111,28 +162,16 @@ export default function AdminLocations() {
             Manage warehouses, shelves, and storage locations
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
+          icon={<PlusIcon />}
           onClick={() => {
             setEditingLocation(null);
             setShowModal(true);
           }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
         >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
           Add Location
-        </button>
+        </Button>
       </div>
 
       {/* Filters */}
@@ -153,79 +192,46 @@ export default function AdminLocations() {
       </div>
 
       {/* Locations Table */}
-      <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-800/50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Code
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Name
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Type
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Parent
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800">
-            {locations.length === 0 ? (
-              <tr>
-                <td
-                  colSpan="6"
-                  className="px-4 py-8 text-center text-gray-500"
-                >
-                  No locations found. Click "Add Location" to create one.
-                </td>
-              </tr>
-            ) : (
-              locations.map((location) => {
-                const parent = locations.find((l) => l.id === location.parent_id);
-                return (
-                <tr
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Code</TableHead>
+            <TableHead>Name</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Parent</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {locations.length === 0 ? (
+            <TableEmpty colSpan={6}>
+              No locations found. Click &quot;Add Location&quot; to create one.
+            </TableEmpty>
+          ) : (
+            locations.map((location) => {
+              const parent = locations.find((l) => l.id === location.parent_id);
+              return (
+                <TableRow
                   key={location.id}
-                  className={`hover:bg-gray-800/50 ${
-                    !location.active ? "opacity-50" : ""
-                  }`}
+                  className={!location.active ? "opacity-50" : ""}
                 >
-                  <td className="px-4 py-3 text-white font-mono">
-                    {location.code}
-                  </td>
-                  <td className="px-4 py-3 text-white">{location.name}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${getTypeStyle(
-                        location.type
-                      )}`}
-                    >
-                      {TYPE_OPTIONS.find((t) => t.value === location.type)
-                        ?.label || location.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {parent ? parent.code : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${
-                        location.active
-                          ? "bg-green-500/20 text-green-400"
-                          : "bg-gray-500/20 text-gray-400"
-                      }`}
-                    >
+                  <TableCell className="font-mono">{location.code}</TableCell>
+                  <TableCell>{location.name}</TableCell>
+                  <TableCell>
+                    <Badge variant={getTypeBadgeVariant(location.type)}>
+                      {getTypeLabel(location.type)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-gray-400">
+                    {parent ? parent.code : "\u2014"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={location.active ? "success" : "neutral"}>
                       {location.active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => {
@@ -235,19 +241,7 @@ export default function AdminLocations() {
                         className="text-gray-400 hover:text-white p-1"
                         title="Edit"
                       >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                          />
-                        </svg>
+                        <EditIcon />
                       </button>
                       {location.active ? (
                         <button
@@ -256,19 +250,7 @@ export default function AdminLocations() {
                           title="Deactivate"
                           disabled={location.code === "MAIN"}
                         >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
+                          <TrashIcon />
                         </button>
                       ) : (
                         <button
@@ -276,30 +258,17 @@ export default function AdminLocations() {
                           className="text-gray-400 hover:text-green-400 p-1"
                           title="Reactivate"
                         >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
+                          <RefreshIcon />
                         </button>
                       )}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+            })
+          )}
+        </TableBody>
+      </Table>
 
       {/* Modal */}
       {showModal && (
@@ -325,6 +294,10 @@ function LocationModal({ location, locations, onSave, onClose }) {
     parent_id: location?.parent_id || null,
   });
 
+  const parentOptions = locations
+    .filter((l) => l.id !== location?.id)
+    .map((l) => ({ value: String(l.id), label: `${l.code} - ${l.name}` }));
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.code.trim() || !formData.name.trim()) {
@@ -340,92 +313,53 @@ function LocationModal({ location, locations, onSave, onClose }) {
           {location ? "Edit Location" : "Add Location"}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Code *
-            </label>
-            <input
-              type="text"
-              value={formData.code}
-              onChange={(e) =>
-                setFormData({ ...formData, code: e.target.value.toUpperCase() })
-              }
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-              placeholder="e.g., SHELF-A"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Name *
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-              placeholder="e.g., Shelf A - Filament Storage"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Type
-            </label>
-            <select
-              value={formData.type}
-              onChange={(e) =>
-                setFormData({ ...formData, type: e.target.value })
-              }
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-            >
-              {TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Parent Location
-            </label>
-            <select
-              value={formData.parent_id || ""}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  parent_id: e.target.value ? parseInt(e.target.value) : null,
-                })
-              }
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-            >
-              <option value="">None (Top Level)</option>
-              {locations
-                .filter((l) => l.id !== location?.id)
-                .map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.code} - {l.name}
-                  </option>
-                ))}
-            </select>
-          </div>
+          <Input
+            label="Code *"
+            type="text"
+            value={formData.code}
+            onChange={(e) =>
+              setFormData({ ...formData, code: e.target.value.toUpperCase() })
+            }
+            placeholder="e.g., SHELF-A"
+            required
+          />
+          <Input
+            label="Name *"
+            type="text"
+            value={formData.name}
+            onChange={(e) =>
+              setFormData({ ...formData, name: e.target.value })
+            }
+            placeholder="e.g., Shelf A - Filament Storage"
+            required
+          />
+          <Select
+            label="Type"
+            options={TYPE_SELECT_OPTIONS}
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({ ...formData, type: e.target.value })
+            }
+          />
+          <Select
+            label="Parent Location"
+            options={parentOptions}
+            placeholder="None (Top Level)"
+            value={formData.parent_id ? String(formData.parent_id) : ""}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                parent_id: e.target.value ? parseInt(e.target.value) : null,
+              })
+            }
+          />
           <div className="flex justify-end gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-            >
+            <Button variant="ghost" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-            >
+            </Button>
+            <Button variant="primary" type="submit">
               {location ? "Save Changes" : "Create Location"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
