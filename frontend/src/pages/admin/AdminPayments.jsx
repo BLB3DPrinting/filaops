@@ -9,7 +9,7 @@
  * - Outstanding balance tracking
  */
 import { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 import { PAYMENT_COLORS as statusColors } from "../../lib/statusColors.js";
@@ -28,6 +28,7 @@ const paymentMethodLabels = {
 };
 
 export default function AdminPayments() {
+  const api = useApi();
   const toast = useToast();
   // State
   const [loading, setLoading] = useState(true);
@@ -67,12 +68,8 @@ export default function AdminPayments() {
 
   const fetchDashboard = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/payments/dashboard`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        setDashboard(await res.json());
-      }
+      const data = await api.get("/api/v1/payments/dashboard");
+      setDashboard(data);
     } catch {
       // Non-critical: Dashboard stats fetch failure - payment list still works
     }
@@ -94,19 +91,13 @@ export default function AdminPayments() {
       if (filters.fromDate) params.append("from_date", filters.fromDate);
       if (filters.toDate) params.append("to_date", filters.toDate);
 
-      const res = await fetch(`${API_URL}/api/v1/payments?${params}`, {
-        credentials: "include",
+      const data = await api.get(`/api/v1/payments?${params}`);
+      setPayments(data.items);
+      setPagination({
+        page: data.page,
+        total: data.total,
+        totalPages: data.total_pages,
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        setPayments(data.items);
-        setPagination({
-          page: data.page,
-          total: data.total,
-          totalPages: data.total_pages,
-        });
-      }
     } catch {
       toast.error("Failed to load payments");
     } finally {
@@ -119,21 +110,12 @@ export default function AdminPayments() {
       return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/payments/${paymentId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        toast.success("Payment voided");
-        fetchPayments();
-        fetchDashboard();
-      } else {
-        const err = await res.json();
-        toast.error(err.detail || "Failed to void payment");
-      }
-    } catch {
-      toast.error("Failed to void payment");
+      await api.del(`/api/v1/payments/${paymentId}`);
+      toast.success("Payment voided");
+      fetchPayments();
+      fetchDashboard();
+    } catch (err) {
+      toast.error(err.message || "Failed to void payment");
     }
   };
 

@@ -5,7 +5,7 @@
  *   PrinterModal, IPProbeSection, MaintenanceModal, constants
  */
 import { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { statusColors, brandLabels, MAINTENANCE_TYPE_CLASS } from "../../components/printers/constants";
 import PrinterModal from "../../components/printers/PrinterModal";
@@ -13,6 +13,7 @@ import IPProbeSection from "../../components/printers/IPProbeSection";
 import MaintenanceModal from "../../components/printers/MaintenanceModal";
 
 export default function AdminPrinters() {
+  const api = useApi();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("list"); // list | discovery | import
   const [printers, setPrinters] = useState([]);
@@ -84,11 +85,7 @@ export default function AdminPrinters() {
       params.set("page", "1");
       params.set("page_size", "100");
 
-      const res = await fetch(`${API_URL}/api/v1/printers?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch printers");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/printers?${params}`);
       setPrinters(data.items || []);
     } catch (err) {
       setError(err.message);
@@ -99,13 +96,8 @@ export default function AdminPrinters() {
 
   const fetchBrandInfo = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/brands/info`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setBrandInfo(data);
-      }
+      const data = await api.get(`/api/v1/printers/brands/info`);
+      setBrandInfo(data);
     } catch {
       // Non-critical
     }
@@ -113,13 +105,8 @@ export default function AdminPrinters() {
 
   const fetchActiveWork = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/active-work`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setActiveWork(data.printers || {});
-      }
+      const data = await api.get(`/api/v1/printers/active-work`);
+      setActiveWork(data.printers || {});
     } catch {
       // Non-critical - polling will retry
     }
@@ -128,13 +115,8 @@ export default function AdminPrinters() {
   const fetchMaintenanceLogs = async () => {
     setMaintenanceLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/maintenance/?page_size=50`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMaintenanceLogs(data.items || []);
-      }
+      const data = await api.get(`/api/v1/maintenance/?page_size=50`);
+      setMaintenanceLogs(data.items || []);
     } catch (err) {
       console.error("Error fetching maintenance logs:", err);
     } finally {
@@ -144,13 +126,8 @@ export default function AdminPrinters() {
 
   const fetchMaintenanceDue = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/maintenance/due?days_ahead=14`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMaintenanceDue(data);
-      }
+      const data = await api.get(`/api/v1/maintenance/due?days_ahead=14`);
+      setMaintenanceDue(data);
     } catch {
       // Non-critical
     }
@@ -166,18 +143,7 @@ export default function AdminPrinters() {
     setDiscoveredPrinters([]);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/discover`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ timeout_seconds: 10 }),
-      });
-
-      if (!res.ok) throw new Error("Discovery failed");
-
-      const data = await res.json();
+      const data = await api.post(`/api/v1/printers/discover`, { timeout_seconds: 10 });
       setDiscoveredPrinters(data.printers || []);
 
       if (data.printers?.length === 0) {
@@ -195,27 +161,15 @@ export default function AdminPrinters() {
 
   const handleAddDiscovered = async (discovered) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          code: discovered.suggested_code,
-          name: discovered.name,
-          model: discovered.model,
-          brand: discovered.brand,
-          ip_address: discovered.ip_address,
-          serial_number: discovered.serial_number,
-          capabilities: discovered.capabilities,
-        }),
+      await api.post(`/api/v1/printers`, {
+        code: discovered.suggested_code,
+        name: discovered.name,
+        model: discovered.model,
+        brand: discovered.brand,
+        ip_address: discovered.ip_address,
+        serial_number: discovered.serial_number,
+        capabilities: discovered.capabilities,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to add printer");
-      }
 
       toast.success(`Printer "${discovered.name}" added successfully`);
       fetchPrinters();
@@ -242,34 +196,16 @@ export default function AdminPrinters() {
     setTestingConnection(printer.id);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/test-connection`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          brand: printer.brand,
-          ip_address: printer.ip_address,
-          connection_config: printer.connection_config || {},
-        }),
+      const result = await api.post(`/api/v1/printers/test-connection`, {
+        brand: printer.brand,
+        ip_address: printer.ip_address,
+        connection_config: printer.connection_config || {},
       });
-
-      if (!res.ok) throw new Error("Connection test failed");
-
-      const result = await res.json();
 
       if (result.success) {
         toast.success(`${printer.name}: Connected! (${Math.round(result.response_time_ms)}ms)`);
         // Update printer status to idle
-        await fetch(`${API_URL}/api/v1/printers/${printer.id}/status`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status: "idle" }),
-        });
+        await api.patch(`/api/v1/printers/${printer.id}/status`, { status: "idle" });
         fetchPrinters();
       } else {
         toast.error(`${printer.name}: ${result.message || "Connection failed"}`);
@@ -287,13 +223,7 @@ export default function AdminPrinters() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/${printer.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error("Failed to delete printer");
-
+      await api.del(`/api/v1/printers/${printer.id}`);
       toast.success(`Printer "${printer.name}" deleted`);
       fetchPrinters();
     } catch (err) {
@@ -311,21 +241,11 @@ export default function AdminPrinters() {
     setImportResult(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/printers/import-csv`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ csv_data: csvData, skip_duplicates: true }),
+      const result = await api.post(`/api/v1/printers/import-csv`, {
+        csv_data: csvData,
+        skip_duplicates: true,
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Import failed");
-      }
-
-      const result = await res.json();
       setImportResult(result);
 
       if (result.imported > 0) {
@@ -958,4 +878,3 @@ export default function AdminPrinters() {
     </div>
   );
 }
-

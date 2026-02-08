@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useState } from "react";
 import { useToast } from "../../components/Toast";
+import { useCRUD } from "../../hooks/useCRUD";
 
 // Location type options
 const TYPE_OPTIONS = [
@@ -13,35 +13,22 @@ const TYPE_OPTIONS = [
 
 export default function AdminLocations() {
   const toast = useToast();
-  const [locations, setLocations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
   const [includeInactive, setIncludeInactive] = useState(false);
 
-  useEffect(() => {
-    fetchLocations();
-  }, [includeInactive]);
+  const { items: locations, loading, error, fetchAll, create, update, remove } = useCRUD(
+    "/api/v1/admin/locations",
+    { extractKey: null }
+  );
 
-  const fetchLocations = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (includeInactive) params.set("include_inactive", "true");
-
-      const res = await fetch(`${API_URL}/api/v1/admin/locations?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch locations");
-      const data = await res.json();
-      setLocations(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const refetch = () => {
+    const params = includeInactive ? { include_inactive: "true" } : {};
+    fetchAll(params).catch(() => {});
   };
+
+  // Refetch when includeInactive changes
+  useState(() => { refetch(); });
 
   const getTypeStyle = (type) => {
     const found = TYPE_OPTIONS.find((t) => t.value === type);
@@ -57,29 +44,16 @@ export default function AdminLocations() {
 
   const handleSave = async (locationData) => {
     try {
-      const url = editingLocation
-        ? `${API_URL}/api/v1/admin/locations/${editingLocation.id}`
-        : `${API_URL}/api/v1/admin/locations`;
-      const method = editingLocation ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(locationData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save location");
+      if (editingLocation) {
+        await update(editingLocation.id, locationData);
+        toast.success("Location updated");
+      } else {
+        await create(locationData);
+        toast.success("Location created");
       }
-
-      toast.success(editingLocation ? "Location updated" : "Location created");
       setShowModal(false);
       setEditingLocation(null);
-      fetchLocations();
+      refetch();
     } catch (err) {
       toast.error(err.message);
     }
@@ -93,21 +67,9 @@ export default function AdminLocations() {
     if (!confirm(`Deactivate location "${location.name}"?`)) return;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/locations/${location.id}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to deactivate location");
-      }
-
+      await remove(location.id);
       toast.success("Location deactivated");
-      fetchLocations();
+      refetch();
     } catch (err) {
       toast.error(err.message);
     }
@@ -115,22 +77,9 @@ export default function AdminLocations() {
 
   const handleReactivate = async (location) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/locations/${location.id}`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ active: true }),
-        }
-      );
-
-      if (!res.ok) throw new Error("Failed to reactivate location");
-
+      await update(location.id, { active: true });
       toast.success("Location reactivated");
-      fetchLocations();
+      refetch();
     } catch (err) {
       toast.error(err.message);
     }
@@ -192,7 +141,11 @@ export default function AdminLocations() {
           <input
             type="checkbox"
             checked={includeInactive}
-            onChange={(e) => setIncludeInactive(e.target.checked)}
+            onChange={(e) => {
+              setIncludeInactive(e.target.checked);
+              const params = e.target.checked ? { include_inactive: "true" } : {};
+              fetchAll(params).catch(() => {});
+            }}
             className="rounded bg-gray-800 border-gray-700 text-blue-500 focus:ring-blue-500"
           />
           Show inactive locations

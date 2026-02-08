@@ -9,7 +9,7 @@
  */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import BlockingIssuesPanel from "../../components/orders/BlockingIssuesPanel";
 import {
@@ -24,24 +24,22 @@ import { PRODUCTION_ORDER_COLORS, getStatusColor } from "../../lib/statusColors.
  */
 function OperationsTimelineWrapper({ productionOrderId }) {
   const [operations, setOperations] = useState([]);
+  const api = useApi();
 
   useEffect(() => {
     const fetchOps = async () => {
       if (!productionOrderId) return;
       try {
-        const res = await fetch(
-          `${API_URL}/api/v1/production-orders/${productionOrderId}/operations`,
-          { credentials: "include" }
+        const data = await api.get(
+          `/api/v1/production-orders/${productionOrderId}/operations`
         );
-        if (res.ok) {
-          const data = await res.json();
-          setOperations(Array.isArray(data) ? data : data.operations || []);
-        }
+        setOperations(Array.isArray(data) ? data : data.operations || []);
       } catch (err) {
         console.error('Failed to fetch operations for timeline:', err);
       }
     };
     fetchOps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productionOrderId]);
 
   if (operations.length === 0) return null;
@@ -53,6 +51,7 @@ export default function ProductionOrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const api = useApi();
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,15 +72,7 @@ export default function ProductionOrderDetail() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/production-orders/${orderId}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        throw new Error(`Failed to fetch production order: ${res.statusText}`);
-      }
-
-      const data = await res.json();
+      const data = await api.get(`/api/v1/production-orders/${orderId}`);
       setOrder(data);
     } catch (err) {
       setError(err.message);
@@ -93,18 +84,7 @@ export default function ProductionOrderDetail() {
   const handleStatusUpdate = async (action) => {
     setUpdating(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders/${orderId}/${action}`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || `Failed to ${action} order`);
-      }
+      await api.post(`/api/v1/production-orders/${orderId}/${action}`);
 
       toast.success(`Order ${action} successfully`);
       fetchOrder();

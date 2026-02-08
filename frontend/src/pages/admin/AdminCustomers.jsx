@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
+import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
 import StatCard from "../../components/StatCard";
 import { STATUS_OPTIONS, getStatusStyle } from "../../components/customers/constants";
@@ -12,9 +13,14 @@ export default function AdminCustomers() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const api = useApi();
+  const {
+    items: customers,
+    loading,
+    error,
+    fetchAll: fetchCustomers,
+    refresh,
+  } = useCRUD("/api/v1/admin/customers", { extractKey: null, immediate: false });
   const [filters, setFilters] = useState({
     search: "",
     status: "all",
@@ -45,29 +51,10 @@ export default function AdminCustomers() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [filters.status]);
-
-  const fetchCustomers = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (filters.status !== "all") params.set("status", filters.status);
-
-      const res = await fetch(`${API_URL}/api/v1/admin/customers?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch customers");
-      const data = await res.json();
-      // API returns array directly, not { customers: [...] }
-      setCustomers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const params = { limit: "200" };
+    if (filters.status !== "all") params.status = filters.status;
+    fetchCustomers(params).catch(() => {});
+  }, [filters.status, fetchCustomers]);
 
   const filteredCustomers = customers.filter((customer) => {
     if (!filters.search) return true;
@@ -94,26 +81,9 @@ export default function AdminCustomers() {
   // Save customer
   const handleSaveCustomer = async (customerData) => {
     try {
-      const url = editingCustomer
-        ? `${API_URL}/api/v1/admin/customers/${editingCustomer.id}`
-        : `${API_URL}/api/v1/admin/customers`;
-      const method = editingCustomer ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(customerData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save customer");
-      }
-
-      const savedCustomer = await res.json();
+      const savedCustomer = editingCustomer
+        ? await api.patch(`/api/v1/admin/customers/${editingCustomer.id}`, customerData)
+        : await api.post("/api/v1/admin/customers", customerData);
 
       // Check if we need to return to order creation
       const returnTo = searchParams.get("returnTo");
@@ -137,7 +107,7 @@ export default function AdminCustomers() {
       toast.success(editingCustomer ? "Customer updated" : "Customer created");
       setShowCustomerModal(false);
       setEditingCustomer(null);
-      fetchCustomers();
+      refresh();
     } catch (err) {
       toast.error(err.message);
     }
@@ -146,14 +116,7 @@ export default function AdminCustomers() {
   // Edit customer (fetch full details first so address fields are populated)
   const handleEditCustomer = async (customerId) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/customers/${customerId}`,
-        {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch customer details");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/admin/customers/${customerId}`);
       setEditingCustomer(data);
       setShowCustomerModal(true);
     } catch (err) {
@@ -164,14 +127,7 @@ export default function AdminCustomers() {
   // View customer details
   const handleViewCustomer = async (customerId) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/customers/${customerId}`,
-        {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch customer details");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/admin/customers/${customerId}`);
       setViewingCustomer(data);
     } catch (err) {
       toast.error(err.message);
@@ -391,7 +347,7 @@ export default function AdminCustomers() {
           onClose={() => setShowImportModal(false)}
           onImportComplete={() => {
             setShowImportModal(false);
-            fetchCustomers();
+            refresh();
           }}
         />
       )}

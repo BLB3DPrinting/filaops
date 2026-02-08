@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 
 export default function AdminInventoryTransactions() {
+  const api = useApi();
   const [transactions, setTransactions] = useState([]);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -44,15 +45,7 @@ export default function AdminInventoryTransactions() {
       if (filters.location_id)
         params.append("location_id", filters.location_id);
 
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions?${params.toString()}`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) throw new Error("Failed to fetch transactions");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/admin/inventory/transactions?${params.toString()}`);
       setTransactions(data);
     } catch (err) {
       setError(err.message);
@@ -63,14 +56,8 @@ export default function AdminInventoryTransactions() {
 
   const fetchProducts = async () => {
     try {
-      // Items endpoint is public (no auth required), max limit is 2000
-      const res = await fetch(`${API_URL}/api/v1/items?limit=2000`);
-
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || []);
-      }
-      // Non-critical: Products fetch failure - dropdown will be empty but page still works
+      const data = await api.get(`/api/v1/items?limit=2000`);
+      setProducts(data.items || []);
     } catch {
       // Non-critical: Products fetch failure - dropdown will be empty but page still works
     }
@@ -78,17 +65,8 @@ export default function AdminInventoryTransactions() {
 
   const fetchLocations = async () => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions/locations`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        setLocations(data);
-      }
+      const data = await api.get(`/api/v1/admin/inventory/transactions/locations`);
+      setLocations(data);
     } catch {
       // Locations fetch failure is non-critical - location selector will be empty
     }
@@ -117,22 +95,7 @@ export default function AdminInventoryTransactions() {
             : null,
       };
 
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Failed to create transaction");
-      }
+      await api.post(`/api/v1/admin/inventory/transactions`, payload);
 
       // Reset form and refresh
       setFormData({

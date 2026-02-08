@@ -4,7 +4,7 @@ import MaterialForm from "../../components/MaterialForm";
 import RoutingEditor from "../../components/RoutingEditor";
 import { ItemCard } from "../../components/inventory/ItemCard";
 import ConfirmDialog from "../../components/ConfirmDialog";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import CategorySidebar from "../../components/items/CategorySidebar";
 import CategoryModal from "../../components/items/CategoryModal";
@@ -15,6 +15,7 @@ import ItemsFilterBar from "../../components/items/ItemsFilterBar";
 import AdjustmentReasonModal from "../../components/items/AdjustmentReasonModal";
 
 export default function AdminItems() {
+  const api = useApi();
   const toast = useToast();
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -86,29 +87,19 @@ export default function AdminItems() {
 
   const fetchCategories = useCallback(async () => {
     try {
-      // Fetch flat list
-      const res = await fetch(
-        `${API_URL}/api/v1/items/categories?include_inactive=true`,
-        {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch categories");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/items/categories?include_inactive=true`);
       setCategories(data);
 
-      // Fetch tree structure
-      const treeRes = await fetch(`${API_URL}/api/v1/items/categories/tree`, {
-        credentials: "include",
-      });
-      if (treeRes.ok) {
-        const treeData = await treeRes.json();
+      try {
+        const treeData = await api.get(`/api/v1/items/categories/tree`);
         setCategoryTree(treeData);
+      } catch {
+        // Tree fetch failure is non-critical
       }
     } catch {
       // Category fetch failure is non-critical - category tree will just be empty
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     fetchCategories();
@@ -129,11 +120,7 @@ export default function AdminItems() {
       if (filters.itemType !== "all") params.set("item_type", filters.itemType);
       if (filters.search) params.set("search", filters.search);
 
-      const res = await fetch(`${API_URL}/api/v1/items?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch items");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/items?${params}`);
       setItems(data.items || []);
       setPagination((prev) => ({ ...prev, total: data.total || 0 }));
     } catch (err) {
@@ -142,6 +129,7 @@ export default function AdminItems() {
       setLoading(false);
     }
   }, [
+    api,
     pagination.pageSize,
     pagination.page,
     filters.activeOnly,
@@ -300,17 +288,7 @@ export default function AdminItems() {
   const confirmDeleteCategory = async () => {
     if (!categoryToDelete) return;
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/items/categories/${categoryToDelete.id}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to delete category");
-      }
+      await api.del(`/api/v1/items/categories/${categoryToDelete.id}`);
       toast.success("Category deleted");
       fetchCategories();
     } catch (err) {
@@ -326,23 +304,10 @@ export default function AdminItems() {
   // Save category
   const handleSaveCategory = async (catData) => {
     try {
-      const url = editingCategory
-        ? `${API_URL}/api/v1/items/categories/${editingCategory.id}`
-        : `${API_URL}/api/v1/items/categories`;
-      const method = editingCategory ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(catData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save category");
+      if (editingCategory) {
+        await api.patch(`/api/v1/items/categories/${editingCategory.id}`, catData);
+      } else {
+        await api.post(`/api/v1/items/categories`, catData);
       }
 
       toast.success(editingCategory ? "Category updated" : "Category created");
@@ -411,23 +376,7 @@ export default function AdminItems() {
         params.set("notes", adjustmentNotes.trim());
       }
 
-      const res = await fetch(
-        `${API_URL}/api/v1/inventory/adjust-quantity?${params}`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to adjust inventory");
-      }
-
-      const result = await res.json();
+      const result = await api.post(`/api/v1/inventory/adjust-quantity?${params}`);
       const displayQty = item.material_type_id ? result.new_quantity.toFixed(0) : result.new_quantity.toFixed(0);
       const displayUnit = item.material_type_id ? "g" : (item.unit || "EA");
       const prevQty = item.material_type_id ? result.previous_quantity.toFixed(0) : result.previous_quantity.toFixed(0);
@@ -471,24 +420,10 @@ export default function AdminItems() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/bulk-update`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          item_ids: Array.from(selectedItems),
-          ...updateData,
-        }),
+      const data = await api.post(`/api/v1/items/bulk-update`, {
+        item_ids: Array.from(selectedItems),
+        ...updateData,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to update items");
-      }
-
-      const data = await res.json();
       toast.success(`Successfully updated ${data.message}`);
       setSelectedItems(new Set());
       setShowBulkUpdateModal(false);
@@ -513,17 +448,7 @@ export default function AdminItems() {
         params.set("category_id", selectedCategory.toString());
       if (filters.itemType !== "all") params.set("item_type", filters.itemType);
 
-      const res = await fetch(`${API_URL}/api/v1/items/recost-all?${params}`, {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to recost items");
-      }
-
-      const data = await res.json();
+      const data = await api.post(`/api/v1/items/recost-all?${params}`);
       setRecostResult(data);
       toast.success(`Recosted ${data.updated || 0} items`);
       fetchItems();

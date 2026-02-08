@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { SPOOL_COLORS as statusColors } from "../../lib/statusColors.js";
 
 export default function AdminSpools() {
   const toast = useToast();
+  const api = useApi();
   const [spools, setSpools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,12 +32,7 @@ export default function AdminSpools() {
       if (filters.status !== "all") params.set("status", filters.status);
       if (filters.search) params.set("search", filters.search);
 
-      const res = await fetch(`${API_URL}/api/v1/spools?${params}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error("Failed to fetch spools");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/spools?${params}`);
       setSpools(data.items || data || []);
     } catch (err) {
       setError(err.message);
@@ -48,13 +44,8 @@ export default function AdminSpools() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/products?type=material&limit=200`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || data || []);
-      }
+      const data = await api.get("/api/v1/products?type=material&limit=200");
+      setProducts(data.items || data || []);
     } catch (err) {
       console.error("Failed to fetch products:", err);
     }
@@ -62,13 +53,8 @@ export default function AdminSpools() {
 
   const fetchLocations = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/inventory/locations`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLocations(data.items || data || []);
-      }
+      const data = await api.get("/api/v1/inventory/locations");
+      setLocations(data.items || data || []);
     } catch (err) {
       console.error("Failed to fetch locations:", err);
     }
@@ -78,20 +64,11 @@ export default function AdminSpools() {
     if (!confirm("Are you sure you want to delete this spool?")) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/spools/${spoolId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        toast.success("Spool deleted");
-        fetchSpools();
-      } else {
-        const error = await res.json();
-        toast.error(error.detail || "Failed to delete spool");
-      }
+      await api.del(`/api/v1/spools/${spoolId}`);
+      toast.success("Spool deleted");
+      fetchSpools();
     } catch (err) {
-      toast.error(`Error: ${err.message}`);
+      toast.error(err.message);
     }
   };
 
@@ -278,6 +255,7 @@ export default function AdminSpools() {
 
 function SpoolModal({ spool, products, locations, onClose, onSave }) {
   const toast = useToast();
+  const api = useApi();
   const [form, setForm] = useState({
     spool_number: spool?.spool_number || "",
     product_id: spool?.product_id || "",
@@ -296,10 +274,9 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
     setSaving(true);
 
     try {
-      const url = spool
-        ? `${API_URL}/api/v1/spools/${spool.id}`
-        : `${API_URL}/api/v1/spools`;
-      const method = spool ? "PATCH" : "POST";
+      const endpoint = spool
+        ? `/api/v1/spools/${spool.id}`
+        : "/api/v1/spools";
 
       const params = new URLSearchParams();
       if (!spool) {
@@ -316,20 +293,16 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
       if (form.expiry_date) params.set("expiry_date", form.expiry_date);
       if (form.notes) params.set("notes", form.notes);
 
-      const res = await fetch(`${url}?${params}`, {
-        method,
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        toast.success(spool ? "Spool updated" : "Spool created");
-        onSave();
+      if (spool) {
+        await api.patch(`${endpoint}?${params}`);
       } else {
-        const error = await res.json();
-        toast.error(error.detail || "Failed to save spool");
+        await api.post(`${endpoint}?${params}`);
       }
+
+      toast.success(spool ? "Spool updated" : "Spool created");
+      onSave();
     } catch (err) {
-      toast.error(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }

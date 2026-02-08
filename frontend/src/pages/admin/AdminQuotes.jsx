@@ -7,6 +7,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { STATUS_OPTIONS, getStatusStyle } from "../../components/quotes/constants";
 import QuoteFormModal from "../../components/quotes/QuoteFormModal";
@@ -14,6 +15,7 @@ import QuoteDetailModal from "../../components/quotes/QuoteDetailModal";
 
 export default function AdminQuotes() {
   const navigate = useNavigate();
+  const api = useApi();
   const toast = useToast();
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,11 +42,7 @@ export default function AdminQuotes() {
       params.set("limit", "200");
       if (filters.status !== "all") params.set("status", filters.status);
 
-      const res = await fetch(`${API_URL}/api/v1/quotes?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch quotes");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/quotes?${params}`);
       setQuotes(Array.isArray(data) ? data : []);
     } catch (err) {
       toast.error(err.message);
@@ -55,13 +53,8 @@ export default function AdminQuotes() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/quotes/stats`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
+      const data = await api.get("/api/v1/quotes/stats");
+      setStats(data);
     } catch {
       // Stats fetch failure is non-critical
     }
@@ -80,23 +73,10 @@ export default function AdminQuotes() {
 
   const handleSaveQuote = async (quoteData) => {
     try {
-      const url = editingQuote
-        ? `${API_URL}/api/v1/quotes/${editingQuote.id}`
-        : `${API_URL}/api/v1/quotes`;
-      const method = editingQuote ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(quoteData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save quote");
+      if (editingQuote) {
+        await api.patch(`/api/v1/quotes/${editingQuote.id}`, quoteData);
+      } else {
+        await api.post("/api/v1/quotes", quoteData);
       }
 
       toast.success(editingQuote ? "Quote updated" : "Quote created");
@@ -111,24 +91,11 @@ export default function AdminQuotes() {
 
   const handleUpdateStatus = async (quoteId, newStatus, rejectionReason = null) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}/status`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          status: newStatus,
-          rejection_reason: rejectionReason,
-        }),
+      const updated = await api.patch(`/api/v1/quotes/${quoteId}/status`, {
+        status: newStatus,
+        rejection_reason: rejectionReason,
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to update status");
-      }
-
-      const updated = await res.json();
       toast.success(`Quote ${newStatus}`);
       fetchQuotes();
       fetchStats();
@@ -142,17 +109,8 @@ export default function AdminQuotes() {
 
   const handleConvertToOrder = async (quoteId) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}/convert`, {
-        method: "POST",
-        credentials: "include",
-      });
+      const data = await api.post(`/api/v1/quotes/${quoteId}/convert`);
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to convert quote");
-      }
-
-      const data = await res.json();
       toast.success(`Converted to ${data.order_number}`);
       setViewingQuote(null);
       fetchQuotes();
@@ -165,6 +123,7 @@ export default function AdminQuotes() {
     }
   };
 
+  // PDF download/print use raw fetch because apiClient does not support blob responses
   const handleDownloadPDF = async (quote) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/pdf`, {
@@ -218,7 +177,6 @@ export default function AdminQuotes() {
 
   const handleDuplicateQuote = async (quote) => {
     try {
-      // Create a new quote based on the existing one
       const newQuoteData = {
         product_id: quote.product_id || null,
         product_name: quote.product_name,
@@ -235,21 +193,7 @@ export default function AdminQuotes() {
         valid_days: 30,
       };
 
-      const res = await fetch(`${API_URL}/api/v1/quotes`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newQuoteData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to duplicate quote");
-      }
-
-      const newQuote = await res.json();
+      const newQuote = await api.post("/api/v1/quotes", newQuoteData);
       toast.success(`Quote duplicated as ${newQuote.quote_number}`);
       fetchQuotes();
       fetchStats();
@@ -275,16 +219,7 @@ export default function AdminQuotes() {
     if (!confirm("Are you sure you want to delete this quote?")) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/quotes/${quoteId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to delete quote");
-      }
-
+      await api.del(`/api/v1/quotes/${quoteId}`);
       toast.success("Quote deleted");
       setViewingQuote(null);
       fetchQuotes();
@@ -622,12 +557,11 @@ export default function AdminQuotes() {
           getStatusStyle={getStatusStyle}
           onRefresh={async () => {
             // Refresh the viewing quote to get updated has_image flag
-            const res = await fetch(`${API_URL}/api/v1/quotes/${viewingQuote.id}`, {
-              credentials: "include",
-            });
-            if (res.ok) {
-              const updated = await res.json();
+            try {
+              const updated = await api.get(`/api/v1/quotes/${viewingQuote.id}`);
               setViewingQuote(updated);
+            } catch {
+              // Non-critical: viewing quote refresh failure
             }
             fetchQuotes();
           }}

@@ -1,37 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { API_URL } from "../../config/api";
+import { useState, useEffect, useRef } from "react";
+import { useApi } from "../../hooks/useApi";
+import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
 
 export default function AdminScrapReasons() {
   const toast = useToast();
-  const [reasons, setReasons] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const api = useApi();
+  const {
+    items: reasons,
+    loading,
+    error,
+    refresh,
+  } = useCRUD("/api/v1/production-orders/scrap-reasons/all", { extractKey: null });
   const [showModal, setShowModal] = useState(false);
   const [editingReason, setEditingReason] = useState(null);
-
-  const fetchReasons = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders/scrap-reasons/all`,
-        {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch scrap reasons");
-      const data = await res.json();
-      setReasons(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchReasons();
-  }, [fetchReasons]);
 
   const handleSave = async (reasonData) => {
     try {
@@ -44,23 +26,10 @@ export default function AdminScrapReasons() {
         requestBody.description = reasonData.description;
       }
 
-      const url = editingReason
-        ? `${API_URL}/api/v1/production-orders/scrap-reasons/${editingReason.id}`
-        : `${API_URL}/api/v1/production-orders/scrap-reasons`;
-      const method = editingReason ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save scrap reason");
+      if (editingReason) {
+        await api.put(`/api/v1/production-orders/scrap-reasons/${editingReason.id}`, requestBody);
+      } else {
+        await api.post("/api/v1/production-orders/scrap-reasons", requestBody);
       }
 
       toast.success(
@@ -68,7 +37,7 @@ export default function AdminScrapReasons() {
       );
       setShowModal(false);
       setEditingReason(null);
-      await fetchReasons();
+      await refresh();
     } catch (err) {
       toast.error(err.message);
       throw err; // Re-throw so modal knows save failed
@@ -81,23 +50,14 @@ export default function AdminScrapReasons() {
         active: (!reason.active).toString(),
       });
 
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders/scrap-reasons/${reason.id}?${params}`,
-        {
-          method: "PUT",
-          credentials: "include",
-        }
+      await api.put(
+        `/api/v1/production-orders/scrap-reasons/${reason.id}?${params}`
       );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to update scrap reason");
-      }
 
       toast.success(
         reason.active ? "Scrap reason deactivated" : "Scrap reason activated"
       );
-      await fetchReasons();
+      await refresh();
     } catch (err) {
       toast.error(err.message);
     }

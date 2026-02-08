@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 
 // Shipping Trend Chart Component
@@ -302,6 +302,7 @@ const sortByDueDate = (orders) => {
 };
 
 export default function AdminShipping() {
+  const api = useApi();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -333,14 +334,8 @@ export default function AdminShipping() {
   const fetchShippingTrend = async (period) => {
     setTrendLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/shipping-trend?period=${period}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setShippingTrend(data);
-      }
+      const data = await api.get(`/api/v1/admin/dashboard/shipping-trend?period=${period}`);
+      setShippingTrend(data);
     } catch (err) {
       console.error("Failed to fetch shipping trend:", err);
     } finally {
@@ -364,21 +359,17 @@ export default function AdminShipping() {
         }
       }
     }
-     
+
   }, [orderIdParam, orders, productionStatus]);
 
   const fetchOrders = async () => {
     setLoading(true);
     try {
       // Fetch orders ready to ship
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/?status=confirmed&status=in_production&status=ready_to_ship&status=qc_passed&limit=100`,
-        { credentials: "include" }
+      const data = await api.get(
+        `/api/v1/sales-orders/?status=confirmed&status=in_production&status=ready_to_ship&status=qc_passed&limit=100`
       );
 
-      if (!res.ok) throw new Error("Failed to fetch orders");
-
-      const data = await res.json();
       const orderList = data.items || data || [];
       setOrders(orderList);
 
@@ -397,14 +388,10 @@ export default function AdminShipping() {
   const fetchShippedToday = async () => {
     try {
       const today = new Date().toISOString().split("T")[0];
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/?status=shipped&shipped_after=${today}&limit=100`,
-        { credentials: "include" }
+      const data = await api.get(
+        `/api/v1/sales-orders/?status=shipped&shipped_after=${today}&limit=100`
       );
-      if (res.ok) {
-        const data = await res.json();
-        setShippedToday(data.items || data || []);
-      }
+      setShippedToday(data.items || data || []);
     } catch {
       // Non-critical
     }
@@ -429,28 +416,22 @@ export default function AdminShipping() {
   const fetchAllProductionStatuses = async (orderList) => {
     if (orderList.length === 0) return;
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders?limit=500`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const allPOs = data.items || data || [];
-        const orderIds = new Set(orderList.map((o) => o.id));
-        // Group production orders by sales_order_id
-        const grouped = {};
-        for (const po of allPOs) {
-          if (po.sales_order_id && orderIds.has(po.sales_order_id)) {
-            if (!grouped[po.sales_order_id]) grouped[po.sales_order_id] = [];
-            grouped[po.sales_order_id].push(po);
-          }
+      const data = await api.get(`/api/v1/production-orders?limit=500`);
+      const allPOs = data.items || data || [];
+      const orderIds = new Set(orderList.map((o) => o.id));
+      // Group production orders by sales_order_id
+      const grouped = {};
+      for (const po of allPOs) {
+        if (po.sales_order_id && orderIds.has(po.sales_order_id)) {
+          if (!grouped[po.sales_order_id]) grouped[po.sales_order_id] = [];
+          grouped[po.sales_order_id].push(po);
         }
-        const statusMap = {};
-        for (const order of orderList) {
-          statusMap[order.id] = computeProductionStatus(grouped[order.id] || []);
-        }
-        setProductionStatus(statusMap);
       }
+      const statusMap = {};
+      for (const order of orderList) {
+        statusMap[order.id] = computeProductionStatus(grouped[order.id] || []);
+      }
+      setProductionStatus(statusMap);
     } catch {
       // Non-critical - production status just won't show
     }
@@ -459,18 +440,12 @@ export default function AdminShipping() {
   // Single order fetch (used for individual refresh)
   const fetchProductionStatus = async (orderId) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders?sales_order_id=${orderId}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const pos = data.items || data || [];
-        setProductionStatus((prev) => ({
-          ...prev,
-          [orderId]: computeProductionStatus(pos),
-        }));
-      }
+      const data = await api.get(`/api/v1/production-orders?sales_order_id=${orderId}`);
+      const pos = data.items || data || [];
+      setProductionStatus((prev) => ({
+        ...prev,
+        [orderId]: computeProductionStatus(pos),
+      }));
     } catch {
       // Non-critical
     }
@@ -484,22 +459,10 @@ export default function AdminShipping() {
 
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}/ship`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          carrier: trackingForm.carrier,
-          tracking_number: trackingForm.tracking_number.trim(),
-        }),
+      await api.post(`/api/v1/sales-orders/${orderId}/ship`, {
+        carrier: trackingForm.carrier,
+        tracking_number: trackingForm.tracking_number.trim(),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || "Failed to save tracking");
-      }
 
       toast.success("Tracking saved! Order marked as shipped.");
       setTrackingForm({ carrier: "USPS", tracking_number: "" });
@@ -516,23 +479,10 @@ export default function AdminShipping() {
   const handleMarkShipped = async (orderId) => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}/status`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status: "shipped" }),
-      });
-
-      if (res.ok) {
-        toast.success("Order marked as shipped");
-        fetchOrders();
-        setExpandedOrder(null);
-      } else {
-        const errorData = await res.json();
-        toast.error(`Failed: ${errorData.detail || "Unknown error"}`);
-      }
+      await api.patch(`/api/v1/sales-orders/${orderId}/status`, { status: "shipped" });
+      toast.success("Order marked as shipped");
+      fetchOrders();
+      setExpandedOrder(null);
     } catch (err) {
       toast.error(`Failed: ${err.message}`);
     } finally {

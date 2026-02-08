@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 
 const AdminAnalytics = () => {
+  const api = useApi();
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,28 +16,16 @@ const AdminAnalytics = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${API_URL}/api/v1/admin/analytics/dashboard?days=${days}`,
-        {
-          credentials: "include",
-        }
+      const data = await api.get(
+        `/api/v1/admin/analytics/dashboard?days=${days}`
       );
-
-      if (response.status === 402) {
+      setAnalytics(data);
+    } catch (err) {
+      if (err.status === 402) {
         // Tier required - user will see the Pro announcement
         setLoading(false);
         return;
       }
-
-      if (response.ok) {
-        const data = await response.json();
-        setAnalytics(data);
-      } else {
-        const errorText = await response.text();
-        console.error("Analytics fetch failed:", response.status, errorText);
-        setError(`Failed to load analytics (${response.status})`);
-      }
-    } catch (err) {
       console.error("Analytics fetch error:", err);
       setError(err.message || "Failed to connect to analytics service");
     } finally {

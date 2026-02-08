@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import RoutingEditor from "../../components/RoutingEditor";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import WorkCenterCard from "../../components/manufacturing/WorkCenterCard";
 import WorkCenterModal from "../../components/manufacturing/WorkCenterModal";
@@ -8,6 +8,7 @@ import ResourceModal from "../../components/manufacturing/ResourceModal";
 import PrinterSetupModal from "../../components/manufacturing/PrinterSetupModal";
 
 export default function AdminManufacturing() {
+  const api = useApi();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("work-centers");
   const [workCenters, setWorkCenters] = useState([]);
@@ -37,14 +38,7 @@ export default function AdminManufacturing() {
   const fetchWorkCenters = async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/work-centers/?active_only=false`,
-        {
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("Failed to fetch work centers");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/work-centers/?active_only=false`);
       setWorkCenters(data);
     } catch (err) {
       setError(err.message);
@@ -56,11 +50,7 @@ export default function AdminManufacturing() {
   const fetchRoutings = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/routings/`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch routings");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/routings/`);
       setRoutings(data);
     } catch (err) {
       setError(err.message);
@@ -71,38 +61,21 @@ export default function AdminManufacturing() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/products?limit=500`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // Handle both array and {items: [...]} responses
-        setProducts(Array.isArray(data) ? data : (data.items || data.products || []));
-      }
+      const data = await api.get(`/api/v1/products?limit=500`);
+      // Handle both array and {items: [...]} responses
+      setProducts(Array.isArray(data) ? data : (data.items || data.products || []));
     } catch {
       // Products fetch failure is non-critical - product selector will just be empty
       setProducts([]);
     }
   };
 
-  const handleSaveWorkCenter = async (data) => {
+  const handleSaveWorkCenter = async (formData) => {
     try {
-      const url = editingWorkCenter
-        ? `${API_URL}/api/v1/work-centers/${editingWorkCenter.id}`
-        : `${API_URL}/api/v1/work-centers/`;
-
-      const res = await fetch(url, {
-        method: editingWorkCenter ? "PUT" : "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save work center");
+      if (editingWorkCenter) {
+        await api.put(`/api/v1/work-centers/${editingWorkCenter.id}`, formData);
+      } else {
+        await api.post(`/api/v1/work-centers/`, formData);
       }
 
       toast.success(
@@ -120,12 +93,7 @@ export default function AdminManufacturing() {
     if (!confirm(`Deactivate work center "${wc.name}"?`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/work-centers/${wc.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error("Failed to delete");
+      await api.del(`/api/v1/work-centers/${wc.id}`);
       toast.success("Work center deactivated");
       fetchWorkCenters();
     } catch (err) {
@@ -138,15 +106,7 @@ export default function AdminManufacturing() {
       return;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/work-centers/resources/${resource.id}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) throw new Error("Failed to delete resource");
+      await api.del(`/api/v1/work-centers/resources/${resource.id}`);
       toast.success("Resource deleted");
       fetchWorkCenters(); // Refresh to update resource counts
     } catch (err) {
@@ -154,24 +114,12 @@ export default function AdminManufacturing() {
     }
   };
 
-  const handleSaveResource = async (data) => {
+  const handleSaveResource = async (formData) => {
     try {
-      const url = editingResource
-        ? `${API_URL}/api/v1/work-centers/resources/${editingResource.id}`
-        : `${API_URL}/api/v1/work-centers/${selectedWorkCenter.id}/resources`;
-
-      const res = await fetch(url, {
-        method: editingResource ? "PUT" : "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save resource");
+      if (editingResource) {
+        await api.put(`/api/v1/work-centers/resources/${editingResource.id}`, formData);
+      } else {
+        await api.post(`/api/v1/work-centers/${selectedWorkCenter.id}/resources`, formData);
       }
 
       toast.success(editingResource ? "Resource updated" : "Resource created");

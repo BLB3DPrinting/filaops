@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import RemediationModal from "../../components/RemediationModal";
 
@@ -83,6 +83,7 @@ const getStatusBadge = (status) => {
 };
 
 const AdminSecurity = () => {
+  const api = useApi();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -116,24 +117,15 @@ const AdminSecurity = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/security/audit`, {
-        credentials: "include",
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAuditData(data);
-        if (isRefresh) {
-          toast.success("Security audit refreshed");
-        }
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        setError(errData.detail || `Error ${response.status}: Failed to load security audit`);
-        toast.error(errData.detail || "Failed to load security audit");
+      const data = await api.get("/api/v1/security/audit");
+      setAuditData(data);
+      if (isRefresh) {
+        toast.success("Security audit refreshed");
       }
     } catch (err) {
-      setError("Failed to load security audit: " + err.message);
-      toast.error("Failed to load security audit: " + err.message);
+      const msg = err.message || "Failed to load security audit";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -143,25 +135,17 @@ const AdminSecurity = () => {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const response = await fetch(`${API_URL}/api/v1/security/audit/export?format=json`, {
-        credentials: "include",
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `filaops_security_audit_${new Date().toISOString().split("T")[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        toast.success("Security report exported");
-      } else {
-        toast.error("Failed to export report");
-      }
+      const data = await api.get("/api/v1/security/audit/export?format=json");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `filaops_security_audit_${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Security report exported");
     } catch (err) {
       toast.error("Failed to export: " + err.message);
     } finally {

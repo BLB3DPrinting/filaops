@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
+import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
 import Modal from "../../components/Modal";
 
@@ -28,9 +29,14 @@ const STATUS_OPTIONS = [
 
 export default function AdminUsers() {
   const toast = useToast();
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const api = useApi();
+  const {
+    items: users,
+    loading,
+    error,
+    fetchAll: fetchUsers,
+    refresh,
+  } = useCRUD("/api/v1/admin/users", { extractKey: null, immediate: false });
   const [filters, setFilters] = useState({
     search: "",
     role: "all",
@@ -46,29 +52,11 @@ export default function AdminUsers() {
   const [resettingPassword, setResettingPassword] = useState(false);
 
   useEffect(() => {
-    fetchUsers();
-  }, [filters.role, filters.includeInactive]);
-
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (filters.role !== "all") params.set("account_type", filters.role);
-      if (filters.includeInactive) params.set("include_inactive", "true");
-
-      const res = await fetch(`${API_URL}/api/v1/admin/users?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch users");
-      const data = await res.json();
-      setUsers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const params = { limit: "200" };
+    if (filters.role !== "all") params.account_type = filters.role;
+    if (filters.includeInactive) params.include_inactive = "true";
+    fetchUsers(params).catch(() => {});
+  }, [filters.role, filters.includeInactive, fetchUsers]);
 
   const filteredUsers = users.filter((user) => {
     if (!filters.search) return true;
@@ -114,29 +102,16 @@ export default function AdminUsers() {
   const handleSaveUser = async (userData) => {
     setSavingUser(true);
     try {
-      const url = editingUser
-        ? `${API_URL}/api/v1/admin/users/${editingUser.id}`
-        : `${API_URL}/api/v1/admin/users`;
-      const method = editingUser ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(userData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save user");
+      if (editingUser) {
+        await api.patch(`/api/v1/admin/users/${editingUser.id}`, userData);
+      } else {
+        await api.post("/api/v1/admin/users", userData);
       }
 
       toast.success(editingUser ? "User updated" : "User created");
       setShowUserModal(false);
       setEditingUser(null);
-      fetchUsers();
+      refresh();
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -154,18 +129,9 @@ export default function AdminUsers() {
       return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/users/${user.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to deactivate user");
-      }
-
+      await api.del(`/api/v1/admin/users/${user.id}`);
       toast.success("User deactivated");
-      fetchUsers();
+      refresh();
     } catch (err) {
       toast.error(err.message);
     }
@@ -174,21 +140,9 @@ export default function AdminUsers() {
   // Reactivate user
   const handleReactivate = async (user) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/users/${user.id}/reactivate`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to reactivate user");
-      }
-
+      await api.post(`/api/v1/admin/users/${user.id}/reactivate`);
       toast.success("User reactivated");
-      fetchUsers();
+      refresh();
     } catch (err) {
       toast.error(err.message);
     }
@@ -200,22 +154,10 @@ export default function AdminUsers() {
 
     setResettingPassword(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/users/${resetPasswordUser.id}/reset-password`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ new_password: newPassword }),
-        }
+      await api.post(
+        `/api/v1/admin/users/${resetPasswordUser.id}/reset-password`,
+        { new_password: newPassword }
       );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to reset password");
-      }
 
       setShowResetPasswordModal(false);
       setResetPasswordUser(null);

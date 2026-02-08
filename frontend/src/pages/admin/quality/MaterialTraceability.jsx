@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { API_URL } from "../../../config/api";
+import { useApi } from "../../../hooks/useApi";
 import { useToast } from "../../../components/Toast";
 
 /**
@@ -11,6 +11,7 @@ import { useToast } from "../../../components/Toast";
  * - DHR export
  */
 export default function MaterialTraceability() {
+  const api = useApi();
   const [activeTab, setActiveTab] = useState("forward");
   const [spools, setSpools] = useState([]);
   const [loadingSpools, setLoadingSpools] = useState(false);
@@ -21,17 +22,8 @@ export default function MaterialTraceability() {
       const fetchSpools = async () => {
         setLoadingSpools(true);
         try {
-          const res = await fetch(`${API_URL}/api/v1/spools?limit=200`, {
-            credentials: "include",
-          });
-          const data = await res.json();
-          // Handle error responses and ensure we always set an array
-          if (data.detail || data.error) {
-            console.error("API error:", data.detail || data.error);
-            setSpools([]);
-          } else {
-            setSpools(Array.isArray(data) ? data : (data.items || []));
-          }
+          const data = await api.get(`/api/v1/spools?limit=200`);
+          setSpools(Array.isArray(data) ? data : (data.items || []));
         } catch (err) {
           console.error("Failed to fetch spools:", err);
           setSpools([]);
@@ -41,7 +33,7 @@ export default function MaterialTraceability() {
       };
       fetchSpools();
     }
-  }, [activeTab, spools.length]);
+  }, [activeTab, spools.length, api]);
 
   return (
     <div className="space-y-6 p-6">
@@ -87,6 +79,7 @@ export default function MaterialTraceability() {
  * Forward Trace - Spool → Products → Customers
  */
 function ForwardTrace({ spools, loadingSpools }) {
+  const api = useApi();
   const toast = useToast();
   const [spoolId, setSpoolId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -103,21 +96,8 @@ function ForwardTrace({ spools, loadingSpools }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/traceability/forward/spool/${spoolId}`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        setResult(data);
-      } else {
-        const errorData = await res.json();
-        setError(errorData.detail || "Failed to trace spool");
-        toast.error(errorData.detail || "Failed to trace spool");
-      }
+      const data = await api.get(`/api/v1/traceability/forward/spool/${spoolId}`);
+      setResult(data);
     } catch (err) {
       setError(err.message);
       toast.error(`Error: ${err.message}`);
@@ -294,6 +274,7 @@ function ForwardTrace({ spools, loadingSpools }) {
  * Backward Trace - Product → Materials → Vendors
  */
 function BackwardTrace() {
+  const api = useApi();
   const toast = useToast();
   const [traceType, setTraceType] = useState("serial");
   const [searchValue, setSearchValue] = useState("");
@@ -316,18 +297,8 @@ function BackwardTrace() {
           ? `/api/v1/traceability/backward/serial/${encodeURIComponent(searchValue)}`
           : `/api/v1/traceability/backward/sales-order/${searchValue}`;
 
-      const res = await fetch(`${API_URL}${endpoint}`, {
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setResult(data);
-      } else {
-        const errorData = await res.json();
-        setError(errorData.detail || "Failed to trace");
-        toast.error(errorData.detail || "Failed to trace");
-      }
+      const data = await api.get(endpoint);
+      setResult(data);
     } catch (err) {
       setError(err.message);
       toast.error(`Error: ${err.message}`);

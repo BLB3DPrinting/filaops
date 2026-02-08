@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import SalesOrderWizard from "../../components/SalesOrderWizard";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { validateLength } from "../../utils/validation";
 import { SalesOrderCard } from "../../components/orders";
@@ -10,6 +10,7 @@ import OrderFilters from "../../components/orders/OrderFilters";
 export default function AdminOrders() {
   const navigate = useNavigate();
   const location = useLocation();
+  const api = useApi();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -68,13 +69,7 @@ export default function AdminOrders() {
       if (sortBy) params.set("sort_by", sortBy);
       if (sortOrder) params.set("sort_order", sortOrder);
 
-      const res = await fetch(`${API_URL}/api/v1/sales-orders/?${params}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error("Failed to fetch orders");
-
-      const data = await res.json();
+      const data = await api.get(`/api/v1/sales-orders/?${params}`);
       setOrders(data.items || data);
     } catch (err) {
       setError(err.message);
@@ -85,32 +80,15 @@ export default function AdminOrders() {
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/status`,
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status: newStatus }),
-        }
+      const updated = await api.patch(
+        `/api/v1/sales-orders/${orderId}/status`,
+        { status: newStatus }
       );
 
-      if (res.ok) {
-        toast.success("Order status updated");
-        fetchOrders();
-        if (selectedOrder?.id === orderId) {
-          const updated = await res.json();
-          setSelectedOrder(updated);
-        }
-      } else {
-        const errorData = await res.json();
-        toast.error(
-          `Failed to update order status: ${
-            errorData.detail || "Unknown error"
-          }`
-        );
+      toast.success("Order status updated");
+      fetchOrders();
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(updated);
       }
     } catch (err) {
       toast.error(
@@ -124,36 +102,23 @@ export default function AdminOrders() {
     setError(null);
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/generate-production-orders`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+      const data = await api.post(
+        `/api/v1/sales-orders/${orderId}/generate-production-orders`
       );
 
-      const data = await res.json();
-
-      if (res.ok) {
-        if (data.created_orders?.length > 0) {
-          toast.success(
-            `Production Order(s) created: ${data.created_orders.join(", ")}`
-          );
-        } else if (data.existing_orders?.length > 0) {
-          toast.info(
-            `Production Order(s) already exist: ${data.existing_orders.join(
-              ", "
-            )}`
-          );
-        }
-        fetchOrders();
-        setSelectedOrder(null);
-      } else {
-        setError(data.detail || "Failed to generate production order");
+      if (data.created_orders?.length > 0) {
+        toast.success(
+          `Production Order(s) created: ${data.created_orders.join(", ")}`
+        );
+      } else if (data.existing_orders?.length > 0) {
+        toast.info(
+          `Production Order(s) already exist: ${data.existing_orders.join(
+            ", "
+          )}`
+        );
       }
+      fetchOrders();
+      setSelectedOrder(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -227,29 +192,17 @@ export default function AdminOrders() {
     }
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${cancellingOrder.id}/cancel`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ cancellation_reason: cancellationReason }),
-        }
+      await api.post(
+        `/api/v1/sales-orders/${cancellingOrder.id}/cancel`,
+        { cancellation_reason: cancellationReason }
       );
 
-      if (res.ok) {
-        toast.success(`Order ${cancellingOrder.order_number} cancelled`);
-        setShowCancelModal(false);
-        setCancellingOrder(null);
-        setCancellationReason("");
-        setCancellationError("");
-        fetchOrders();
-      } else {
-        const errorData = await res.json();
-        toast.error(errorData.detail || "Failed to cancel order");
-      }
+      toast.success(`Order ${cancellingOrder.order_number} cancelled`);
+      setShowCancelModal(false);
+      setCancellingOrder(null);
+      setCancellationReason("");
+      setCancellationError("");
+      fetchOrders();
     } catch (err) {
       toast.error(err.message || "Failed to cancel order");
     }
@@ -260,33 +213,11 @@ export default function AdminOrders() {
     if (!deletingOrder) return;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${deletingOrder.id}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
-
-      if (res.ok || res.status === 204) {
-        toast.success(`Order ${deletingOrder.order_number} deleted`);
-        setShowDeleteConfirm(false);
-        setDeletingOrder(null);
-        fetchOrders();
-      } else {
-        let errorMsg = "Failed to delete order";
-        const contentType = res.headers.get("content-type") || "";
-        const text = await res.text();
-        if (text && contentType.includes("application/json")) {
-          try {
-            const errorData = JSON.parse(text);
-            errorMsg = errorData.detail || errorMsg;
-          } catch {
-            // Ignore JSON parse error, fallback to generic message
-          }
-        }
-        toast.error(errorMsg);
-      }
+      await api.del(`/api/v1/sales-orders/${deletingOrder.id}`);
+      toast.success(`Order ${deletingOrder.order_number} deleted`);
+      setShowDeleteConfirm(false);
+      setDeletingOrder(null);
+      fetchOrders();
     } catch (err) {
       toast.error(err.message || "Failed to delete order");
     }

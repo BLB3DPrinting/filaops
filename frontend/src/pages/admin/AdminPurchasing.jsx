@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import PurchasingChart from "../../components/purchasing/PurchasingChart";
 import VendorModal from "../../components/purchasing/VendorModal";
@@ -13,6 +13,7 @@ import VendorsTab from "../../components/purchasing/VendorsTab";
 import LowStockTab from "../../components/purchasing/LowStockTab";
 
 export default function AdminPurchasing() {
+  const api = useApi();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get("tab") || "orders";
@@ -205,16 +206,8 @@ export default function AdminPurchasing() {
   const fetchPurchasingTrend = async (period) => {
     setTrendLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/purchasing-trend?period=${period}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setPurchasingTrend(data);
-      } else {
-        console.error("Purchasing trend API error:", res.status);
-      }
+      const data = await api.get(`/api/v1/admin/dashboard/purchasing-trend?period=${period}`);
+      setPurchasingTrend(data);
     } catch (err) {
       console.error("Failed to fetch purchasing trend:", err);
     } finally {
@@ -265,11 +258,7 @@ export default function AdminPurchasing() {
       if (filters.status !== "all") params.set("status", filters.status);
       params.set("limit", "100");
 
-      const res = await fetch(`${API_URL}/api/v1/purchase-orders?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch orders");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/purchase-orders?${params}`);
       // Handle both array and {items: [...]} responses, and error objects
       setOrders(Array.isArray(data) ? data : (data.items || []));
     } catch (err) {
@@ -283,11 +272,7 @@ export default function AdminPurchasing() {
   const fetchVendors = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/vendors?active_only=false`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch vendors");
-      const data = await res.json();
+      const data = await api.get(`/api/v1/vendors?active_only=false`);
       // Handle both array and {items: [...]} responses, and error objects
       setVendors(Array.isArray(data) ? data : (data.items || []));
     } catch (err) {
@@ -300,15 +285,8 @@ export default function AdminPurchasing() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/items?limit=2000`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || []);
-      } else {
-        console.warn(`[AdminPurchasing] Failed to fetch products: ${res.status}`);
-      }
+      const data = await api.get(`/api/v1/items?limit=2000`);
+      setProducts(data.items || []);
     } catch (err) {
       // Products fetch failure is non-critical - product selector will just be empty
       console.error("[AdminPurchasing] Error fetching products:", err);
@@ -318,14 +296,9 @@ export default function AdminPurchasing() {
   const fetchLowStock = async () => {
     setLowStockLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/low-stock`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLowStockItems(data.items || []);
-        setLowStockSummary(data.summary || null);
-      }
+      const data = await api.get(`/api/v1/items/low-stock`);
+      setLowStockItems(data.items || []);
+      setLowStockSummary(data.summary || null);
     } catch {
       setError("Failed to load low stock items. Please refresh the page.");
     } finally {
@@ -335,13 +308,8 @@ export default function AdminPurchasing() {
 
   const fetchCompanySettings = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/settings/company`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCompanySettings(data);
-      }
+      const data = await api.get(`/api/v1/settings/company`);
+      setCompanySettings(data);
     } catch (err) {
       // Non-critical - auto-calc tax just won't work
       console.error("Failed to fetch company settings:", err);
@@ -350,16 +318,9 @@ export default function AdminPurchasing() {
 
   const fetchPODetails = async (poId) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/purchase-orders/${poId}`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedPO(data);
-        return data;
-      } else {
-        setError("Failed to load purchase order details.");
-      }
+      const data = await api.get(`/api/v1/purchase-orders/${poId}`);
+      setSelectedPO(data);
+      return data;
     } catch (err) {
       setError(`Failed to load purchase order: ${err.message || "Network error"}`);
     }
@@ -372,23 +333,10 @@ export default function AdminPurchasing() {
 
   const handleSaveVendor = async (vendorData) => {
     try {
-      const url = selectedVendor
-        ? `${API_URL}/api/v1/vendors/${selectedVendor.id}`
-        : `${API_URL}/api/v1/vendors`;
-      const method = selectedVendor ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(vendorData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save vendor");
+      if (selectedVendor) {
+        await api.put(`/api/v1/vendors/${selectedVendor.id}`, vendorData);
+      } else {
+        await api.post(`/api/v1/vendors`, vendorData);
       }
 
       toast.success(selectedVendor ? "Vendor updated" : "Vendor created");
@@ -403,11 +351,7 @@ export default function AdminPurchasing() {
   const handleDeleteVendor = async (vendorId) => {
     if (!confirm("Are you sure you want to delete this vendor?")) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/vendors/${vendorId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete vendor");
+      await api.del(`/api/v1/vendors/${vendorId}`);
       toast.success("Vendor deleted");
       fetchVendors();
     } catch (err) {
@@ -421,23 +365,10 @@ export default function AdminPurchasing() {
 
   const handleSavePO = async (poData) => {
     try {
-      const url = selectedPO
-        ? `${API_URL}/api/v1/purchase-orders/${selectedPO.id}`
-        : `${API_URL}/api/v1/purchase-orders`;
-      const method = selectedPO ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(poData),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save PO");
+      if (selectedPO) {
+        await api.put(`/api/v1/purchase-orders/${selectedPO.id}`, poData);
+      } else {
+        await api.post(`/api/v1/purchase-orders`, poData);
       }
 
       toast.success(selectedPO ? "Purchase order updated" : "Purchase order created");
@@ -451,22 +382,10 @@ export default function AdminPurchasing() {
 
   const handleStatusChange = async (poId, newStatus, extraData = {}) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/purchase-orders/${poId}/status`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status: newStatus, ...extraData }),
-        }
+      await api.post(
+        `/api/v1/purchase-orders/${poId}/status`,
+        { status: newStatus, ...extraData }
       );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to update status");
-      }
 
       toast.success(`Status updated to ${newStatus}`);
       fetchOrders();
@@ -480,24 +399,11 @@ export default function AdminPurchasing() {
 
   const handleReceive = async (receiveData) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/purchase-orders/${selectedPO.id}/receive`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(receiveData),
-        }
+      const result = await api.post(
+        `/api/v1/purchase-orders/${selectedPO.id}/receive`,
+        receiveData
       );
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to receive items");
-      }
-
-      const result = await res.json();
       toast.success(
         `Received ${result.total_quantity} items. ${result.transactions_created.length} inventory transactions created.`
       );
@@ -518,15 +424,7 @@ export default function AdminPurchasing() {
     if (!confirm(`Delete PO ${poNumber}? This cannot be undone.`)) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/purchase-orders/${poId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to delete PO");
-      }
+      await api.del(`/api/v1/purchase-orders/${poId}`);
 
       toast.success("Purchase order deleted");
       fetchOrders();
@@ -543,28 +441,15 @@ export default function AdminPurchasing() {
       return;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/purchase-orders/${poId}/status`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status: "cancelled" }),
-        }
+      await api.post(
+        `/api/v1/purchase-orders/${poId}/status`,
+        { status: "cancelled" }
       );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to cancel PO");
-      }
 
       toast.success("Purchase order cancelled");
       fetchOrders();
       if (selectedPO?.id === poId) {
-        const updated = await res.json();
-        setSelectedPO(updated);
+        fetchPODetails(poId);
       }
     } catch (err) {
       toast.error(err.message);

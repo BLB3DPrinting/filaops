@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useApi } from "../../hooks/useApi";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
 import { useVersionCheck } from "../../hooks/useVersionCheck";
@@ -7,6 +8,7 @@ import { formatPhoneNumber, timezoneOptions } from "../../components/settings/co
 import AiSettingsSection from "../../components/settings/AiSettingsSection";
 
 const AdminSettings = () => {
+  const api = useApi();
   const toast = useToast();
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -66,43 +68,32 @@ const AdminSettings = () => {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/settings/company`, {
-        credentials: "include",
+      const data = await api.get(`/api/v1/settings/company`);
+      setSettings(data);
+      setForm({
+        company_name: data.company_name || "",
+        company_address_line1: data.company_address_line1 || "",
+        company_address_line2: data.company_address_line2 || "",
+        company_city: data.company_city || "",
+        company_state: data.company_state || "",
+        company_zip: data.company_zip || "",
+        company_country: data.company_country || "USA",
+        timezone: data.timezone || "America/New_York",
+        company_phone: data.company_phone || "",
+        company_email: data.company_email || "",
+        company_website: data.company_website || "",
+        tax_enabled: data.tax_enabled || false,
+        tax_rate_percent: data.tax_rate_percent || "",
+        tax_name: data.tax_name || "Sales Tax",
+        tax_registration_number: data.tax_registration_number || "",
+        default_quote_validity_days: data.default_quote_validity_days || 30,
+        quote_terms: data.quote_terms || "",
+        quote_footer: data.quote_footer || "",
+        business_hours_start: data.business_hours_start ?? 8,
+        business_hours_end: data.business_hours_end ?? 16,
+        business_days_per_week: data.business_days_per_week ?? 5,
+        business_work_days: data.business_work_days || "0,1,2,3,4",
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-        setForm({
-          company_name: data.company_name || "",
-          company_address_line1: data.company_address_line1 || "",
-          company_address_line2: data.company_address_line2 || "",
-          company_city: data.company_city || "",
-          company_state: data.company_state || "",
-          company_zip: data.company_zip || "",
-          company_country: data.company_country || "USA",
-          timezone: data.timezone || "America/New_York",
-          company_phone: data.company_phone || "",
-          company_email: data.company_email || "",
-          company_website: data.company_website || "",
-          tax_enabled: data.tax_enabled || false,
-          tax_rate_percent: data.tax_rate_percent || "",
-          tax_name: data.tax_name || "Sales Tax",
-          tax_registration_number: data.tax_registration_number || "",
-          default_quote_validity_days: data.default_quote_validity_days || 30,
-          quote_terms: data.quote_terms || "",
-          quote_footer: data.quote_footer || "",
-          business_hours_start: data.business_hours_start ?? 8,
-          business_hours_end: data.business_hours_end ?? 16,
-          business_days_per_week: data.business_days_per_week ?? 5,
-          business_work_days: data.business_work_days || "0,1,2,3,4",
-        });
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        toast.error(
-          errData.detail || `Error ${response.status}: Failed to load settings`
-        );
-      }
     } catch (error) {
       toast.error("Failed to load settings: " + error.message);
     } finally {
@@ -128,31 +119,17 @@ const AdminSettings = () => {
     setSaving(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/settings/company`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...form,
-          tax_rate_percent: form.tax_rate_percent
-            ? parseFloat(form.tax_rate_percent)
-            : null,
-          default_quote_validity_days: parseInt(
-            form.default_quote_validity_days
-          ),
-        }),
+      const data = await api.patch(`/api/v1/settings/company`, {
+        ...form,
+        tax_rate_percent: form.tax_rate_percent
+          ? parseFloat(form.tax_rate_percent)
+          : null,
+        default_quote_validity_days: parseInt(
+          form.default_quote_validity_days
+        ),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-        toast.success("Settings saved successfully!");
-      } else {
-        const errData = await response.json();
-        toast.error(errData.detail || "Failed to save settings");
-      }
+      setSettings(data);
+      toast.success("Settings saved successfully!");
     } catch (error) {
       toast.error("Failed to save settings: " + error.message);
     } finally {
@@ -194,15 +171,9 @@ const AdminSettings = () => {
     if (!confirm("Are you sure you want to delete the company logo?")) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/v1/settings/company/logo`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (response.ok) {
-        toast.success("Logo deleted successfully!");
-        fetchSettings();
-      }
+      await api.del(`/api/v1/settings/company/logo`);
+      toast.success("Logo deleted successfully!");
+      fetchSettings();
     } catch (error) {
       toast.error("Failed to delete logo: " + error.message);
     }

@@ -7,7 +7,7 @@ import ScrapOrderModal from "../../components/ScrapOrderModal";
 import CompleteOrderModal from "../../components/CompleteOrderModal";
 import QCInspectionModal from "../../components/QCInspectionModal";
 import Modal from "../../components/Modal";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 
 // Production Trend Chart Component
 function ProductionChart({ data, period, onPeriodChange, loading }) {
@@ -234,6 +234,7 @@ const SoLinkBadge = ({ order }) => {
 };
 
 export default function AdminProduction() {
+  const api = useApi();
   const [searchParams] = useSearchParams();
   const [productionOrders, setProductionOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -285,20 +286,14 @@ export default function AdminProduction() {
   const fetchProductionTrend = useCallback(async (period) => {
     setTrendLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/production-trend?period=${period}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setProductionTrend(data);
-      }
+      const data = await api.get(`/api/v1/admin/dashboard/production-trend?period=${period}`);
+      setProductionTrend(data);
     } catch (err) {
       console.error("Failed to fetch production trend:", err);
     } finally {
       setTrendLoading(false);
     }
-  }, []);
+  }, [api]);
 
   const fetchProductionOrders = useCallback(async () => {
     setLoading(true);
@@ -310,40 +305,23 @@ export default function AdminProduction() {
       }
       params.set("limit", "100");
 
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders/?${params}`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) throw new Error("Failed to fetch production orders");
-
-      const data = await res.json();
+      const data = await api.get(`/api/v1/production-orders/?${params}`);
       setProductionOrders(data.items || data || []);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [filters.status]);
+  }, [api, filters.status]);
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/products?limit=500&active=true`,
-        {
-          credentials: "include",
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || data || []);
-      }
+      const data = await api.get(`/api/v1/products?limit=500&active=true`);
+      setProducts(data.items || data || []);
     } catch {
       // Products fetch failure is non-critical - product selector will just be empty
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     fetchProductionOrders();
@@ -377,35 +355,23 @@ export default function AdminProduction() {
 
     setCreating(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/production-orders/`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          product_id: parseInt(createForm.product_id),
-          quantity_ordered: parseInt(createForm.quantity_ordered) || 1,
-          priority: parseInt(createForm.priority) || 3,
-          due_date: createForm.due_date || null,
-          notes: createForm.notes || null,
-        }),
+      await api.post(`/api/v1/production-orders/`, {
+        product_id: parseInt(createForm.product_id),
+        quantity_ordered: parseInt(createForm.quantity_ordered) || 1,
+        priority: parseInt(createForm.priority) || 3,
+        due_date: createForm.due_date || null,
+        notes: createForm.notes || null,
       });
 
-      if (res.ok) {
-        setShowCreateModal(false);
-        setCreateForm({
-          product_id: "",
-          quantity_ordered: 1,
-          priority: 3,
-          due_date: "",
-          notes: "",
-        });
-        fetchProductionOrders();
-      } else {
-        const err = await res.json();
-        setError(err.detail || "Failed to create production order");
-      }
+      setShowCreateModal(false);
+      setCreateForm({
+        product_id: "",
+        quantity_ordered: 1,
+        priority: 3,
+        due_date: "",
+        notes: "",
+      });
+      fetchProductionOrders();
     } catch (err) {
       setError(err.message);
     } finally {

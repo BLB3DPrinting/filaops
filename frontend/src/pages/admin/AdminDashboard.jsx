@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import StatCard from "../../components/StatCard";
 import RecentOrderRow from "../../components/dashboard/RecentOrderRow";
 import SalesChart from "../../components/dashboard/SalesChart";
 import ProductionPipeline from "../../components/dashboard/ProductionPipeline";
 
 export default function AdminDashboard() {
+  const api = useApi();
   const [stats, setStats] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [pendingPOs, setPendingPOs] = useState([]);
@@ -28,14 +29,8 @@ export default function AdminDashboard() {
   const fetchSalesData = async (period) => {
     setSalesLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/sales-trend?period=${period}`,
-        { credentials: "include" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSalesData(data);
-      }
+      const data = await api.get(`/api/v1/admin/dashboard/sales-trend?period=${period}`);
+      setSalesData(data);
     } catch (err) {
       console.error("Failed to fetch sales data:", err);
     } finally {
@@ -55,42 +50,21 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
 
-      // Fetch summary stats
-      const summaryRes = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/summary`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (!summaryRes.ok) throw new Error("Failed to fetch dashboard summary");
-      const summaryData = await summaryRes.json();
+      const summaryData = await api.get(`/api/v1/admin/dashboard/summary`);
       setStats(summaryData);
 
-      // Fetch recent orders
-      const ordersRes = await fetch(
-        `${API_URL}/api/v1/admin/dashboard/recent-orders?limit=5`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (ordersRes.ok) {
-        const ordersData = await ordersRes.json();
+      try {
+        const ordersData = await api.get(`/api/v1/admin/dashboard/recent-orders?limit=5`);
         setRecentOrders(ordersData);
+      } catch {
+        // Non-critical: recent orders fetch failure
       }
 
-      // Fetch pending purchase orders
-      const posRes = await fetch(
-        `${API_URL}/api/v1/purchase-orders?status=draft,ordered&limit=5`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (posRes.ok) {
-        const posData = await posRes.json();
+      try {
+        const posData = await api.get(`/api/v1/purchase-orders?status=draft,ordered&limit=5`);
         setPendingPOs(posData.items || posData || []);
+      } catch {
+        // Non-critical: pending POs fetch failure
       }
     } catch (err) {
       setError(err.message);

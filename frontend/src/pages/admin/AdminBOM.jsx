@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import CreateBOMForm from "../../components/bom/CreateBOMForm";
 import CreateProductionOrderModal from "../../components/bom/CreateProductionOrderModal";
@@ -11,6 +11,7 @@ import Modal from "../../components/Modal";
 export default function AdminBOM() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const api = useApi();
   const toast = useToast();
   const [boms, setBoms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,20 +40,14 @@ export default function AdminBOM() {
       if (filters.active !== "all")
         params.set("active", filters.active === "active");
 
-      const res = await fetch(`${API_URL}/api/v1/admin/bom?${params}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) throw new Error("Failed to fetch BOMs");
-
-      const data = await res.json();
+      const data = await api.get(`/api/v1/admin/bom?${params}`);
       setBoms(data);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, api]);
 
   useEffect(() => {
     fetchBOMs();
@@ -62,19 +57,13 @@ export default function AdminBOM() {
   const handleViewBOM = useCallback(
     async (bomId) => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}`, {
-          credentials: "include",
-        });
-
-        if (!res.ok) throw new Error("Failed to fetch BOM details");
-
-        const data = await res.json();
+        const data = await api.get(`/api/v1/admin/bom/${bomId}`);
         setSelectedBOM(data);
       } catch (err) {
         setError(`Failed to load BOM: ${err.message || "Unknown error"}`);
       }
     },
-    []
+    [api]
   );
 
   // Track whether URL-driven auto-open has been performed
@@ -119,20 +108,9 @@ export default function AdminBOM() {
     if (!confirm("Are you sure you want to delete this BOM?")) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        toast.success("BOM deleted");
-        fetchBOMs();
-      } else {
-        const errorData = await res.json();
-        toast.error(
-          `Failed to delete BOM: ${errorData.detail || "Unknown error"}`
-        );
-      }
+      await api.del(`/api/v1/admin/bom/${bomId}`);
+      toast.success("BOM deleted");
+      fetchBOMs();
     } catch (err) {
       toast.error(`Failed to delete BOM: ${err.message || "Network error"}`);
     }
@@ -140,20 +118,9 @@ export default function AdminBOM() {
 
   const handleCopyBOM = async (bomId) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/admin/bom/${bomId}/copy`, {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        toast.success("BOM copied");
-        fetchBOMs();
-      } else {
-        const errorData = await res.json();
-        toast.error(
-          `Failed to copy BOM: ${errorData.detail || "Unknown error"}`
-        );
-      }
+      await api.post(`/api/v1/admin/bom/${bomId}/copy`);
+      toast.success("BOM copied");
+      fetchBOMs();
     } catch (err) {
       toast.error(`Failed to copy BOM: ${err.message || "Network error"}`);
     }

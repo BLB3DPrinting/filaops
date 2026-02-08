@@ -9,7 +9,7 @@
  */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 import ActivityTimeline from "../../components/ActivityTimeline";
@@ -28,6 +28,7 @@ export default function OrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const api = useApi();
 
   const [order, setOrder] = useState(null);
   const [materialRequirements, setMaterialRequirements] = useState([]);
@@ -93,21 +94,8 @@ export default function OrderDetail() {
     setLoading(true);
     setError(null);
 
-    const url = `${API_URL}/api/v1/sales-orders/${orderId}`;
-
     try {
-      const res = await fetch(url, {
-        credentials: "include",
-        cache: "no-cache",
-      });
-
-      if (!res.ok) {
-        throw new Error(
-          `Failed to fetch order: ${res.status} ${res.statusText}`
-        );
-      }
-
-      const data = await res.json();
+      const data = await api.get(`/api/v1/sales-orders/${orderId}`);
       setOrder(data);
 
       // Explode BOM for material requirements
@@ -124,31 +112,16 @@ export default function OrderDetail() {
         await explodeBOM(data.product_id, data.quantity);
       } else if (data.quote_id) {
         try {
-          const quoteRes = await fetch(
-            `${API_URL}/api/v1/quotes/${data.quote_id}`,
-            {
-              credentials: "include",
-            }
-          );
-          if (quoteRes.ok) {
-            const quoteData = await quoteRes.json();
-            if (quoteData.product_id) {
-              await explodeBOM(quoteData.product_id, data.quantity);
-            }
+          const quoteData = await api.get(`/api/v1/quotes/${data.quote_id}`);
+          if (quoteData.product_id) {
+            await explodeBOM(quoteData.product_id, data.quantity);
           }
         } catch {
           // Quote fetch failure is non-critical
         }
       }
     } catch (err) {
-      if (err.message.includes("Failed to fetch")) {
-        setError(
-          `Network error: Cannot connect to backend at ${API_URL}. ` +
-            `Please check if the backend server is running.`
-        );
-      } else {
-        setError(err.message || "Failed to fetch order");
-      }
+      setError(err.message || "Failed to fetch order");
       throw err;
     } finally {
       setLoading(false);
@@ -158,16 +131,10 @@ export default function OrderDetail() {
   const fetchProductionOrders = async () => {
     if (!orderId) return;
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/production-orders?sales_order_id=${orderId}`,
-        {
-          credentials: "include",
-        }
+      const data = await api.get(
+        `/api/v1/production-orders?sales_order_id=${orderId}`
       );
-      if (res.ok) {
-        const data = await res.json();
-        setProductionOrders(data.items || data || []);
-      }
+      setProductionOrders(data.items || data || []);
     } catch {
       // Production orders fetch failure is non-critical
     }
@@ -176,24 +143,18 @@ export default function OrderDetail() {
   const fetchPaymentData = async () => {
     if (!orderId) return;
     try {
-      const summaryRes = await fetch(
-        `${API_URL}/api/v1/payments/order/${orderId}/summary`,
-        { credentials: "include" }
+      const summary = await api.get(
+        `/api/v1/payments/order/${orderId}/summary`
       );
-      if (summaryRes.ok) {
-        setPaymentSummary(await summaryRes.json());
-      }
-
-      const paymentsRes = await fetch(
-        `${API_URL}/api/v1/payments?order_id=${orderId}`,
-        { credentials: "include" }
-      );
-      if (paymentsRes.ok) {
-        const data = await paymentsRes.json();
-        setPayments(data.items || []);
-      }
+      setPaymentSummary(summary);
     } catch {
-      // Payment fetch failure is non-critical
+      // Payment summary fetch failure is non-critical
+    }
+    try {
+      const data = await api.get(`/api/v1/payments?order_id=${orderId}`);
+      setPayments(data.items || []);
+    } catch {
+      // Payment list fetch failure is non-critical
     }
   };
 
@@ -225,15 +186,10 @@ export default function OrderDetail() {
     setExploding(true);
     try {
       // PRIMARY: Use the new material-requirements endpoint (routing-first approach)
-      const matReqRes = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/material-requirements`,
-        {
-          credentials: "include",
-        }
-      );
-
-      if (matReqRes.ok) {
-        const matReqData = await matReqRes.json();
+      try {
+        const matReqData = await api.get(
+          `/api/v1/sales-orders/${orderId}/material-requirements`
+        );
 
         const requirements = (matReqData.requirements || []).map((req) => ({
           product_id: req.product_id,
@@ -252,17 +208,12 @@ export default function OrderDetail() {
         }));
         setMaterialRequirements(requirements);
         setMaterialAvailability(matReqData.summary);
-      } else {
+      } catch {
         // FALLBACK: Use the MRP requirements endpoint
-        const res = await fetch(
-          `${API_URL}/api/v1/mrp/requirements?product_id=${productId}`,
-          {
-            credentials: "include",
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
+        try {
+          const data = await api.get(
+            `/api/v1/mrp/requirements?product_id=${productId}`
+          );
 
           const scaled = (data.requirements || []).map((req) => {
             const gross_qty = parseFloat(req.gross_quantity || 0) * quantity;
@@ -292,17 +243,12 @@ export default function OrderDetail() {
             };
           });
           setMaterialRequirements(scaled);
-        } else {
+        } catch {
           // If MRP endpoint fails, try BOM explosion directly
-          const bomRes = await fetch(
-            `${API_URL}/api/v1/mrp/explode-bom/${productId}?quantity=${quantity}`,
-            {
-              credentials: "include",
-            }
-          );
-
-          if (bomRes.ok) {
-            const bomData = await bomRes.json();
+          try {
+            const bomData = await api.get(
+              `/api/v1/mrp/explode-bom/${productId}?quantity=${quantity}`
+            );
 
             const requirements = (bomData.components || []).map((comp) => ({
               product_id: comp.product_id,
@@ -318,38 +264,34 @@ export default function OrderDetail() {
               material_source: "bom",
             }));
             setMaterialRequirements(requirements);
+          } catch {
+            // All BOM endpoints failed - material requirements section will be empty
           }
         }
       }
 
       // Get routing for capacity requirements (optional)
       try {
-        const routingRes = await fetch(
-          `${API_URL}/api/v1/routings/product/${productId}`,
-          {
-            credentials: "include",
-          }
+        const routing = await api.get(
+          `/api/v1/routings/product/${productId}`
         );
 
-        if (routingRes.ok) {
-          const routing = await routingRes.json();
-          if (routing.operations && routing.operations.length > 0) {
-            const capacity = routing.operations.map((op) => {
-              const setupTime = parseFloat(op.setup_time_minutes) || 0;
-              const runTime = parseFloat(op.run_time_minutes) || 0;
-              return {
-                ...op,
-                setup_time_minutes: setupTime,
-                run_time_minutes: runTime,
-                total_time_minutes: setupTime + runTime * quantity,
-                work_center_name:
-                  op.work_center?.name || op.work_center_name || "N/A",
-                operation_name:
-                  op.operation_name || op.operation_code || "Operation",
-              };
-            });
-            setCapacityRequirements(capacity);
-          }
+        if (routing.operations && routing.operations.length > 0) {
+          const capacity = routing.operations.map((op) => {
+            const setupTime = parseFloat(op.setup_time_minutes) || 0;
+            const runTime = parseFloat(op.run_time_minutes) || 0;
+            return {
+              ...op,
+              setup_time_minutes: setupTime,
+              run_time_minutes: runTime,
+              total_time_minutes: setupTime + runTime * quantity,
+              work_center_name:
+                op.work_center?.name || op.work_center_name || "N/A",
+              operation_name:
+                op.operation_name || op.operation_code || "Operation",
+            };
+          });
+          setCapacityRequirements(capacity);
         }
       } catch {
         // Routing is optional - don't fail
@@ -371,21 +313,9 @@ export default function OrderDetail() {
     }
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/generate-production-orders`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
+      await api.post(
+        `/api/v1/sales-orders/${orderId}/generate-production-orders`
       );
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to create production order");
-      }
 
       toast.success("Production order created successfully!");
       fetchProductionOrders();
@@ -403,24 +333,12 @@ export default function OrderDetail() {
 
   const handleCreateWorkOrder = async (materialReq) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/production-orders`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          product_id: materialReq.product_id,
-          quantity_ordered: Math.ceil(materialReq.net_shortage || 1),
-          sales_order_id: parseInt(orderId),
-          notes: `Created from SO ${order.order_number} for sub-assembly`,
-        }),
+      await api.post(`/api/v1/production-orders`, {
+        product_id: materialReq.product_id,
+        quantity_ordered: Math.ceil(materialReq.net_shortage || 1),
+        sales_order_id: parseInt(orderId),
+        notes: `Created from SO ${order.order_number} for sub-assembly`,
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to create work order");
-      }
 
       toast.success(`Work order created for ${materialReq.product_name}`);
       fetchOrder();
@@ -436,26 +354,13 @@ export default function OrderDetail() {
 
   const handleCancelOrder = async (cancellationReason) => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/sales-orders/${orderId}/cancel`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ cancellation_reason: cancellationReason }),
-        }
-      );
+      await api.post(`/api/v1/sales-orders/${orderId}/cancel`, {
+        cancellation_reason: cancellationReason,
+      });
 
-      if (res.ok) {
-        toast.success(`Order ${order.order_number} cancelled`);
-        setShowCancelModal(false);
-        fetchOrder();
-      } else {
-        const errorData = await res.json();
-        toast.error(errorData.detail || "Failed to cancel order");
-      }
+      toast.success(`Order ${order.order_number} cancelled`);
+      setShowCancelModal(false);
+      fetchOrder();
     } catch (err) {
       toast.error(err.message || "Failed to cancel order");
     }
@@ -463,28 +368,10 @@ export default function OrderDetail() {
 
   const handleDeleteOrder = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/sales-orders/${orderId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      await api.del(`/api/v1/sales-orders/${orderId}`);
 
-      if (res.ok || res.status === 204) {
-        toast.success(`Order ${order.order_number} deleted`);
-        navigate("/admin/orders");
-      } else {
-        let errorMsg = "Failed to delete order";
-        const contentType = res.headers.get("content-type") || "";
-        const text = await res.text();
-        if (text && contentType.includes("application/json")) {
-          try {
-            const errorData = JSON.parse(text);
-            errorMsg = errorData.detail || errorMsg;
-          } catch {
-            // Ignore JSON parse error
-          }
-        }
-        toast.error(errorMsg);
-      }
+      toast.success(`Order ${order.order_number} deleted`);
+      navigate("/admin/orders");
     } catch (err) {
       toast.error(err.message || "Failed to delete order");
     }
@@ -517,16 +404,13 @@ export default function OrderDetail() {
       if (productionOrders.length > 0) {
         const availabilityChecks = await Promise.all(
           productionOrders.map(async (po) => {
-            const res = await fetch(
-              `${API_URL}/api/v1/production-orders/${po.id}/material-availability`,
-              {
-                credentials: "include",
-              }
-            );
-            if (res.ok) {
-              return await res.json();
+            try {
+              return await api.get(
+                `/api/v1/production-orders/${po.id}/material-availability`
+              );
+            } catch {
+              return null;
             }
-            return null;
           })
         );
         setMaterialAvailability(availabilityChecks.filter(Boolean));

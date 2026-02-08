@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 
 export default function AdminCycleCount() {
+  const api = useApi();
   const [inventoryItems, setInventoryItems] = useState([]);
   const [countEntries, setCountEntries] = useState({});
   const [reasonEntries, setReasonEntries] = useState({}); // Per-item reason overrides
@@ -54,15 +55,9 @@ export default function AdminCycleCount() {
       params.append("show_zero", filters.show_zero.toString());
       params.append("limit", "500");
 
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions/inventory-summary?${params.toString()}`,
-        {
-          credentials: "include",
-        }
+      const data = await api.get(
+        `/api/v1/admin/inventory/transactions/inventory-summary?${params.toString()}`
       );
-
-      if (!res.ok) throw new Error("Failed to fetch inventory");
-      const data = await res.json();
       setInventoryItems(data.items || []);
     } catch (err) {
       toast.error(err.message);
@@ -73,16 +68,10 @@ export default function AdminCycleCount() {
 
   const fetchLocations = async () => {
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions/locations`,
-        {
-          credentials: "include",
-        }
+      const data = await api.get(
+        "/api/v1/admin/inventory/transactions/locations"
       );
-      if (res.ok) {
-        const data = await res.json();
-        setLocations(data);
-      }
+      setLocations(data);
     } catch {
       // Non-critical
     }
@@ -90,11 +79,8 @@ export default function AdminCycleCount() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/categories`);
-      if (res.ok) {
-        const data = await res.json();
-        setCategories(data);
-      }
+      const data = await api.get("/api/v1/items/categories");
+      setCategories(data);
     } catch {
       // Non-critical
     }
@@ -170,30 +156,17 @@ export default function AdminCycleCount() {
 
     try {
       setSubmitting(true);
-      const res = await fetch(
-        `${API_URL}/api/v1/admin/inventory/transactions/batch`,
+      const data = await api.post(
+        "/api/v1/admin/inventory/transactions/batch",
         {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            items,
-            location_id: filters.location_id
-              ? parseInt(filters.location_id)
-              : null,
-            count_reference: countReference,
-          }),
+          items,
+          location_id: filters.location_id
+            ? parseInt(filters.location_id)
+            : null,
+          count_reference: countReference,
         }
       );
 
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Failed to submit count");
-      }
-
-      const data = await res.json();
       setResults(data);
       const message = `Cycle count complete: ${data.successful} items updated, ${data.failed} failed`;
       if (data.failed > 0) {
