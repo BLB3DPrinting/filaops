@@ -146,7 +146,7 @@ export default function AdminPayments() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Payments</h1>
           <p className="text-gray-400 text-sm">
@@ -366,7 +366,8 @@ export default function AdminPayments() {
           </div>
         ) : (
           <>
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
               <thead className="bg-gray-900/50">
                 <tr>
                   <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase">
@@ -475,6 +476,7 @@ export default function AdminPayments() {
                 ))}
               </tbody>
             </table>
+            </div>
 
             {/* Pagination */}
             {pagination.totalPages > 1 && (

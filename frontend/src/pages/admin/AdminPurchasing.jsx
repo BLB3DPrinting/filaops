@@ -530,7 +530,7 @@ export default function AdminPurchasing() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Purchasing</h1>
           <p className="text-gray-400 mt-1">
@@ -630,7 +630,7 @@ export default function AdminPurchasing() {
 
       {/* Filters - hide on import and low-stock tabs */}
       {activeTab !== "import" && activeTab !== "low-stock" && (
-        <div className="flex gap-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div className="flex flex-col sm:flex-row gap-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex-1">
             <input
               type="text"

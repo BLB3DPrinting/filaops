@@ -86,7 +86,7 @@ export default function AdminSpools() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Material Spools</h1>
           <p className="text-gray-400 mt-1">Manage filament spools and material tracking</p>
@@ -103,7 +103,7 @@ export default function AdminSpools() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         <input
           type="text"
           placeholder="Search spools..."
@@ -138,7 +138,8 @@ export default function AdminSpools() {
         <div className="text-center py-12 text-gray-400">No spools found</div>
       ) : (
         <div className="bg-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead className="bg-gray-900">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">
@@ -229,6 +230,7 @@ export default function AdminSpools() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -310,7 +312,7 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 overflow-auto bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-gray-800 rounded-lg max-w-2xl w-full p-6">
+      <div className="bg-gray-800 rounded-lg max-w-2xl w-full mx-4 p-6">
         <h2 className="text-xl font-bold text-white mb-4">
           {spool ? "Edit Spool" : "Add Spool"}
         </h2>

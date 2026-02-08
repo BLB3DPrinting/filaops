@@ -142,7 +142,7 @@ export default function AdminBOM() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Bill of Materials</h1>
           <p className="text-gray-400 mt-1">
@@ -158,7 +158,7 @@ export default function AdminBOM() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="flex flex-col sm:flex-row gap-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
         <div className="flex-1">
           <input
             type="text"
@@ -196,7 +196,8 @@ export default function AdminBOM() {
       {/* BOM List */}
       {!loading && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead className="bg-gray-800/50">
               <tr>
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase">
@@ -289,6 +290,7 @@ export default function AdminBOM() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

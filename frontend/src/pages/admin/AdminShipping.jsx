@@ -539,7 +539,7 @@ export default function AdminShipping() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-white">Shipping</h1>
           <p className="text-gray-500 text-sm">Package, label, and ship orders</p>
@@ -563,7 +563,7 @@ export default function AdminShipping() {
       </div>
 
       {/* Metrics Row - Compact */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
           <p className="text-gray-500 text-xs">Total Pending</p>
           <p className="text-xl font-bold text-white">{orders.length}</p>
@@ -625,7 +625,8 @@ export default function AdminShipping() {
       {/* Orders Table */}
       {!loading && (
         <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-800/50">
               <tr className="text-left text-gray-400 text-xs uppercase">
                 <th className="px-4 py-3 font-medium">Order</th>
@@ -832,6 +833,7 @@ export default function AdminShipping() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

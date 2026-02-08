@@ -155,7 +155,7 @@ export default function AdminLocations() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Inventory Locations</h1>
           <p className="text-gray-400 mt-1">
@@ -192,7 +192,8 @@ export default function AdminLocations() {
       </div>
 
       {/* Locations Table */}
-      <Table>
+      <div className="overflow-x-auto">
+      <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow>
             <TableHead>Code</TableHead>
@@ -269,6 +270,7 @@ export default function AdminLocations() {
           )}
         </TableBody>
       </Table>
+      </div>
 
       {/* Modal */}
       {showModal && (
@@ -308,7 +310,7 @@ function LocationModal({ location, locations, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-md p-6">
+      <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-md mx-4 p-6">
         <h2 className="text-xl font-bold text-white mb-4">
           {location ? "Edit Location" : "Add Location"}
         </h2>

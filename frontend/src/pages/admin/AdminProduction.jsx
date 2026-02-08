@@ -403,7 +403,7 @@ export default function AdminProduction() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Production</h1>
           <p className="text-gray-400 mt-1">
@@ -429,7 +429,7 @@ export default function AdminProduction() {
       </div>
 
       {/* Stats */}
-          <div className="grid grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <p className="text-gray-400 text-sm">Draft</p>
               <p className="text-2xl font-bold text-gray-400">

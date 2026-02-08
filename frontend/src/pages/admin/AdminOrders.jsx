@@ -226,7 +226,7 @@ export default function AdminOrders() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Order Management</h1>
           <p className="text-gray-400 mt-1">View and manage sales orders</p>

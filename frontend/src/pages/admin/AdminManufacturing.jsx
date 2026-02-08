@@ -134,7 +134,7 @@ export default function AdminManufacturing() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Manufacturing</h1>
           <p className="text-gray-400 mt-1">
@@ -274,7 +274,8 @@ export default function AdminManufacturing() {
             </div>
           ) : (
             <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-              <table className="w-full">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="border-b border-gray-800 text-left text-sm text-gray-400">
                     <th className="px-4 py-3">Code</th>
@@ -357,6 +358,7 @@ export default function AdminManufacturing() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>

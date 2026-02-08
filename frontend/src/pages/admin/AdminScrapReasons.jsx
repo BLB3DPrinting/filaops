@@ -82,7 +82,7 @@ export default function AdminScrapReasons() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Scrap Reasons</h1>
           <p className="text-gray-400 mt-1">
@@ -141,7 +141,8 @@ export default function AdminScrapReasons() {
 
       {/* Reasons Table */}
       <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px]">
           <thead className="bg-gray-800/50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -270,6 +271,7 @@ export default function AdminScrapReasons() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Modal */}
@@ -351,7 +353,7 @@ function ScrapReasonModal({ reason, onSave, onClose }) {
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-md p-6"
+        className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-md mx-4 p-6"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
