@@ -22,7 +22,9 @@
     "test:headed": "playwright test --headed",
     "test:report": "playwright show-report",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -54,6 +56,18 @@
     "@testing-library/user-event": "^14.6.1",
     "jsdom": "^25.0.1",
     "vite": "^7.2.4",
-    "vitest": "^3.1.1"
+    "vitest": "^3.1.1",
+    "storybook": "^10.2.7",
+    "@storybook/react-vite": "^10.2.7",
+    "@chromatic-com/storybook": "^5.0.0",
+    "@storybook/addon-vitest": "^10.2.7",
+    "@storybook/addon-a11y": "^10.2.7",
+    "@storybook/addon-docs": "^10.2.7",
+    "@storybook/addon-onboarding": "^10.2.7",
+    "prop-types": "^15.8.1",
+    "eslint-plugin-storybook": "^10.2.7",
+    "playwright": "^1.58.2",
+    "@vitest/browser": "^3.1.1",
+    "@vitest/coverage-v8": "^3.1.1"
   }
 }
