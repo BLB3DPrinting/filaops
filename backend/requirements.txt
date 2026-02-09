@@ -1,8 +1,8 @@
-﻿# backend/requirements.txt
+# backend/requirements.txt
 # (optional) replace your current file with this Postgres-friendly set
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-python-multipart==0.0.18
+python-multipart==0.0.22
 sqlalchemy==2.0.36
 psycopg[binary]>=3.1
 alembic==1.17.2
