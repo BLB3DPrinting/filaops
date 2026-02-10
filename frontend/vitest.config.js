@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ export default defineConfig({
     alias: {
       '@': '/src'
     },
-    workspace: [{
+    projects: [{
       extends: true,
       plugins: [
       // The plugin will run tests for the stories defined in your Storybook config
@@ -31,7 +32,7 @@ export default defineConfig({
         browser: {
           enabled: true,
           headless: true,
-          provider: 'playwright',
+          provider: playwright(),
           instances: [{
             browser: 'chromium'
           }]
