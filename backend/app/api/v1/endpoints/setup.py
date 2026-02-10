@@ -133,6 +133,7 @@ def create_initial_admin(
         return {
             "message": "Admin account created successfully! Welcome to FilaOps.",
             "email": admin.email,
+            "access_token": access_token,
             "token_type": "cookie",
         }
 
