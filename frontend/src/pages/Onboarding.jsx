@@ -160,18 +160,20 @@ export default function Onboarding() {
         throw new Error(data.detail || "Setup failed");
       }
 
-      // Save token for subsequent wizard steps (works through nginx proxies
-      // where cookies alone may not be forwarded reliably)
-      if (data.access_token) {
-        setSetupToken(data.access_token);
+      // Save short-lived setup token (5 min) for subsequent wizard steps.
+      // The full-duration token is in the httpOnly cookie; this one is just
+      // for the wizard to use as an Authorization header through nginx.
+      const token = data.setup_token || data.access_token;
+      if (token) {
+        setSetupToken(token);
       }
 
       // Fetch and store user data so AdminLayout knows the user is an admin
       try {
         const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
           credentials: "include",
-          headers: data.access_token
-            ? { Authorization: `Bearer ${data.access_token}` }
+          headers: token
+            ? { Authorization: `Bearer ${token}` }
             : {},
         });
         if (meRes.ok) {
