@@ -204,7 +204,6 @@ export default function Onboarding() {
     try {
       const res = await fetch(`${API_URL}/api/v1/setup/seed-example-data`, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           ...(setupToken ? { Authorization: `Bearer ${setupToken}` } : {}),
@@ -242,7 +241,6 @@ export default function Onboarding() {
 
       const res = await fetch(`${API_URL}/api/v1/items/import`, {
         method: "POST",
-        credentials: "include",
         headers: setupToken ? { Authorization: `Bearer ${setupToken}` } : {},
         body: formData,
       });
@@ -278,7 +276,6 @@ export default function Onboarding() {
 
       const res = await fetch(`${API_URL}/api/v1/admin/customers/import`, {
         method: "POST",
-        credentials: "include",
         headers: setupToken ? { Authorization: `Bearer ${setupToken}` } : {},
         body: formData,
       });
@@ -320,7 +317,6 @@ export default function Onboarding() {
 
       const res = await fetch(url, {
         method: "POST",
-        credentials: "include",
         headers: setupToken ? { Authorization: `Bearer ${setupToken}` } : {},
         body: formData,
       });
@@ -362,7 +358,6 @@ export default function Onboarding() {
 
       const res = await fetch(`${API_URL}/api/v1/admin/import/inventory`, {
         method: "POST",
-        credentials: "include",
         headers: setupToken ? { Authorization: `Bearer ${setupToken}` } : {},
         body: formData,
       });

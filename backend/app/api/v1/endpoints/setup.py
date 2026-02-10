@@ -130,6 +130,12 @@ def create_initial_admin(
 
     if settings.AUTH_MODE.lower() == "cookie":
         set_auth_cookies(response, access_token)
+        # SECURITY: token is intentionally included in the response body even in
+        # cookie mode.  This endpoint only works when ZERO users exist (line 84),
+        # so there is no session to hijack and no other user to impersonate.
+        # The onboarding wizard needs the token for Authorization headers because
+        # httpOnly cookies are not reliably forwarded through nginx reverse proxies
+        # on immediate same-page requests.
         return {
             "message": "Admin account created successfully! Welcome to FilaOps.",
             "email": admin.email,
