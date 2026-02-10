@@ -35,6 +35,7 @@ from app.services.email_service import email_service
 from app.core.security import (
     hash_password,
     verify_password,
+    needs_rehash,
     create_access_token,
     create_refresh_token,
     get_user_from_token,
@@ -187,6 +188,10 @@ async def login_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User account is inactive"
             )
+
+        # Transparent rehash: upgrade legacy bcrypt hashes to SHA-256 pre-hash
+        if needs_rehash(form_data.password, user.password_hash):  # type: ignore[arg-type]
+            user.password_hash = hash_password(form_data.password)  # type: ignore[assignment]
 
         # Update last login timestamp
         user.last_login_at = datetime.now(timezone.utc)  # type: ignore[assignment]

@@ -62,9 +62,18 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
 # PASSWORD HASHING (using bcrypt directly)
 # ============================================================================
 
+def _prehash(password: str) -> bytes:
+    """SHA-256 pre-hash to normalize passwords to 64 bytes before bcrypt.
+
+    Bcrypt truncates at 72 bytes; pre-hashing avoids that silently
+    losing entropy.  This is the Dropbox pattern.
+    """
+    return hashlib.sha256(password.encode('utf-8')).hexdigest().encode('utf-8')
+
+
 def hash_password(password: str) -> str:
     """
-    Hash a password using bcrypt
+    Hash a password using SHA-256 pre-hash + bcrypt.
 
     Args:
         password: Plain text password
@@ -72,17 +81,17 @@ def hash_password(password: str) -> str:
     Returns:
         Hashed password (bcrypt format, 60 chars)
     """
-    # bcrypt requires bytes
-    password_bytes = password.encode('utf-8')
-    # Generate salt and hash
     salt = bcrypt.gensalt(rounds=12)
-    hashed = bcrypt.hashpw(password_bytes, salt)
+    hashed = bcrypt.hashpw(_prehash(password), salt)
     return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its hash
+    Verify a password against its hash.
+
+    Tries SHA-256 pre-hash first (new method), then falls back to
+    legacy direct-bcrypt for passwords hashed before the upgrade.
 
     Args:
         plain_password: Plain text password to verify
@@ -91,10 +100,26 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
+    hashed_bytes = hashed_password.encode('utf-8')
+    # New method (SHA-256 pre-hash)
     try:
-        password_bytes = plain_password.encode('utf-8')
-        hashed_bytes = hashed_password.encode('utf-8')
-        return bcrypt.checkpw(password_bytes, hashed_bytes)
+        if bcrypt.checkpw(_prehash(plain_password), hashed_bytes):
+            return True
+    except Exception:
+        pass
+    # Legacy fallback (direct bcrypt, for pre-upgrade hashes)
+    try:
+        if bcrypt.checkpw(plain_password.encode('utf-8'), hashed_bytes):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def needs_rehash(plain_password: str, hashed_password: str) -> bool:
+    """Return True if the hash was created with the legacy (non-prehashed) method."""
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
     except Exception:
         return False
 

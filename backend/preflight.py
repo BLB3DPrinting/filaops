@@ -13,7 +13,7 @@ mods = [
     # config & validation
     "pydantic", "pydantic_settings", "email_validator",
     # auth & forms
-    "jwt", "cryptography", "passlib", "multipart",
+    "jwt", "cryptography", "multipart",
     # requests
     "requests",
     # Postgres driver

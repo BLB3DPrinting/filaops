@@ -478,9 +478,7 @@ class SecurityAuditor:
         try:
             from app.db.session import SessionLocal
             from app.models import User
-            from passlib.context import CryptContext
-
-            pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            from app.core.security import verify_password
 
             db = SessionLocal()
             # Find users with admin account_type
@@ -502,7 +500,7 @@ class SecurityAuditor:
             for admin_user in admin_users:
                 for pwd in default_passwords:
                     try:
-                        if pwd_context.verify(pwd, admin_user.password_hash):
+                        if verify_password(pwd, admin_user.password_hash):
                             self.results.append(CheckResult(
                                 id=check_id, name=name, category=category,
                                 status=CheckStatus.FAIL,
