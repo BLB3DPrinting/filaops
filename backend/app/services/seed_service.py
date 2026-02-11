@@ -27,6 +27,7 @@ def seed_example_data(db: Session) -> dict:
         items_created, items_skipped = seed_example_items(db)
         mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
         savepoint.commit()
+        db.commit()
     except Exception:
         savepoint.rollback()
         logger.error("Seed transaction failed, rolled back all changes", exc_info=True)

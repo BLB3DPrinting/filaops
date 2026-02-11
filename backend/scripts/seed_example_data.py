@@ -42,7 +42,7 @@ def get_or_create_category(db: Session, code: str, name: str, parent_code: Optio
             updated_at=datetime.utcnow()
         )
         db.add(category)
-        db.commit()
+        db.flush()
         db.refresh(category)
     return category
 
@@ -90,9 +90,9 @@ def ensure_categories_exist(db: Session):
                 )
                 db.add(category)
                 print(f"  ✅ Created category: {cat_data['code']}")
-    
-    db.commit()
-    
+
+    db.flush()
+
     # Second pass: Create child categories
     for cat_data in categories_to_create:
         if cat_data["parent_code"] is not None:
@@ -113,8 +113,8 @@ def ensure_categories_exist(db: Session):
                     print(f"  ✅ Created category: {cat_data['code']} (under {cat_data['parent_code']})")
                 else:
                     print(f"  ⚠️  Parent category {cat_data['parent_code']} not found for {cat_data['code']}")
-    
-    db.commit()
+
+    db.flush()
 
 
 def seed_example_items(db: Session):
@@ -272,7 +272,7 @@ def seed_example_items(db: Session):
         created += 1
         print(f"  ✅ Created {example['sku']}: {example['name']}")
     
-    db.commit()
+    db.flush()
     print(f"\n  📊 Created {created} example items, skipped {skipped}")
     return created, skipped
 
@@ -519,8 +519,8 @@ def seed_materials(db: Session):
         material_type_objs[mt_data["code"]] = mt
         created_types += 1
         print(f"  ✅ Created material type: {mt_data['name']}")
-    
-    db.commit()
+
+    db.flush()
 
     # Seed basic colors so users can create materials without CSV import
     basic_colors = [
@@ -566,7 +566,7 @@ def seed_materials(db: Session):
         created_colors += 1
         print(f"  ✅ Created color: {color_data['name']}")
 
-    db.commit()
+    db.flush()
 
     # Create MaterialColor links for common BambuLab combinations
     # Link basic colors to PLA and PETG material types (most commonly used)
@@ -599,7 +599,7 @@ def seed_materials(db: Session):
                 db.add(link)
                 created_links += 1
 
-    db.commit()
+    db.flush()
 
     print(f"\n  📊 Created {created_types} material types, {created_colors} colors, {created_links} material-color links")
     print("  💡 Tip: Import additional materials via CSV or use 'Create new color' in the material form")
@@ -621,7 +621,9 @@ def main():
         
         # Seed materials (returns products_created as 4th value)
         mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
-        
+
+        db.commit()
+
         print("\n" + "=" * 60)
         print("✅ Seeding complete!")
         print("=" * 60)
