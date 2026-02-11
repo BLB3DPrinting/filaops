@@ -2,8 +2,9 @@
 Seed Example Data for FilaOps
 
 This script seeds the database with:
-1. Example items for each category (one per category)
-2. Comprehensive materials list (material types + colors)
+1. Standard units of measure (12 UOMs with correct conversion factors)
+2. Example items for each category (one per category)
+3. Comprehensive materials list (material types + colors)
 
 Run with: python -m backend.scripts.seed_example_data
 """
@@ -22,6 +23,92 @@ from app.db.session import SessionLocal
 from app.models.item_category import ItemCategory
 from app.models.product import Product
 from app.models.material import MaterialType, Color, MaterialColor
+from app.models.uom import UnitOfMeasure
+
+
+def seed_uoms(db: Session) -> int:
+    """Seed standard units of measure with correct conversion factors.
+
+    Creates 12 UOMs in 4 classes (quantity, weight, length, time).
+    Each class has a base unit (factor=1) and derived units with
+    their to_base_factor set correctly.
+
+    Ported from the retired SQL Server migration 005_units_of_measure.
+    Idempotent: skips any UOM that already exists by code.
+
+    Returns:
+        Number of UOMs created.
+    """
+    print("\nSeeding standard units of measure...")
+
+    # Base units first (no base_unit_id)
+    base_units = [
+        ("EA", "Each", "ea", "quantity"),
+        ("KG", "Kilogram", "kg", "weight"),
+        ("M", "Meter", "m", "length"),
+        ("HR", "Hour", "hr", "time"),
+    ]
+
+    created = 0
+    base_ids = {}
+
+    for code, name, symbol, uom_class in base_units:
+        existing = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == code).first()
+        if existing:
+            base_ids[code] = existing.id
+            print(f"  Skipped {code} (already exists)")
+            continue
+
+        uom = UnitOfMeasure(
+            code=code,
+            name=name,
+            symbol=symbol,
+            uom_class=uom_class,
+            base_unit_id=None,
+            to_base_factor=Decimal("1"),
+            active=True,
+        )
+        db.add(uom)
+        db.flush()
+        base_ids[code] = uom.id
+        created += 1
+        print(f"  Created base unit: {code} ({name})")
+
+    # Derived units (reference a base unit)
+    derived_units = [
+        # (code, name, symbol, class, base_code, to_base_factor)
+        ("G",   "Gram",        "g",   "weight", "KG", Decimal("0.001")),
+        ("LB",  "Pound",       "lb",  "weight", "KG", Decimal("0.453592")),
+        ("OZ",  "Ounce",       "oz",  "weight", "KG", Decimal("0.0283495")),
+        ("CM",  "Centimeter",  "cm",  "length", "M",  Decimal("0.01")),
+        ("MM",  "Millimeter",  "mm",  "length", "M",  Decimal("0.001")),
+        ("FT",  "Foot",        "ft",  "length", "M",  Decimal("0.3048")),
+        ("IN",  "Inch",        "in",  "length", "M",  Decimal("0.0254")),
+        ("MIN", "Minute",      "min", "time",   "HR", Decimal("0.01666667")),
+    ]
+
+    for code, name, symbol, uom_class, base_code, factor in derived_units:
+        existing = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == code).first()
+        if existing:
+            print(f"  Skipped {code} (already exists)")
+            continue
+
+        uom = UnitOfMeasure(
+            code=code,
+            name=name,
+            symbol=symbol,
+            uom_class=uom_class,
+            base_unit_id=base_ids.get(base_code),
+            to_base_factor=factor,
+            active=True,
+        )
+        db.add(uom)
+        created += 1
+        print(f"  Created derived unit: {code} ({name}, factor={factor})")
+
+    db.flush()
+    print(f"\n  UOM seed complete: {created} created, {12 - created} skipped")
+    return created
 
 
 def get_or_create_category(db: Session, code: str, name: str, parent_code: Optional[str] = None, sort_order: int = 0) -> ItemCategory:
@@ -49,7 +136,7 @@ def get_or_create_category(db: Session, code: str, name: str, parent_code: Optio
 
 def ensure_categories_exist(db: Session):
     """Ensure all required categories exist, create them if missing"""
-    print("\n📁 Ensuring categories exist...")
+    print("\nEnsuring categories exist...")
     
     categories_to_create = [
         # Root categories
@@ -89,7 +176,7 @@ def ensure_categories_exist(db: Session):
                     updated_at=datetime.utcnow()
                 )
                 db.add(category)
-                print(f"  ✅ Created category: {cat_data['code']}")
+                print(f"  Created category: {cat_data['code']}")
 
     db.flush()
 
@@ -110,16 +197,16 @@ def ensure_categories_exist(db: Session):
                         updated_at=datetime.utcnow()
                     )
                     db.add(category)
-                    print(f"  ✅ Created category: {cat_data['code']} (under {cat_data['parent_code']})")
+                    print(f"  Created category: {cat_data['code']} (under {cat_data['parent_code']})")
                 else:
-                    print(f"  ⚠️  Parent category {cat_data['parent_code']} not found for {cat_data['code']}")
+                    print(f"  WARNING: Parent category {cat_data['parent_code']} not found for {cat_data['code']}")
 
     db.flush()
 
 
 def seed_example_items(db: Session):
     """Seed one example item per category"""
-    print("\n📦 Seeding example items by category...")
+    print("\nSeeding example items by category...")
     
     # Ensure categories exist first
     ensure_categories_exist(db)
@@ -241,14 +328,14 @@ def seed_example_items(db: Session):
         # Check if SKU already exists
         existing = db.query(Product).filter(Product.sku == example["sku"]).first()
         if existing:
-            print(f"  ⏭️  Skipped {example['sku']} (already exists)")
+            print(f"  Skipped {example['sku']} (already exists)")
             skipped += 1
             continue
         
         # Get category (should exist after ensure_categories_exist)
         category = db.query(ItemCategory).filter(ItemCategory.code == example["category_code"]).first()
         if not category:
-            print(f"  ❌ ERROR: Category {example['category_code']} not found after ensuring categories exist!")
+            print(f"  ERROR: Category {example['category_code']} not found after ensuring categories exist!")
             print(f"     This should not happen. Skipping {example['sku']}")
             skipped += 1
             continue
@@ -270,16 +357,16 @@ def seed_example_items(db: Session):
         )
         db.add(product)
         created += 1
-        print(f"  ✅ Created {example['sku']}: {example['name']}")
+        print(f"  Created {example['sku']}: {example['name']}")
     
     db.flush()
-    print(f"\n  📊 Created {created} example items, skipped {skipped}")
+    print(f"\n  Summary: Created {created} example items, skipped {skipped}")
     return created, skipped
 
 
 def seed_materials(db: Session):
     """Seed basic materials list (material types only, no colors/products)"""
-    print("\n🎨 Seeding basic material types (colors and products should be imported via CSV)...")
+    print("\nSeeding basic material types (colors and products should be imported via CSV)...")
     
     # Basic BambuLab material types - just the types, no colors
     # Users should import their full material+color list via CSV
@@ -494,7 +581,7 @@ def seed_materials(db: Session):
     for mt_data in material_types:
         existing = db.query(MaterialType).filter(MaterialType.code == mt_data["code"]).first()
         if existing:
-            print(f"  ⏭️  Material type {mt_data['code']} already exists")
+            print(f"  Skipped material type {mt_data['code']} already exists")
             material_type_objs[mt_data["code"]] = existing
             continue
         
@@ -518,7 +605,7 @@ def seed_materials(db: Session):
         db.flush()
         material_type_objs[mt_data["code"]] = mt
         created_types += 1
-        print(f"  ✅ Created material type: {mt_data['name']}")
+        print(f"  Created material type: {mt_data['name']}")
 
     db.flush()
 
@@ -564,7 +651,7 @@ def seed_materials(db: Session):
         db.flush()
         color_objs[color_data["code"]] = color
         created_colors += 1
-        print(f"  ✅ Created color: {color_data['name']}")
+        print(f"  Created color: {color_data['name']}")
 
     db.flush()
 
@@ -601,8 +688,8 @@ def seed_materials(db: Session):
 
     db.flush()
 
-    print(f"\n  📊 Created {created_types} material types, {created_colors} colors, {created_links} material-color links")
-    print("  💡 Tip: Import additional materials via CSV or use 'Create new color' in the material form")
+    print(f"\n  Summary: Created {created_types} material types, {created_colors} colors, {created_links} material-color links")
+    print("  Tip: Import additional materials via CSV or use 'Create new color' in the material form")
 
     return created_types, created_colors, created_links, 0  # types, colors, links, products
 
@@ -625,18 +712,18 @@ def main():
         db.commit()
 
         print("\n" + "=" * 60)
-        print("✅ Seeding complete!")
+        print("Seeding complete!")
         print("=" * 60)
         print("\nSummary:")
-        print(f"  📦 Example Items: {items_created} created, {items_skipped} skipped")
-        print(f"  🎨 Materials: {mt_created} types, {colors_created} colors, {links_created} links")
-        print(f"  📦 Material Products: {mat_products_created} SKUs created (0 on-hand)")
-        print("\n💡 Tip: You can now see example items in each category!")
-        print("💡 Tip: All material+color combinations are ready - just update inventory quantities!")
-        print(f"💡 Tip: Material SKUs follow format: MAT-{'{MATERIAL_CODE}'}-{'{COLOR_CODE}'}")
+        print(f" Example Items: {items_created} created, {items_skipped} skipped")
+        print(f" Materials: {mt_created} types, {colors_created} colors, {links_created} links")
+        print(f" Material Products: {mat_products_created} SKUs created (0 on-hand)")
+        print("\nTip: You can now see example items in each category!")
+        print("Tip: All material+color combinations are ready - just update inventory quantities!")
+        print(f"Tip: Material SKUs follow format: MAT-{'{MATERIAL_CODE}'}-{'{COLOR_CODE}'}")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         db.rollback()
         raise
     finally:

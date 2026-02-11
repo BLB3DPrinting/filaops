@@ -36,7 +36,10 @@ export default function AdminUsers() {
     error,
     fetchAll: fetchUsers,
     refresh,
-  } = useCRUD("/api/v1/admin/users", { extractKey: null, immediate: false });
+  } = useCRUD("/api/v1/admin/users", {
+    extractKey: null,
+    defaultParams: { limit: "200" },
+  });
   const [filters, setFilters] = useState({
     search: "",
     role: "all",
@@ -51,12 +54,15 @@ export default function AdminUsers() {
   const [savingUser, setSavingUser] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
 
+  // Re-fetch when filters change (initial load handled by useCRUD immediate:true)
   useEffect(() => {
-    const params = { limit: "200" };
+    const params = {};
     if (filters.role !== "all") params.account_type = filters.role;
     if (filters.includeInactive) params.include_inactive = "true";
-    fetchUsers(params).catch(() => {});
-  }, [filters.role, filters.includeInactive, fetchUsers]);
+    if (Object.keys(params).length > 0) {
+      fetchUsers(params).catch(() => {});
+    }
+  }, [filters.role, filters.includeInactive]);
 
   const filteredUsers = users.filter((user) => {
     if (!filters.search) return true;

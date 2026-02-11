@@ -162,6 +162,7 @@ def create_initial_admin(
 class SeedDataResponse(BaseModel):
     """Response after seeding example data"""
     message: str
+    uoms_created: int = 0
     items_created: int
     items_skipped: int
     materials_created: int

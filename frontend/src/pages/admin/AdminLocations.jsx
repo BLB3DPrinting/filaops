@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "../../components/Toast";
 import { useCRUD } from "../../hooks/useCRUD";
 import { Badge, Button, Input, Select } from "../../components/ui";
@@ -91,7 +91,7 @@ export default function AdminLocations() {
   };
 
   // Refetch when includeInactive changes
-  useState(() => { refetch(); });
+  useEffect(() => { refetch(); }, [includeInactive]);
 
   const handleSave = async (locationData) => {
     try {

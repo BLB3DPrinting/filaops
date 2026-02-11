@@ -21,8 +21,17 @@ export function useCRUD(endpoint, options = {}) {
   const [loading, setLoading] = useState(immediate);
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
+  const didFetchRef = useRef(false);
+
+  // Keep latest values in refs so fetchAll closure doesn't go stale
+  // but also doesn't cause re-creation on every render.
+  const defaultParamsRef = useRef(defaultParams);
+  defaultParamsRef.current = defaultParams;
+  const extractKeyRef = useRef(extractKey);
+  extractKeyRef.current = extractKey;
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
@@ -30,18 +39,19 @@ export function useCRUD(endpoint, options = {}) {
     setLoading(true);
     setError(null);
     try {
-      const merged = { ...defaultParams, ...params };
+      const merged = { ...defaultParamsRef.current, ...params };
       const qs = Object.keys(merged).length
         ? "?" + new URLSearchParams(merged).toString()
         : "";
       const data = await api.get(`${endpoint}${qs}`);
       if (!mountedRef.current) return data;
 
+      const key = extractKeyRef.current;
       let result;
       if (Array.isArray(data)) {
         result = data;
-      } else if (extractKey && data?.[extractKey]) {
-        result = data[extractKey];
+      } else if (key && data?.[key]) {
+        result = data[key];
       } else {
         result = Array.isArray(data) ? data : [];
       }
@@ -53,7 +63,7 @@ export function useCRUD(endpoint, options = {}) {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [api, endpoint, defaultParams, extractKey]);
+  }, [api, endpoint]);
 
   const create = useCallback(async (body) => {
     const data = await api.post(endpoint, body);
@@ -74,8 +84,10 @@ export function useCRUD(endpoint, options = {}) {
   // Convenience: refetch with last params
   const refresh = useCallback(() => fetchAll(), [fetchAll]);
 
+  // Initial fetch — fires once on mount, not on every fetchAll identity change.
   useEffect(() => {
-    if (immediate) {
+    if (immediate && !didFetchRef.current) {
+      didFetchRef.current = true;
       fetchAll().catch(() => {});
     }
   }, [immediate, fetchAll]);
