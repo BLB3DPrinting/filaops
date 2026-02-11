@@ -6,16 +6,17 @@ This endpoint is disabled once any user has been created.
 """
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
-import sys
 
 from app.db.session import get_db
 from app.models.user import User
 from app.core.security import hash_password, create_access_token, validate_password_strength, set_auth_cookies
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.api.v1.deps import get_current_admin_user
+from app.services import seed_service
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -68,7 +69,9 @@ def get_setup_status(db: Session = Depends(get_db)):
 
 
 @router.post("/initial-admin")
+@limiter.limit("3/minute")  # type: ignore
 def create_initial_admin(
+    request: Request,
     admin_data: InitialAdminCreate,
     response: Response,
     db: Session = Depends(get_db),
@@ -168,7 +171,9 @@ class SeedDataResponse(BaseModel):
 
 
 @router.post("/seed-example-data", response_model=SeedDataResponse)
-def seed_example_data(
+@limiter.limit("3/minute")  # type: ignore
+def seed_example_data_endpoint(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
@@ -177,6 +182,7 @@ def seed_example_data(
 
     Requires admin authentication. Only allowed on fresh installations
     (1 user or fewer) to prevent accidental data pollution.
+    All seed operations run in a single atomic transaction.
     """
     user_count = db.query(User).count()
     if user_count > 1:
@@ -185,59 +191,5 @@ def seed_example_data(
             detail="Seeding only allowed on fresh installations"
         )
 
-    try:
-        # Import seed functions directly from the script
-        # Use absolute import path
-        from pathlib import Path
-        
-        # Add backend to path if needed
-        backend_path = Path(__file__).parent.parent.parent.parent
-        if str(backend_path) not in sys.path:
-            sys.path.insert(0, str(backend_path))
-        
-        from scripts.seed_example_data import seed_example_items, seed_materials
-        
-        # Run seed functions with error handling
-        try:
-            items_created, items_skipped = seed_example_items(db)
-        except Exception:
-            db.rollback()
-            logger.error("Failed to seed example items", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to seed example items. Check server logs for details."
-            )
-        
-        try:
-            mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
-        except Exception:
-            db.rollback()
-            logger.error("Failed to seed materials", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to seed materials. Check server logs for details."
-            )
-        
-        return SeedDataResponse(
-            message="Example data seeded successfully!",
-            items_created=items_created,
-            items_skipped=items_skipped,
-            materials_created=mt_created,
-            colors_created=colors_created,
-            links_created=links_created,
-            material_products_created=mat_products_created
-        )
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except ImportError:
-        logger.error("Seed script import failed", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="Seed script not found. Please ensure backend/scripts/seed_example_data.py exists."
-        )
-    except Exception:
-        logger.error("Failed to seed example data", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to seed example data. Check server logs for details."
-        )
+    result = seed_service.seed_example_data(db)
+    return SeedDataResponse(message="Example data seeded successfully!", **result)
