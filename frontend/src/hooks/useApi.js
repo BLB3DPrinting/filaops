@@ -18,7 +18,7 @@ function getClient() {
       onUnauthorized: () => {
         // Redirect to login on 401
         if (!window.location.pathname.includes("/login")) {
-          window.location.href = "/login";
+          window.location.href = "/admin/login";
         }
       },
     });

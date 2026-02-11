@@ -53,7 +53,7 @@ export default function AdminSpools() {
 
   const fetchLocations = async () => {
     try {
-      const data = await api.get("/api/v1/inventory/locations");
+      const data = await api.get("/api/v1/admin/locations/");
       setLocations(data.items || data || []);
     } catch (err) {
       console.error("Failed to fetch locations:", err);
