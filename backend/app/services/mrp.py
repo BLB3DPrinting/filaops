@@ -778,9 +778,13 @@ class MRPService:
         if include_draft:
             statuses.append("draft")
 
+        from sqlalchemy import or_
         return self.db.query(ProductionOrder).filter(
             ProductionOrder.status.in_(statuses),
-            ProductionOrder.due_date <= horizon_date if ProductionOrder.due_date else True
+            or_(
+                ProductionOrder.due_date <= horizon_date,
+                ProductionOrder.due_date.is_(None)
+            )
         ).all()
 
     def _get_inventory_levels(

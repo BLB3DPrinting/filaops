@@ -241,7 +241,7 @@ class Settings(BaseSettings):
     # ===================
     # MRP Settings (safe defaults)
     # ===================
-    INCLUDE_SALES_ORDERS_IN_MRP: bool = False
+    INCLUDE_SALES_ORDERS_IN_MRP: bool = True
     AUTO_MRP_ON_ORDER_CREATE: bool = False
     AUTO_MRP_ON_SHIPMENT: bool = False
     AUTO_MRP_ON_CONFIRMATION: bool = False
