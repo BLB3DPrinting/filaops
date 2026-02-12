@@ -1,31 +1,22 @@
 # FilaOps
 
-Open-source ERP for 3D print farm operations. Manage inventory, production orders, BOMs, MRP, sales orders, purchasing, and GL accounting in one system built for additive manufacturing.
+[![CI](https://github.com/Blb3D/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/Blb3D/filaops/actions/workflows/filaops-ci.yml)
+[![CodeQL](https://github.com/Blb3D/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/Blb3D/filaops/actions/workflows/codeql.yml)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/Blb3D/filaops)](https://github.com/Blb3D/filaops/releases/latest)
 
-## Prerequisites
+Open-source ERP for 3D print farms. Manage inventory, production, sales, purchasing, MRP, and accounting in one system built specifically for additive manufacturing.
 
-- **Python** 3.11+
-- **Node.js** 18+ (with npm)
-- **PostgreSQL** 16+
-- **Docker** (optional, for containerized deployment)
+**[Documentation](https://blb3d.github.io/filaops/)** | **[Release Notes](https://github.com/Blb3D/filaops/releases/latest)**
 
 ## Quick Start (Docker)
 
-The fastest way to get FilaOps running:
-
 ```bash
-# Clone the repository
 git clone https://github.com/Blb3D/filaops.git
 cd filaops
-
-# Start all services (DB, backend, frontend)
 docker compose up -d
-
-# Open http://localhost in your browser
-# Create your admin account on first visit
+# Open http://localhost — create your admin account on first visit
 ```
-
-To customize settings, copy `.env.example` to `.env` and edit before starting.
 
 ## Quick Start (Manual)
 
@@ -34,11 +25,8 @@ To customize settings, copy `.env.example` to `.env` and edit before starting.
 ```bash
 cd backend
 python -m venv venv
-# Windows
-.\venv\Scripts\Activate
-# Linux/Mac
-source venv/bin/activate
-
+# Windows: .\venv\Scripts\Activate
+# Linux/Mac: source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # Edit with your database credentials
 alembic upgrade head
@@ -55,7 +43,13 @@ npm run dev
 
 ### Database
 
-FilaOps requires PostgreSQL 16+. Create a database and configure `backend/.env`:
+FilaOps requires PostgreSQL 16+. Configure `backend/.env`:
+
+```ini
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/filaops
+```
+
+Or use individual variables:
 
 ```ini
 DB_HOST=localhost
@@ -65,26 +59,74 @@ DB_USER=postgres
 DB_PASSWORD=your_password
 ```
 
-Or use a full connection string:
-
-```ini
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/filaops
-```
-
 ## Features
 
 37 core features across 8 modules:
 
-- **Sales** - Quotes, sales orders, fulfillment tracking, blocking issues
-- **Inventory** - Multi-location tracking, transactions, cycle counting, spool management
-- **Manufacturing** - Production orders, BOMs, routings, work centers, scrap tracking
-- **Purchasing** - Purchase orders, receiving, vendor management
-- **MRP** - Demand calculation, supply netting, planned order generation
-- **Accounting** - Chart of accounts, journal entries, GL reporting, period close
-- **Traceability** - Lot tracking, serial numbers, material consumption history
-- **Printing** - MQTT printer monitoring, print job tracking, resource scheduling
+### Sales & Customers
 
-See [Feature Catalog](docs/FEATURE-CATALOG.md) for the complete list.
+- Quotes with material cost rollup
+- Sales orders with fulfillment tracking
+- Customer management and traceability profiles
+- Payment tracking
+
+### Inventory & Warehouse
+
+- Multi-location inventory with transactions
+- Spool management (filament tracking by weight)
+- Cycle counting and inventory adjustments
+- Low stock alerts with MRP-driven shortage detection
+- Negative inventory approval workflow
+
+### Manufacturing
+
+- Production orders (draft > released > in progress > complete)
+- Bill of Materials with multi-level cost rollup
+- Routings and work centers
+- Machine overhead and scrap tracking
+
+### Purchasing
+
+- Purchase orders with receiving workflow
+- Vendor management
+- Quick reorder from low stock alerts
+
+### MRP (Material Requirements Planning)
+
+- Demand calculation from sales orders and production
+- Supply netting against on-hand inventory
+- Planned order generation for shortages
+- Auto-trigger on order creation
+
+### Accounting
+
+- Chart of accounts and journal entries
+- GL reporting and trial balance
+- Period close
+
+### Operations
+
+- Command center dashboard
+- Security audit
+- Analytics
+- Maintenance scheduling
+- UOM conversions (12 standard units)
+
+### System
+
+- Multi-user with role-based access
+- REST API (382 endpoints)
+- Shipping and order event tracking
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Backend | FastAPI, Python 3.11+, SQLAlchemy 2.0, Alembic |
+| Frontend | React, Vite, Tailwind CSS |
+| Database | PostgreSQL 16+ |
+| Auth | httpOnly cookie-based JWT |
+| Deployment | Docker Compose (nginx + uvicorn) |
 
 ## Project Structure
 
@@ -93,54 +135,64 @@ backend/
   app/
     api/v1/endpoints/   # FastAPI route handlers
     models/             # SQLAlchemy models
-    services/           # Business logic
+    services/           # 20 focused service modules
     core/               # Config, security, UOM
   alembic/              # Database migrations
-  tests/                # pytest unit + integration tests
+  tests/                # 71 test files, 80%+ coverage
 frontend/
   src/
-    components/         # React components
-    pages/              # Page-level views
-    services/           # API client
+    components/         # Shared UI components + Storybook
+    hooks/              # useApi, useCRUD
+    pages/admin/        # Admin page views
 ```
 
 ## Testing
 
 ```bash
-cd backend
-pytest tests/ -v
+# Backend (71 test files, 80%+ coverage)
+cd backend && pytest tests/ -v
+
+# Frontend component tests
+cd frontend && npm test
 ```
 
 ## Troubleshooting
 
-**Frontend can't connect to backend**
+### Frontend can't connect to backend
+
 - Ensure `VITE_API_URL` matches the backend URL (default: `http://localhost:8000`)
-- If accessing remotely, set `VITE_API_URL=http://<server-ip>:8000` and rebuild the frontend
-- Check that CORS is configured: set `ALLOWED_ORIGINS` in `backend/.env`
+- If accessing remotely, set `VITE_API_URL=http://<server-ip>:8000` and rebuild
+- Check CORS: set `ALLOWED_ORIGINS` in `backend/.env`
 
-**Database connection errors**
+### Database connection errors
+
 - Verify PostgreSQL is running: `pg_isready -h localhost -p 5432`
-- Check credentials in `backend/.env` match your PostgreSQL setup
-- Ensure the database exists: `createdb filaops`
+- Check credentials in `backend/.env`
+- Create the database if needed: `createdb filaops`
 
-**Migration errors**
-- Run `alembic upgrade head` from the `backend/` directory
-- If migrations fail, check `alembic/versions/` for the latest revision
+### Migration errors
+
+- Run `alembic upgrade head` from `backend/`
 - For a fresh start: drop and recreate the database, then re-run migrations
 
-**Docker issues**
-- If containers fail to start, check logs: `docker compose logs backend`
-- Ensure ports 80, 8000, and 5432 are not already in use
-- On first run, the migrate container must complete before the backend starts
+### Docker issues
+
+- Check logs: `docker compose logs backend`
+- Ensure ports 80, 8000, and 5432 are available
+- The migrate container must complete before the backend starts
 
 ## Documentation
 
-- [User Guide](docs/user-guide/index.md) — Module-by-module usage guide
-- [Feature Catalog](docs/FEATURE-CATALOG.md) — Complete feature list
-- [Schema Reference](docs/SCHEMA-REFERENCE.md) — Database model documentation
-- [Migration Safety](docs/MIGRATION-SAFETY.md) — Pre-deployment checklist and rollback procedures
+- **[Full Documentation](https://blb3d.github.io/filaops/)** — Deployment, configuration, and API reference
+- [User Guide](docs/user-guide/index.md) — Module-by-module usage
 - [Contributing](CONTRIBUTING.md) — Development setup and PR guidelines
+
+## FilaOps PRO
+
+Need B2B wholesale portals, advanced reporting, Shopify/QuickBooks integrations, or AI-powered scheduling? **FilaOps PRO** adds enterprise features on top of the same codebase — no migration, no separate install.
+
+Coming soon at [blb3dprinting.com](https://blb3dprinting.com)
 
 ## License
 
-[Business Source License 1.1](LICENSE) - Free for non-competing use. Converts to Apache 2.0 on December 5, 2029.
+[Business Source License 1.1](LICENSE) — Free for non-competing use. Converts to Apache 2.0 on December 5, 2029.
