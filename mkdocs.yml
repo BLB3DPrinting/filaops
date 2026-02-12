@@ -1,0 +1,116 @@
+site_name: FilaOps Documentation
+site_url: https://docs.blb3dprinting.com
+site_description: Documentation for FilaOps — open-source ERP for 3D print farm operations
+site_author: BLB3D Labs
+repo_url: https://github.com/Blb3D/filaops
+repo_name: Blb3D/filaops
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/printer-3d-nozzle
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - toc.follow
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.mark
+  - pymdownx.keys
+  - tables
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Blb3D/filaops
+  generator: false
+
+copyright: Copyright &copy; 2025-2026 BLB3D Labs — Licensed under BSL 1.1
+
+nav:
+  - Home: index.md
+
+  - User Guide:
+    - user-guide/index.md
+    - Getting Started: user-guide/getting-started.md
+    - Sales & Quotes: user-guide/sales-and-quotes.md
+    - Inventory Management: user-guide/inventory-management.md
+    - Manufacturing: user-guide/manufacturing.md
+    - Purchasing: user-guide/purchasing.md
+    - MRP: user-guide/mrp.md
+    - Printers & Fleet: user-guide/printers-and-fleet.md
+    - Accounting: user-guide/accounting-module.md
+    - Settings & Admin: user-guide/settings-and-admin.md
+
+  - Deployment:
+    - deployment/index.md
+    - Docker Compose: DEPLOYMENT.md
+    - Email Setup: EMAIL_CONFIGURATION.md
+    - Backup & Recovery: BACKUP-AND-RECOVERY.md
+    - Migration Safety: MIGRATION-SAFETY.md
+    - Rollback: ROLLBACK.md
+    - Versioning: VERSIONING.md
+
+  - Developer Reference:
+    - reference/index.md
+    - API Reference: API-REFERENCE.md
+    - API Conventions: API-CONVENTIONS.md
+    - Database Schema: SCHEMA-REFERENCE.md
+    - UI Components: UI-COMPONENTS.md
+    - Feature Catalog: FEATURE-CATALOG.md
+    - Migrations Log: MIGRATIONS-LOG.md

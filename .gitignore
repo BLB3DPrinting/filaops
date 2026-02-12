@@ -104,7 +104,7 @@ uploads/*
 
 # Testing
 /playwright-report/
-/test-results/
+**/test-results/
 /coverage/
 .nyc_output/
 
@@ -148,3 +148,9 @@ tables_output.txt
 .claude/reviews/
 .claude/skills/review-council*
 *-review-log.txt
+
+# MkDocs build output
+site/
+
+# SME domain test suite (dev-only)
+frontend/tests/sme/
