@@ -20,7 +20,10 @@ export default function AdminCustomers() {
     error,
     fetchAll: fetchCustomers,
     refresh,
-  } = useCRUD("/api/v1/admin/customers", { extractKey: null, immediate: false });
+  } = useCRUD("/api/v1/admin/customers", {
+    extractKey: null,
+    defaultParams: { limit: "200" },
+  });
   const [filters, setFilters] = useState({
     search: "",
     status: "all",
@@ -50,11 +53,12 @@ export default function AdminCustomers() {
     }
   }, [searchParams, setSearchParams]);
 
+  // Re-fetch when status filter changes (initial load handled by useCRUD immediate:true)
   useEffect(() => {
-    const params = { limit: "200" };
-    if (filters.status !== "all") params.status = filters.status;
-    fetchCustomers(params).catch(() => {});
-  }, [filters.status, fetchCustomers]);
+    if (filters.status !== "all") {
+      fetchCustomers({ status: filters.status }).catch(() => {});
+    }
+  }, [filters.status]);
 
   const filteredCustomers = customers.filter((customer) => {
     if (!filters.search) return true;

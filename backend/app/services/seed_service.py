@@ -7,7 +7,7 @@ Wraps script functions in a single atomic transaction (#290).
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
-from scripts.seed_example_data import seed_example_items, seed_materials
+from scripts.seed_example_data import seed_uoms, seed_example_items, seed_materials
 
 logger = get_logger(__name__)
 
@@ -24,6 +24,7 @@ def seed_example_data(db: Session) -> dict:
     """
     savepoint = db.begin_nested()
     try:
+        uoms_created = seed_uoms(db)
         items_created, items_skipped = seed_example_items(db)
         mt_created, colors_created, links_created, mat_products_created = seed_materials(db)
         savepoint.commit()
@@ -34,10 +35,11 @@ def seed_example_data(db: Session) -> dict:
         raise
 
     logger.info(
-        "Seed complete: %d items created, %d skipped, %d materials, %d colors, %d links",
-        items_created, items_skipped, mt_created, colors_created, links_created,
+        "Seed complete: %d UOMs, %d items created, %d skipped, %d materials, %d colors, %d links",
+        uoms_created, items_created, items_skipped, mt_created, colors_created, links_created,
     )
     return {
+        "uoms_created": uoms_created,
         "items_created": items_created,
         "items_skipped": items_skipped,
         "materials_created": mt_created,
