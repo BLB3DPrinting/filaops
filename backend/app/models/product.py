@@ -93,7 +93,7 @@ class Product(Base):
     # Visibility & Sales Channels
     is_public = Column(Boolean, default=True)  # Show on public storefront?
     sales_channel = Column(String(20), default='public')  # 'public' | 'b2b' | 'internal'
-    customer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)  # Restrict to specific customer (B2B)
+    customer_id = Column(Integer, ForeignKey('customers.id', ondelete='SET NULL'), nullable=True, index=True)  # Restrict to specific customer (B2B)
 
     # Flags
     is_raw_material = Column(Boolean, default=False)

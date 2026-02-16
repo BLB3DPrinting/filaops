@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = Field(
         default=None, description="Full database URL (overrides DB_* settings)"
     )
+    DB_POOL_SIZE: int = Field(default=5, description="SQLAlchemy connection pool size")
+    DB_MAX_OVERFLOW: int = Field(default=10, description="Max connections above pool_size")
 
     @property
     def database_url(self) -> str:

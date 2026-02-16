@@ -24,6 +24,8 @@ engine = create_engine(
     echo=False,  # Set to True for SQL query logging
     pool_pre_ping=True,  # Verify connections before using
     pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
     connect_args={"options": "-c timezone=utc"},
 )
 
