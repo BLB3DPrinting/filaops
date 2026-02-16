@@ -510,14 +510,20 @@ async def bulk_update_items(
     current_user: User = Depends(get_current_user),
 ):
     """Bulk update multiple items at once"""
-    return item_service.bulk_update_items(
-        db,
-        item_ids=request.item_ids,
-        category_id=request.category_id,
-        item_type=request.item_type.value if request.item_type and hasattr(request.item_type, "value") else request.item_type,
-        procurement_type=request.procurement_type.value if request.procurement_type and hasattr(request.procurement_type, "value") else request.procurement_type,
-        is_active=request.is_active,
-    )
+    try:
+        return item_service.bulk_update_items(
+            db,
+            item_ids=request.item_ids,
+            category_id=request.category_id,
+            item_type=request.item_type.value if request.item_type and hasattr(request.item_type, "value") else request.item_type,
+            procurement_type=request.procurement_type.value if request.procurement_type and hasattr(request.procurement_type, "value") else request.procurement_type,
+            is_active=request.is_active,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("Bulk update failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Bulk update failed. Check server logs for details.")
 
 
 # ============================================================================

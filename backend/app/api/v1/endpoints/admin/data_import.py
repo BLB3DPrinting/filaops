@@ -3,6 +3,8 @@ Import functionality for products, inventory
 
 Business logic lives in ``app.services.data_import_service``.
 """
+import logging
+
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,8 @@ from app.api.v1.deps import get_current_staff_user
 from app.core.limiter import limiter
 from app.models.user import User
 from app.services import data_import_service as svc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -51,7 +55,13 @@ async def import_products(
 ):
     """Import products from CSV."""
     text = await _read_csv_upload(file)
-    return svc.import_products(db, text)
+    try:
+        return svc.import_products(db, text)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("Product import failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Product import failed. Check server logs for details.")
 
 
 @router.post("/inventory")
@@ -72,4 +82,10 @@ async def import_inventory(
     - Mode: 'set' to set quantity, 'add' to add to existing (default: set)
     """
     text = await _read_csv_upload(file)
-    return svc.import_inventory(db, text)
+    try:
+        return svc.import_inventory(db, text)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("Inventory import failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Inventory import failed. Check server logs for details.")

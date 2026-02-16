@@ -115,7 +115,6 @@ async def create_customer(
             "customer_number": result["customer_number"],
             "customer_id": result["id"],
             "admin_id": current_admin.id,
-            "admin_email": current_admin.email,
         }
     )
 
@@ -146,7 +145,6 @@ async def update_customer(
             "customer_number": result["customer_number"],
             "customer_id": customer_id,
             "admin_id": current_admin.id,
-            "admin_email": current_admin.email,
         }
     )
 
@@ -324,6 +322,6 @@ async def import_customers(
 
     try:
         return svc.import_customers(db, text, current_admin.id)
-    except Exception as e:
-        logger.error(f"Customer import failed: {e}")
+    except Exception:
+        logger.error("Customer import failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Customer import failed. Check server logs for details.")
