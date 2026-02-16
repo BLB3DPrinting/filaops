@@ -205,10 +205,17 @@ def find_next_available_slot(
         # No scheduled ops - can start immediately
         return after
 
+    # DB columns are TIMESTAMP WITHOUT TIME ZONE, so values come back naive.
+    # Treat them as UTC to allow arithmetic with tz-aware `after`.
+    def _as_utc(dt):
+        if dt is not None and dt.tzinfo is None and after.tzinfo is not None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
     # Check if there's a gap before the first scheduled op
     first_op = scheduled_ops[0]
     if first_op.scheduled_start:
-        gap_before_first = (first_op.scheduled_start - after).total_seconds() / 60
+        gap_before_first = (_as_utc(first_op.scheduled_start) - after).total_seconds() / 60
         if gap_before_first >= duration_minutes:
             return after
 
@@ -218,15 +225,15 @@ def find_next_available_slot(
         next_op = scheduled_ops[i + 1]
 
         if current_op.scheduled_end and next_op.scheduled_start:
-            gap_start = current_op.scheduled_end
-            gap_duration = (next_op.scheduled_start - gap_start).total_seconds() / 60
+            gap_start = _as_utc(current_op.scheduled_end)
+            gap_duration = (_as_utc(next_op.scheduled_start) - gap_start).total_seconds() / 60
             if gap_duration >= duration_minutes:
                 return max(gap_start, after)
 
     # No gap found - schedule after the last operation
     last_op = scheduled_ops[-1]
     if last_op.scheduled_end:
-        return max(last_op.scheduled_end, after)
+        return max(_as_utc(last_op.scheduled_end), after)
 
     # Fallback: start 1 hour from now
     return after + timedelta(hours=1)

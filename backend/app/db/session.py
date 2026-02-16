@@ -17,11 +17,14 @@ connection_string = settings.database_url
 logger.info(f"Database connection: {settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME} (PostgreSQL)")
 
 # Create engine
+# Set session timezone to UTC so TIMESTAMP WITHOUT TIME ZONE columns behave
+# consistently regardless of the server's or OS's local timezone setting.
 engine = create_engine(
     connection_string,
     echo=False,  # Set to True for SQL query logging
     pool_pre_ping=True,  # Verify connections before using
     pool_recycle=3600,  # Recycle connections after 1 hour
+    connect_args={"options": "-c timezone=utc"},
 )
 
 # Create session factory
