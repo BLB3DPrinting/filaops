@@ -17,7 +17,7 @@ python-dateutil==2.9.0.post0
 httpx==0.28.1
 requests==2.32.4
 semver==3.0.4
-reportlab==4.4.9
+reportlab==4.4.10
 sentry-sdk[fastapi]>=1.29.0
 
 # AI Invoice Parsing is a PRO feature (anthropic, pypdf)
