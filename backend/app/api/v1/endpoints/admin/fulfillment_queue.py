@@ -11,8 +11,11 @@ Handles production queue management:
 
 Split from fulfillment.py — shipping endpoints are in fulfillment_shipping.py.
 """
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -1296,7 +1299,8 @@ async def bulk_update_status(
 
             updated.append({"id": po_id, "code": po.code, "old_status": old_status, "new_status": request.new_status})
         except Exception as e:
-            errors.append({"id": po_id, "error": str(e)})
+            logger.error(f"Bulk update failed for production order {po_id}: {e}")
+            errors.append({"id": po_id, "error": "Update failed"})
 
     db.commit()
 

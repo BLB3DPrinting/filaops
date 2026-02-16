@@ -322,4 +322,8 @@ async def import_customers(
     if text.startswith('\ufeff'):
         text = text[1:]
 
-    return svc.import_customers(db, text, current_admin.id)
+    try:
+        return svc.import_customers(db, text, current_admin.id)
+    except Exception as e:
+        logger.error(f"Customer import failed: {e}")
+        raise HTTPException(status_code=500, detail="Customer import failed. Check server logs for details.")

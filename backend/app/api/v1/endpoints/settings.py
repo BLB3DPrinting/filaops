@@ -366,7 +366,8 @@ def _test_anthropic_connection(api_key: str) -> tuple[bool, str]:
     except ImportError:
         return False, "anthropic package not installed"
     except Exception as e:
-        return False, str(e)
+        logger.error(f"Anthropic connection test failed: {e}")
+        return False, "Connection test failed"
 
 
 def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
@@ -391,7 +392,8 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
     except requests.exceptions.Timeout:
         return False, "Connection timed out"
     except Exception as e:
-        return False, str(e)
+        logger.error(f"Ollama connection test failed: {e}")
+        return False, "Connection test failed"
 
 
 @router.get("/ai", response_model=AISettingsResponse)
@@ -608,7 +610,7 @@ async def start_ollama(
         logger.error(f"Failed to start Ollama: {e}")
         return {
             "success": False,
-            "message": f"Could not start Ollama: {str(e)}"
+            "message": "Could not start Ollama. Check logs for details."
         }
 
 

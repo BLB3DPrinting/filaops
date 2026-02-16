@@ -300,7 +300,7 @@ async def get_security_status(
         logger.error(f"Failed to get security status: {e}")
         return {
             "status": "error",
-            "message": f"Could not check security status: {str(e)}",
+            "message": "Could not check security status. Check server logs for details.",
             "summary": None,
             "checked_at": datetime.now().isoformat()
         }
