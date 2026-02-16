@@ -13,30 +13,29 @@ Split from fulfillment.py — shipping endpoints are in fulfillment_shipping.py.
 """
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, or_
 from pydantic import BaseModel
+from sqlalchemy import desc, func, or_
+from sqlalchemy.orm import Session
 
-from app.db.session import get_db
-from app.models.user import User
-from app.models.quote import Quote
-from app.models.sales_order import SalesOrder
-from app.models.production_order import ProductionOrder
-from app.models.print_job import PrintJob
-from app.models.product import Product
-from app.models.bom import BOM
-from app.models.printer import Printer
-from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
-# MaterialInventory removed - using unified Inventory table (Phase 1.4)
-from app.services.transaction_service import TransactionService, MaterialConsumption
 from app.api.v1.deps import get_current_staff_user
 from app.core.settings import settings
+from app.db.session import get_db
+from app.models.bom import BOM
+from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
+from app.models.print_job import PrintJob
+from app.models.printer import Printer
+from app.models.product import Product
+from app.models.production_order import ProductionOrder
+from app.models.quote import Quote
+from app.models.sales_order import SalesOrder
+from app.models.user import User
+from app.services.transaction_service import TransactionService, MaterialConsumption
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fulfillment", tags=["Admin - Fulfillment Queue"])
 
