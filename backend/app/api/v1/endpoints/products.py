@@ -116,7 +116,7 @@ async def list_products(
 
         return ProductListResponse(
             total=total,
-            items=[ProductResponse.from_orm(p) for p in products]
+            items=[ProductResponse.model_validate(p) for p in products]
         )
 
     except Exception as e:
@@ -131,7 +131,7 @@ async def get_product(
 ):
     """Get a specific product by ID"""
     product = product_service.get_product(db, id)
-    return ProductResponse.from_orm(product)
+    return ProductResponse.model_validate(product)
 
 @router.get("/sku/{sku}", response_model=ProductResponse)
 async def get_product_by_sku(
@@ -141,7 +141,7 @@ async def get_product_by_sku(
 ):
     """Get a specific product by SKU"""
     product = product_service.get_product_by_sku(db, sku)
-    return ProductResponse.from_orm(product)
+    return ProductResponse.model_validate(product)
 
 
 @router.post("", response_model=ProductResponse)
@@ -153,7 +153,7 @@ async def create_product(
     """Create a new product"""
     try:
         product = product_service.create_product(db, data=request.model_dump())
-        return ProductResponse.from_orm(product)
+        return ProductResponse.model_validate(product)
 
     except HTTPException:
         raise
@@ -175,7 +175,7 @@ async def update_product(
         product = product_service.update_product(
             db, id, data=request.model_dump(exclude_unset=True)
         )
-        return ProductResponse.from_orm(product)
+        return ProductResponse.model_validate(product)
 
     except HTTPException:
         raise
