@@ -63,7 +63,7 @@
     "@storybook/addon-vitest": "^10.2.8",
     "@storybook/addon-a11y": "^10.2.7",
     "@storybook/addon-docs": "^10.2.7",
-    "@storybook/addon-onboarding": "^10.2.7",
+    "@storybook/addon-onboarding": "^10.2.10",
     "prop-types": "^15.8.1",
     "eslint-plugin-storybook": "^10.2.7",
     "playwright": "^1.58.2",
