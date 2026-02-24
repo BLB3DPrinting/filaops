@@ -383,7 +383,7 @@ async def get_dashboard_summary(
     # 2. Get MRP shortages via single-level BOM SQL (replaces per-order explosion loop)
     from app.models.sales_order import SalesOrderLine
     from app.models.bom import BOMLine
-    from sqlalchemy import union_all, literal_column
+    from sqlalchemy import union_all
 
     # Aggregate demand per finished-good from BOTH order types:
     #   line_item orders  → demand on SalesOrderLine.product_id
