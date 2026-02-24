@@ -1,4 +1,4 @@
-import { test as baseTest, expect, Page } from '@playwright/test';
+import { test as baseTest, expect, Page, BrowserContext } from '@playwright/test';
 import * as fs from 'fs';
 
 /**
@@ -27,9 +27,10 @@ const DEV_PASSWORD = 'FilaOps2026!';
 const SCREENSHOT_DIR = 'docs/screenshots/walkthrough';
 const API_BASE = 'http://localhost:8000';
 
-// Test customer we'll create via the UI
+// Test customer we'll create via the UI (unique email per run)
+const RUN_ID = Date.now().toString().slice(-6);
 const NEW_CUSTOMER = {
-  email: 'alex@storybookdemo.com',
+  email: `alex+${RUN_ID}@storybookdemo.com`,
   firstName: 'Alex',
   lastName: 'Rivera',
   company: 'Storybook Demo Co.',
@@ -122,9 +123,10 @@ const test = baseTest;
 
 test.describe.serial('Customer Walkthrough', () => {
   let page: Page;
+  let context: BrowserContext;
 
   test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext({
+    context = await browser.newContext({
       baseURL: process.env.BASE_URL || 'http://localhost:5173',
     });
     page = await context.newPage();
@@ -142,6 +144,7 @@ test.describe.serial('Customer Walkthrough', () => {
 
   test.afterAll(async () => {
     await page.close();
+    await context.close();
   });
 
   // ── 01: Dashboard ──────────────────────────────────────────────────────

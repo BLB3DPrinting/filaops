@@ -232,26 +232,21 @@ def seed_locations(db: Session):
     """Warehouse → shelves → bins hierarchy."""
     from app.models.inventory import InventoryLocation
 
-    wh = InventoryLocation(id=1, name="Main Warehouse", code="WH-MAIN", type="warehouse", active=True)
+    wh = InventoryLocation(name="Main Warehouse", code="WH-MAIN", type="warehouse", active=True)
     db.add(wh)
     db.flush()
 
     shelves = [
-        InventoryLocation(name="Raw Materials", code="WH-MAIN-RAW", type="shelf", parent_id=1, active=True),
-        InventoryLocation(name="Finished Goods", code="WH-MAIN-FG", type="shelf", parent_id=1, active=True),
-        InventoryLocation(name="Packaging & Supplies", code="WH-MAIN-PKG", type="shelf", parent_id=1, active=True),
+        InventoryLocation(name="Raw Materials", code="WH-MAIN-RAW", type="shelf", parent_id=wh.id, active=True),
+        InventoryLocation(name="Finished Goods", code="WH-MAIN-FG", type="shelf", parent_id=wh.id, active=True),
+        InventoryLocation(name="Packaging & Supplies", code="WH-MAIN-PKG", type="shelf", parent_id=wh.id, active=True),
     ]
     for s in shelves:
         db.add(s)
     db.flush()
 
-    # Reset sequence
-    db.execute(text(
-        "SELECT setval(pg_get_serial_sequence('inventory_locations', 'id'), "
-        "COALESCE((SELECT MAX(id) FROM inventory_locations), 1))"
-    ))
     print("  Locations: 4 created (1 warehouse + 3 shelves)")
-    return {"warehouse": 1}
+    return {"warehouse": wh.id}
 
 
 def seed_admin_user(db: Session):
@@ -260,7 +255,6 @@ def seed_admin_user(db: Session):
     from app.core.security import hash_password
 
     admin = User(
-        id=1,
         email="admin@filaops.dev",
         password_hash=hash_password("FilaOps2026!"),
         first_name="Admin",
@@ -271,10 +265,6 @@ def seed_admin_user(db: Session):
     )
     db.add(admin)
     db.flush()
-    db.execute(text(
-        "SELECT setval(pg_get_serial_sequence('users', 'id'), "
-        "COALESCE((SELECT MAX(id) FROM users), 1))"
-    ))
     print("  Admin user: admin@filaops.dev / FilaOps2026!")
     return admin
 
@@ -713,7 +703,7 @@ def seed_work_centers_and_resources(db: Session):
 
     # FDM Printing work center
     wc_fdm = WorkCenter(
-        id=1, code="WC-FDM", name="FDM Print Farm",
+        code="WC-FDM", name="FDM Print Farm",
         center_type="machine",
         capacity_hours_per_day=Decimal("20"),
         machine_rate_per_hour=Decimal("2.50"),
