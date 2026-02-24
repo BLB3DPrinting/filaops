@@ -16,7 +16,6 @@ export default function BOMDetailView({
   bom,
   onClose,
   onUpdate,
-  token,
   onCreateProductionOrder,
 }) {
   const toast = useToast();
@@ -24,16 +23,15 @@ export default function BOMDetailView({
   const [workOrderLine, setWorkOrderLine] = useState(null);
   const showProcessPath = true;
 
-  const routing = useRoutingManager({ bom, token, toast });
-  const bomLines = useBOMLines({ bom, token, toast, onUpdate });
+  const routing = useRoutingManager({ bom, toast });
+  const bomLines = useBOMLines({ bom, toast, onUpdate });
 
   // Fetch all initial data on mount
   useEffect(() => {
-    if (!token) return;
     bomLines.fetchInitialLineData();
     routing.fetchInitialRoutingData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, bom.id, bom.product_id]);
+  }, [bom.id, bom.product_id]);
 
   return (
     <div className="space-y-6">
@@ -52,7 +50,7 @@ export default function BOMDetailView({
         <div>
           <span className="text-gray-400">Product:</span>
           <span className="text-white ml-2">
-            {bom.product?.name || bom.product_id}
+            {bom.product_name || bom.product?.name || bom.product_id}
           </span>
         </div>
         <div>
@@ -207,7 +205,6 @@ export default function BOMDetailView({
         savingRouting={routing.savingRouting}
         addingOperation={routing.addingOperation}
         setShowAddMaterialModal={routing.setShowAddMaterialModal}
-        token={token}
         handleAddPendingOperation={routing.handleAddPendingOperation}
         handleRemovePendingOperation={routing.handleRemovePendingOperation}
         handleSaveRouting={routing.handleSaveRouting}
@@ -264,7 +261,6 @@ export default function BOMDetailView({
             <PurchaseRequestModal
               line={purchaseLine}
               onClose={() => setPurchaseLine(null)}
-              token={token}
               onSuccess={() => {
                 setPurchaseLine(null);
                 onUpdate && onUpdate();
@@ -294,7 +290,6 @@ export default function BOMDetailView({
             <WorkOrderRequestModal
               line={workOrderLine}
               onClose={() => setWorkOrderLine(null)}
-              token={token}
               onSuccess={() => {
                 setWorkOrderLine(null);
                 onUpdate && onUpdate();

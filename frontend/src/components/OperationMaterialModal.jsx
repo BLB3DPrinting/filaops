@@ -19,14 +19,14 @@ export default function OperationMaterialModal({
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Form state
+  // Form state — field names match backend RoutingOperationMaterialCreate schema
   const [formData, setFormData] = useState({
     component_id: '',
-    quantity_per: 1,
-    quantity_type: 'per_unit', // per_unit, per_batch, per_order
+    quantity: 1,
+    quantity_per: 'unit', // QuantityPer enum: unit, batch, order
     unit: 'EA',
-    scrap_factor_percent: 0,
-    is_critical: true,
+    scrap_factor: 0,
+    is_cost_only: false,
     is_optional: false,
     notes: '',
   });
@@ -38,11 +38,11 @@ export default function OperationMaterialModal({
     if (material) {
       setFormData({
         component_id: material.component_id || '',
-        quantity_per: material.quantity_per || 1,
-        quantity_type: material.quantity_type || 'per_unit',
+        quantity: material.quantity || 1,
+        quantity_per: material.quantity_per || 'unit',
         unit: material.unit || 'EA',
-        scrap_factor_percent: material.scrap_factor_percent || 0,
-        is_critical: material.is_critical !== false,
+        scrap_factor: material.scrap_factor || 0,
+        is_cost_only: material.is_cost_only || false,
         is_optional: material.is_optional || false,
         notes: material.notes || '',
       });
@@ -50,11 +50,11 @@ export default function OperationMaterialModal({
       // Reset form for new material
       setFormData({
         component_id: '',
-        quantity_per: 1,
-        quantity_type: 'per_unit',
+        quantity: 1,
+        quantity_per: 'unit',
         unit: 'EA',
-        scrap_factor_percent: 0,
-        is_critical: true,
+        scrap_factor: 0,
+        is_cost_only: false,
         is_optional: false,
         notes: '',
       });
@@ -98,7 +98,7 @@ export default function OperationMaterialModal({
       return;
     }
 
-    if (formData.quantity_per <= 0) {
+    if (formData.quantity <= 0) {
       setError('Quantity must be greater than 0');
       return;
     }
@@ -109,11 +109,11 @@ export default function OperationMaterialModal({
     try {
       const payload = {
         component_id: parseInt(formData.component_id),
-        quantity_per: parseFloat(formData.quantity_per),
-        quantity_type: formData.quantity_type,
+        quantity: parseFloat(formData.quantity),
+        quantity_per: formData.quantity_per,
         unit: formData.unit,
-        scrap_factor_percent: parseFloat(formData.scrap_factor_percent) || 0,
-        is_critical: formData.is_critical,
+        scrap_factor: parseFloat(formData.scrap_factor) || 0,
+        is_cost_only: formData.is_cost_only,
         is_optional: formData.is_optional,
         notes: formData.notes || null,
       };
@@ -263,8 +263,8 @@ export default function OperationMaterialModal({
                   type="number"
                   step="0.001"
                   min="0"
-                  value={formData.quantity_per}
-                  onChange={(e) => setFormData({ ...formData, quantity_per: e.target.value })}
+                  value={formData.quantity}
+                  onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>
@@ -273,13 +273,13 @@ export default function OperationMaterialModal({
                   Per
                 </label>
                 <select
-                  value={formData.quantity_type}
-                  onChange={(e) => setFormData({ ...formData, quantity_type: e.target.value })}
+                  value={formData.quantity_per}
+                  onChange={(e) => setFormData({ ...formData, quantity_per: e.target.value })}
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 >
-                  <option value="per_unit">Per Unit</option>
-                  <option value="per_batch">Per Batch</option>
-                  <option value="per_order">Per Order</option>
+                  <option value="unit">Per Unit</option>
+                  <option value="batch">Per Batch</option>
+                  <option value="order">Per Order</option>
                 </select>
               </div>
             </div>
@@ -306,8 +306,8 @@ export default function OperationMaterialModal({
                   step="0.1"
                   min="0"
                   max="100"
-                  value={formData.scrap_factor_percent}
-                  onChange={(e) => setFormData({ ...formData, scrap_factor_percent: e.target.value })}
+                  value={formData.scrap_factor}
+                  onChange={(e) => setFormData({ ...formData, scrap_factor: e.target.value })}
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>
@@ -318,11 +318,11 @@ export default function OperationMaterialModal({
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={formData.is_critical}
-                  onChange={(e) => setFormData({ ...formData, is_critical: e.target.checked })}
+                  checked={formData.is_cost_only}
+                  onChange={(e) => setFormData({ ...formData, is_cost_only: e.target.checked })}
                   className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500"
                 />
-                <span className="text-sm text-gray-300">Critical</span>
+                <span className="text-sm text-gray-300">Cost Only</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input

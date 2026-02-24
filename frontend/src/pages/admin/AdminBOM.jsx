@@ -237,7 +237,7 @@ export default function AdminBOM() {
                   </td>
                   <td className="py-3 px-4 text-gray-300">{bom.name}</td>
                   <td className="py-3 px-4 text-gray-400">
-                    {bom.product?.name || `#${bom.product_id}`}
+                    {bom.product_name || bom.product?.name || `#${bom.product_id}`}
                   </td>
                   <td className="py-3 px-4 text-gray-400">
                     v{bom.version} ({bom.revision})
