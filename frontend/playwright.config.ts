@@ -42,6 +42,12 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
+    // Walkthrough — self-contained auth, no setup dependency
+    {
+      name: 'walkthrough',
+      testMatch: /walkthrough-screenshots\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
 
   // Docker containers should be running before tests

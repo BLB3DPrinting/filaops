@@ -20,6 +20,7 @@
     "test:workflow": "playwright test --grep workflow",
     "test:scheduling": "playwright test --grep scheduling",
     "test:headed": "playwright test --headed",
+    "test:walkthrough": "playwright test --project=walkthrough",
     "test:report": "playwright show-report",
     "test": "vitest run",
     "test:watch": "vitest",
