@@ -302,8 +302,6 @@ def list_items(
     Returns (items_list_data, total_count) where items_list_data is a list of dicts
     containing item info with inventory summary.
     """
-    from app.services.item_demand import get_allocated_quantity
-
     query = db.query(Product)
 
     if active_only:
@@ -344,18 +342,79 @@ def list_items(
     query = query.options(joinedload(Product.item_category))
     items = query.order_by(Product.sku).offset(offset).limit(limit).all()
 
-    result = []
-    for item in items:
-        inv = (
+    item_ids = [item.id for item in items]
+
+    # Batch inventory query — one query for all items
+    on_hand_map: dict[int, float] = {}
+    if item_ids:
+        inv_rows = (
             db.query(
+                Inventory.product_id,
                 func.coalesce(func.sum(Inventory.on_hand_quantity), 0).label("on_hand"),
             )
-            .filter(Inventory.product_id == item.id)
-            .first()
+            .filter(Inventory.product_id.in_(item_ids))
+            .group_by(Inventory.product_id)
+            .all()
+        )
+        on_hand_map = {r.product_id: float(r.on_hand) for r in inv_rows}
+
+    # Batch allocation query — replicate get_allocated_quantity() for all items
+    alloc_map: dict[int, float] = {}
+    if item_ids:
+        from app.models.production_order import ProductionOrder
+
+        bom_lines_sub = (
+            db.query(
+                BOMLine.component_id,
+                BOMLine.bom_id,
+                BOMLine.quantity,
+            )
+            .filter(BOMLine.component_id.in_(item_ids))
+            .subquery()
         )
 
-        on_hand = float(inv.on_hand) if inv else 0
-        allocated = float(get_allocated_quantity(db, item.id))
+        boms_sub = (
+            db.query(
+                BOM.product_id,
+                bom_lines_sub.c.component_id,
+                bom_lines_sub.c.quantity,
+            )
+            .join(bom_lines_sub, BOM.id == bom_lines_sub.c.bom_id)
+            .filter(BOM.active.is_(True))
+            .subquery()
+        )
+
+        alloc_rows = (
+            db.query(
+                boms_sub.c.component_id,
+                func.coalesce(
+                    func.sum(
+                        (
+                            ProductionOrder.quantity_ordered
+                            - func.coalesce(ProductionOrder.quantity_completed, 0)
+                            - func.coalesce(ProductionOrder.quantity_scrapped, 0)
+                        )
+                        * boms_sub.c.quantity
+                    ),
+                    0,
+                ).label("allocated"),
+            )
+            .select_from(ProductionOrder)
+            .join(boms_sub, ProductionOrder.product_id == boms_sub.c.product_id)
+            .filter(
+                ProductionOrder.status.in_(
+                    ["draft", "released", "scheduled", "in_progress"]
+                )
+            )
+            .group_by(boms_sub.c.component_id)
+            .all()
+        )
+        alloc_map = {r.component_id: float(r.allocated) for r in alloc_rows}
+
+    result = []
+    for item in items:
+        on_hand = on_hand_map.get(item.id, 0.0)
+        allocated = alloc_map.get(item.id, 0.0)
 
         is_material = item.material_type_id is not None
         reorder_point = float(item.reorder_point) if item.reorder_point else None
@@ -399,6 +458,50 @@ def list_items(
         )
 
     return result, total
+
+
+def get_item_stats(db: Session) -> dict:
+    """
+    Lightweight item statistics — type counts and reorder alerts.
+
+    Uses GROUP BY queries instead of loading all items with inventory data.
+    """
+    type_counts = (
+        db.query(Product.item_type, func.count(Product.id))
+        .filter(Product.active.is_(True))
+        .group_by(Product.item_type)
+        .all()
+    )
+
+    # Count items below reorder point
+    reorder_subq = (
+        db.query(Product.id)
+        .join(Inventory, Inventory.product_id == Product.id)
+        .filter(
+            Product.active.is_(True),
+            Product.stocking_policy == "stocked",
+            Product.reorder_point.isnot(None),
+        )
+        .group_by(Product.id, Product.reorder_point)
+        .having(
+            func.coalesce(func.sum(Inventory.on_hand_quantity), 0)
+            <= Product.reorder_point
+        )
+        .subquery()
+    )
+    reorder_count = db.query(func.count()).select_from(reorder_subq).scalar() or 0
+
+    total = sum(c for _, c in type_counts)
+    by_type = {t or "finished_good": c for t, c in type_counts}
+
+    return {
+        "total": total,
+        "finished_goods": by_type.get("finished_good", 0),
+        "components": by_type.get("component", 0),
+        "supplies": by_type.get("supply", 0),
+        "materials": by_type.get("material", 0),
+        "needs_reorder": reorder_count,
+    }
 
 
 def get_item(db: Session, item_id: int) -> Product:

@@ -348,8 +348,6 @@ async def get_dashboard_summary(
     # Low Stock Items (below reorder point + MRP shortages)
     # Use the same logic as /items/low-stock endpoint - just get the count
     from app.models.inventory import Inventory
-    from collections import defaultdict
-    from app.services.mrp import MRPService, ComponentRequirement
     
     # 1. Get items below reorder point (count unique products)
     # OPTIMIZED: Single query aggregating inventory by product_id
@@ -382,79 +380,70 @@ async def get_dashboard_summary(
         if available <= reorder_val:
             low_stock_products.add(product_id)
     
-    # 2. Get MRP shortages from active sales orders
-    active_orders = db.query(SalesOrder).filter(
-        SalesOrder.status.notin_(["cancelled", "completed", "delivered"])
-    ).options(joinedload(SalesOrder.lines)).all()
+    # 2. Get MRP shortages via single-level BOM SQL (replaces per-order explosion loop)
+    from app.models.sales_order import SalesOrderLine
+    from app.models.bom import BOMLine
 
-    mrp_shortage_products = set()
-    if active_orders:
-        mrp_service = MRPService(db)
-        all_requirements = []
+    # Aggregate demand per finished-good from active sales order lines
+    active_order_lines = (
+        db.query(
+            SalesOrderLine.product_id,
+            func.sum(SalesOrderLine.quantity).label("order_qty"),
+        )
+        .join(SalesOrder)
+        .filter(
+            SalesOrder.status.notin_(["cancelled", "completed", "delivered"]),
+            SalesOrderLine.product_id.isnot(None),
+        )
+        .group_by(SalesOrderLine.product_id)
+        .subquery()
+    )
 
-        for order in active_orders:
-            if order.order_type == "line_item":
-                lines = order.lines
-                for line in lines:
-                    if line.product_id:
-                        try:
-                            requirements = mrp_service.explode_bom(
-                                product_id=int(line.product_id),
-                                quantity=Decimal(str(float(line.quantity))),
-                                source_demand_type="sales_order",
-                                source_demand_id=int(order.id)
-                            )
-                            all_requirements.extend(requirements)
-                        except Exception:
-                            continue
-            elif order.order_type == "quote_based" and hasattr(order, 'product_id') and order.product_id:
-                try:
-                    order_qty = float(order.quantity) if order.quantity else 1.0
-                    requirements = mrp_service.explode_bom(
-                        product_id=int(order.product_id),
-                        quantity=Decimal(str(order_qty)),
-                        source_demand_type="sales_order",
-                        source_demand_id=int(order.id)
-                    )
-                    all_requirements.extend(requirements)
-                except Exception:
-                    continue
-        
-        if all_requirements:
-            # Aggregate by product_id
-            aggregated = defaultdict(lambda: {"product_id": None, "gross_quantity": Decimal("0"), "bom_level": 0, "product_sku": "", "product_name": ""})
-            for req in all_requirements:
-                key = int(req.product_id)
-                if aggregated[key]["product_id"] is None:
-                    aggregated[key] = {
-                        "product_id": int(req.product_id),
-                        "product_sku": str(req.product_sku),
-                        "product_name": str(req.product_name),
-                        "gross_quantity": Decimal(str(req.gross_quantity)),
-                        "bom_level": int(req.bom_level),
-                    }
-                else:
-                    aggregated[key]["gross_quantity"] += Decimal(str(req.gross_quantity))
-            
-            # Calculate net requirements
-            component_reqs = [
-                ComponentRequirement(
-                    product_id=int(data["product_id"]),
-                    product_sku=str(data["product_sku"]),
-                    product_name=str(data["product_name"]),
-                    bom_level=int(data["bom_level"]),
-                    gross_quantity=Decimal(str(data["gross_quantity"])),
-                )
-                for data in aggregated.values()
-            ]
-            
-            net_requirements = mrp_service.calculate_net_requirements(component_reqs)
-            for net_req in net_requirements:
-                if float(net_req.net_shortage) > 0:
-                    mrp_shortage_products.add(int(net_req.product_id))
-    
-    # Combine both sets (items below reorder point OR with MRP shortages)
-    low_stock_count = len(low_stock_products | mrp_shortage_products)
+    # Explode one BOM level: finished-good demand → component demand
+    component_demand = (
+        db.query(
+            BOMLine.component_id,
+            func.sum(BOMLine.quantity * active_order_lines.c.order_qty).label(
+                "gross_qty"
+            ),
+        )
+        .join(BOM, BOM.id == BOMLine.bom_id)
+        .join(
+            active_order_lines,
+            BOM.product_id == active_order_lines.c.product_id,
+        )
+        .filter(BOM.active.is_(True), BOMLine.is_cost_only.is_(False))
+        .group_by(BOMLine.component_id)
+        .subquery()
+    )
+
+    # Compare demand against on-hand inventory
+    on_hand_sub = (
+        db.query(
+            Inventory.product_id,
+            func.coalesce(func.sum(Inventory.on_hand_quantity), 0).label(
+                "available"
+            ),
+        )
+        .group_by(Inventory.product_id)
+        .subquery()
+    )
+
+    mrp_shortage_count = (
+        db.query(func.count(component_demand.c.component_id))
+        .outerjoin(
+            on_hand_sub,
+            component_demand.c.component_id == on_hand_sub.c.product_id,
+        )
+        .filter(
+            component_demand.c.gross_qty
+            > func.coalesce(on_hand_sub.c.available, 0)
+        )
+        .scalar()
+    ) or 0
+
+    # Combine both counts (items below reorder point OR with MRP shortages)
+    low_stock_count = len(low_stock_products) + mrp_shortage_count
 
     # Active orders count (for reference)
     active_orders_count = db.query(SalesOrder).filter(

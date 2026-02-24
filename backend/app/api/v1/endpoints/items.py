@@ -250,6 +250,12 @@ async def list_items(
     return {"total": total, "items": result}
 
 
+@router.get("/stats")
+async def get_item_stats(db: Session = Depends(get_db)):
+    """Lightweight item statistics — type counts and reorder alerts."""
+    return item_service.get_item_stats(db)
+
+
 @router.post("", response_model=ItemResponse, status_code=201)
 async def create_item(
     request: ItemCreate,

@@ -38,10 +38,10 @@ export default function AdminItems() {
   // Back to top visibility
   const [showBackToTop, setShowBackToTop] = useState(false);
 
-  // Pagination state - use 200 as default to get all items for accurate stats
+  // Pagination state
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: 200,
+    pageSize: 50,
     total: 0,
   });
 
@@ -147,32 +147,26 @@ export default function AdminItems() {
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, [selectedCategory, filters.itemType, filters.activeOnly]);
 
-  // Calculate stats from items when viewing all items (no type filter, no search, page 1)
-  useEffect(() => {
-    if (filters.itemType === "all" && !filters.search && pagination.page === 1 && items.length > 0) {
-      const useDirectCount = pagination.total <= pagination.pageSize;
-
-      if (useDirectCount) {
-        setAllItemsStats({
-          total: items.length,
-          finishedGoods: items.filter((i) => i.item_type === "finished_good").length,
-          components: items.filter((i) => i.item_type === "component").length,
-          supplies: items.filter((i) => i.item_type === "supply").length,
-          materials: items.filter((i) => i.item_type === "material" || i.material_type_id).length,
-          needsReorder: items.filter((i) => i.needs_reorder).length,
-        });
-      } else {
-        setAllItemsStats({
-          total: pagination.total,
-          finishedGoods: items.filter((i) => i.item_type === "finished_good").length,
-          components: items.filter((i) => i.item_type === "component").length,
-          supplies: items.filter((i) => i.item_type === "supply").length,
-          materials: items.filter((i) => i.item_type === "material" || i.material_type_id).length,
-          needsReorder: items.filter((i) => i.needs_reorder).length,
-        });
-      }
+  // Fetch stats from dedicated lightweight endpoint
+  const fetchStats = useCallback(async () => {
+    try {
+      const data = await api.get("/api/v1/items/stats");
+      setAllItemsStats({
+        total: data.total || 0,
+        finishedGoods: data.finished_goods || 0,
+        components: data.components || 0,
+        supplies: data.supplies || 0,
+        materials: data.materials || 0,
+        needsReorder: data.needs_reorder || 0,
+      });
+    } catch {
+      // Stats fetch failure is non-critical
     }
-  }, [items, filters.itemType, filters.search, pagination.page, pagination.total, pagination.pageSize]);
+  }, [api]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   // Sort and filter helpers
   const getItemStockStatus = (item) => {
@@ -428,6 +422,7 @@ export default function AdminItems() {
       setSelectedItems(new Set());
       setShowBulkUpdateModal(false);
       fetchItems();
+      fetchStats();
     } catch (err) {
       toast.error(err.message);
     }
@@ -631,6 +626,7 @@ export default function AdminItems() {
           setShowItemModal(false);
           setEditingItem(null);
           fetchItems();
+          fetchStats();
         }}
         editingItem={editingItem}
       />

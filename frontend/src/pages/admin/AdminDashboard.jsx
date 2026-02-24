@@ -50,21 +50,25 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
 
-      const summaryData = await api.get(`/api/v1/admin/dashboard/summary`);
-      setStats(summaryData);
+      const [summaryResult, ordersResult, posResult] = await Promise.allSettled([
+        api.get("/api/v1/admin/dashboard/summary"),
+        api.get("/api/v1/admin/dashboard/recent-orders?limit=5"),
+        api.get("/api/v1/purchase-orders?status=draft,ordered&limit=5"),
+      ]);
 
-      try {
-        const ordersData = await api.get(`/api/v1/admin/dashboard/recent-orders?limit=5`);
-        setRecentOrders(ordersData);
-      } catch {
-        // Non-critical: recent orders fetch failure
+      if (summaryResult.status === "fulfilled") {
+        setStats(summaryResult.value);
+      } else {
+        throw summaryResult.reason;
       }
 
-      try {
-        const posData = await api.get(`/api/v1/purchase-orders?status=draft,ordered&limit=5`);
+      if (ordersResult.status === "fulfilled") {
+        setRecentOrders(ordersResult.value);
+      }
+
+      if (posResult.status === "fulfilled") {
+        const posData = posResult.value;
         setPendingPOs(posData.items || posData || []);
-      } catch {
-        // Non-critical: pending POs fetch failure
       }
     } catch (err) {
       setError(err.message);
