@@ -383,11 +383,14 @@ async def get_dashboard_summary(
     # 2. Get MRP shortages via single-level BOM SQL (replaces per-order explosion loop)
     from app.models.sales_order import SalesOrderLine
     from app.models.bom import BOMLine
+    from sqlalchemy import union_all, literal_column
 
-    # Aggregate demand per finished-good from active sales order lines
-    active_order_lines = (
+    # Aggregate demand per finished-good from BOTH order types:
+    #   line_item orders  → demand on SalesOrderLine.product_id
+    #   quote_based orders → demand on SalesOrder.product_id
+    line_item_demand = (
         db.query(
-            SalesOrderLine.product_id,
+            SalesOrderLine.product_id.label("product_id"),
             func.sum(SalesOrderLine.quantity).label("order_qty"),
         )
         .join(SalesOrder)
@@ -396,16 +399,32 @@ async def get_dashboard_summary(
             SalesOrderLine.product_id.isnot(None),
         )
         .group_by(SalesOrderLine.product_id)
-        .subquery()
     )
+
+    quote_based_demand = (
+        db.query(
+            SalesOrder.product_id.label("product_id"),
+            func.sum(SalesOrder.quantity).label("order_qty"),
+        )
+        .filter(
+            SalesOrder.status.notin_(["cancelled", "completed", "delivered"]),
+            SalesOrder.order_type == "quote_based",
+            SalesOrder.product_id.isnot(None),
+        )
+        .group_by(SalesOrder.product_id)
+    )
+
+    active_order_lines = union_all(
+        line_item_demand, quote_based_demand
+    ).subquery("active_order_lines")
 
     # Explode one BOM level: finished-good demand → component demand
     component_demand = (
         db.query(
             BOMLine.component_id,
-            func.sum(BOMLine.quantity * active_order_lines.c.order_qty).label(
-                "gross_qty"
-            ),
+            func.sum(
+                BOMLine.quantity * active_order_lines.c.order_qty
+            ).label("gross_qty"),
         )
         .join(BOM, BOM.id == BOMLine.bom_id)
         .join(
@@ -429,8 +448,9 @@ async def get_dashboard_summary(
         .subquery()
     )
 
-    mrp_shortage_count = (
-        db.query(func.count(component_demand.c.component_id))
+    # Return shortage product IDs (not just count) so we can set-union with low_stock
+    mrp_shortage_rows = (
+        db.query(component_demand.c.component_id)
         .outerjoin(
             on_hand_sub,
             component_demand.c.component_id == on_hand_sub.c.product_id,
@@ -439,11 +459,12 @@ async def get_dashboard_summary(
             component_demand.c.gross_qty
             > func.coalesce(on_hand_sub.c.available, 0)
         )
-        .scalar()
-    ) or 0
+        .all()
+    )
+    mrp_shortage_products = {r.component_id for r in mrp_shortage_rows}
 
-    # Combine both counts (items below reorder point OR with MRP shortages)
-    low_stock_count = len(low_stock_products) + mrp_shortage_count
+    # Combine both sets — dedup products that appear in both
+    low_stock_count = len(low_stock_products | mrp_shortage_products)
 
     # Active orders count (for reference)
     active_orders_count = db.query(SalesOrder).filter(

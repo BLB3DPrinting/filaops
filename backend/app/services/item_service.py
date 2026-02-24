@@ -473,10 +473,10 @@ def get_item_stats(db: Session) -> dict:
         .all()
     )
 
-    # Count items below reorder point
+    # Count items below reorder point (outerjoin so products with no inventory = 0 on-hand)
     reorder_subq = (
         db.query(Product.id)
-        .join(Inventory, Inventory.product_id == Product.id)
+        .outerjoin(Inventory, Inventory.product_id == Product.id)
         .filter(
             Product.active.is_(True),
             Product.stocking_policy == "stocked",
