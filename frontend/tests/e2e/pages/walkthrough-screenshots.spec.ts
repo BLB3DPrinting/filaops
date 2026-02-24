@@ -114,19 +114,7 @@ async function findProductionOrderId(
 // Test: self-contained auth (dev credentials, not test harness)
 // ---------------------------------------------------------------------------
 
-const test = baseTest.extend<{ walkthroughPage: Page }>({
-  walkthroughPage: async ({ page }, use) => {
-    await page.goto('/admin/login');
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[type="email"]', DEV_EMAIL);
-    await page.fill('input[type="password"]', DEV_PASSWORD);
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/admin(?!\/login)/, { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
-    await dismissModals(page);
-    await use(page);
-  },
-});
+const test = baseTest;
 
 // ---------------------------------------------------------------------------
 // Walkthrough Steps (serial — state shared across tests)
@@ -136,7 +124,9 @@ test.describe.serial('Customer Walkthrough', () => {
   let page: Page;
 
   test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({
+      baseURL: process.env.BASE_URL || 'http://localhost:5173',
+    });
     page = await context.newPage();
 
     // Login with dev seed credentials
@@ -464,9 +454,9 @@ test.describe.serial('Customer Walkthrough', () => {
     await waitForPage(page);
 
     // Production page uses a real <table> via ProductionQueueList
-    await expect(page.locator('table tbody tr').first()).toBeVisible({
-      timeout: 10000,
-    }).catch(() => {});
+    await page.locator('table tbody tr').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {
+      console.warn('  [walkthrough] Production table rows not visible — capturing as-is');
+    });
     await capture(page, '12-production-orders');
   });
 
@@ -616,9 +606,9 @@ test.describe.serial('Customer Walkthrough', () => {
     // Purchasing page
     await page.goto('/admin/purchasing');
     await waitForPage(page);
-    await expect(page.locator('tbody tr').first())
-      .toBeVisible({ timeout: 10000 })
-      .catch(() => {});
+    await page.locator('tbody tr').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {
+      console.warn('  [walkthrough] Purchasing table rows not visible — capturing as-is');
+    });
     await capture(page, '18a-purchasing');
 
     // Items page (shows inventory On Hand column)

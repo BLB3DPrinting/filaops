@@ -17,8 +17,8 @@ Creates a complete, realistic dataset for a 3D filament manufacturing business:
 
 Usage:
     cd backend
-    python -m scripts.seed_dev_data          # seed only (keeps existing data)
-    python -m scripts.seed_dev_data --reset  # TRUNCATE all data first, then seed
+    python -m scripts.seed_dev_data          # seed only (fails if data already exists)
+    python -m scripts.seed_dev_data --reset  # TRUNCATE all data first, then seed (recommended)
 
 Safety:
     - Only runs against the 'filaops' database (dev)
@@ -131,8 +131,10 @@ def reset_database(db: Session):
     for table in TRUNCATE_ORDER:
         try:
             db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-        except Exception:
-            pass  # Table may not exist yet
+        except Exception as e:
+            if "does not exist" not in str(e):
+                print(f"  WARNING: Failed to truncate {table}: {e}")
+            db.rollback()  # Reset transaction state after error
     db.commit()
     print("  All tables truncated OK")
 
@@ -1130,7 +1132,7 @@ def seed_sales_orders(db: Session, products, customers, admin_user):
         so = SalesOrder(
             order_number=order_num,
             user_id=admin_user.id,
-            customer_id=admin_user.id,  # FK is to users.id
+            customer_id=None,  # FK is to users.id; seed customers don't have user accounts
             customer_name=f"{cust.first_name} {cust.last_name}",
             customer_email=cust.email,
             customer_phone=cust.phone,
