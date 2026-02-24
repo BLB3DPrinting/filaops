@@ -130,11 +130,11 @@ def reset_database(db: Session):
     print("\n  Truncating all tables...")
     for table in TRUNCATE_ORDER:
         try:
-            db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+            with db.begin_nested():
+                db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
         except Exception as e:
             if "does not exist" not in str(e):
                 print(f"  WARNING: Failed to truncate {table}: {e}")
-            db.rollback()  # Reset transaction state after error
     db.commit()
     print("  All tables truncated OK")
 
