@@ -4,17 +4,25 @@ Verifies that:
 - No module name → returns False, app unchanged
 - Valid module with register() → register(app) called, returns True
 - Missing module (ModuleNotFoundError) → returns False, app still works
+- Missing dependency inside plugin → distinct error from "not installed"
+- Plugin without register() callable → returns False
 - Broken register() (RuntimeError) → returns False, app still works
-- ImportError inside plugin (broken dependency) → caught as error, not "not installed"
 """
 
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from app.main import load_plugin, app as real_app
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plugin_env(monkeypatch):
+    """Ensure FILAOPS_PRO_MODULE is never set during tests."""
+    monkeypatch.delenv("FILAOPS_PRO_MODULE", raising=False)
 
 
 class TestLoadPluginNoModule:
@@ -28,8 +36,8 @@ class TestLoadPluginNoModule:
         app = FastAPI()
         assert load_plugin(app, module_name="") is False
 
-    @patch.dict("os.environ", {"FILAOPS_PRO_MODULE": ""}, clear=False)
-    def test_reads_env_var_when_no_arg(self):
+    def test_reads_env_var_when_no_arg(self, monkeypatch):
+        monkeypatch.setenv("FILAOPS_PRO_MODULE", "")
         app = FastAPI()
         assert load_plugin(app) is False
 
@@ -49,8 +57,8 @@ class TestLoadPluginSuccess:
         assert result is True
         mock_register.assert_called_once_with(app)
 
-    @patch.dict("os.environ", {"FILAOPS_PRO_MODULE": "filaops_pro"}, clear=False)
-    def test_reads_module_from_env(self):
+    def test_reads_module_from_env(self, monkeypatch):
+        monkeypatch.setenv("FILAOPS_PRO_MODULE", "filaops_pro")
         app = FastAPI()
         mock_register = MagicMock()
         fake_plugin = types.ModuleType("filaops_pro")
@@ -67,20 +75,56 @@ class TestLoadPluginSuccess:
 class TestLoadPluginMissing:
     """Plugin configured but not installed → graceful degradation."""
 
-    def test_returns_false_on_module_not_found(self):
+    def test_returns_false_when_plugin_itself_missing(self):
         app = FastAPI()
-        with patch("importlib.import_module", side_effect=ModuleNotFoundError("not found")):
-            result = load_plugin(app, module_name="nonexistent_plugin")
+        exc = ModuleNotFoundError("No module named 'nonexistent'")
+        exc.name = "nonexistent"
+        with patch("importlib.import_module", side_effect=exc):
+            result = load_plugin(app, module_name="nonexistent")
+        assert result is False
+
+    def test_returns_false_when_plugin_dependency_missing(self):
+        """Plugin exists but imports a missing dependency — distinct from 'not installed'."""
+        app = FastAPI()
+        exc = ModuleNotFoundError("No module named 'some_dep'")
+        exc.name = "some_dep"
+        with patch("importlib.import_module", side_effect=exc):
+            result = load_plugin(app, module_name="my_plugin")
         assert result is False
 
     def test_app_serves_requests_after_missing_plugin(self):
-        """Simulate a missing plugin on the real app, then verify it still serves."""
-        with patch("importlib.import_module", side_effect=ModuleNotFoundError("not found")):
-            load_plugin(real_app, module_name="nonexistent_plugin")
+        exc = ModuleNotFoundError("not found")
+        exc.name = "nonexistent"
+        with patch("importlib.import_module", side_effect=exc):
+            load_plugin(real_app, module_name="nonexistent")
 
         client = TestClient(real_app)
         resp = client.get("/")
         assert resp.status_code == 200
+
+
+class TestLoadPluginNoRegisterCallable:
+    """Plugin module exists but has no register() function."""
+
+    def test_returns_false_when_no_register(self):
+        app = FastAPI()
+        fake_plugin = types.ModuleType("no_register_plugin")
+        # Module has no register attribute at all
+
+        with patch("importlib.import_module", return_value=fake_plugin):
+            result = load_plugin(app, module_name="no_register_plugin")
+
+        assert result is False
+
+    def test_returns_false_when_register_not_callable(self):
+        app = FastAPI()
+        fake_plugin = types.ModuleType("bad_register_plugin")
+        fake_plugin.register = "not a function"
+
+        with patch("importlib.import_module", return_value=fake_plugin):
+            result = load_plugin(app, module_name="bad_register_plugin")
+
+        assert result is False
 
 
 class TestLoadPluginBrokenRegister:
@@ -97,7 +141,6 @@ class TestLoadPluginBrokenRegister:
         assert result is False
 
     def test_app_serves_requests_after_broken_register(self):
-        """Simulate a broken register() on the real app, then verify it still serves."""
         fake_plugin = types.ModuleType("broken_plugin")
         fake_plugin.register = MagicMock(side_effect=RuntimeError("boom"))
 
@@ -110,11 +153,9 @@ class TestLoadPluginBrokenRegister:
 
 
 class TestLoadPluginInternalImportError:
-    """ImportError inside plugin (broken dependency) → caught as general error, not 'not installed'."""
+    """Non-ModuleNotFoundError ImportError inside plugin → caught as general error."""
 
     def test_internal_import_error_returns_false(self):
-        """An ImportError that isn't ModuleNotFoundError (e.g. broken dep inside plugin)
-        should be caught by the general except, not misreported as 'not installed'."""
         app = FastAPI()
         with patch("importlib.import_module", side_effect=ImportError("cannot import name 'foo'")):
             result = load_plugin(app, module_name="plugin_with_broken_dep")

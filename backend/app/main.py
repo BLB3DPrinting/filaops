@@ -333,12 +333,28 @@ def load_plugin(app, module_name: str | None = None) -> bool:
         return False
     try:
         plugin = importlib.import_module(module_name)
-        plugin.register(app)
+    except ModuleNotFoundError as exc:
+        if exc.name == module_name:
+            logger.warning("Plugin module '%s' configured but not installed", module_name)
+        else:
+            logger.error(
+                "Plugin '%s' import failed — missing dependency '%s'",
+                module_name, exc.name, exc_info=True,
+            )
+        return False
+    except Exception:
+        logger.error("Plugin module '%s' failed during import", module_name, exc_info=True)
+        return False
+
+    register = getattr(plugin, "register", None)
+    if not callable(register):
+        logger.error("Plugin module '%s' has no callable register(app)", module_name)
+        return False
+
+    try:
+        register(app)
         logger.info("Plugin '%s' registered successfully", module_name)
         return True
-    except ModuleNotFoundError:
-        logger.warning("Plugin module '%s' configured but not installed", module_name)
-        return False
     except Exception:
         logger.error("Plugin module '%s' failed during register()", module_name, exc_info=True)
         return False
