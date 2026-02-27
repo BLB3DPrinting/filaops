@@ -127,6 +127,17 @@ cd frontend && npx vitest run
 - Tests run against `filaops_test` database — NEVER against `filaops_prod`
 - See `.claude/skills/testing.md` for coverage analysis workflow
 
+### Test Failure Policy
+
+**ALL tests must pass before committing. No exceptions.**
+
+If a test was failing before you started:
+1. Investigate it — read the test, trace the failure, understand why
+2. Fix it if the fix is straightforward and safe
+3. If it requires human judgment or a larger change, add a `# TODO(pre-existing): [description of failure and likely cause]` comment to the test AND note it in your commit message
+
+"Pre-existing failure" is never an excuse to silently skip it. Broken is broken — at minimum, flag it so it doesn't get forgotten.
+
 ## Git Workflow
 
 - Feature branches off `main`: `feature/description`, `fix/description`

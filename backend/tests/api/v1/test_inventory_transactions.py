@@ -561,7 +561,11 @@ class TestInventorySummary:
     def test_summary_includes_product_with_inventory(self, client, finished_good):
         _create_receipt(client, finished_good.id, 25)
 
-        resp = client.get(f"{BASE_URL}/inventory-summary", params={"location_id": 1})
+        # Search by SKU to avoid pagination issues with pre-existing data
+        resp = client.get(f"{BASE_URL}/inventory-summary", params={
+            "location_id": 1,
+            "search": finished_good.sku,
+        })
         assert resp.status_code == 200
 
         items = resp.json()["items"]
@@ -575,13 +579,12 @@ class TestInventorySummary:
     def test_summary_search_filter(self, client, finished_good):
         _create_receipt(client, finished_good.id, 5)
 
-        # Search by part of the product name
+        # Search by the unique SKU to reliably find this specific product
         resp = client.get(f"{BASE_URL}/inventory-summary", params={
-            "search": "Widget",
+            "search": finished_good.sku,
         })
         assert resp.status_code == 200
         items = resp.json()["items"]
-        # The finished_good fixture name contains "Widget"
         assert any(i["product_id"] == finished_good.id for i in items)
 
     def test_summary_search_no_match(self, client, finished_good):
@@ -605,7 +608,11 @@ class TestInventorySummary:
     def test_summary_item_fields(self, client, finished_good):
         _create_receipt(client, finished_good.id, 10)
 
-        resp = client.get(f"{BASE_URL}/inventory-summary", params={"location_id": 1})
+        # Search by SKU to avoid pagination issues with pre-existing data
+        resp = client.get(f"{BASE_URL}/inventory-summary", params={
+            "location_id": 1,
+            "search": finished_good.sku,
+        })
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) >= 1
