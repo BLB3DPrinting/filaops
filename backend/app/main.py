@@ -313,7 +313,6 @@ async def health_check():
 # Core contains zero package references to any plugin. The operator sets
 # FILAOPS_PRO_MODULE=filaops_pro (or any module with a register(app) callable)
 # in .env to activate a plugin. Removing the env var = Community edition.
-import importlib
 
 
 def load_plugin(app, module_name: str | None = None) -> bool:
@@ -327,6 +326,8 @@ def load_plugin(app, module_name: str | None = None) -> bool:
     Returns:
         True if a plugin was loaded successfully, False otherwise.
     """
+    import importlib
+
     module_name = module_name or os.getenv("FILAOPS_PRO_MODULE")
     if not module_name:
         return False
@@ -335,7 +336,7 @@ def load_plugin(app, module_name: str | None = None) -> bool:
         plugin.register(app)
         logger.info("Plugin '%s' registered successfully", module_name)
         return True
-    except ImportError:
+    except ModuleNotFoundError:
         logger.warning("Plugin module '%s' configured but not installed", module_name)
         return False
     except Exception:

@@ -3,17 +3,18 @@
 Verifies that:
 - No module name → returns False, app unchanged
 - Valid module with register() → register(app) called, returns True
-- Missing module (ImportError) → returns False, app still works
+- Missing module (ModuleNotFoundError) → returns False, app still works
 - Broken register() (RuntimeError) → returns False, app still works
+- ImportError inside plugin (broken dependency) → caught as error, not "not installed"
 """
 
 import types
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
+from starlette.testclient import TestClient
 
-
-from app.main import load_plugin
+from app.main import load_plugin, app as real_app
 
 
 class TestLoadPluginNoModule:
@@ -66,13 +67,18 @@ class TestLoadPluginSuccess:
 class TestLoadPluginMissing:
     """Plugin configured but not installed → graceful degradation."""
 
-    def test_returns_false_on_import_error(self):
+    def test_returns_false_on_module_not_found(self):
         app = FastAPI()
-        with patch("importlib.import_module", side_effect=ImportError("not found")):
+        with patch("importlib.import_module", side_effect=ModuleNotFoundError("not found")):
             result = load_plugin(app, module_name="nonexistent_plugin")
         assert result is False
 
-    def test_app_still_works_after_import_error(self, client):
+    def test_app_serves_requests_after_missing_plugin(self):
+        """Simulate a missing plugin on the real app, then verify it still serves."""
+        with patch("importlib.import_module", side_effect=ModuleNotFoundError("not found")):
+            load_plugin(real_app, module_name="nonexistent_plugin")
+
+        client = TestClient(real_app)
         resp = client.get("/")
         assert resp.status_code == 200
 
@@ -90,6 +96,26 @@ class TestLoadPluginBrokenRegister:
 
         assert result is False
 
-    def test_app_still_works_after_register_error(self, client):
+    def test_app_serves_requests_after_broken_register(self):
+        """Simulate a broken register() on the real app, then verify it still serves."""
+        fake_plugin = types.ModuleType("broken_plugin")
+        fake_plugin.register = MagicMock(side_effect=RuntimeError("boom"))
+
+        with patch("importlib.import_module", return_value=fake_plugin):
+            load_plugin(real_app, module_name="broken_plugin")
+
+        client = TestClient(real_app)
         resp = client.get("/")
         assert resp.status_code == 200
+
+
+class TestLoadPluginInternalImportError:
+    """ImportError inside plugin (broken dependency) → caught as general error, not 'not installed'."""
+
+    def test_internal_import_error_returns_false(self):
+        """An ImportError that isn't ModuleNotFoundError (e.g. broken dep inside plugin)
+        should be caught by the general except, not misreported as 'not installed'."""
+        app = FastAPI()
+        with patch("importlib.import_module", side_effect=ImportError("cannot import name 'foo'")):
+            result = load_plugin(app, module_name="plugin_with_broken_dep")
+        assert result is False

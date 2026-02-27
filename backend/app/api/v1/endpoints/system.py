@@ -112,12 +112,19 @@ async def get_system_info():
     updates the plugin registry to advertise tier and features.
     The frontend fetches this at startup to show/hide PRO sections.
     """
-    version_info = VersionManager.get_current_version()
-    return SystemInfoResponse(
-        tier=get_tier(),
-        features_enabled=get_features(),
-        version=version_info.get("version", "unknown"),
-    )
+    try:
+        version_info = VersionManager.get_current_version()
+        return SystemInfoResponse(
+            tier=get_tier(),
+            features_enabled=get_features(),
+            version=version_info.get("version", "unknown"),
+        )
+    except Exception as e:
+        logger.error(f"Failed to get system info: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to get system info"
+        )
 
 
 @router.get("/updates/check", response_model=UpdateCheckResponse)
