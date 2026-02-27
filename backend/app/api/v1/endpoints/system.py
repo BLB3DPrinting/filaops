@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from app.core.version import VersionManager
+from app.core.plugin_registry import get_tier, get_features
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,13 @@ class VersionResponse(BaseModel):
     """Current version information (public-safe fields only)"""
     version: str
     build_date: str
+
+
+class SystemInfoResponse(BaseModel):
+    """System tier and enabled features — used by frontend for feature gating."""
+    tier: str
+    features_enabled: list[str]
+    version: str
 
 
 class UpdateCheckResponse(BaseModel):
@@ -92,6 +100,24 @@ async def get_system_version():
             status_code=500,
             detail="Failed to get version info"
         )
+
+
+@router.get("/info", response_model=SystemInfoResponse)
+async def get_system_info():
+    """
+    Get system tier and enabled features.
+
+    Core always returns tier="community" with no features.
+    When a plugin (e.g. filaops-pro) is installed, its register()
+    updates the plugin registry to advertise tier and features.
+    The frontend fetches this at startup to show/hide PRO sections.
+    """
+    version_info = VersionManager.get_current_version()
+    return SystemInfoResponse(
+        tier=get_tier(),
+        features_enabled=get_features(),
+        version=version_info.get("version", "unknown"),
+    )
 
 
 @router.get("/updates/check", response_model=UpdateCheckResponse)
