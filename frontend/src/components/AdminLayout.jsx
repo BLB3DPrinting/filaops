@@ -1,6 +1,11 @@
 import { Outlet, Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import SecurityBadge from "./SecurityBadge";
+// ProBadge is used by PRO-only nav items (Catalogs, Price Levels, Quote Engine, etc.).
+// Individual PRO feature branches add `proOnly: true` to their navGroup entry and render
+// <ProBadge /> next to the label when the sidebar is expanded.
+// eslint-disable-next-line no-unused-vars
+import { ProBadge } from "./ProGate";
 import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
 import { getCurrentVersion, getCurrentVersionSync, formatVersion } from "../utils/version";
 import { API_URL } from "../config/api";
@@ -356,6 +361,23 @@ const CommandCenterIcon = () => (
   </svg>
 );
 
+// Tag/label icon for B2B Catalog Management (PRO feature)
+const CatalogIcon = () => (
+  <svg
+    className="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"
+    />
+  </svg>
+);
+
 const navGroups = [
   {
     label: null, // No header for dashboard
@@ -441,6 +463,12 @@ const navGroups = [
         adminOnly: true,
       },
       {
+        path: "/admin/catalogs",
+        label: "Catalogs",
+        icon: CatalogIcon,
+        adminOnly: true,
+      },
+      {
         path: "/admin/orders/import",
         label: "Import Orders",
         icon: MaterialImportIcon,
@@ -456,6 +484,12 @@ const navGroups = [
         path: "/admin/scrap-reasons",
         label: "Scrap Reasons",
         icon: SettingsIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/quote-config",
+        label: "Quote Engine Config",
+        icon: QuotesIcon,
         adminOnly: true,
       },
       // TODO: Re-enable Analytics when Pro version analytics are implemented
@@ -761,6 +795,7 @@ export default function AdminLayout() {
                     >
                       <item.icon />
                       {sidebarOpen && <span>{item.label}</span>}
+                      {sidebarOpen && item.proOnly && <ProBadge />}
                     </NavLink>
                   ))}
                 </div>

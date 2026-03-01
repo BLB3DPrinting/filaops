@@ -49,6 +49,8 @@ const AdminScrapReasons = lazy(() => import("./pages/admin/AdminScrapReasons"));
 const AdminSpools = lazy(() => import("./pages/admin/AdminSpools"));
 const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
 const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
+const AdminQuoteConfig = lazy(() => import("./pages/admin/AdminQuoteConfig"));
+const AdminCatalogs = lazy(() => import("./pages/admin/AdminCatalogs"));
 const MaterialTraceability = lazy(() => import("./pages/admin/quality/MaterialTraceability"));
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 
@@ -148,6 +150,8 @@ export default function App() {
             <Route path="command-center" element={<Suspense fallback={<PageLoader />}><CommandCenter /></Suspense>} />
             <Route path="settings" element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
             <Route path="security" element={<Suspense fallback={<PageLoader />}><AdminSecurity /></Suspense>} />
+            <Route path="quote-config" element={<Suspense fallback={<PageLoader />}><AdminQuoteConfig /></Suspense>} />
+            <Route path="catalogs" element={<Suspense fallback={<PageLoader />}><AdminCatalogs /></Suspense>} />
           </Route>
 
           {/* Catch-all 404 - must be last */}
