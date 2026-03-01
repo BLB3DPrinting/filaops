@@ -173,7 +173,7 @@ class Settings(BaseSettings):
     # ===================
     # File Storage
     # ===================
-    UPLOAD_DIR: str = Field(default="/app/uploads/quotes", description="Upload dir")
+    UPLOAD_DIR: str = Field(default="", description="Upload dir (defaults to <backend>/uploads/quotes)")
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
         default=[".3mf", ".stl"], description="Allowed upload extensions"

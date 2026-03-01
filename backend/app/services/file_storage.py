@@ -29,7 +29,12 @@ class FileStorageService:
     """
 
     def __init__(self):
-        self.upload_dir = Path(settings.UPLOAD_DIR)
+        # Resolve upload directory - use configured path or default to backend/uploads/quotes
+        if settings.UPLOAD_DIR:
+            self.upload_dir = Path(settings.UPLOAD_DIR)
+        else:
+            # Default: <repo>/backend/uploads/quotes (absolute, works in Docker and CI)
+            self.upload_dir = Path(__file__).resolve().parent.parent.parent / "uploads" / "quotes"
         self.max_file_size = settings.MAX_FILE_SIZE_MB * 1024 * 1024
         self.allowed_formats = settings.ALLOWED_FILE_FORMATS
 

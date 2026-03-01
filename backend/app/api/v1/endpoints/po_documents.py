@@ -11,6 +11,7 @@ import os
 import uuid
 import mimetypes
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
@@ -32,13 +33,13 @@ from app.schemas.purchasing import (
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Upload directory for local storage
-UPLOAD_DIR = "/app/uploads/po_documents"
+# Upload directory for local storage (resolved relative to this file, works in Docker and CI)
+UPLOAD_DIR = str(Path(__file__).resolve().parent.parent.parent.parent.parent / "uploads" / "po_documents")
 
 
 def _ensure_upload_dir():
     """Ensure upload directory exists"""
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def _get_safe_filename(original_filename: str, po_number: str) -> str:
