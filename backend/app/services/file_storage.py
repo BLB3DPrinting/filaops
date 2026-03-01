@@ -30,8 +30,9 @@ class FileStorageService:
 
     def __init__(self):
         # Resolve upload directory - use configured path or default to backend/uploads/quotes
-        if settings.UPLOAD_DIR:
-            self.upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir_setting = (settings.UPLOAD_DIR or "").strip()
+        if upload_dir_setting:
+            self.upload_dir = Path(upload_dir_setting)
         else:
             # Default: <repo>/backend/uploads/quotes (absolute, works in Docker and CI)
             self.upload_dir = Path(__file__).resolve().parent.parent.parent / "uploads" / "quotes"
@@ -42,8 +43,11 @@ class FileStorageService:
         self._gcs_client = None
         self._gcs_bucket = None
 
-        # Ensure upload directory exists
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure upload directory exists (don't crash app startup on failure)
+        try:
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.error(f"Upload directory unavailable at startup: {self.upload_dir} ({exc})")
 
     async def save_file(
         self,

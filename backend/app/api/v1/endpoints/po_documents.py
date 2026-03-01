@@ -34,12 +34,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 # Upload directory for local storage (resolved relative to this file, works in Docker and CI)
-UPLOAD_DIR = str(Path(__file__).resolve().parent.parent.parent.parent.parent / "uploads" / "po_documents")
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "uploads" / "po_documents"
 
 
 def _ensure_upload_dir():
     """Ensure upload directory exists"""
-    Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _get_safe_filename(original_filename: str, po_number: str) -> str:
