@@ -51,6 +51,10 @@ const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
 const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
 const MaterialTraceability = lazy(() => import("./pages/admin/quality/MaterialTraceability"));
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
+const AdminPriceLevels = lazy(() => import("./pages/admin/AdminPriceLevels"));
+const AdminCatalogs = lazy(() => import("./pages/admin/AdminCatalogs"));
+const AdminQuoteConfig = lazy(() => import("./pages/admin/AdminQuoteConfig"));
+const AdminIntegrations = lazy(() => import("./pages/admin/AdminIntegrations"));
 
 // Suspense fallback for lazy-loaded pages
 function PageLoader() {
@@ -148,6 +152,10 @@ export default function App() {
             <Route path="command-center" element={<Suspense fallback={<PageLoader />}><CommandCenter /></Suspense>} />
             <Route path="settings" element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
             <Route path="security" element={<Suspense fallback={<PageLoader />}><AdminSecurity /></Suspense>} />
+            <Route path="price-levels" element={<Suspense fallback={<PageLoader />}><AdminPriceLevels /></Suspense>} />
+            <Route path="catalogs" element={<Suspense fallback={<PageLoader />}><AdminCatalogs /></Suspense>} />
+            <Route path="quote-config" element={<Suspense fallback={<PageLoader />}><AdminQuoteConfig /></Suspense>} />
+            <Route path="integrations" element={<Suspense fallback={<PageLoader />}><AdminIntegrations /></Suspense>} />
           </Route>
 
           {/* Catch-all 404 - must be last */}
