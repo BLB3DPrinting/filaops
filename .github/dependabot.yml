@@ -1,6 +1,9 @@
 # FilaOps Dependabot Configuration
 # Keeps Python (backend), Node (frontend), and GitHub Actions dependencies current
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# All version updates are grouped into a single PR per ecosystem to avoid
+# spamming the repo with individual PRs. Security updates are grouped separately.
 
 version: 2
 updates:
@@ -15,15 +18,10 @@ updates:
     labels:
       - "dependencies"
       - "python"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
-      pip-security:
-        applies-to: security-updates
-      pip-minor-patch:
-        applies-to: version-updates
-        update-types:
-          - "minor"
-          - "patch"
+      pip-all:
+        patterns: ["*"]
 
   # React frontend
   - package-ecosystem: "npm"
@@ -36,15 +34,10 @@ updates:
     labels:
       - "dependencies"
       - "javascript"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
-      npm-security:
-        applies-to: security-updates
-      npm-minor-patch:
-        applies-to: version-updates
-        update-types:
-          - "minor"
-          - "patch"
+      npm-all:
+        patterns: ["*"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -57,4 +50,7 @@ updates:
     labels:
       - "dependencies"
       - "ci"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    groups:
+      actions-all:
+        patterns: ["*"]
