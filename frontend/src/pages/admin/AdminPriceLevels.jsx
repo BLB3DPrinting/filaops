@@ -90,7 +90,7 @@ function PriceLevelsContent() {
       fetchAvailableCustomers();
       setSelectedCustomerId("");
     }
-  }, [selectedLevel?.id]);
+  }, [selectedLevel?.id, fetchAvailableCustomers]);
 
   const handleRowClick = (level) => {
     if (selectedLevel?.id === level.id) {
