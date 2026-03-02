@@ -547,6 +547,9 @@ const navGroups = [
   },
   {
     label: "PRO",
+    // proOnly: true is intentionally NOT filtered in filteredNavGroups.
+    // The PRO group always renders for upgrade discoverability.
+    // ProBadge is shown per-item when !isPro; ProGate on each page handles actual gating.
     proOnly: true,
     items: [
       { path: "/admin/price-levels", label: "Price Levels", icon: PriceLevelIcon, proOnly: true },
