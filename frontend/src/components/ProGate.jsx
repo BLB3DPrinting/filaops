@@ -1,19 +1,35 @@
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 
 /**
- * ProBadge — small inline badge for nav items that are PRO-only.
- *
- * Usage in navGroups:
- *   { path: "/admin/catalogs", label: "Catalogs", icon: CatalogIcon, proOnly: true }
- *
- * Then in the NavLink render:
- *   {sidebarOpen && <span>{item.label}</span>}
- *   {sidebarOpen && item.proOnly && !isPro && <ProBadge />}
+ * ProBadge — gradient micro-pill for desktop expanded sidebar.
+ * Uses the same emerald/cyan palette as the ProGate upgrade card.
  */
 export function ProBadge() {
   return (
-    <span className="ml-auto text-xs font-semibold px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
+    <span className="ml-auto text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500/25 to-cyan-600/25 text-emerald-300 border border-emerald-400/40 shadow-sm shadow-emerald-500/10">
       PRO
+    </span>
+  );
+}
+
+/**
+ * ProBadgeIcon — compact sparkle icon for mobile nav and collapsed sidebar.
+ * A 4-pointed emerald star inside a subtle gradient circle.
+ */
+export function ProBadgeIcon() {
+  return (
+    <span
+      className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400/20 to-cyan-500/20 border border-emerald-400/40 shadow-sm shadow-emerald-500/15"
+      title="PRO feature"
+    >
+      <svg
+        className="w-3.5 h-3.5 text-emerald-400"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z" />
+      </svg>
     </span>
   );
 }

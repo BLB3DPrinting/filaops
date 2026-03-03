@@ -77,6 +77,7 @@ export default function GeneralTab({
         toast.success("Logo uploaded successfully!");
         fetchSettings();
         setLogoCacheBuster(Date.now());
+        window.dispatchEvent(new Event("company-logo-changed"));
       } else {
         const errData = await response.json();
         toast.error(errData.detail || "Failed to upload logo");

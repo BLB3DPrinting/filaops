@@ -369,11 +369,11 @@ function CatalogsContent() {
 
       {/* Two-panel layout */}
       {!loading && (
-        <div className={`flex gap-6 ${selectedCatalog ? "items-start" : ""}`}>
+        <div className={`flex flex-col md:flex-row gap-6 ${selectedCatalog ? "md:items-start" : ""}`}>
           {/* Left panel — catalog list */}
           <div
             className={`${
-              selectedCatalog ? "w-80 flex-shrink-0" : "w-full"
+              selectedCatalog ? "md:w-80 md:flex-shrink-0" : "w-full"
             } bg-gray-900 border border-gray-800 rounded-xl overflow-hidden`}
           >
             {catalogs.length === 0 ? (
@@ -593,7 +593,7 @@ function CatalogsContent() {
                             placeholder="Price override (optional)"
                             min={0}
                             step={0.01}
-                            className="w-52 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500"
+                            className="flex-1 min-w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-500"
                           />
                           <button
                             onClick={handleAddProduct}
@@ -611,7 +611,7 @@ function CatalogsContent() {
                   {activeTab === "customers" && (
                     <div className="space-y-4">
                       {/* Assign customer row */}
-                      <div className="flex gap-3">
+                      <div className="flex flex-col sm:flex-row gap-3">
                         {loadingCustomers ? (
                           <div className="flex items-center gap-2 text-gray-400 text-sm">
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
@@ -640,7 +640,7 @@ function CatalogsContent() {
                             <button
                               onClick={handleAssignCustomer}
                               disabled={!assignCustomerId || assigningCustomer}
-                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm whitespace-nowrap"
+                              className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm whitespace-nowrap"
                             >
                               {assigningCustomer
                                 ? "Assigning…"

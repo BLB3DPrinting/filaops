@@ -225,7 +225,7 @@ function IntegrationsContent() {
       {/* Integration Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* QuickBooks Card */}
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-4">
+        <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 sm:p-6 space-y-4">
           <div className="flex items-center gap-3">
             <QuickBooksIcon />
             <div className="flex-1">
@@ -289,7 +289,7 @@ function IntegrationsContent() {
         </div>
 
         {/* Shopify Card */}
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-4">
+        <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 sm:p-6 space-y-4">
           <div className="flex items-center gap-3">
             <ShopifyIcon />
             <div className="flex-1">
@@ -362,7 +362,7 @@ function IntegrationsContent() {
                   <button
                     onClick={handleShopifyConnect}
                     disabled={shopifyConnecting || !shopDomain.trim()}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
                     {shopifyConnecting ? "Connecting..." : "Connect"}
                   </button>

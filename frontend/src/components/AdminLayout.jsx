@@ -5,9 +5,8 @@ import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
 import { getCurrentVersion, getCurrentVersionSync, formatVersion } from "../utils/version";
 import { API_URL } from "../config/api";
 import logoNavbar from "../assets/logo_navbar.png";
-import logoBLB3D from "../assets/logo_blb3d.svg";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
-import { ProBadge } from "./ProGate";
+import { ProBadge, ProBadgeIcon } from "./ProGate";
 
 const DashboardIcon = () => (
   <svg
@@ -422,6 +421,19 @@ const IntegrationsIcon = () => (
   </svg>
 );
 
+// Placeholder shown in sidebar when no company logo is uploaded
+const CompanyLogoPlaceholder = () => (
+  <div
+    className="h-10 w-10 rounded-lg flex items-center justify-center border border-dashed"
+    style={{ borderColor: 'var(--border-subtle)', background: 'rgba(28, 28, 50, 0.3)' }}
+    title="Upload your company logo in Settings"
+  >
+    <svg className="w-5 h-5" style={{ color: 'var(--text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  </div>
+);
+
 const navGroups = [
   {
     label: null, // No header for dashboard
@@ -590,21 +602,30 @@ export default function AdminLayout() {
     }
   });
 
-  // Company logo from settings
+  // Company logo from settings — refetches when GeneralTab dispatches "company-logo-changed"
   const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
+  const [logoBuster, setLogoBuster] = useState(() => Date.now());
 
   useEffect(() => {
     const checkCompanyLogo = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/settings/company/logo`, { credentials: 'include' });
         if (res.ok) {
-          setCompanyLogoUrl(`${API_URL}/api/v1/settings/company/logo`);
+          setCompanyLogoUrl(`${API_URL}/api/v1/settings/company/logo?t=${logoBuster}`);
+        } else {
+          setCompanyLogoUrl(null);
         }
       } catch {
-        // No logo uploaded - use default
+        setCompanyLogoUrl(null);
       }
     };
     checkCompanyLogo();
+  }, [logoBuster]);
+
+  useEffect(() => {
+    const onLogoChanged = () => setLogoBuster(Date.now());
+    window.addEventListener("company-logo-changed", onLogoChanged);
+    return () => window.removeEventListener("company-logo-changed", onLogoChanged);
   }, []);
 
   // AI Settings for SecurityBadge
@@ -719,9 +740,13 @@ export default function AdminLayout() {
             >
               <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <Link to="/admin" className="flex items-center gap-3">
-                  <div className="logo-container">
-                    <img src={companyLogoUrl || logoBLB3D} alt="Company Logo" className="h-10 w-auto logo-glow" />
-                  </div>
+                  {companyLogoUrl ? (
+                    <div className="logo-container">
+                      <img src={companyLogoUrl} alt="Company Logo" className="h-10 w-auto logo-glow" />
+                    </div>
+                  ) : (
+                    <CompanyLogoPlaceholder />
+                  )}
                   <img src={logoNavbar} alt="FilaOps" className="h-32" />
                 </Link>
                 <button
@@ -769,6 +794,7 @@ export default function AdminLayout() {
                         >
                           <item.icon />
                           <span>{item.label}</span>
+                          {item.proOnly && !isPro && <ProBadgeIcon />}
                         </NavLink>
                       ))}
                     </div>
@@ -788,9 +814,13 @@ export default function AdminLayout() {
         >
           <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
             <Link to="/admin" className={`flex items-center ${sidebarOpen ? 'gap-3' : 'justify-center w-full'}`}>
-              <div className="logo-container">
-                <img src={companyLogoUrl || logoBLB3D} alt="Company Logo" className="h-10 w-auto logo-glow" />
-              </div>
+              {companyLogoUrl ? (
+                <div className="logo-container">
+                  <img src={companyLogoUrl} alt="Company Logo" className="h-10 w-auto logo-glow" />
+                </div>
+              ) : (
+                <CompanyLogoPlaceholder />
+              )}
               {sidebarOpen && <img src={logoNavbar} alt="FilaOps" className="h-32" />}
             </Link>
             {sidebarOpen && (

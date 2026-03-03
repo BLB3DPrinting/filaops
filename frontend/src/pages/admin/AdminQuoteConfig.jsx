@@ -146,7 +146,7 @@ function QuoteConfigContent() {
       {!loading && config && (
         <form onSubmit={handleSave} className="space-y-6">
           {/* Section 1 — Material Costs */}
-          <div className="bg-gray-800 rounded-lg p-6">
+          <div className="bg-gray-800 rounded-lg p-4 sm:p-6">
             <h2 className="text-xl font-semibold text-white mb-4">
               Material Costs ($/gram)
             </h2>
@@ -174,7 +174,7 @@ function QuoteConfigContent() {
           </div>
 
           {/* Section 2 — Machine & Pricing */}
-          <div className="bg-gray-800 rounded-lg p-6">
+          <div className="bg-gray-800 rounded-lg p-4 sm:p-6">
             <h2 className="text-xl font-semibold text-white mb-4">
               Machine &amp; Pricing
             </h2>
@@ -246,7 +246,7 @@ function QuoteConfigContent() {
           </div>
 
           {/* Section 3 — Rush Multipliers */}
-          <div className="bg-gray-800 rounded-lg p-6">
+          <div className="bg-gray-800 rounded-lg p-4 sm:p-6">
             <h2 className="text-xl font-semibold text-white mb-4">
               Rush Multipliers
             </h2>

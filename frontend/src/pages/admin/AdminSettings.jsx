@@ -237,6 +237,7 @@ const AdminSettings = () => {
       await api.del(`/api/v1/settings/company/logo`);
       toast.success("Logo deleted successfully!");
       fetchSettings();
+      window.dispatchEvent(new Event("company-logo-changed"));
     } catch (error) {
       toast.error("Failed to delete logo: " + error.message);
     }
