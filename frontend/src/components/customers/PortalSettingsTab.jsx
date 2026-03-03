@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useToast } from "../Toast";
 import { useApi } from "../../hooks/useApi";
 
-export default function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh }) {
+export default function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh: _onRefresh }) {
   const toast = useToast();
   const api = useApi();
 
@@ -78,14 +78,24 @@ export default function PortalSettingsTab({ customerId, portalDetails, loading, 
   const handleAssignLevel = async () => {
     if (!selectedLevelId) return;
     setAssigningLevel(true);
+    const previousLevelId = currentLevel?.id ?? null;
     try {
-      // If already on a level, remove from old one first
-      if (currentLevel) {
-        await api.del(`/api/v1/pro/catalogs/price-levels/${currentLevel.id}/customers/${customerId}`);
+      if (previousLevelId) {
+        await api.del(`/api/v1/pro/catalogs/price-levels/${previousLevelId}/customers/${customerId}`);
       }
-      await api.post(`/api/v1/pro/catalogs/price-levels/${selectedLevelId}/assign`, {
-        customer_id: customerId,
-      });
+      try {
+        await api.post(`/api/v1/pro/catalogs/price-levels/${selectedLevelId}/assign`, {
+          customer_id: customerId,
+        });
+      } catch (err) {
+        // Rollback: re-assign the previous level if the new assignment failed
+        if (previousLevelId) {
+          await api.post(`/api/v1/pro/catalogs/price-levels/${previousLevelId}/assign`, {
+            customer_id: customerId,
+          });
+        }
+        throw err;
+      }
       toast.success("Price level assigned");
       setSelectedLevelId("");
       await fetchPriceLevels();

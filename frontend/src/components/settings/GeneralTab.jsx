@@ -44,6 +44,7 @@ export default function GeneralTab({
   const toast = useToast();
   const fileInputRef = useRef(null);
   const [checkingManually, setCheckingManually] = useState(false);
+  const [logoCacheBuster, setLogoCacheBuster] = useState(() => Date.now());
   const {
     latestVersion,
     updateAvailable,
@@ -70,6 +71,7 @@ export default function GeneralTab({
       if (response.ok) {
         toast.success("Logo uploaded successfully!");
         fetchSettings();
+        setLogoCacheBuster(Date.now());
       } else {
         const errData = await response.json();
         toast.error(errData.detail || "Failed to upload logo");
@@ -92,7 +94,7 @@ export default function GeneralTab({
           {settings?.has_logo ? (
             <div className="relative">
               <img
-                src={`${API_URL}/api/v1/settings/company/logo?t=${Date.now()}`}
+                src={`${API_URL}/api/v1/settings/company/logo?t=${logoCacheBuster}`}
                 alt="Company Logo"
                 className="w-32 h-32 object-contain bg-gray-700 rounded-lg"
               />
@@ -467,7 +469,7 @@ export default function GeneralTab({
           </div>
         )}
 
-        <form onSubmit={handleAddTaxRate} className="flex flex-wrap gap-3 items-end">
+        <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Name</label>
             <input
@@ -502,13 +504,14 @@ export default function GeneralTab({
             <label htmlFor="new_tr_default" className="text-sm text-gray-300">Default</label>
           </div>
           <button
-            type="submit"
+            type="button"
+            onClick={handleAddTaxRate}
             disabled={savingTaxRate}
             className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg disabled:opacity-50"
           >
             {savingTaxRate ? "Adding..." : "Add Rate"}
           </button>
-        </form>
+        </div>
       </div>
 
       {/* Quote Settings */}
@@ -691,11 +694,13 @@ export default function GeneralTab({
               type="button"
               onClick={async () => {
                 setCheckingManually(true);
-                await checkForUpdates(true);
+                const result = await checkForUpdates(true);
                 setCheckingManually(false);
-                if (updateAvailable) {
+                if (result?.error) {
+                  toast.error(`Update check failed: ${result.error}`);
+                } else if (result?.updateAvailable) {
                   toast.success(
-                    `Update available: v${formatVersion(latestVersion)}`
+                    `Update available: v${formatVersion(result.latestVersion)}`
                   );
                 } else {
                   toast.success("You're running the latest version!");

@@ -42,7 +42,14 @@ function QuoteConfigContent() {
     setError(null);
     try {
       const data = await api.get("/api/v1/pro/quotes/config/pricing");
-      setConfig(data);
+      setConfig({
+        material_costs: data?.material_costs ?? {},
+        rush_multipliers: data?.rush_multipliers ?? {},
+        machine_hour_rate: data?.machine_hour_rate ?? "",
+        markup_percent: data?.markup_percent ?? "",
+        min_quote_price: data?.min_quote_price ?? "",
+        estimation_grams_per_hour: data?.estimation_grams_per_hour ?? "",
+      });
     } catch (err) {
       setError(err.message || "Failed to load quote configuration");
     } finally {
@@ -72,23 +79,33 @@ function QuoteConfigContent() {
     }));
   };
 
+  const parseNonNegative = (raw, label) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error(`${label} must be a non-negative number`);
+    }
+    return n;
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      // Coerce all numeric fields to numbers before sending
       const payload = {
         material_costs: Object.fromEntries(
-          Object.entries(config.material_costs).map(([k, v]) => [k, Number(v)])
-        ),
-        machine_hour_rate: Number(config.machine_hour_rate),
-        markup_percent: Number(config.markup_percent),
-        min_quote_price: Number(config.min_quote_price),
-        estimation_grams_per_hour: Number(config.estimation_grams_per_hour),
-        rush_multipliers: Object.fromEntries(
-          Object.entries(config.rush_multipliers).map(([k, v]) => [
+          Object.entries(config.material_costs ?? {}).map(([k, v]) => [
             k,
-            Number(v),
+            parseNonNegative(v, `Material cost: ${formatLabel(k)}`),
+          ])
+        ),
+        machine_hour_rate: parseNonNegative(config.machine_hour_rate, "Machine hour rate"),
+        markup_percent: parseNonNegative(config.markup_percent, "Markup percent"),
+        min_quote_price: parseNonNegative(config.min_quote_price, "Minimum quote price"),
+        estimation_grams_per_hour: parseNonNegative(config.estimation_grams_per_hour, "Estimation speed"),
+        rush_multipliers: Object.fromEntries(
+          Object.entries(config.rush_multipliers ?? {}).map(([k, v]) => [
+            k,
+            parseNonNegative(v, `Rush multiplier: ${formatLabel(k)}`),
           ])
         ),
       };

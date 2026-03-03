@@ -59,7 +59,7 @@ const ShopifyIcon = () => (
 function formatDate(dateStr) {
   if (!dateStr) return null;
   try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
+    return new Date(dateStr).toLocaleString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",

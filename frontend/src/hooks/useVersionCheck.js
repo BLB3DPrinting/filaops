@@ -21,7 +21,7 @@ export function useVersionCheck() {
     if (!force) {
       const cached = sessionStorage.getItem(SESSION_STORAGE_KEY);
       const timestamp = sessionStorage.getItem(SESSION_STORAGE_TIMESTAMP);
-      
+
       if (cached && timestamp) {
         const timeSinceCheck = Date.now() - parseInt(timestamp, 10);
         if (timeSinceCheck < CHECK_INTERVAL_MS) {
@@ -29,7 +29,11 @@ export function useVersionCheck() {
           const cachedData = JSON.parse(cached);
           setLatestVersion(cachedData.latestVersion);
           setUpdateAvailable(cachedData.updateAvailable);
-          return;
+          return {
+            latestVersion: cachedData.latestVersion,
+            updateAvailable: cachedData.updateAvailable,
+            error: null,
+          };
         }
       }
     }
@@ -50,7 +54,7 @@ export function useVersionCheck() {
       }
 
       const data = await response.json();
-      
+
       // Extract version from tag (e.g., "v1.6.0" -> "1.6.0")
       const latest = formatVersion(data.tag_name || "");
       const current = await getCurrentVersion();
@@ -65,10 +69,12 @@ export function useVersionCheck() {
         JSON.stringify({ latestVersion: latest, updateAvailable: hasUpdate })
       );
       sessionStorage.setItem(SESSION_STORAGE_TIMESTAMP, Date.now().toString());
+      return { latestVersion: latest, updateAvailable: hasUpdate, error: null };
     } catch (err) {
       setError(err.message);
       // Don't show error to user - just fail silently
       console.warn("Failed to check for updates:", err.message);
+      return { latestVersion: null, updateAvailable: false, error: err.message };
     } finally {
       setLoading(false);
     }
