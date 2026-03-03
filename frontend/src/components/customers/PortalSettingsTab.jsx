@@ -90,9 +90,13 @@ export default function PortalSettingsTab({ customerId, portalDetails, loading, 
       } catch (err) {
         // Rollback: re-assign the previous level if the new assignment failed
         if (previousLevelId) {
-          await api.post(`/api/v1/pro/catalogs/price-levels/${previousLevelId}/assign`, {
-            customer_id: customerId,
-          });
+          try {
+            await api.post(`/api/v1/pro/catalogs/price-levels/${previousLevelId}/assign`, {
+              customer_id: customerId,
+            });
+          } catch {
+            toast.error("Failed to restore previous price level — please verify manually");
+          }
         }
         throw err;
       }
