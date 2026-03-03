@@ -348,10 +348,11 @@ function IntegrationsContent() {
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">
+                    <label htmlFor="shopify-domain" className="block text-sm text-gray-400 mb-1">
                       Shopify Store Domain
                     </label>
                     <input
+                      id="shopify-domain"
                       type="text"
                       value={shopDomain}
                       onChange={(e) => setShopDomain(e.target.value)}

@@ -67,12 +67,16 @@ export function useVersionCheck() {
       const hasUpdate = isVersionLessThan(current, latest);
       setUpdateAvailable(hasUpdate);
 
-      // Cache the result
-      sessionStorage.setItem(
-        SESSION_STORAGE_KEY,
-        JSON.stringify({ latestVersion: latest, updateAvailable: hasUpdate })
-      );
-      sessionStorage.setItem(SESSION_STORAGE_TIMESTAMP, Date.now().toString());
+      // Cache the result — guarded so storage failures don't mask a successful API response
+      try {
+        sessionStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({ latestVersion: latest, updateAvailable: hasUpdate })
+        );
+        sessionStorage.setItem(SESSION_STORAGE_TIMESTAMP, Date.now().toString());
+      } catch {
+        // Storage unavailable or quota exceeded — non-fatal, skip caching
+      }
       return { latestVersion: latest, updateAvailable: hasUpdate, error: null };
     } catch (err) {
       setError(err.message);

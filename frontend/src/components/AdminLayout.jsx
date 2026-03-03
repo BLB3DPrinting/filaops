@@ -663,7 +663,7 @@ export default function AdminLayout() {
 
   // Filter nav items based on user role
   const isAdmin = user?.account_type === "admin";
-  const { isPro } = useFeatureFlags();
+  const { isPro, loading: flagsLoading } = useFeatureFlags();
 
   const filteredNavGroups = navGroups
     .filter((group) => !group.adminOnly || isAdmin)
@@ -794,7 +794,7 @@ export default function AdminLayout() {
                         >
                           <item.icon />
                           <span>{item.label}</span>
-                          {item.proOnly && !isPro && <ProBadgeIcon />}
+                          {item.proOnly && !flagsLoading && !isPro && <ProBadgeIcon />}
                         </NavLink>
                       ))}
                     </div>
@@ -871,7 +871,7 @@ export default function AdminLayout() {
                     >
                       <item.icon />
                       {sidebarOpen && <span>{item.label}</span>}
-                      {sidebarOpen && item.proOnly && !isPro && <ProBadge />}
+                      {sidebarOpen && item.proOnly && !flagsLoading && !isPro && <ProBadge />}
                     </NavLink>
                   ))}
                 </div>

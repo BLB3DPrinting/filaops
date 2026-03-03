@@ -80,7 +80,11 @@ function QuoteConfigContent() {
   };
 
   const parseNonNegative = (raw, label) => {
-    const n = Number(raw);
+    const trimmed = String(raw).trim();
+    if (trimmed === "") {
+      throw new Error(`${label} is required`);
+    }
+    const n = Number(trimmed);
     if (!Number.isFinite(n) || n < 0) {
       throw new Error(`${label} must be a non-negative number`);
     }

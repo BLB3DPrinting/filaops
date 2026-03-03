@@ -53,11 +53,12 @@ export default function GeneralTab({
   } = useVersionCheck();
 
   const handleLogoUpload = async (e) => {
-    const file = e.target.files[0];
+    const input = e.target;
+    const file = input.files[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
       toast.error("Logo must be 2 MB or smaller.");
-      e.target.value = "";
+      input.value = "";
       return;
     }
 
@@ -86,6 +87,7 @@ export default function GeneralTab({
       toast.error("Failed to upload logo: " + error.message);
     } finally {
       setUploadingLogo(false);
+      input.value = "";
     }
   };
 
