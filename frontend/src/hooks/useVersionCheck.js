@@ -19,22 +19,26 @@ export function useVersionCheck() {
   const checkForUpdates = useCallback(async (force = false) => {
     // Check if we've already checked in this session (unless forced)
     if (!force) {
-      const cached = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      const timestamp = sessionStorage.getItem(SESSION_STORAGE_TIMESTAMP);
+      try {
+        const cached = sessionStorage.getItem(SESSION_STORAGE_KEY);
+        const timestamp = sessionStorage.getItem(SESSION_STORAGE_TIMESTAMP);
 
-      if (cached && timestamp) {
-        const timeSinceCheck = Date.now() - parseInt(timestamp, 10);
-        if (timeSinceCheck < CHECK_INTERVAL_MS) {
-          // Use cached result
-          const cachedData = JSON.parse(cached);
-          setLatestVersion(cachedData.latestVersion);
-          setUpdateAvailable(cachedData.updateAvailable);
-          return {
-            latestVersion: cachedData.latestVersion,
-            updateAvailable: cachedData.updateAvailable,
-            error: null,
-          };
+        if (cached && timestamp) {
+          const timeSinceCheck = Date.now() - parseInt(timestamp, 10);
+          if (timeSinceCheck < CHECK_INTERVAL_MS) {
+            const cachedData = JSON.parse(cached);
+            setLatestVersion(cachedData.latestVersion);
+            setUpdateAvailable(cachedData.updateAvailable);
+            setError(null);
+            return {
+              latestVersion: cachedData.latestVersion,
+              updateAvailable: cachedData.updateAvailable,
+              error: null,
+            };
+          }
         }
+      } catch {
+        // Ignore invalid/unavailable cache — fall through to network fetch
       }
     }
 
