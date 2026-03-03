@@ -55,6 +55,11 @@ export default function GeneralTab({
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be 2 MB or smaller.");
+      e.target.value = "";
+      return;
+    }
 
     setUploadingLogo(true);
 
