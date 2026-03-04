@@ -158,3 +158,9 @@ frontend/tests/sme/
 # PRO features (never in public core — lives in private repo only)
 backend/app/pro/
 .claude/dependabot-upgrade-plan.md
+
+# Internal reports (not for public repo)
+docs/T-REX-Implementation-Report.md
+docs/T-REX-Implementation-Report.pdf
+docs/AI_Agent_Governance_Gap_Analysis.pdf
+docs/BLIND_TEST_RECOVERY.md
