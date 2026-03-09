@@ -425,6 +425,24 @@ const navGroups = [
     ],
   },
   {
+    label: "B2B PORTAL",
+    adminOnly: true,
+    items: [
+      {
+        path: "/admin/catalogs",
+        label: "Catalogs",
+        icon: ItemsIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/price-levels",
+        label: "Price Levels",
+        icon: AccountingIcon,
+        adminOnly: true,
+      },
+    ],
+  },
+  {
     label: "QUALITY",
     items: [
       { path: "/admin/quality/traceability", label: "Material Traceability", icon: QualityIcon },

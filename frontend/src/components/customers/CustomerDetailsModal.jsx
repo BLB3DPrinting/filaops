@@ -9,9 +9,96 @@ import Modal from "../Modal";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 
-// B2B Portal Settings Tab Component (Community Edition - Read Only)
-function PortalSettingsTab({ customerId: _customerId, portalDetails, loading, onRefresh: _onRefresh }) {
-  if (loading) {
+// B2B Portal Settings Tab Component
+function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh }) {
+  const [priceLevels, setPriceLevels] = useState([]);
+  const [customerPriceLevel, setCustomerPriceLevel] = useState(null);
+  const [catalogs, setCatalogs] = useState([]);
+  const [loadingPro, setLoadingPro] = useState(true);
+  const [assigning, setAssigning] = useState(false);
+
+  useEffect(() => {
+    const fetchProData = async () => {
+      try {
+        // Fetch price levels and customer's catalog assignments in parallel
+        const [plRes, catRes] = await Promise.all([
+          fetch(`${API_URL}/api/v1/pro/catalogs/price-levels`, { credentials: "include" }),
+          fetch(`${API_URL}/api/v1/pro/catalogs/by-customer/${customerId}`, { credentials: "include" }),
+        ]);
+
+        if (plRes.ok) {
+          const levels = await plRes.json();
+          setPriceLevels(Array.isArray(levels) ? levels : []);
+          // Find which level this customer is assigned to
+          const assigned = (Array.isArray(levels) ? levels : []).find((l) =>
+            l.customers?.some((c) => c.customer_id === customerId)
+          );
+          setCustomerPriceLevel(assigned || null);
+        }
+
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          setCatalogs(catData.assigned || []);
+        }
+      } catch {
+        // Silently fail — still show portal details
+      } finally {
+        setLoadingPro(false);
+      }
+    };
+    fetchProData();
+  }, [customerId]);
+
+  const handleAssignPriceLevel = async (levelId) => {
+    setAssigning(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/pro/catalogs/price-levels/${levelId}/assign`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customer_id: customerId }),
+        }
+      );
+      if (res.ok) {
+        // Refresh to show updated assignment
+        const plRes = await fetch(`${API_URL}/api/v1/pro/catalogs/price-levels`, { credentials: "include" });
+        if (plRes.ok) {
+          const levels = await plRes.json();
+          setPriceLevels(Array.isArray(levels) ? levels : []);
+          const assigned = (Array.isArray(levels) ? levels : []).find((l) =>
+            l.customers?.some((c) => c.customer_id === customerId)
+          );
+          setCustomerPriceLevel(assigned || null);
+        }
+      }
+    } catch { /* handled silently */ } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleRemovePriceLevel = async () => {
+    if (!customerPriceLevel) return;
+    setAssigning(true);
+    try {
+      await fetch(
+        `${API_URL}/api/v1/pro/catalogs/price-levels/${customerPriceLevel.id}/customers/${customerId}`,
+        { method: "DELETE", credentials: "include" }
+      );
+      setCustomerPriceLevel(null);
+      // Refresh levels
+      const plRes = await fetch(`${API_URL}/api/v1/pro/catalogs/price-levels`, { credentials: "include" });
+      if (plRes.ok) {
+        const levels = await plRes.json();
+        setPriceLevels(Array.isArray(levels) ? levels : []);
+      }
+    } catch { /* handled silently */ } finally {
+      setAssigning(false);
+    }
+  };
+
+  if (loading || loadingPro) {
     return (
       <div className="flex items-center justify-center h-40">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -69,20 +156,82 @@ function PortalSettingsTab({ customerId: _customerId, portalDetails, loading, on
         </div>
       )}
 
-      {/* PRO Features Notice */}
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <div>
-            <p className="text-sm font-medium text-blue-400">B2B Portal Features</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Advanced B2B portal features including price levels, catalog access control, and wholesale pricing
-              are available in FilaOps PRO.
-            </p>
+      {/* Price Level Assignment */}
+      <div className="bg-gray-800/50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-white mb-3">Price Level</h3>
+        {customerPriceLevel ? (
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-white text-sm font-medium">{customerPriceLevel.name}</span>
+              <span className="text-green-400 text-sm ml-2">
+                ({customerPriceLevel.discount_percent}% off)
+              </span>
+              <span className="text-gray-500 text-xs ml-2 font-mono">{customerPriceLevel.code}</span>
+            </div>
+            <button
+              onClick={handleRemovePriceLevel}
+              disabled={assigning}
+              className="text-xs text-gray-400 hover:text-red-400 transition-colors disabled:opacity-50"
+            >
+              Remove
+            </button>
           </div>
+        ) : (
+          <div>
+            <p className="text-gray-500 text-xs mb-2">No price level assigned (base pricing)</p>
+            {priceLevels.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {priceLevels.filter((l) => l.active).map((level) => (
+                  <button
+                    key={level.id}
+                    onClick={() => handleAssignPriceLevel(level.id)}
+                    disabled={assigning}
+                    className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-blue-600 text-gray-300 hover:text-white rounded transition-colors disabled:opacity-50"
+                  >
+                    {level.name} ({level.discount_percent}%)
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-xs">
+                No price levels created yet.{" "}
+                <a href="/admin/price-levels" className="text-blue-400 hover:text-blue-300">
+                  Create one
+                </a>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Catalog Access */}
+      <div className="bg-gray-800/50 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-medium text-white">Catalog Access</h3>
+          <a href="/admin/catalogs" className="text-xs text-blue-400 hover:text-blue-300">
+            Manage Catalogs
+          </a>
         </div>
+        {catalogs.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {catalogs.map((cat) => (
+              <span
+                key={cat.id}
+                className="px-2 py-1 bg-gray-700 rounded text-xs text-gray-300"
+              >
+                {cat.name}
+                {cat.is_public && <span className="text-green-400 ml-1">(public)</span>}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500 text-xs">
+            Only public catalogs visible. Assign this customer to private catalogs from the{" "}
+            <a href="/admin/catalogs" className="text-blue-400 hover:text-blue-300">
+              Catalogs page
+            </a>.
+          </p>
+        )}
       </div>
     </div>
   );
