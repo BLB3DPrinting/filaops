@@ -28,6 +28,19 @@ if [ -n "$FILAOPS_LICENSE_KEY" ]; then
         fi
     fi
 
+    # ─── Portal Frontend Auto-Download ───
+    if [ ! -d "/app/portal-dist" ]; then
+        LICENSE_URL="${LICENSE_SERVER_URL:-https://license.blb3dprinting.com}"
+        if curl -sf -H "X-License-Key: $FILAOPS_LICENSE_KEY" \
+            "$LICENSE_URL/api/v1/download/filaops-portal" \
+            -o /tmp/portal-dist.tar.gz; then
+            mkdir -p /app/portal-dist
+            tar -xzf /tmp/portal-dist.tar.gz -C /app/portal-dist
+            rm -f /tmp/portal-dist.tar.gz
+            echo "FilaOps: Portal frontend installed."
+        fi
+    fi
+
     # Bridge: set the generic plugin env var so Core's load_plugin finds it
     if python -c "import filaops_pro" 2>/dev/null; then
         FILAOPS_PRO_MODULE=filaops_pro
