@@ -841,8 +841,8 @@ function CustomerPicker({ catalogCustomers, onAdd, onClose }) {
   const filtered = customers.filter(
     (c) =>
       !existingIds.has(c.id) &&
-      (c.name?.toLowerCase().includes(search.toLowerCase()) ||
-        c.company?.toLowerCase().includes(search.toLowerCase()) ||
+      (c.display_name?.toLowerCase().includes(search.toLowerCase()) ||
+        c.company_name?.toLowerCase().includes(search.toLowerCase()) ||
         c.email?.toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -902,8 +902,8 @@ function CustomerPicker({ catalogCustomers, onAdd, onClose }) {
                     className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500"
                   />
                   <div className="flex-1 min-w-0">
-                    <span className="text-white text-sm block truncate">{c.company || c.name || c.email}</span>
-                    {c.email && c.company && <span className="text-gray-500 text-xs">{c.email}</span>}
+                    <span className="text-white text-sm block truncate">{c.company_name || c.display_name || c.email}</span>
+                    {c.email && c.company_name && <span className="text-gray-500 text-xs">{c.email}</span>}
                   </div>
                 </label>
               ))}

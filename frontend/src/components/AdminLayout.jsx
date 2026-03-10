@@ -429,6 +429,12 @@ const navGroups = [
     adminOnly: true,
     items: [
       {
+        path: "/admin/access-requests",
+        label: "Access Requests",
+        icon: CustomersIcon,
+        adminOnly: true,
+      },
+      {
         path: "/admin/catalogs",
         label: "Catalogs",
         icon: ItemsIcon,

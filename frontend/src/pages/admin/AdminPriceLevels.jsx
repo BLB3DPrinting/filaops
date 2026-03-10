@@ -525,8 +525,8 @@ function AssignCustomersModal({ level, onAssign, onUnassign, onClose }) {
   const unassigned = availableCustomers.filter(
     (c) =>
       !assignedIds.has(c.id) &&
-      (c.name?.toLowerCase().includes(search.toLowerCase()) ||
-        c.company?.toLowerCase().includes(search.toLowerCase()) ||
+      (c.display_name?.toLowerCase().includes(search.toLowerCase()) ||
+        c.company_name?.toLowerCase().includes(search.toLowerCase()) ||
         c.email?.toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -620,9 +620,9 @@ function AssignCustomersModal({ level, onAssign, onUnassign, onClose }) {
                   >
                     <div>
                       <span className="text-white text-sm">
-                        {c.company || c.name || c.email}
+                        {c.company_name || c.display_name || c.email}
                       </span>
-                      {c.email && c.company && (
+                      {c.email && c.company_name && (
                         <span className="text-gray-500 text-xs ml-2">{c.email}</span>
                       )}
                     </div>

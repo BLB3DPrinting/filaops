@@ -50,6 +50,7 @@ const AdminSpools = lazy(() => import("./pages/admin/AdminSpools"));
 const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
 const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
 const AdminPriceLevels = lazy(() => import("./pages/admin/AdminPriceLevels"));
+const AdminAccessRequests = lazy(() => import("./pages/admin/AdminAccessRequests"));
 const AdminCatalogs = lazy(() => import("./pages/admin/AdminCatalogs"));
 const MaterialTraceability = lazy(() => import("./pages/admin/quality/MaterialTraceability"));
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
@@ -148,6 +149,7 @@ export default function App() {
             <Route path="spools" element={<Suspense fallback={<PageLoader />}><AdminSpools /></Suspense>} />
             <Route path="quality/traceability" element={<Suspense fallback={<PageLoader />}><MaterialTraceability /></Suspense>} />
             <Route path="command-center" element={<Suspense fallback={<PageLoader />}><CommandCenter /></Suspense>} />
+            <Route path="access-requests" element={<Suspense fallback={<PageLoader />}><AdminAccessRequests /></Suspense>} />
             <Route path="catalogs" element={<Suspense fallback={<PageLoader />}><AdminCatalogs /></Suspense>} />
             <Route path="price-levels" element={<Suspense fallback={<PageLoader />}><AdminPriceLevels /></Suspense>} />
             <Route path="settings" element={<Suspense fallback={<PageLoader />}><AdminSettings /></Suspense>} />
