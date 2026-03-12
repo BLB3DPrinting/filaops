@@ -7,12 +7,14 @@ const STATUS_COLORS = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   approved: "bg-green-500/20 text-green-400 border-green-500/30",
   denied: "bg-red-500/20 text-red-400 border-red-500/30",
+  revoked: "bg-orange-500/20 text-orange-400 border-orange-500/30",
 };
 
 const STATUS_LABELS = {
   pending: "Pending",
   approved: "Approved",
   denied: "Denied",
+  revoked: "Revoked",
 };
 
 export default function AdminAccessRequests() {
@@ -73,9 +75,42 @@ export default function AdminAccessRequests() {
     }
   };
 
+  const handleResend = async (id) => {
+    setActionLoading(id);
+    try {
+      const result = await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/resend`, {});
+      toast.success("New invite link generated");
+      setSetupLink({ id, url: result.setup_url, token: result.setup_token });
+      fetchRequests();
+    } catch (err) {
+      toast.error(err?.message || "Failed to resend invite");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRevoke = async (id) => {
+    if (!window.confirm("Revoke this user's portal access? Their account will be deactivated.")) return;
+    setActionLoading(id);
+    try {
+      await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/revoke`, {});
+      toast.success("Access revoked");
+      setSetupLink(null);
+      fetchRequests();
+    } catch (err) {
+      toast.error(err?.message || "Failed to revoke access");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const copySetupLink = () => {
     if (!setupLink) return;
-    const fullUrl = `${window.location.origin}/portal/setup-password/${setupLink.token}`;
+    // Use the full URL from the API if PORTAL_PUBLIC_URL is configured,
+    // otherwise fall back to constructing from window.location.origin
+    const fullUrl = setupLink.url.startsWith("http")
+      ? setupLink.url
+      : `${window.location.origin}${setupLink.url}`;
     navigator.clipboard.writeText(fullUrl);
     toast.success("Setup link copied to clipboard");
   };
@@ -119,8 +154,8 @@ export default function AdminAccessRequests() {
               <p className="text-xs text-green-400/80 mt-1">
                 Send this link to the applicant so they can set their password:
               </p>
-              <code className="text-xs text-green-300 mt-1 block bg-green-500/10 px-2 py-1 rounded">
-                {window.location.origin}/portal/setup-password/{setupLink.token}
+              <code className="text-xs text-green-300 mt-1 block bg-green-500/10 px-2 py-1 rounded break-all">
+                {setupLink.url.startsWith("http") ? setupLink.url : `${window.location.origin}${setupLink.url}`}
               </code>
             </div>
             <div className="flex gap-2">
@@ -143,7 +178,7 @@ export default function AdminAccessRequests() {
 
       {/* Filters */}
       <div className="flex gap-2">
-        {["pending", "approved", "denied", ""].map((f) => (
+        {["pending", "approved", "denied", "revoked", ""].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -261,6 +296,26 @@ export default function AdminAccessRequests() {
                       className="px-3 py-1.5 text-xs bg-red-600/20 hover:bg-red-600/40 disabled:opacity-50 text-red-400 border border-red-600/30 rounded transition-colors"
                     >
                       Deny
+                    </button>
+                  </div>
+                )}
+                {req.status === "approved" && (
+                  <div className="flex gap-2 ml-4 flex-shrink-0">
+                    {!req.setup_token_used && (
+                      <button
+                        onClick={() => handleResend(req.id)}
+                        disabled={actionLoading === req.id}
+                        className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded transition-colors"
+                      >
+                        {actionLoading === req.id ? "..." : "Resend Invite"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRevoke(req.id)}
+                      disabled={actionLoading === req.id}
+                      className="px-3 py-1.5 text-xs bg-orange-600/20 hover:bg-orange-600/40 disabled:opacity-50 text-orange-400 border border-orange-600/30 rounded transition-colors"
+                    >
+                      {actionLoading === req.id ? "..." : "Revoke Access"}
                     </button>
                   </div>
                 )}
