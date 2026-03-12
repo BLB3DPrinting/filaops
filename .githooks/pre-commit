@@ -6,8 +6,9 @@
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 
 if [ -z "$BRANCH" ]; then
-  echo "🦖 T-REX: WARNING — Detached HEAD state. Proceeding with caution."
-  exit 0
+  echo "🦖 T-REX: WARNING — Detached HEAD state detected."
+  echo "🦖 T-REX: Cannot verify branch protection. Blocking commit."
+  exit 1
 fi
 
 PROTECTED_BRANCHES="main master production release"
