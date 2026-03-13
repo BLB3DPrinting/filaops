@@ -171,12 +171,12 @@ def list_customers(
     if search:
         term = f"%{escape_like(search)}%"
         query = query.filter(
-            (User.email.ilike(term))
-            | (User.first_name.ilike(term))
-            | (User.last_name.ilike(term))
-            | (User.company_name.ilike(term))
-            | (User.customer_number.ilike(term))
-            | (User.phone.ilike(term))
+            (User.email.ilike(term, escape="\\"))
+            | (User.first_name.ilike(term, escape="\\"))
+            | (User.last_name.ilike(term, escape="\\"))
+            | (User.company_name.ilike(term, escape="\\"))
+            | (User.customer_number.ilike(term, escape="\\"))
+            | (User.phone.ilike(term, escape="\\"))
         )
 
     query = query.order_by(desc(User.created_at))
@@ -241,11 +241,11 @@ def search_customers(
         .filter(
             User.account_type == "customer",
             User.status == "active",
-            (User.email.ilike(term))
-            | (User.first_name.ilike(term))
-            | (User.last_name.ilike(term))
-            | (User.company_name.ilike(term))
-            | (User.customer_number.ilike(term)),
+            (User.email.ilike(term, escape="\\"))
+            | (User.first_name.ilike(term, escape="\\"))
+            | (User.last_name.ilike(term, escape="\\"))
+            | (User.company_name.ilike(term, escape="\\"))
+            | (User.customer_number.ilike(term, escape="\\")),
         )
         .order_by(User.last_name, User.first_name)
         .limit(limit)
