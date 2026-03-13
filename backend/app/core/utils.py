@@ -11,6 +11,16 @@ from sqlalchemy.orm import Session
 T = TypeVar("T")
 
 
+def escape_like(value: str) -> str:
+    """
+    Escape SQL LIKE-style wildcard characters in a string.
+    
+    Returns:
+        Escaped string where backslashes are doubled and percent signs (%) and underscores (_) are prefixed with a backslash.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def get_or_404(
     db: Session,
     model: Type[T],

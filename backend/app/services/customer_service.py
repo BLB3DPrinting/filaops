@@ -14,6 +14,7 @@ from sqlalchemy import Integer, cast, desc, func
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
+from app.core.utils import escape_like
 from app.logging_config import get_logger
 from app.models.quote import Quote
 from app.models.sales_order import SalesOrder
@@ -146,10 +147,19 @@ def list_customers(
     limit: int = 50,
 ) -> list[dict]:
     """
-    List customers with optional search and status filters.
-
-    Returns list of dicts matching CustomerListResponse schema, each
-    enriched with order_count, total_spent, and last_order_date.
+    Return a list of customer records optionally filtered by search terms and status.
+    
+    Each item is a dict containing customer fields (id, customer_number, email, first_name, last_name, company_name, phone, status, full_name, shipping address fields, created_at) and aggregated order statistics (`order_count`, `total_spent`, `last_order_date`).
+    
+    Parameters:
+        search (Optional[str]): Case-insensitive search term matched against email, first_name, last_name, company_name, customer_number, and phone. Wildcards and special characters are safely escaped before matching.
+        status_filter (Optional[str]): If provided, only customers with this status are returned; otherwise only active customers are returned unless `include_inactive` is True.
+        include_inactive (bool): When True, do not restrict results to active customers if `status_filter` is not set.
+        skip (int): Number of records to skip (offset).
+        limit (int): Maximum number of records to return.
+    
+    Returns:
+        list[dict]: Customer dictionaries augmented with `order_count` (int), `total_spent` (float), and `last_order_date` (datetime or None).
     """
     query = db.query(User).filter(User.account_type == "customer")
 
@@ -159,7 +169,7 @@ def list_customers(
         query = query.filter(User.status == "active")
 
     if search:
-        term = f"%{search}%"
+        term = f"%{escape_like(search)}%"
         query = query.filter(
             (User.email.ilike(term))
             | (User.first_name.ilike(term))
@@ -213,11 +223,19 @@ def search_customers(
     limit: int = 20,
 ) -> list[dict]:
     """
-    Lightweight customer search for dropdown/autocomplete.
-
-    Searches email, names, company, and customer number among active customers.
+    Finds active customers matching the query for use in dropdowns or autocomplete.
+    
+    Matches the query case-insensitively against email, first name, last name, company name, and customer number.
+    
+    Returns:
+        A list of dictionaries for matching customers. Each dictionary contains:
+            id (int): Customer database ID.
+            customer_number (str|None): Assigned customer number, if present.
+            email (str): Customer email address.
+            full_name (str|None): Combined first and last name when available.
+            company_name (str|None): Customer's company name when available.
     """
-    term = f"%{query}%"
+    term = f"%{escape_like(query)}%"
     customers = (
         db.query(User)
         .filter(
