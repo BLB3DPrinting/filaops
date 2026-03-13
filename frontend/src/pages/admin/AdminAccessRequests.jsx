@@ -41,6 +41,9 @@ export default function AdminAccessRequests() {
     }
   }, [api, filter, toast]);
 
+  // Clear setup link banner when filter changes (approved request may not be visible)
+  useEffect(() => setSetupLink(null), [filter]);
+
   useEffect(() => {
     if (isPro && !flagsLoading) {
       fetchRequests();
