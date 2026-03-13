@@ -19,6 +19,8 @@ updates:
     groups:
       pip-security:
         applies-to: security-updates
+        patterns:
+          - "*"
       pip-minor-patch:
         applies-to: version-updates
         update-types:
@@ -47,6 +49,8 @@ updates:
     groups:
       npm-security:
         applies-to: security-updates
+        patterns:
+          - "*"
       npm-minor-patch:
         applies-to: version-updates
         update-types:
