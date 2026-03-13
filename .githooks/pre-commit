@@ -4,10 +4,11 @@
 # This is Law One at the OS level. No behavioral compliance needed.
 
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
 
 if [ -z "$BRANCH" ]; then
   # Allow commits during rebase, cherry-pick, or merge (all run in detached HEAD)
-  if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ] || [ -f ".git/CHERRY_PICK_HEAD" ] || [ -f ".git/MERGE_HEAD" ]; then
+  if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ] || [ -f "$GIT_DIR/CHERRY_PICK_HEAD" ] || [ -f "$GIT_DIR/MERGE_HEAD" ]; then
     exit 0
   fi
   echo "🦖 T-REX: WARNING — Detached HEAD state detected."

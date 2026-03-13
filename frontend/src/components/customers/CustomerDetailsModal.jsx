@@ -82,10 +82,11 @@ function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh }) {
     if (!customerPriceLevel) return;
     setAssigning(true);
     try {
-      await fetch(
+      const res = await fetch(
         `${API_URL}/api/v1/pro/catalogs/price-levels/${customerPriceLevel.id}/customers/${customerId}`,
         { method: "DELETE", credentials: "include" }
       );
+      if (!res.ok) return;
       setCustomerPriceLevel(null);
       // Refresh levels
       const plRes = await fetch(`${API_URL}/api/v1/pro/catalogs/price-levels`, { credentials: "include" });
@@ -93,6 +94,7 @@ function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh }) {
         const levels = await plRes.json();
         setPriceLevels(Array.isArray(levels) ? levels : []);
       }
+      onRefresh?.();
     } catch { /* handled silently */ } finally {
       setAssigning(false);
     }

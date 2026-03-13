@@ -118,7 +118,12 @@ export default function AdminPriceLevels() {
         { customer_id: customerId }
       );
       toast.success("Customer assigned to price level");
-      await refresh();
+      const data = await refresh();
+      // Re-resolve assigningLevel from refreshed data so modal shows current customers
+      if (assigningLevel && Array.isArray(data)) {
+        const fresh = data.find((l) => l.id === assigningLevel.id);
+        if (fresh) setAssigningLevel(fresh);
+      }
     } catch (err) {
       toast.error(err.message);
     }
@@ -130,7 +135,11 @@ export default function AdminPriceLevels() {
         `/api/v1/pro/catalogs/price-levels/${levelId}/customers/${customerId}`
       );
       toast.success("Customer removed from price level");
-      await refresh();
+      const data = await refresh();
+      if (assigningLevel && Array.isArray(data)) {
+        const fresh = data.find((l) => l.id === assigningLevel.id);
+        if (fresh) setAssigningLevel(fresh);
+      }
     } catch (err) {
       toast.error(err.message);
     }

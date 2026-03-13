@@ -53,7 +53,7 @@ export default function AdminAccessRequests() {
       const result = await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/approve`, {});
       toast.success(`Approved — setup link generated`);
       setSetupLink({ id, url: result.setup_url, email: result.message, token: result.setup_token });
-      fetchRequests();
+      await fetchRequests();
     } catch (err) {
       toast.error(err?.message || "Failed to approve request");
     } finally {
@@ -67,7 +67,7 @@ export default function AdminAccessRequests() {
     try {
       await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/deny`, {});
       toast.success("Request denied");
-      fetchRequests();
+      await fetchRequests();
     } catch (err) {
       toast.error(err?.message || "Failed to deny request");
     } finally {
@@ -81,7 +81,7 @@ export default function AdminAccessRequests() {
       const result = await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/resend`, {});
       toast.success("New invite link generated");
       setSetupLink({ id, url: result.setup_url, token: result.setup_token });
-      fetchRequests();
+      await fetchRequests();
     } catch (err) {
       toast.error(err?.message || "Failed to resend invite");
     } finally {
@@ -96,7 +96,7 @@ export default function AdminAccessRequests() {
       await api.post(`/api/v1/pro/portal/admin/access-requests/${id}/revoke`, {});
       toast.success("Access revoked");
       setSetupLink(null);
-      fetchRequests();
+      await fetchRequests();
     } catch (err) {
       toast.error(err?.message || "Failed to revoke access");
     } finally {
