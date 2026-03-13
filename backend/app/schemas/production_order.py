@@ -71,9 +71,9 @@ class ProductionOrderOperationBase(BaseModel):
     sequence: int = Field(..., ge=1)
     operation_code: Optional[str] = Field(None, max_length=50)
     operation_name: Optional[str] = Field(None, max_length=200)
-    planned_setup_minutes: Decimal = Field(0, ge=0)
-    planned_run_minutes: Decimal = Field(..., ge=0)
-    notes: Optional[str] = None
+    planned_setup_minutes: Decimal = Field(0, ge=0, le=99999)
+    planned_run_minutes: Decimal = Field(..., ge=0, le=99999)
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class ProductionOrderOperationCreate(ProductionOrderOperationBase):
@@ -85,10 +85,10 @@ class ProductionOrderOperationUpdate(BaseModel):
     """Update an operation - typically during execution"""
     resource_id: Optional[int] = None
     status: Optional[OperationStatus] = None
-    quantity_completed: Optional[Decimal] = Field(None, ge=0)
-    quantity_scrapped: Optional[Decimal] = Field(None, ge=0)
-    actual_setup_minutes: Optional[Decimal] = Field(None, ge=0)
-    actual_run_minutes: Optional[Decimal] = Field(None, ge=0)
+    quantity_completed: Optional[Decimal] = Field(None, ge=0, le=999999)
+    quantity_scrapped: Optional[Decimal] = Field(None, ge=0, le=999999)
+    actual_setup_minutes: Optional[Decimal] = Field(None, ge=0, le=99999)
+    actual_run_minutes: Optional[Decimal] = Field(None, ge=0, le=99999)
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
     actual_start: Optional[datetime] = None
@@ -96,7 +96,7 @@ class ProductionOrderOperationUpdate(BaseModel):
     bambu_task_id: Optional[str] = Field(None, max_length=100)
     bambu_plate_index: Optional[int] = None
     operator_name: Optional[str] = Field(None, max_length=100)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class ProductionOrderOperationResponse(BaseModel):
@@ -172,10 +172,10 @@ class OperationMaterialResponse(BaseModel):
 class ProductionOrderBase(BaseModel):
     """Base production order fields"""
     product_id: int
-    quantity_ordered: Decimal = Field(..., gt=0)
+    quantity_ordered: Decimal = Field(..., gt=0, le=999999)
     due_date: Optional[date] = None
     priority: int = Field(3, ge=1, le=5, description="1=highest, 5=lowest")
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class ProductionOrderCreate(ProductionOrderBase):
@@ -191,9 +191,9 @@ class ProductionOrderCreate(ProductionOrderBase):
 
 class ProductionOrderUpdate(BaseModel):
     """Update a production order"""
-    quantity_ordered: Optional[Decimal] = Field(None, gt=0)
-    quantity_completed: Optional[Decimal] = Field(None, ge=0)
-    quantity_scrapped: Optional[Decimal] = Field(None, ge=0)
+    quantity_ordered: Optional[Decimal] = Field(None, gt=0, le=999999)
+    quantity_completed: Optional[Decimal] = Field(None, ge=0, le=999999)
+    quantity_scrapped: Optional[Decimal] = Field(None, ge=0, le=999999)
     status: Optional[ProductionOrderStatus] = None
     order_type: Optional[ProductionOrderType] = None
     priority: Optional[int] = Field(None, ge=1, le=5)
@@ -201,7 +201,7 @@ class ProductionOrderUpdate(BaseModel):
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
     assigned_to: Optional[str] = Field(None, max_length=100)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class ProductionOrderScheduleRequest(BaseModel):
@@ -593,10 +593,10 @@ class SpoolUsage(BaseModel):
 
 class ProductionOrderCompleteRequest(BaseModel):
     """Request body for completing a production order with optional spool tracking"""
-    quantity_completed: Optional[Decimal] = Field(None, ge=0)
-    quantity_scrapped: Optional[Decimal] = Field(None, ge=0)
+    quantity_completed: Optional[Decimal] = Field(None, ge=0, le=999999)
+    quantity_scrapped: Optional[Decimal] = Field(None, ge=0, le=999999)
     force_close_short: bool = Field(False, description="Explicitly close order short without producing all units")
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
     spools_used: Optional[List[SpoolUsage]] = Field(
         None, description="List of spools consumed during production (for traceability)"
     )

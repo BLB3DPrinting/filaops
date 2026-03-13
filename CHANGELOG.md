@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-03-12
+
+### Added
+- Raw material/filament as sales order line items — fractional quantities, material cost tracking (#362)
+- Nepal locale (ne-NP), NPR currency, Asia/Kathmandu timezone (#387)
+- B2B Portal admin pages — Access Requests, Catalogs, Price Levels (PRO-gated)
+- Portal nginx proxy with priority prefix matching and bare-path redirect
+- T-REX pre-commit hook for branch governance (.githooks/pre-commit)
+- Docker entrypoint: atomic portal extract with staging dir, error handling
+
+### Fixed
+- Walk-in customer orders — customer_id no longer required (#361)
+- PRO feature 403s show "PRO Feature" upgrade cards instead of error toasts (#367)
+- Docker security audit "Fix It For Me" handles missing .env (#366)
+- Password reset UX for single-admin deployments (#360)
+- Await async fetchRequests in access request action handlers
+- Re-resolve stale assigningLevel after price level refresh
+- Check DELETE response before updating UI state (CustomerDetailsModal)
+- Clear setup link banner when switching access request filters
+- LICENSE_URL scoping bug in docker-entrypoint.sh
+
+### Dependencies
+- sqlalchemy 2.0.46 → 2.0.48, postcss 8.5.6 → 8.5.8
+- react-router 7.13.0 → 7.13.1, lucide-react 0.575.0 → 0.577.0
+- storybook ecosystem 10.2.11 → 10.2.16
+- types-python-dateutil 2.9.0.20260124 → 2.9.0.20260305
+
 ## [3.3.0] - 2026-03-01
 
 ### Added
@@ -190,7 +217,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI Invoice Parser (PRO)
 - License management (PRO)
 
-[Unreleased]: https://github.com/Blb3D/filaops/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/Blb3D/filaops/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/Blb3D/filaops/compare/v3.3.0...v3.4.0
+[3.3.0]: https://github.com/Blb3D/filaops/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/Blb3D/filaops/compare/v3.1.1...v3.2.0
 [3.1.1]: https://github.com/Blb3D/filaops/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/Blb3D/filaops/compare/v3.0.1...v3.1.0

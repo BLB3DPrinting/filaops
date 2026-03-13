@@ -12,11 +12,14 @@ T = TypeVar("T")
 
 
 def escape_like(value: str) -> str:
-    """
-    Escape SQL LIKE-style wildcard characters in a string.
-    
+    """Escape SQL LIKE/ILIKE wildcards in user input.
+
+    Prevents users from injecting ``%`` or ``_`` to craft expensive
+    pattern-match queries or enumerate data via wildcard abuse.
+
     Returns:
-        Escaped string where backslashes are doubled and percent signs (%) and underscores (_) are prefixed with a backslash.
+        Escaped string where backslashes are doubled and ``%`` / ``_`` are
+        prefixed with a backslash.
     """
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
