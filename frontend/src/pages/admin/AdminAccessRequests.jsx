@@ -104,15 +104,19 @@ export default function AdminAccessRequests() {
     }
   };
 
-  const copySetupLink = () => {
+  const copySetupLink = async () => {
     if (!setupLink) return;
     // Use the full URL from the API if PORTAL_PUBLIC_URL is configured,
     // otherwise fall back to constructing from window.location.origin
     const fullUrl = setupLink.url.startsWith("http")
       ? setupLink.url
       : `${window.location.origin}${setupLink.url}`;
-    navigator.clipboard.writeText(fullUrl);
-    toast.success("Setup link copied to clipboard");
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      toast.success("Setup link copied to clipboard");
+    } catch {
+      toast.error("Failed to copy — clipboard access denied");
+    }
   };
 
   // -- PRO gate --

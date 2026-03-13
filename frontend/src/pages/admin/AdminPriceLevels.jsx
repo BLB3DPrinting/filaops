@@ -337,7 +337,8 @@ function PriceLevelModal({ level, onSave, onClose }) {
     const newErrors = {};
     if (!formData.code.trim()) newErrors.code = "Code is required";
     if (!formData.name.trim()) newErrors.name = "Name is required";
-    if (formData.discount_percent < 0 || formData.discount_percent > 100)
+    const discount = Number(formData.discount_percent);
+    if (formData.discount_percent === "" || !Number.isFinite(discount) || discount < 0 || discount > 100)
       newErrors.discount_percent = "Must be 0-100";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -351,7 +352,7 @@ function PriceLevelModal({ level, onSave, onClose }) {
       await onSave({
         ...formData,
         code: formData.code.toUpperCase().trim(),
-        discount_percent: parseFloat(formData.discount_percent),
+        discount_percent: Number(formData.discount_percent),
       });
     } catch {
       // handled by parent

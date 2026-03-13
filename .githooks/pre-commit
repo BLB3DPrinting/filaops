@@ -6,6 +6,10 @@
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 
 if [ -z "$BRANCH" ]; then
+  # Allow commits during rebase, cherry-pick, or merge (all run in detached HEAD)
+  if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ] || [ -f ".git/CHERRY_PICK_HEAD" ] || [ -f ".git/MERGE_HEAD" ]; then
+    exit 0
+  fi
   echo "🦖 T-REX: WARNING — Detached HEAD state detected."
   echo "🦖 T-REX: Cannot verify branch protection. Blocking commit."
   exit 1
