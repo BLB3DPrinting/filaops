@@ -18,7 +18,7 @@ import { convertUOM } from "../../lib/uom";
 export default function POCreateModal({
   po,
   vendors,
-  products,
+  products = [],
   onClose,
   onSave,
   onProductsRefresh,
@@ -32,9 +32,10 @@ export default function POCreateModal({
   const [localProducts, setLocalProducts] = useState(products);
   const [taxOverridden, setTaxOverridden] = useState(false); // Track if user manually changed tax
 
-  // Sync localProducts when parent fetches products after modal mount
+  // Sync localProducts only on initial load (when still empty) to avoid
+  // overwriting items added via Quick Create while a fetch is in-flight
   useEffect(() => {
-    if (products.length > 0) {
+    if (products.length > 0 && localProducts.length === 0) {
       setLocalProducts(products);
     }
   }, [products]);
