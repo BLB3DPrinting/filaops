@@ -8,7 +8,7 @@
  * - Running totals display
  * - Quick create new item inline
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "../Toast";
 import Modal from "../Modal";
 import ProductSearchSelect from "./ProductSearchSelect";
@@ -31,6 +31,13 @@ export default function POCreateModal({
   const [pendingLineIndex, setPendingLineIndex] = useState(null);
   const [localProducts, setLocalProducts] = useState(products);
   const [taxOverridden, setTaxOverridden] = useState(false); // Track if user manually changed tax
+
+  // Sync localProducts when parent fetches products after modal mount
+  useEffect(() => {
+    if (products.length > 0) {
+      setLocalProducts(products);
+    }
+  }, [products]);
 
   // Build initial lines from initialItems or existing PO
   const buildInitialLines = () => {
