@@ -8,17 +8,31 @@
  * - Running totals display
  * - Quick create new item inline
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "../Toast";
 import Modal from "../Modal";
 import ProductSearchSelect from "./ProductSearchSelect";
 import QuickCreateItemModal from "./QuickCreateItemModal";
 import { convertUOM } from "../../lib/uom";
 
+/**
+ * Render and manage a Create/Edit Purchase Order modal with searchable product selection, line-item management, tax/shipping totals, and quick inline item creation.
+ *
+ * @param {Object} props - Component props.
+ * @param {Object|null} props.po - Existing purchase order data; when provided the modal is in edit mode.
+ * @param {Array<Object>} props.vendors - Array of vendor objects available for selection.
+ * @param {Array<Object>} [props.products=[]] - Initial product list used by the product search; defaults to an empty array.
+ * @param {Function} props.onClose - Callback invoked to close the modal.
+ * @param {Function} props.onSave - Callback invoked with the PO payload when the form is submitted.
+ * @param {Function} [props.onProductsRefresh] - Optional callback invoked after a product is created via the quick-create flow to prompt a parent refresh.
+ * @param {Array<Object>} [props.initialItems=[]] - Optional pre-selected items (e.g., from low-stock) used to populate initial lines for new POs.
+ * @param {Object|null} [props.companySettings=null] - Optional company settings (for example a tax_rate_percent) used to suggest tax amounts.
+ * @returns {JSX.Element} The modal element for creating or editing a purchase order.
+ */
 export default function POCreateModal({
   po,
   vendors,
-  products,
+  products = [],
   onClose,
   onSave,
   onProductsRefresh,
@@ -31,6 +45,14 @@ export default function POCreateModal({
   const [pendingLineIndex, setPendingLineIndex] = useState(null);
   const [localProducts, setLocalProducts] = useState(products);
   const [taxOverridden, setTaxOverridden] = useState(false); // Track if user manually changed tax
+
+  // Sync localProducts only on initial load (when still empty) to avoid
+  // overwriting items added via Quick Create while a fetch is in-flight
+  useEffect(() => {
+    if (products.length > 0 && localProducts.length === 0) {
+      setLocalProducts(products);
+    }
+  }, [products]);
 
   // Build initial lines from initialItems or existing PO
   const buildInitialLines = () => {
