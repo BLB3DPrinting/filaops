@@ -620,6 +620,24 @@ export default function AdminLayout() {
     fetchVersion();
   }, []);
 
+  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
+
+  const handleOpenPortalAdmin = async () => {
+    setPortalLinkLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/pro/portal/admin-link`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to get portal link");
+      const data = await res.json();
+      window.open(data.url, "_blank", "noopener");
+    } catch (err) {
+      console.error("Portal admin link failed:", err);
+    } finally {
+      setPortalLinkLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await fetch(`${API_URL}/api/v1/auth/logout`, {
@@ -824,6 +842,24 @@ export default function AdminLayout() {
                 />
               </div>
               <div className="flex items-center gap-4">
+                {isPro && isAdmin && (
+                  <button
+                    onClick={handleOpenPortalAdmin}
+                    disabled={portalLinkLoading}
+                    className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg transition-all"
+                    style={{
+                      color: 'var(--accent-primary)',
+                      border: '1px solid var(--accent-primary)',
+                      opacity: portalLinkLoading ? 0.6 : 1,
+                    }}
+                    title="Open B2B Portal Admin"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    <span>{portalLinkLoading ? "Opening..." : "Portal Admin"}</span>
+                  </button>
+                )}
                 {user && (
                   <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                     <span style={{ color: 'var(--text-primary)' }}>
