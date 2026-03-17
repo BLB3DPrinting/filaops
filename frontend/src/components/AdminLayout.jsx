@@ -624,7 +624,14 @@ export default function AdminLayout() {
   const handleOpenPortalAdmin = async () => {
     setPortalLinkLoading(true);
     // Open window synchronously to avoid popup blocker (must be in user-click call stack)
+    // NOTE: Cannot use noopener here — it causes window.open to return null,
+    // which prevents navigating the window after the fetch completes.
     const portalWindow = window.open("about:blank", "_blank");
+    if (!portalWindow) {
+      alert("Popup blocked. Please allow popups for this site and try again.");
+      setPortalLinkLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/api/v1/pro/portal/admin-link`, {
         credentials: "include",
@@ -632,12 +639,10 @@ export default function AdminLayout() {
       if (!res.ok) throw new Error("Failed to get portal link");
       const data = await res.json();
       if (!data.url) throw new Error("No portal URL returned");
-      if (portalWindow) {
-        portalWindow.location.href = data.url;
-      }
+      portalWindow.location.href = data.url;
     } catch (err) {
       console.error("Portal admin link failed:", err);
-      if (portalWindow) portalWindow.close();
+      portalWindow.close();
       alert("Could not open Portal Admin. Please try again.");
     } finally {
       setPortalLinkLoading(false);
