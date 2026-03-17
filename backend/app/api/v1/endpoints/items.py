@@ -25,6 +25,7 @@ from app.schemas.item import (
     ItemCSVImportResult,
     ItemBulkUpdateRequest,
     MaterialItemCreate,
+    DuplicateItemRequest,
 )
 from app.schemas.item_demand import ItemDemandSummary
 from app.services.item_demand import get_item_demand_summary
@@ -266,6 +267,27 @@ async def create_item(
     data = request.model_dump()
     item = item_service.create_item(db, data=data)
     return _build_item_response(item, db)
+
+
+@router.post("/{item_id}/duplicate", status_code=201)
+async def duplicate_item(
+    item_id: int,
+    request: DuplicateItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Duplicate an existing item with a new SKU and name.
+    Copies the active BOM (if any) with optional component overrides.
+    """
+    result = item_service.duplicate_item(
+        db,
+        item_id,
+        new_sku=request.new_sku,
+        new_name=request.new_name,
+        bom_line_overrides=[ov.model_dump() for ov in request.bom_line_overrides],
+    )
+    return result
 
 
 @router.post("/material", response_model=ItemResponse, status_code=201)
