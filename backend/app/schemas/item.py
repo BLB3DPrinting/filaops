@@ -323,3 +323,21 @@ class ItemBulkUpdateRequest(BaseModel):
     item_type: Optional[str] = Field(None, description="Item type: finished_good, component, supply, service")
     procurement_type: Optional[str] = Field(None, description="Procurement type: make, buy, make_or_buy")
     is_active: Optional[bool] = None
+
+
+# --- Duplicate Item ---
+
+class BOMLineOverride(BaseModel):
+    """Override a BOM line's component during duplication."""
+    original_component_id: int
+    new_component_id: int
+
+
+class DuplicateItemRequest(BaseModel):
+    """Duplicate an existing item with a new SKU and name."""
+    new_sku: str = Field(..., min_length=1, max_length=50, description="SKU for the new item")
+    new_name: str = Field(..., min_length=1, max_length=255, description="Name for the new item")
+    bom_line_overrides: List[BOMLineOverride] = Field(
+        default_factory=list,
+        description="Optional component swaps for BOM lines"
+    )
