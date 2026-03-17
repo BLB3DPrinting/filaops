@@ -557,6 +557,7 @@ export default function AdminLayout() {
   // AI Settings for SecurityBadge
   const [aiSettings, setAiSettings] = useState(null);
   const [aiSettingsFailed, setAiSettingsFailed] = useState(false);
+  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
 
   useEffect(() => {
     const fetchAiSettings = async () => {
@@ -620,19 +621,24 @@ export default function AdminLayout() {
     fetchVersion();
   }, []);
 
-  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
-
   const handleOpenPortalAdmin = async () => {
     setPortalLinkLoading(true);
+    // Open window synchronously to avoid popup blocker (must be in user-click call stack)
+    const portalWindow = window.open("about:blank", "_blank");
     try {
       const res = await fetch(`${API_URL}/api/v1/pro/portal/admin-link`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to get portal link");
       const data = await res.json();
-      window.open(data.url, "_blank", "noopener");
+      if (!data.url) throw new Error("No portal URL returned");
+      if (portalWindow) {
+        portalWindow.location.href = data.url;
+      }
     } catch (err) {
       console.error("Portal admin link failed:", err);
+      if (portalWindow) portalWindow.close();
+      alert("Could not open Portal Admin. Please try again.");
     } finally {
       setPortalLinkLoading(false);
     }
