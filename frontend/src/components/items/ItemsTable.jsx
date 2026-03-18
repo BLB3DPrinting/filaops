@@ -71,6 +71,7 @@ export default function ItemsTable({
   // Actions
   onEditItem,
   onEditRouting,
+  onDuplicateItem,
 }) {
   const formatCurrency = useFormatCurrency();
 
@@ -376,6 +377,13 @@ export default function ItemsTable({
                     className="text-blue-400 hover:text-blue-300 text-sm"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => onDuplicateItem(item)}
+                    className="text-amber-400 hover:text-amber-300 text-sm"
+                    title="Duplicate item with optional BOM component swap"
+                  >
+                    Duplicate
                   </button>
                   {(item.procurement_type === "make" ||
                     item.procurement_type === "make_or_buy") && (

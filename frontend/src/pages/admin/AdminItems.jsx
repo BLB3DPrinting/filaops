@@ -13,6 +13,7 @@ import ItemsTable from "../../components/items/ItemsTable";
 import ItemsPageHeader from "../../components/items/ItemsPageHeader";
 import ItemsFilterBar from "../../components/items/ItemsFilterBar";
 import AdjustmentReasonModal from "../../components/items/AdjustmentReasonModal";
+import DuplicateItemModal from "../../components/items/DuplicateItemModal";
 
 export default function AdminItems() {
   const api = useApi();
@@ -79,6 +80,7 @@ export default function AdminItems() {
   const [adjustmentNotes, setAdjustmentNotes] = useState("");
   const [adjustingQty, setAdjustingQty] = useState(false);
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+  const [duplicatingItem, setDuplicatingItem] = useState(null);
 
   // Confirm dialog states
   const [showDeleteCategoryConfirm, setShowDeleteCategoryConfirm] = useState(false);
@@ -611,6 +613,7 @@ export default function AdminItems() {
               setSelectedItemForRouting(item);
               setShowRoutingEditor(true);
             }}
+            onDuplicateItem={(item) => setDuplicatingItem(item)}
           />
         )}
       </div>
@@ -733,6 +736,17 @@ export default function AdminItems() {
         confirmVariant="warning"
         onConfirm={confirmRecostAll}
         onCancel={() => setShowRecostConfirm(false)}
+      />
+
+      {/* Duplicate Item Modal */}
+      <DuplicateItemModal
+        isOpen={!!duplicatingItem}
+        onClose={() => setDuplicatingItem(null)}
+        onSuccess={() => {
+          setDuplicatingItem(null);
+          fetchItems();
+        }}
+        sourceItem={duplicatingItem}
       />
 
       {/* Back to Top Button */}
