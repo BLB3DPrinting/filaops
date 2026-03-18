@@ -4,6 +4,8 @@ from fastapi import HTTPException
 
 from app.services import item_service
 from app.models.bom import BOM, BOMLine
+from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+from app.models.work_center import WorkCenter
 
 
 class TestDuplicateItemBasic:
@@ -292,3 +294,146 @@ class TestDuplicateItemWithBOM:
         assert float(new_line.scrap_factor) == 5.0
         assert new_line.is_cost_only is True
         assert new_line.notes == "Handle with care"
+
+
+class TestDuplicateItemWithRouting:
+    """Test item duplication with routing copy."""
+
+    def _make_work_center(self, db, code="WC-DUP-TEST"):
+        """Helper to create a work center for tests."""
+        wc = db.query(WorkCenter).filter(WorkCenter.code == code).first()
+        if not wc:
+            wc = WorkCenter(code=code, name="Dup Test WC", center_type="production")
+            db.add(wc)
+            db.flush()
+        return wc
+
+    def test_duplicate_copies_routing(self, db):
+        """Duplicate an item with a routing — operations should be copied."""
+        source = item_service.create_item(db, data={
+            "sku": "DUP-RTG-SRC",
+            "name": "Source With Routing",
+            "procurement_type": "make",
+        })
+        wc = self._make_work_center(db)
+
+        routing = Routing(product_id=source.id, code="DUP-RTG-SRC-RTG", name="Test RTG", is_active=True)
+        db.add(routing)
+        db.flush()
+        db.add(RoutingOperation(
+            routing_id=routing.id, work_center_id=wc.id,
+            sequence=10, operation_code="PRINT", operation_name="Print Part",
+            setup_time_minutes=5, run_time_minutes=30,
+        ))
+        db.add(RoutingOperation(
+            routing_id=routing.id, work_center_id=wc.id,
+            sequence=20, operation_code="QC", operation_name="Inspect",
+            setup_time_minutes=0, run_time_minutes=5,
+        ))
+        db.commit()
+
+        result = item_service.duplicate_item(
+            db, source.id,
+            new_sku="DUP-RTG-CLN",
+            new_name="Clone With Routing",
+        )
+
+        assert result["routing_id"] is not None
+        new_routing = db.query(Routing).filter(Routing.id == result["routing_id"]).first()
+        assert new_routing.product_id == result["id"]
+        assert new_routing.is_active is True
+
+        new_ops = (
+            db.query(RoutingOperation)
+            .filter(RoutingOperation.routing_id == new_routing.id)
+            .order_by(RoutingOperation.sequence)
+            .all()
+        )
+        assert len(new_ops) == 2
+        assert new_ops[0].operation_code == "PRINT"
+        assert float(new_ops[0].run_time_minutes) == 30.0
+        assert new_ops[1].operation_code == "QC"
+
+    def test_duplicate_copies_routing_materials_with_override(self, db):
+        """Routing operation materials should be copied and swapped like BOM lines."""
+        source = item_service.create_item(db, data={
+            "sku": "DUP-RTGMAT-SRC",
+            "name": "Routing Material Source",
+            "procurement_type": "make",
+        })
+        fil_red = item_service.create_item(db, data={
+            "sku": "DUP-RTGM-RED",
+            "name": "PLA Red (rtg test)",
+            "item_type": "supply",
+        })
+        fil_blue = item_service.create_item(db, data={
+            "sku": "DUP-RTGM-BLU",
+            "name": "PLA Blue (rtg test)",
+            "item_type": "supply",
+        })
+        wc = self._make_work_center(db, code="WC-DUP-MAT")
+
+        # Create BOM (needed so override_map is populated)
+        bom = BOM(product_id=source.id, code="DUP-RTGMAT-BOM", name="BOM", active=True)
+        db.add(bom)
+        db.flush()
+        db.add(BOMLine(bom_id=bom.id, component_id=fil_red.id, quantity=25, unit="G", sequence=1))
+        source.has_bom = True
+
+        # Create routing with operation material referencing same component
+        routing = Routing(product_id=source.id, code="DUP-RTGMAT-RTG", name="RTG", is_active=True)
+        db.add(routing)
+        db.flush()
+        op = RoutingOperation(
+            routing_id=routing.id, work_center_id=wc.id,
+            sequence=10, operation_code="PRINT", operation_name="Print",
+            setup_time_minutes=5, run_time_minutes=45,
+        )
+        db.add(op)
+        db.flush()
+        db.add(RoutingOperationMaterial(
+            routing_operation_id=op.id, component_id=fil_red.id,
+            quantity=25, unit="G", quantity_per="unit",
+        ))
+        db.commit()
+
+        result = item_service.duplicate_item(
+            db, source.id,
+            new_sku="DUP-RTGMAT-CLN",
+            new_name="Routing Material Clone",
+            bom_line_overrides=[{
+                "original_component_id": fil_red.id,
+                "new_component_id": fil_blue.id,
+            }],
+        )
+
+        # Verify routing material was swapped to blue
+        new_ops = (
+            db.query(RoutingOperation)
+            .filter(RoutingOperation.routing_id == result["routing_id"])
+            .all()
+        )
+        assert len(new_ops) == 1
+        new_mats = (
+            db.query(RoutingOperationMaterial)
+            .filter(RoutingOperationMaterial.routing_operation_id == new_ops[0].id)
+            .all()
+        )
+        assert len(new_mats) == 1
+        assert new_mats[0].component_id == fil_blue.id
+        assert float(new_mats[0].quantity) == 25.0
+
+    def test_duplicate_no_routing(self, db):
+        """Item without routing should have routing_id=None in result."""
+        source = item_service.create_item(db, data={
+            "sku": "DUP-NORTG-SRC",
+            "name": "No Routing Source",
+        })
+
+        result = item_service.duplicate_item(
+            db, source.id,
+            new_sku="DUP-NORTG-CLN",
+            new_name="No Routing Clone",
+        )
+
+        assert result["routing_id"] is None

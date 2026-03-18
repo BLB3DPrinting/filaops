@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
 from app.models import Product, ItemCategory, Inventory, BOM, BOMLine
-from app.models.manufacturing import Routing
+from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.core.utils import get_or_404, check_unique_or_400
 from app.core.uom_config import DEFAULT_MATERIAL_UOM, get_default_material_sku_prefix
 
@@ -1946,8 +1946,105 @@ def duplicate_item(
         new_item.has_bom = True
         bom_id = new_bom.id
 
+    # Copy active routing if source has one
+    routing_id = None
+    active_routing = (
+        db.query(Routing)
+        .filter(Routing.product_id == source.id, Routing.is_active.is_(True))
+        .first()
+    )
+
+    if active_routing:
+        new_routing = Routing(
+            product_id=new_item.id,
+            code=f"RTG-{new_sku_upper}"[:50],
+            name=f"Routing for {new_item.name}"[:200],
+            is_template=False,
+            version=1,
+            revision="1.0",
+            is_active=True,
+            effective_date=active_routing.effective_date,
+            notes=f"Duplicated from {source.sku}",
+        )
+        db.add(new_routing)
+        db.flush()
+
+        # Copy operations — track old_id -> new_id for predecessor remapping
+        op_id_map: dict[int, int] = {}
+        source_ops = (
+            db.query(RoutingOperation)
+            .filter(RoutingOperation.routing_id == active_routing.id)
+            .order_by(RoutingOperation.sequence)
+            .all()
+        )
+
+        for op in source_ops:
+            new_op = RoutingOperation(
+                routing_id=new_routing.id,
+                work_center_id=op.work_center_id,
+                sequence=op.sequence,
+                operation_code=op.operation_code,
+                operation_name=op.operation_name,
+                description=op.description,
+                setup_time_minutes=op.setup_time_minutes,
+                run_time_minutes=op.run_time_minutes,
+                wait_time_minutes=op.wait_time_minutes,
+                move_time_minutes=op.move_time_minutes,
+                runtime_source=op.runtime_source,
+                slicer_file_path=op.slicer_file_path,
+                units_per_cycle=op.units_per_cycle,
+                scrap_rate_percent=op.scrap_rate_percent,
+                labor_rate_override=op.labor_rate_override,
+                machine_rate_override=op.machine_rate_override,
+                can_overlap=op.can_overlap,
+                is_active=op.is_active,
+                # predecessor_operation_id set in second pass below
+            )
+            db.add(new_op)
+            db.flush()
+            op_id_map[op.id] = new_op.id
+
+            # Copy operation materials with component overrides
+            for mat in op.materials:
+                component_id = override_map.get(mat.component_id, mat.component_id) if active_bom else mat.component_id
+                new_mat = RoutingOperationMaterial(
+                    routing_operation_id=new_op.id,
+                    component_id=component_id,
+                    quantity=mat.quantity,
+                    quantity_per=mat.quantity_per,
+                    unit=mat.unit,
+                    scrap_factor=mat.scrap_factor,
+                    is_cost_only=mat.is_cost_only,
+                    is_optional=mat.is_optional,
+                    notes=mat.notes,
+                )
+                db.add(new_mat)
+
+        # Second pass: remap predecessor_operation_id references
+        for old_op in source_ops:
+            if old_op.predecessor_operation_id and old_op.predecessor_operation_id in op_id_map:
+                new_op_id = op_id_map[old_op.id]
+                db.query(RoutingOperation).filter(
+                    RoutingOperation.id == new_op_id
+                ).update({
+                    "predecessor_operation_id": op_id_map[old_op.predecessor_operation_id]
+                })
+
+        db.flush()
+        new_routing.recalculate_totals()
+        routing_id = new_routing.id
+
     db.commit()
     db.refresh(new_item)
+
+    # Build summary message
+    parts = [f"Duplicated from {source.sku}"]
+    if active_bom:
+        parts.append(f"with BOM ({len(source_lines)} lines)")
+    if active_routing:
+        parts.append(f"routing ({len(source_ops)} operations)")
+    if not active_bom and not active_routing:
+        parts.append("(no BOM or routing)")
 
     return {
         "id": new_item.id,
@@ -1955,6 +2052,6 @@ def duplicate_item(
         "name": new_item.name,
         "has_bom": new_item.has_bom,
         "bom_id": bom_id,
-        "message": f"Duplicated from {source.sku}"
-            + (f" with BOM ({len(source_lines)} lines)" if active_bom else " (no BOM)"),
+        "routing_id": routing_id,
+        "message": " ".join(parts),
     }
