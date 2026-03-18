@@ -1842,6 +1842,11 @@ def duplicate_item(
 
     # Validate new SKU uniqueness
     new_sku_upper = new_sku.upper().strip()
+    if not new_sku_upper:
+        raise HTTPException(status_code=400, detail="SKU cannot be blank")
+    new_name_clean = new_name.strip()
+    if not new_name_clean:
+        raise HTTPException(status_code=400, detail="Name cannot be blank")
     check_unique_or_400(db, Product, "sku", new_sku_upper)
 
     # Fields to exclude from copy
@@ -1858,7 +1863,7 @@ def duplicate_item(
             clone_data[col.name] = getattr(source, col.name)
 
     clone_data["sku"] = new_sku_upper
-    clone_data["name"] = new_name.strip()
+    clone_data["name"] = new_name_clean
     clone_data["has_bom"] = False  # Will be set True if BOM is copied
 
     new_item = Product(**clone_data)
@@ -1876,8 +1881,8 @@ def duplicate_item(
     if active_bom:
         new_bom = BOM(
             product_id=new_item.id,
-            code=f"{new_sku_upper}-BOM",
-            name=f"BOM for {new_item.name}",
+            code=f"{new_sku_upper}-BOM"[:50],
+            name=f"BOM for {new_item.name}"[:255],
             version=1,
             revision=active_bom.revision,
             assembly_time_minutes=active_bom.assembly_time_minutes,

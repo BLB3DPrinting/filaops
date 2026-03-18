@@ -379,7 +379,7 @@ export default function ItemsTable({
                     Edit
                   </button>
                   <button
-                    onClick={() => onDuplicateItem(item)}
+                    onClick={() => onDuplicateItem?.(item)}
                     className="text-amber-400 hover:text-amber-300 text-sm"
                     title="Duplicate item with optional BOM component swap"
                   >

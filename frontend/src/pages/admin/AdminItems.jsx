@@ -745,6 +745,7 @@ export default function AdminItems() {
         onSuccess={() => {
           setDuplicatingItem(null);
           fetchItems();
+          fetchStats();
         }}
         sourceItem={duplicatingItem}
       />
