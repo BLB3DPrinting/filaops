@@ -83,13 +83,17 @@ class TestDuplicateItemBasic:
             )
         assert exc_info.value.status_code == 404
 
-    def test_duplicate_excludes_external_ids(self, db):
-        """External IDs (WooCommerce, legacy SKU, UPC) should NOT be copied."""
+    def test_duplicate_excludes_per_item_fields(self, db):
+        """External IDs, purchase history, variant assets, and B2B restriction should NOT be copied."""
         source = item_service.create_item(db, data={
             "sku": "DUP-EXT-SRC",
             "name": "External ID Source",
             "legacy_sku": "OLD-SKU-123",
             "upc": "012345678901",
+            "average_cost": 15.00,
+            "last_cost": 12.50,
+            "image_url": "https://example.com/red.jpg",
+            "gcode_file_path": "/gcode/red-bear.gcode",
         })
 
         result = item_service.duplicate_item(
@@ -99,8 +103,17 @@ class TestDuplicateItemBasic:
         )
 
         clone = item_service.get_item(db, result["id"])
+        # External IDs
         assert clone.legacy_sku is None
         assert clone.upc is None
+        # Purchase history (no history for new item)
+        assert clone.average_cost is None
+        assert clone.last_cost is None
+        # Per-variant assets (different per color)
+        assert clone.image_url is None
+        assert clone.gcode_file_path is None
+        # B2B restriction (starts unrestricted)
+        assert clone.customer_id is None
 
 
 class TestDuplicateItemWithBOM:

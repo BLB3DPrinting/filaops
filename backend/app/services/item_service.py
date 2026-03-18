@@ -1849,11 +1849,19 @@ def duplicate_item(
         raise HTTPException(status_code=400, detail="Name cannot be blank")
     check_unique_or_400(db, Product, "sku", new_sku_upper)
 
-    # Fields to exclude from copy
+    # Fields to exclude from copy:
+    # - Identity: id, sku, name, timestamps
+    # - External IDs: woocommerce, squarespace, legacy_sku, upc (unique per item)
+    # - Purchase history: average_cost, last_cost (no history for new item)
+    # - Per-variant assets: gcode_file_path, image_url (different per color/variant)
+    # - B2B restriction: customer_id (new item starts unrestricted)
     EXCLUDE_FIELDS = {
         "id", "sku", "name", "created_at", "updated_at",
         "woocommerce_product_id", "squarespace_product_id",
         "legacy_sku", "upc",
+        "average_cost", "last_cost",
+        "gcode_file_path", "image_url",
+        "customer_id",
     }
 
     # Clone product fields
@@ -1894,6 +1902,9 @@ def duplicate_item(
         db.flush()
 
         # Build override lookup: original_component_id -> new_component_id
+        # NOTE: Keyed by component_id, so if the same component appears on
+        # multiple BOM lines, ALL instances get swapped. This is intentional
+        # for color variants (swap every instance of "PLA Red" to "PLA Blue").
         override_map = {}
         if bom_line_overrides:
             for ov in bom_line_overrides:
