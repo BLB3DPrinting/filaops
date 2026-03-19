@@ -1,9 +1,7 @@
 FROM python:3.11-slim
 
-# Version info (passed from docker-compose build args or CI)
-ARG FILAOPS_VERSION=3.2.0
+# Build-time metadata (optional)
 ARG FILAOPS_BUILD_DATE
-ENV FILAOPS_VERSION=${FILAOPS_VERSION}
 ENV FILAOPS_BUILD_DATE=${FILAOPS_BUILD_DATE:-unknown}
 
 WORKDIR /app

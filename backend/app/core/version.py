@@ -6,8 +6,8 @@ Uses git-based versioning for native PostgreSQL installation.
 
 Version resolution order:
   1. Git tag (git describe --tags --abbrev=0) — works in dev and non-Docker prod
-  2. FILAOPS_VERSION environment variable — set via Dockerfile ARG or docker-compose
-  3. _VERSION_FILE (backend/VERSION) — single source of truth, read at import time
+  2. FILAOPS_VERSION environment variable — only if explicitly set (e.g. docker-compose .env override)
+  3. VERSION file (backend/VERSION) — single source of truth, read at import time
   4. Hardcoded FALLBACK_VERSION — last resort, should never be reached
 
 See docs/VERSIONING.md for the full versioning strategy.
@@ -39,7 +39,7 @@ class VersionManager:
     """Manages FilaOps version information and update checking"""
 
     GITHUB_REPO = "Blb3D/filaops"
-    FALLBACK_VERSION = _read_version_file() or "3.0.1"
+    FALLBACK_VERSION = _read_version_file() or "0.0.0"
 
     # Server-side cache for GitHub API responses (to avoid rate limiting)
     _update_cache: Optional[Dict[str, Any]] = None
