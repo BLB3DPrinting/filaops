@@ -4,6 +4,7 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import CreateBOMForm from "../../components/bom/CreateBOMForm";
 import CreateProductionOrderModal from "../../components/bom/CreateProductionOrderModal";
+import CopyBOMModal from "../../components/bom/CopyBOMModal";
 import BOMDetailView from "../../components/bom/BOMDetailView";
 import Modal from "../../components/Modal";
 
@@ -20,6 +21,8 @@ export default function AdminBOM() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showProductionModal, setShowProductionModal] = useState(false);
   const [productionBOM, setProductionBOM] = useState(null);
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copyBom, setCopyBom] = useState(null);
   const [filters, setFilters] = useState({
     search: searchParams.get("search") || "",
     active: searchParams.get("active") || "all",
@@ -116,14 +119,9 @@ export default function AdminBOM() {
     }
   };
 
-  const handleCopyBOM = async (bomId) => {
-    try {
-      await api.post(`/api/v1/admin/bom/${bomId}/copy`);
-      toast.success("BOM copied");
-      fetchBOMs();
-    } catch (err) {
-      toast.error(`Failed to copy BOM: ${err.message || "Network error"}`);
-    }
+  const handleCopyBOM = (bom) => {
+    setCopyBom(bom);
+    setShowCopyModal(true);
   };
 
   const handleCreateProductionOrder = (bom) => {
@@ -267,7 +265,7 @@ export default function AdminBOM() {
                       View
                     </button>
                     <button
-                      onClick={() => handleCopyBOM(bom.id)}
+                      onClick={() => handleCopyBOM(bom)}
                       className="text-purple-400 hover:text-purple-300 text-sm"
                     >
                       Copy
@@ -388,6 +386,21 @@ export default function AdminBOM() {
           />
         </div>
       </Modal>
+
+      {/* Copy BOM Modal */}
+      <CopyBOMModal
+        isOpen={showCopyModal}
+        onClose={() => {
+          setShowCopyModal(false);
+          setCopyBom(null);
+        }}
+        onSuccess={() => {
+          setShowCopyModal(false);
+          setCopyBom(null);
+          fetchBOMs();
+        }}
+        sourceBom={copyBom}
+      />
     </div>
   );
 }
