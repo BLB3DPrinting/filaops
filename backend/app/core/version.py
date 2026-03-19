@@ -8,7 +8,7 @@ Version resolution order:
   1. Git tag (git describe --tags --abbrev=0) — works in dev and non-Docker prod
   2. FILAOPS_VERSION environment variable — only if explicitly set (e.g. docker-compose .env override)
   3. VERSION file (backend/VERSION) — single source of truth, read at import time
-  4. Hardcoded FALLBACK_VERSION — last resort, should never be reached
+  4. FALLBACK_VERSION sentinel ("0.0.0") — last resort, should never be reached
 
 See docs/VERSIONING.md for the full versioning strategy.
 """

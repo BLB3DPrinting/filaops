@@ -6,7 +6,7 @@ This document covers two closely related topics: how FilaOps handles initial set
 
 ### What Happens on First Launch
 
-When FilaOps starts with an empty user table, the frontend automatically detects this and redirects to the **Setup Wizard** at `/setup`. The backend exposes two endpoints that drive this flow:
+When FilaOps starts with an empty user table, the frontend automatically detects this and redirects to the **Setup Wizard** at `/onboarding`. The backend exposes two endpoints that drive this flow:
 
 - `GET /api/v1/setup/status` -- Returns `needs_setup: true` when zero users exist.
 - `POST /api/v1/setup/initial-admin` -- Creates the first admin account. This endpoint is **permanently disabled** once any user exists (returns `403 Forbidden`).
