@@ -54,9 +54,9 @@ This is the production flow:
 5. **Admin denies:** The user receives a denial notification email.
 6. User clicks the reset link, enters a new password, and all existing sessions are invalidated.
 
-### Without SMTP Configured (Development Mode)
+### Without SMTP Configured (Development Only)
 
-When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
+When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env` **and** `ENVIRONMENT` is not `production`:
 
 1. User clicks "Forgot Password" and submits their email.
 2. The backend **auto-approves** the request immediately.
@@ -65,6 +65,8 @@ When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
 
 No email is sent. The Forgot Password page displays the reset link directly with a "Reset My Password" button.
 
+> **Production safety:** If SMTP is not configured in production (`ENVIRONMENT=production`), auto-approval is disabled. The reset request is created with `pending` status but no email is sent and no link is returned. This prevents accidental bypass of admin approval in misconfigured production deployments.
+
 ### Anti-Enumeration (Security Note)
 
 The password reset endpoint intentionally **does not reveal whether an email exists** in the system. If you submit a non-existent email:
@@ -72,7 +74,7 @@ The password reset endpoint intentionally **does not reveal whether an email exi
 - **With SMTP:** You see a green success message: "If an account exists with this email, a password reset request has been submitted for review." No email is sent, but the response is identical.
 - **Without SMTP:** No reset link is generated (since no user was found), but the generic success message still appears.
 
-This follows OWASP A01:2021 (Broken Access Control) best practices. If you are testing and unsure which email your admin account uses, check the database directly rather than relying on the reset form.
+This follows OWASP A07:2021 (Identification and Authentication Failures) best practices. If you are testing and unsure which email your admin account uses, check the database directly rather than relying on the reset form.
 
 ### The `.local` TLD Gotcha
 
