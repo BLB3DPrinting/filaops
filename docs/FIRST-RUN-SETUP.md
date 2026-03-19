@@ -54,9 +54,9 @@ This is the production flow:
 5. **Admin denies:** The user receives a denial notification email.
 6. User clicks the reset link, enters a new password, and all existing sessions are invalidated.
 
-### Without SMTP Configured (Development Only)
+### Without SMTP Configured
 
-When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env` **and** `ENVIRONMENT` is not `production`:
+When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
 
 1. User clicks "Forgot Password" and submits their email.
 2. The backend **auto-approves** the request immediately.
@@ -65,7 +65,7 @@ When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env` **and** `ENVIRONMENT`
 
 No email is sent. The Forgot Password page displays the reset link directly with a "Reset My Password" button.
 
-> **Production safety:** If SMTP is not configured in production (`ENVIRONMENT=production`), auto-approval is disabled. The reset request is created with `pending` status but no email is sent and no link is returned. This prevents accidental bypass of admin approval in misconfigured production deployments.
+> **Production warning:** If SMTP is not configured in production, auto-approval still works but a **SECURITY WARNING** is logged on every password reset. This bypasses admin approval, meaning anyone who knows a valid email address can reset that account's password without inbox verification. **Configure SMTP for production deployments** — see [Email Setup](https://blb3d.github.io/filaops/EMAIL_CONFIGURATION/).
 
 ### Anti-Enumeration (Security Note)
 

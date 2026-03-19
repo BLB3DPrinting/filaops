@@ -498,20 +498,16 @@ async def request_password_reset(
             message=success_message,
             request_id=reset_request.id  # type: ignore[arg-type]
         )
-    elif settings.is_production:
-        # Production without SMTP — cannot auto-approve for security
-        reset_request.status = 'pending'  # type: ignore[assignment]
-        db.commit()
-        logger.warning(
-            "Password reset requested but SMTP not configured in production",
-            extra={"user_id": user.id, "email": user.email}
-        )
-        return PasswordResetRequestResponse(
-            message=success_message,
-            request_id=reset_request.id  # type: ignore[arg-type]
-        )
     else:
-        # Development without SMTP - auto-approve and return reset link directly
+        # No SMTP configured - auto-approve and return reset link directly
+        if settings.is_production:
+            logger.warning(
+                "SECURITY WARNING: Password reset auto-approved in production because "
+                "SMTP is not configured. This bypasses admin approval. Configure SMTP "
+                "to enable secure password resets. "
+                "See: https://blb3d.github.io/filaops/EMAIL_CONFIGURATION/",
+                extra={"user_id": user.id, "email": user.email}
+            )
         reset_request.status = 'approved'  # type: ignore[assignment]
         reset_request.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
         reset_request.expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).replace(tzinfo=None)  # type: ignore[assignment] # 24 hours to use
