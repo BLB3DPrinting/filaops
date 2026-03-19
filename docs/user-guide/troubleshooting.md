@@ -61,6 +61,26 @@ FilaOps sessions use refresh tokens. If you're being logged out frequently:
 - Clear your browser cookies for the FilaOps domain and log in again
 - If the problem persists, an admin may have reset your password (which invalidates all sessions)
 
+### Password reset says "submitted for review" but no email arrives
+
+This is expected behavior. The reset form intentionally does not reveal whether an email exists in the system (anti-enumeration, OWASP A01:2021). If no account matches the email you entered, the response looks identical to a valid submission but no email is sent.
+
+**To verify your admin email**, check the database: `SELECT email FROM users WHERE account_type = 'admin';`
+
+### Password reset shows "Request validation failed"
+
+The `email-validator` library rejects `.local` domains (RFC 6762 reserved). If your user account uses an email like `user@myserver.local`, the reset form will fail with a validation error.
+
+**Fix:** Use a standard TLD for user emails. For development, `admin@example.com` or `admin@dev.test` work well.
+
+### Forgot password but SMTP is not configured
+
+When SMTP is not set up, the password reset flow auto-approves and displays the reset link directly on the Forgot Password page. No email is needed. See the [First-Run Setup Guide](../FIRST-RUN-SETUP.md#without-smtp-configured-development-mode) for details.
+
+### Locked out of admin account on a dev database
+
+If you cannot log in and the setup wizard does not appear (because users exist), see [Dev Environment: Resetting Admin Credentials](../FIRST-RUN-SETUP.md#dev-environment-resetting-admin-credentials) for multiple recovery options.
+
 ---
 
 ## Dashboard

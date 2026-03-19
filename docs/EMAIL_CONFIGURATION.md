@@ -24,5 +24,7 @@ SMTP_TLS=true
 ## Disabling Email
 
 If SMTP is not configured, FilaOps will:
-- Auto-approve password reset requests (development mode)
-- Log email content to console instead of sending
+- Auto-approve password reset requests and display reset links directly on the page
+- Log email content to the console instead of sending
+
+For a full description of how password resets work with and without SMTP, see [First-Run Setup and Password Reset](FIRST-RUN-SETUP.md#password-reset-flow).

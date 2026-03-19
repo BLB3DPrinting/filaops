@@ -184,7 +184,7 @@ VITE v5.x.x  ready in xxx ms
 
 ## Step 7: Verify It Works
 
-Open your browser and go to **http://localhost:5173**. You should see the FilaOps setup screen.
+Open your browser and go to **http://localhost:5173**. On a fresh database (no users), FilaOps automatically redirects to the **Setup Wizard** where you create your admin account and optionally load example data.
 
 **Verification checklist:**
 
@@ -194,6 +194,9 @@ Open your browser and go to **http://localhost:5173**. You should see the FilaOp
 - [ ] The setup wizard appears (if this is a fresh installation)
 
 If all four checks pass, FilaOps is installed and ready to use.
+
+!!! note "Setup wizard only appears once"
+    The setup wizard is shown only when **zero users** exist in the database. Once you create an admin account, the wizard is permanently disabled and you are redirected to the login page. For details on the full setup flow and password reset behavior, see the [First-Run Setup Guide](../FIRST-RUN-SETUP.md).
 
 ## Docker Alternative
 

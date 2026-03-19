@@ -55,6 +55,7 @@ These end-to-end guides show how multiple modules work together for common tasks
 
 | Page | Contents |
 |------|----------|
+| [First-Run Setup & Password Reset](../FIRST-RUN-SETUP.md) | Setup wizard details, password reset flows, and dev recovery options |
 | [Troubleshooting](troubleshooting.md) | Common problems and how to fix them |
 | [Glossary](glossary.md) | Definitions of terms used throughout FilaOps |
 
