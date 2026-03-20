@@ -169,7 +169,7 @@ Manage inventory, production, MRP, sales, purchasing, and accounting — built s
 
 <div class="stats-bar">
   <div class="stat">
-    <span class="stat-number">37</span>
+    <span class="stat-number">41</span>
     <span class="stat-label">Core Features</span>
   </div>
   <div class="stat">

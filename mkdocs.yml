@@ -154,6 +154,7 @@ nav:
   - Deployment:
     - deployment/index.md
     - Docker Compose: DEPLOYMENT.md
+    - First-Run Setup: FIRST-RUN-SETUP.md
     - Email Setup: EMAIL_CONFIGURATION.md
     - Backup & Recovery: BACKUP-AND-RECOVERY.md
     - Migration Safety: MIGRATION-SAFETY.md

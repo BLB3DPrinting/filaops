@@ -9,8 +9,8 @@
 
 | Tier | Features | Status |
 | ------ | ---------- | -------- |
-| **Core (Open Source)** | 37 | Released |
-| **Total** | 37 | - |
+| **Core (Open Source)** | 41 | Released |
+| **Total** | 41 | - |
 
 ---
 
@@ -20,7 +20,7 @@
 
 ### Core (Open Source)
 
-## Core Features (37)
+## Core Features (41)
 
 ### Authentication & Access
 
@@ -88,6 +88,15 @@
 | --- | ------- | ----------- | ------ |
 | 36 | MRP | Material Requirements Planning | ✅ Complete |
 | 37 | Planned Orders | Generate and manage planned orders | ✅ Complete |
+
+### System & Setup
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 38 | First-Run Setup Wizard | Onboarding wizard with initial admin account creation | ✅ Complete |
+| 39 | Password Reset Flow | Admin-approved or auto-approve reset with SMTP/non-SMTP support | ✅ Complete |
+| 40 | Duplicate Item | Clone items with inline BOM component swap for color variants | ✅ Complete |
+| 41 | Copy BOM | Copy a BOM to a different product with target product picker | ✅ Complete |
 
 ---
 

@@ -4,12 +4,12 @@ Technical reference for developers contributing to or integrating with FilaOps.
 
 | Reference | Description |
 |-----------|-------------|
-| **[API Reference](../API-REFERENCE.md)** | Complete endpoint documentation — 418 endpoints across 48 routers |
+| **[API Reference](../API-REFERENCE.md)** | Complete endpoint documentation — 439 endpoints across 48 routers |
 | **[API Conventions](../API-CONVENTIONS.md)** | REST patterns, response envelopes, pagination, error formats |
-| **[Database Schema](../SCHEMA-REFERENCE.md)** | 52 SQLAlchemy models with columns, constraints, and relationships |
+| **[Database Schema](../SCHEMA-REFERENCE.md)** | 59 SQLAlchemy models with columns, constraints, and relationships |
 | **[UI Components](../UI-COMPONENTS.md)** | 65+ React components across 31 pages |
-| **[Feature Catalog](../FEATURE-CATALOG.md)** | 37 core features with implementation status |
-| **[Migrations Log](../MIGRATIONS-LOG.md)** | Chronological history of all 35 database migrations |
+| **[Feature Catalog](../FEATURE-CATALOG.md)** | 41 core features with implementation status |
+| **[Migrations Log](../MIGRATIONS-LOG.md)** | Chronological history of all 47 database migrations |
 
 ## Tech Stack
 
