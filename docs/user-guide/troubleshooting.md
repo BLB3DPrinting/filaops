@@ -63,7 +63,7 @@ FilaOps sessions use refresh tokens. If you're being logged out frequently:
 
 ### Password reset says "submitted for review" but no email arrives
 
-This is expected behavior. The reset form intentionally does not reveal whether an email exists in the system (anti-enumeration, OWASP A01:2021). If no account matches the email you entered, the response looks identical to a valid submission but no email is sent.
+This is expected behavior. The reset form intentionally does not reveal whether an email exists in the system (anti-enumeration, OWASP A07:2021 — Identification and Authentication Failures). If no account matches the email you entered, the response looks identical to a valid submission but no email is sent.
 
 **To verify your admin email**, check the database: `SELECT email FROM users WHERE account_type = 'admin';`
 
