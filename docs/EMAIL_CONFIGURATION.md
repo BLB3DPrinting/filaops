@@ -11,7 +11,8 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
-SMTP_FROM=noreply@yourcompany.com
+SMTP_FROM_EMAIL=noreply@yourcompany.com
+SMTP_FROM_NAME=Your Company Name
 SMTP_TLS=true
 ```
 

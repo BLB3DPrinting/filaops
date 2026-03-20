@@ -61,7 +61,7 @@ DB_PASSWORD=your_password
 
 ## Features
 
-37 core features across 8 modules:
+41 core features across 8 modules:
 
 ### Sales & Customers
 
@@ -82,7 +82,9 @@ DB_PASSWORD=your_password
 
 - Production orders (draft > released > in progress > complete)
 - Bill of Materials with multi-level cost rollup
-- Routings and work centers
+- Duplicate item with inline BOM component swap (color variants)
+- Copy BOM to another product
+- Routings and work centers with operation materials
 - Machine overhead and scrap tracking
 
 ### Purchasing
@@ -114,8 +116,10 @@ DB_PASSWORD=your_password
 
 ### System
 
+- First-run setup wizard with admin account creation
 - Multi-user with role-based access
-- REST API (382 endpoints)
+- Password reset flow (SMTP or auto-approve)
+- REST API (439 endpoints)
 - Shipping and order event tracking
 
 ## Tech Stack
@@ -123,7 +127,7 @@ DB_PASSWORD=your_password
 | Layer | Technology |
 | --- | --- |
 | Backend | FastAPI, Python 3.11+, SQLAlchemy 2.0, Alembic |
-| Frontend | React, Vite, Tailwind CSS |
+| Frontend | React 19, Vite, Tailwind CSS |
 | Database | PostgreSQL 16+ |
 | Auth | httpOnly cookie-based JWT |
 | Deployment | Docker Compose (nginx + uvicorn) |
@@ -135,10 +139,10 @@ backend/
   app/
     api/v1/endpoints/   # FastAPI route handlers
     models/             # SQLAlchemy models
-    services/           # 20 focused service modules
+    services/           # 53 focused service modules
     core/               # Config, security, UOM
   alembic/              # Database migrations
-  tests/                # 71 test files, 80%+ coverage
+  tests/                # 89 test files, 80%+ coverage
 frontend/
   src/
     components/         # Shared UI components + Storybook
@@ -149,7 +153,7 @@ frontend/
 ## Testing
 
 ```bash
-# Backend (71 test files, 80%+ coverage)
+# Backend (89 test files, 80%+ coverage)
 cd backend && pytest tests/ -v
 
 # Frontend component tests

@@ -1,6 +1,6 @@
 {
   "name": "filaops",
-  "version": "3.2.0",
+  "version": "3.5.0",
   "description": "A comprehensive ERP system for 3D print farm operations, replacing MRPeasy with integrated quote generation, production scheduling, and Bambu printer fleet management.",
   "main": "index.js",
   "scripts": {

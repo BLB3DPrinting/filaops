@@ -84,4 +84,4 @@ Every module in FilaOps feeds data to the others. A sales order can trigger prod
 
 ---
 
-*FilaOps v3.2.0 | February 2026*
+*FilaOps v3.5.0 | March 2026*
