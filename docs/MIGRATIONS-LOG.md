@@ -9,7 +9,7 @@
 
 | Metric | Count |
 | ------ | ----- |
-| **Total Migrations** | 35 |
+| **Total Migrations** | 47 |
 | **Database** | PostgreSQL |
 | **Tool** | Alembic |
 

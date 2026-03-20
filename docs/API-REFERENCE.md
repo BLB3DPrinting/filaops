@@ -8,7 +8,7 @@
 
 | Metric | Count |
 | ------ | ----- |
-| **Total Endpoints** | ~418 |
+| **Total Endpoints** | ~439 |
 | **Router Files** | 48 |
 | **Router Groups** | 27 (including 15 admin sub-modules) |
 | **Base Path** | `/api/v1/` |
