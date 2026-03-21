@@ -462,7 +462,7 @@ export default function POCreateModal({
                           }
                           placeholder="Qty"
                           min="0.01"
-                          step="0.0001"
+                          step="0.01"
                           className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-right"
                           required
                         />
