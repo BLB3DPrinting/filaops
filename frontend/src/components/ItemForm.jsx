@@ -430,7 +430,7 @@ export default function ItemForm({
                     <input
                       type="file"
                       ref={fileInputRef}
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
                       className="hidden"
                       onChange={async (e) => {
                         const file = e.target.files?.[0];

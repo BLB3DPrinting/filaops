@@ -246,6 +246,9 @@ class ItemListResponse(BaseModel):
     stocking_policy: str = "on_demand"  # stocked or on_demand
     needs_reorder: bool = False  # Only true for stocked items below reorder_point
 
+    # Product image
+    image_url: Optional[str] = None
+
     # Material info (for filament items)
     material_type_id: Optional[int] = None
     color_id: Optional[int] = None
