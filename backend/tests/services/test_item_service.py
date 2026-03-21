@@ -1010,12 +1010,13 @@ class TestEffectiveHourlyRate:
         op = RoutingOperation(
             work_center_id=wc.id, sequence=10,
             operation_code="T1", operation_name="Test",
-            setup_time_minutes=Decimal("0"), run_time_minutes=Decimal("60"),
+            setup_time_minutes=Decimal("30"), run_time_minutes=Decimal("60"),
             is_active=True,
         )
         op.work_center = wc
         assert op.effective_hourly_rate() == pytest.approx(30.0)
-        assert op.calculated_cost == pytest.approx(30.0)  # 1hr × $30
+        # 30min setup + 60min run = 90min = 1.5hr × $30 = $45
+        assert op.calculated_cost == pytest.approx(45.0)
 
     def test_labor_override_keeps_machine_and_overhead(self, db):
         from app.models.manufacturing import RoutingOperation

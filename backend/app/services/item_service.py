@@ -1192,11 +1192,18 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
                         if mat.extended_cost and mat.extended_cost > 0:
                             routing_material_ids.add(mat.component_id)
 
-        bom_cost_decimal = recalculate_bom_cost(
-            bom, db, exclude_component_ids=routing_material_ids or None
-        )
-        bom.total_cost = bom_cost_decimal  # Keep BOM total_cost in sync
-        bom_cost = float(bom_cost_decimal)
+        # Store full BOM cost on the BOM (no exclusions — what the BOM page shows)
+        full_bom_cost = recalculate_bom_cost(bom, db)
+        bom.total_cost = full_bom_cost
+
+        # For item STD cost, exclude materials already costed via routing
+        if routing_material_ids:
+            effective_bom_cost = recalculate_bom_cost(
+                bom, db, exclude_component_ids=routing_material_ids
+            )
+        else:
+            effective_bom_cost = full_bom_cost
+        bom_cost = float(effective_bom_cost)
 
         total_cost = bom_cost + routing_cost
     else:

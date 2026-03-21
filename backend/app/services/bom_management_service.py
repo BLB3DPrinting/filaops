@@ -323,7 +323,7 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
 def recalculate_bom_cost(
     bom: BOM,
     db: Session,
-    exclude_component_ids: set | None = None,
+    exclude_component_ids: set[int] | None = None,
 ) -> Decimal:
     """Recalculate total BOM cost from component costs, with UOM conversion.
 

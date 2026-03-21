@@ -494,6 +494,13 @@ def add_operation_material(
 
     material = RoutingOperationMaterial(routing_operation_id=operation_id, **data)
     db.add(material)
+    db.flush()
+
+    # Recalculate routing totals to include the new material cost
+    operation = db.query(RoutingOperation).filter(RoutingOperation.id == operation_id).first()
+    if operation and operation.routing:
+        recalculate_routing_totals(operation.routing, db)
+
     db.commit()
     db.refresh(material)
 
@@ -523,6 +530,12 @@ def update_operation_material(
         setattr(material, field, value)
 
     material.updated_at = datetime.now(timezone.utc)
+    db.flush()
+
+    # Recalculate routing totals to reflect the material change
+    if material.routing_operation and material.routing_operation.routing:
+        recalculate_routing_totals(material.routing_operation.routing, db)
+
     db.commit()
     db.refresh(material)
 
@@ -540,7 +553,14 @@ def delete_operation_material(db: Session, material_id: int) -> None:
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
 
+    routing = material.routing_operation.routing if material.routing_operation else None
     db.delete(material)
+    db.flush()
+
+    # Recalculate routing totals after material removal
+    if routing:
+        recalculate_routing_totals(routing, db)
+
     db.commit()
     logger.info(f"Deleted material {material_id}")
 

@@ -128,15 +128,9 @@ class Routing(Base):
             total_run += float(op.wait_time_minutes or 0)
             total_run += float(op.move_time_minutes or 0)
 
-            # Labor cost: setup + run time at work center rate
-            costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
-            costed_hours = costed_minutes / 60
-            total_cost += costed_hours * op.effective_hourly_rate()
-
-            # Operation material costs
-            for mat in op.materials:
-                if mat.extended_cost:
-                    total_cost += float(mat.extended_cost)
+            # Delegate to operation properties — single source of truth
+            total_cost += op.calculated_cost
+            total_cost += op.material_cost
 
         self.total_setup_time_minutes = total_setup
         self.total_run_time_minutes = total_run
