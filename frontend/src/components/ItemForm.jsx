@@ -419,7 +419,7 @@ export default function ItemForm({
                   <div className="flex gap-2">
                     <input
                       id="item-image-url"
-                      type="url"
+                      type="text"
                       value={formData.image_url}
                       onChange={(e) =>
                         setFormData({ ...formData, image_url: e.target.value })
@@ -430,7 +430,7 @@ export default function ItemForm({
                     <input
                       type="file"
                       ref={fileInputRef}
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
                       className="hidden"
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
@@ -464,8 +464,9 @@ export default function ItemForm({
                           }
 
                           const data = await res.json();
-                          // Use the API server URL for the image
-                          const imageUrl = `${API_URL}${data.url}`;
+                          // Build full URL — use current origin if API_URL is empty (proxied)
+                          const base = API_URL || window.location.origin;
+                          const imageUrl = `${base}${data.url}`;
                           setFormData({ ...formData, image_url: imageUrl });
                         } catch (err) {
                           setError(err.message);
