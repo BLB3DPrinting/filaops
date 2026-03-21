@@ -239,7 +239,6 @@ class ItemListResponse(BaseModel):
     standard_cost: Optional[Decimal] = None
     average_cost: Optional[Decimal] = None
     selling_price: Optional[Decimal] = None
-    suggested_price: Optional[Decimal] = None  # Calculated from standard_cost * markup
     active: bool
     on_hand_qty: Optional[Decimal] = None  # From inventory
     available_qty: Optional[Decimal] = None  # On hand - allocated
@@ -341,3 +340,14 @@ class DuplicateItemRequest(BaseModel):
         default_factory=list,
         description="Optional component swaps for BOM lines"
     )
+
+
+class PriceApplyEntry(BaseModel):
+    """Single item price to apply."""
+    id: int
+    selling_price: Decimal = Field(..., ge=0)
+
+
+class ApplySuggestedPricesRequest(BaseModel):
+    """Bulk apply suggested selling prices."""
+    items: List[PriceApplyEntry]

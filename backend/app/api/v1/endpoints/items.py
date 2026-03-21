@@ -26,6 +26,7 @@ from app.schemas.item import (
     ItemBulkUpdateRequest,
     MaterialItemCreate,
     DuplicateItemRequest,
+    ApplySuggestedPricesRequest,
 )
 from app.schemas.item_demand import ItemDemandSummary
 from app.services.item_demand import get_item_demand_summary
@@ -237,7 +238,6 @@ async def list_items(
             standard_cost=item["standard_cost"],
             average_cost=item["average_cost"],
             selling_price=item["selling_price"],
-            suggested_price=item["suggested_price"],
             active=item["active"],
             on_hand_qty=item["on_hand_qty"],
             available_qty=item["available_qty"],
@@ -445,6 +445,24 @@ async def get_low_stock_items(
     )
 
 
+# ============================================================================
+# Price Suggestions
+# ============================================================================
+
+
+@router.get("/price-candidates")
+async def get_price_candidates(
+    item_type: Optional[str] = Query(None, description="Filter by item type"),
+    category_id: Optional[int] = Query(None, description="Filter by category"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get items eligible for price suggestions (excludes materials/supplies)."""
+    return item_service.get_price_candidates(
+        db, item_type=item_type, category_id=category_id
+    )
+
+
 @router.get("/{item_id}/demand-summary", response_model=ItemDemandSummary)
 async def get_demand_summary(item_id: int, db: Session = Depends(get_db)):
     """Get demand summary for an inventory item."""
@@ -584,3 +602,15 @@ async def recost_item(
 ):
     """Recost a single item."""
     return item_service.recost_item(db, item_id)
+
+
+@router.post("/apply-suggested-prices")
+async def apply_suggested_prices(
+    request: ApplySuggestedPricesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Apply selected suggested prices to items."""
+    return item_service.apply_suggested_prices(
+        db, [entry.model_dump() for entry in request.items]
+    )

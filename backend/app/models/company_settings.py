@@ -87,6 +87,9 @@ class CompanySettings(Base):
     # Block external AI services (force local-only for data privacy)
     external_ai_blocked = Column(Boolean, nullable=False, default=False)
 
+    # Pricing
+    default_margin_percent = Column(Numeric(5, 2), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())

@@ -58,6 +58,7 @@ const AdminSettings = () => {
     business_hours_end: 16,
     business_days_per_week: 5,
     business_work_days: "0,1,2,3,4", // Mon-Fri
+    default_margin_percent: "",
   });
 
   useEffect(() => {
@@ -106,6 +107,7 @@ const AdminSettings = () => {
         business_hours_end: data.business_hours_end ?? 16,
         business_days_per_week: data.business_days_per_week ?? 5,
         business_work_days: data.business_work_days || "0,1,2,3,4",
+        default_margin_percent: data.default_margin_percent ?? "",
       });
     } catch (error) {
       toast.error("Failed to load settings: " + error.message);
@@ -140,6 +142,9 @@ const AdminSettings = () => {
         default_quote_validity_days: parseInt(
           form.default_quote_validity_days
         ),
+        default_margin_percent: form.default_margin_percent
+          ? parseFloat(form.default_margin_percent)
+          : null,
       });
       setSettings(data);
       // Push locale changes so all components reflect immediately without reload
@@ -754,6 +759,33 @@ const AdminSettings = () => {
                 placeholder="Thank you for your business! Contact us at..."
               />
             </div>
+          </div>
+        </div>
+
+        {/* Pricing Settings */}
+        <div className="bg-gray-800 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-1">Pricing</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Default target margin used by the &quot;Suggest Prices&quot; tool on the Items page.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Default Target Margin (%)
+            </label>
+            <input
+              type="number"
+              name="default_margin_percent"
+              value={form.default_margin_percent}
+              onChange={handleChange}
+              min="0"
+              max="99.99"
+              step="0.01"
+              className="w-full md:w-48 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
+              placeholder="71.43"
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              71.43% margin = 3.5x markup. Formula: price = cost / (1 - margin% / 100)
+            </p>
           </div>
         </div>
 

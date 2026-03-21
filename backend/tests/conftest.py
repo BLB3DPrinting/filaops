@@ -68,6 +68,16 @@ def setup_database():
             "ADD COLUMN IF NOT EXISTS material_inventory_id INTEGER "
             "REFERENCES material_inventory(id)"
         ))
+        # Migration 065: widen cost columns
+        for col in ("standard_cost", "average_cost", "last_cost"):
+            conn.execute(text(
+                f"ALTER TABLE products ALTER COLUMN {col} TYPE NUMERIC(18,4)"
+            ))
+        # Migration 066: default margin for Suggest Prices tool
+        conn.execute(text(
+            "ALTER TABLE company_settings "
+            "ADD COLUMN IF NOT EXISTS default_margin_percent NUMERIC(5,2)"
+        ))
         # Add CHECK constraint if it doesn't already exist
         conn.execute(text("""
             DO $$

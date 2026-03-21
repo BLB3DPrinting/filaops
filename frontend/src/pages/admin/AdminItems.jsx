@@ -14,6 +14,7 @@ import ItemsPageHeader from "../../components/items/ItemsPageHeader";
 import ItemsFilterBar from "../../components/items/ItemsFilterBar";
 import AdjustmentReasonModal from "../../components/items/AdjustmentReasonModal";
 import DuplicateItemModal from "../../components/items/DuplicateItemModal";
+import SuggestPricesModal from "../../components/items/SuggestPricesModal";
 
 export default function AdminItems() {
   const api = useApi();
@@ -81,6 +82,8 @@ export default function AdminItems() {
   const [adjustingQty, setAdjustingQty] = useState(false);
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [duplicatingItem, setDuplicatingItem] = useState(null);
+  const [showSuggestPrices, setShowSuggestPrices] = useState(false);
+  const [suggestPricesResult, setSuggestPricesResult] = useState(null);
 
   // Confirm dialog states
   const [showDeleteCategoryConfirm, setShowDeleteCategoryConfirm] = useState(false);
@@ -456,6 +459,12 @@ export default function AdminItems() {
     }
   };
 
+  const handleSuggestPricesSuccess = (result) => {
+    setShowSuggestPrices(false);
+    setSuggestPricesResult(result);
+    fetchItems();
+  };
+
   return (
     <div data-testid="items-page" className="flex gap-6 h-full">
       {/* Left Sidebar - Categories */}
@@ -485,6 +494,9 @@ export default function AdminItems() {
           onRefresh={fetchItems}
           onRecostAll={handleRecostAll}
           onClearRecostResult={() => setRecostResult(null)}
+          onSuggestPrices={() => setShowSuggestPrices(true)}
+          suggestPricesResult={suggestPricesResult}
+          onClearSuggestPricesResult={() => setSuggestPricesResult(null)}
           onNewMaterial={() => setShowMaterialModal(true)}
           onNewItem={() => {
             setEditingItem(null);
@@ -748,6 +760,14 @@ export default function AdminItems() {
           fetchStats();
         }}
         sourceItem={duplicatingItem}
+      />
+
+      <SuggestPricesModal
+        isOpen={showSuggestPrices}
+        onClose={() => setShowSuggestPrices(false)}
+        onSuccess={handleSuggestPricesSuccess}
+        selectedCategory={selectedCategory}
+        filters={filters}
       />
 
       {/* Back to Top Button */}

@@ -74,6 +74,9 @@ class CompanySettingsResponse(BaseModel):
     business_days_per_week: Optional[int] = None  # 5 = Mon-Fri
     business_work_days: Optional[str] = None  # "0,1,2,3,4" for Mon-Fri
 
+    # Pricing
+    default_margin_percent: Optional[float] = None
+
     updated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -115,6 +118,9 @@ class CompanySettingsUpdate(BaseModel):
     business_hours_end: Optional[int] = Field(None, ge=0, le=23)  # Hour of day (0-23)
     business_days_per_week: Optional[int] = Field(None, ge=1, le=7)  # 1-7 days
     business_work_days: Optional[str] = Field(None, max_length=20)  # "0,1,2,3,4" for Mon-Fri
+
+    # Pricing
+    default_margin_percent: Optional[float] = Field(None, ge=0, le=99.99)
 
 
 # ============================================================================
@@ -172,6 +178,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
         business_hours_end=settings.business_hours_end,
         business_days_per_week=settings.business_days_per_week,
         business_work_days=settings.business_work_days,
+        default_margin_percent=float(settings.default_margin_percent) if settings.default_margin_percent else None,
         updated_at=settings.updated_at,
     )
 

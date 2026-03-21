@@ -2221,7 +2221,6 @@ class TestItemSchemas:
         assert resp.standard_cost is None
         assert resp.average_cost is None
         assert resp.selling_price is None
-        assert resp.suggested_price is None
         assert resp.on_hand_qty is None
         assert resp.available_qty is None
         assert resp.reorder_point is None

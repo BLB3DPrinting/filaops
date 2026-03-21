@@ -630,15 +630,15 @@ class TestListItems:
         assert "PROC-MAKE" in skus
         assert "PROC-BUY" not in skus
 
-    def test_suggested_price_computed(self, db, make_product):
+    def test_no_suggested_price_in_list(self, db, make_product):
+        """suggested_price was removed — modal is now the sole source."""
         make_product(sku="SUGG-PRICE", standard_cost=Decimal("10.00"))
         db.commit()
 
         items, _ = item_service.list_items(db, search="SUGG-PRICE")
         match = [i for i in items if i["sku"] == "SUGG-PRICE"]
         assert len(match) == 1
-        # Default markup is 3.5x
-        assert match[0]["suggested_price"] == pytest.approx(35.0, rel=1e-2)
+        assert "suggested_price" not in match[0]
 
 
 # =============================================================================
