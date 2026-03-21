@@ -190,7 +190,7 @@ export default function QuickCreateItemModal({ onClose, onCreated, initialName =
                     onChange={(e) => setForm({ ...form, last_cost: e.target.value })}
                     placeholder="0.00"
                     min="0"
-                    step="0.01"
+                    step="0.0001"
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white"
                   />
                 </div>

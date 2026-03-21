@@ -18,6 +18,7 @@ from app.models import Product, ItemCategory, Inventory, BOM, BOMLine
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.core.utils import get_or_404, check_unique_or_400
 from app.core.uom_config import DEFAULT_MATERIAL_UOM, get_default_material_sku_prefix
+from app.services.bom_management_service import recalculate_bom_cost
 
 logger = get_logger(__name__)
 
@@ -1149,53 +1150,6 @@ def bulk_update_items(
     }
 
 
-# ---------------------------------------------------------------------------
-# Recost Operations
-# ---------------------------------------------------------------------------
-
-
-def recalculate_bom_cost(bom: BOM, db: Session) -> Decimal:
-    """
-    Recalculate BOM total cost from component standard_costs.
-
-    Updates bom.total_cost and returns the new value.
-    """
-    total = Decimal("0")
-
-    lines = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).all()
-
-    for line in lines:
-        component = db.query(Product).filter(Product.id == line.component_id).first()
-        if component:
-            component_cost = (
-                component.standard_cost or component.average_cost or component.last_cost
-            )
-            if component_cost:
-                qty = line.quantity or Decimal("0")
-                scrap = line.scrap_factor or Decimal("0")
-                effective_qty = qty * (1 + scrap / 100)
-
-                component_unit = component.unit
-                line_unit = line.unit
-
-                if (
-                    line_unit
-                    and component_unit
-                    and line_unit.upper() != component_unit.upper()
-                ):
-                    converted_qty = convert_uom_inline(
-                        effective_qty, line_unit, component_unit
-                    )
-                    total += Decimal(str(component_cost)) * converted_qty
-                else:
-                    total += Decimal(str(component_cost)) * effective_qty
-
-    bom.total_cost = total
-    bom.updated_at = datetime.now(timezone.utc)
-
-    return total
-
-
 def calculate_item_cost(item: Product, db: Session) -> dict:
     """
     Calculate standard cost for an item.
@@ -1219,7 +1173,9 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
     if bom:
         cost_source = "manufactured"
         bom_id = bom.id
-        bom_cost = float(recalculate_bom_cost(bom, db))
+        bom_cost_decimal = recalculate_bom_cost(bom, db)
+        bom.total_cost = bom_cost_decimal  # Keep BOM total_cost in sync
+        bom_cost = float(bom_cost_decimal)
 
         routing = (
             db.query(Routing)
@@ -1836,8 +1792,6 @@ def duplicate_item(
 
     Returns dict with: id, sku, name, has_bom, bom_id, message
     """
-    from app.services.bom_management_service import recalculate_bom_cost
-
     source = get_item(db, source_item_id)
 
     # Validate new SKU uniqueness

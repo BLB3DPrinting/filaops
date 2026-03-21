@@ -53,9 +53,9 @@ class Product(Base):
 
     # Cost tracking
     cost_method = Column(String(20), default='average')  # fifo, average, standard
-    standard_cost = Column(Numeric(10, 2), nullable=True)  # For standard costing
-    average_cost = Column(Numeric(10, 2), nullable=True)  # Running average
-    last_cost = Column(Numeric(10, 2), nullable=True)  # Most recent purchase cost
+    standard_cost = Column(Numeric(18, 4), nullable=True)  # For standard costing
+    average_cost = Column(Numeric(18, 4), nullable=True)  # Running average
+    last_cost = Column(Numeric(18, 4), nullable=True)  # Most recent purchase cost
 
     # Pricing
     selling_price = Column(Numeric(18, 4), nullable=True)

@@ -474,7 +474,7 @@ export default function ReceiveModal({ po, onClose, onReceive }) {
                                 }
                                 min="0"
                                 max={line.remaining}
-                                step="0.01"
+                                step="0.0001"
                                 placeholder={`Max: ${line.remaining.toFixed(
                                   2
                                 )} ${line.purchase_unit}`}
