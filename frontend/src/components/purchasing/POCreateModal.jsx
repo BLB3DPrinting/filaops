@@ -628,7 +628,7 @@ export default function POCreateModal({
                       setForm({ ...form, tax_amount: e.target.value });
                     }}
                     min="0"
-                    step="0.0001"
+                    step="0.01"
                     className={`w-full bg-gray-800 border rounded-lg pl-7 pr-3 py-2 text-white ${
                       taxOverridden ? "border-yellow-600/50" : "border-gray-700"
                     }`}
@@ -650,7 +650,7 @@ export default function POCreateModal({
                       setForm({ ...form, shipping_cost: e.target.value })
                     }
                     min="0"
-                    step="0.0001"
+                    step="0.01"
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white"
                   />
                 </div>
