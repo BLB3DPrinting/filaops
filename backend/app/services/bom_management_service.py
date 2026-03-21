@@ -324,12 +324,15 @@ def recalculate_bom_cost(
     bom: BOM,
     db: Session,
     exclude_component_ids: set[int] | None = None,
+    only_component_ids: set[int] | None = None,
 ) -> Decimal:
     """Recalculate total BOM cost from component costs, with UOM conversion.
 
     Args:
         exclude_component_ids: Component IDs to skip (e.g., materials already
             costed via routing operations, to avoid double-counting).
+        only_component_ids: If set, only include these component IDs (used to
+            compute the overlap cost without a full second pass).
     """
     from app.services.inventory_helpers import is_material
 
@@ -343,6 +346,8 @@ def recalculate_bom_cost(
     total = Decimal("0")
     for line in bom.lines:
         if exclude_component_ids and line.component_id in exclude_component_ids:
+            continue
+        if only_component_ids and line.component_id not in only_component_ids:
             continue
         component = components_by_id.get(line.component_id)
         if component:

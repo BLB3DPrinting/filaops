@@ -235,9 +235,16 @@ class RoutingOperation(Base):
 
     @property
     def material_cost(self):
-        """Total material cost for this operation"""
+        """Total per-unit material cost for this operation.
+
+        Only includes quantity_per='unit' (or unset, defaulting to per-unit).
+        Batch/order materials are not per-unit costs and would inflate
+        the routing template cost incorrectly if included.
+        """
         total = 0
         for mat in self.materials:
+            if mat.quantity_per and mat.quantity_per not in ("unit", "UNIT"):
+                continue
             total += mat.extended_cost or 0
         return total
 

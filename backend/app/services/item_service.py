@@ -1181,6 +1181,9 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
 
         # Collect component IDs costed via routing operations to avoid
         # double-counting the same material in both BOM and routing.
+        # Design: if a component_id is on routing, ALL BOM lines with
+        # that component are excluded (routing owns that material fully).
+        # This matches override_map behavior in duplicate_item().
         routing_material_ids = set()
         if routing:
             routing.recalculate_totals()
@@ -1192,18 +1195,21 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
                         if mat.extended_cost and mat.extended_cost > 0:
                             routing_material_ids.add(mat.component_id)
 
-        # Store full BOM cost on the BOM (no exclusions — what the BOM page shows)
+        # Always store full BOM cost (what the BOM page shows)
         full_bom_cost = recalculate_bom_cost(bom, db)
         bom.total_cost = full_bom_cost
 
-        # For item STD cost, exclude materials already costed via routing
+        # For item STD cost, subtract routing-owned material costs from
+        # the full BOM to avoid double-counting. Uses only_component_ids
+        # to compute just the overlap — components are already in the
+        # SQLAlchemy session cache from the first call.
         if routing_material_ids:
-            effective_bom_cost = recalculate_bom_cost(
-                bom, db, exclude_component_ids=routing_material_ids
+            overlap_cost = recalculate_bom_cost(
+                bom, db, only_component_ids=routing_material_ids
             )
+            bom_cost = float(full_bom_cost - overlap_cost)
         else:
-            effective_bom_cost = full_bom_cost
-        bom_cost = float(effective_bom_cost)
+            bom_cost = float(full_bom_cost)
 
         total_cost = bom_cost + routing_cost
     else:

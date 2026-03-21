@@ -939,8 +939,8 @@ class TestRoutingCostDeduplication:
 
         fg = make_product(standard_cost=Decimal("0"))
         mat = make_product(
-            item_type="material", standard_cost=Decimal("20.00"),
-            unit="EA", purchase_factor=Decimal("1"),
+            item_type="component", standard_cost=Decimal("20.00"),
+            unit="EA",
         )
 
         # Put material on the BOM
