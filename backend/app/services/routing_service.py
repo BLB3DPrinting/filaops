@@ -589,7 +589,8 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
         db.query(RoutingOperation)
         .options(
             joinedload(RoutingOperation.work_center),
-            joinedload(RoutingOperation.materials),
+            joinedload(RoutingOperation.materials)
+            .joinedload(RoutingOperationMaterial.component),
         )
         .filter(
             RoutingOperation.routing_id == routing.id,
@@ -613,14 +614,19 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
         # Labor cost
         total_costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
         costed_hours = total_costed_minutes / 60
-        rate = op.labor_rate_override or op.machine_rate_override
-        if not rate and op.work_center:
+        if op.labor_rate_override is not None:
+            rate = op.labor_rate_override
+        elif op.machine_rate_override is not None:
+            rate = op.machine_rate_override
+        elif op.work_center:
             rate = (
                 (op.work_center.machine_rate_per_hour or Decimal("0"))
                 + (op.work_center.labor_rate_per_hour or Decimal("0"))
                 + (op.work_center.overhead_rate_per_hour or Decimal("0"))
             )
-        total_cost += Decimal(str(costed_hours)) * (rate or Decimal("0"))
+        else:
+            rate = Decimal("0")
+        total_cost += Decimal(str(costed_hours)) * rate
 
         # Operation material costs
         for mat in op.materials:

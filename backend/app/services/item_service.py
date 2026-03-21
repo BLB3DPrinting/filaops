@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, desc
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -1167,7 +1167,15 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
 
         routing = (
             db.query(Routing)
+            .options(
+                joinedload(Routing.operations)
+                .joinedload(RoutingOperation.work_center),
+                joinedload(Routing.operations)
+                .joinedload(RoutingOperation.materials)
+                .joinedload(RoutingOperationMaterial.component),
+            )
             .filter(Routing.product_id == item.id, Routing.is_active.is_(True))
+            .order_by(desc(Routing.version))
             .first()
         )
 
@@ -1181,7 +1189,8 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
             for op in routing.operations:
                 if op.is_active:
                     for mat in op.materials:
-                        routing_material_ids.add(mat.component_id)
+                        if mat.extended_cost and mat.extended_cost > 0:
+                            routing_material_ids.add(mat.component_id)
 
         bom_cost_decimal = recalculate_bom_cost(
             bom, db, exclude_component_ids=routing_material_ids or None

@@ -131,14 +131,19 @@ class Routing(Base):
             # Labor cost: setup + run time at work center rate
             costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
             costed_hours = costed_minutes / 60
-            rate = op.labor_rate_override or op.machine_rate_override
-            if not rate and op.work_center:
+            if op.labor_rate_override is not None:
+                rate = float(op.labor_rate_override)
+            elif op.machine_rate_override is not None:
+                rate = float(op.machine_rate_override)
+            elif op.work_center:
                 rate = (
                     float(op.work_center.machine_rate_per_hour or 0)
                     + float(op.work_center.labor_rate_per_hour or 0)
                     + float(op.work_center.overhead_rate_per_hour or 0)
                 )
-            total_cost += costed_hours * float(rate or 0)
+            else:
+                rate = 0
+            total_cost += costed_hours * rate
 
             # Operation material costs
             for mat in op.materials:
@@ -223,14 +228,19 @@ class RoutingOperation(Base):
         """Labor cost for this operation (setup + run time at work center rate)"""
         total_minutes = float(self.setup_time_minutes or 0) + float(self.run_time_minutes or 0)
         hours = total_minutes / 60
-        rate = self.labor_rate_override or self.machine_rate_override
-        if not rate and self.work_center:
+        if self.labor_rate_override is not None:
+            rate = float(self.labor_rate_override)
+        elif self.machine_rate_override is not None:
+            rate = float(self.machine_rate_override)
+        elif self.work_center:
             rate = (
                 float(self.work_center.machine_rate_per_hour or 0)
                 + float(self.work_center.labor_rate_per_hour or 0)
                 + float(self.work_center.overhead_rate_per_hour or 0)
             )
-        return hours * float(rate or 0)
+        else:
+            rate = 0
+        return hours * rate
 
     @property
     def material_cost(self):
