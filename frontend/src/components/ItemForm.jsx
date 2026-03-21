@@ -465,9 +465,10 @@ export default function ItemForm({
 
                           const data = await res.json();
                           // Build full URL — use current origin if API_URL is empty (proxied)
-                          const base = API_URL || window.location.origin;
-                          const imageUrl = `${base}${data.url}`;
-                          setFormData({ ...formData, image_url: imageUrl });
+                          const imageUrl = data.url.startsWith("http")
+                            ? data.url
+                            : `${API_URL || window.location.origin}${data.url}`;
+                          setFormData((prev) => ({ ...prev, image_url: imageUrl }));
                         } catch (err) {
                           setError(err.message);
                         } finally {

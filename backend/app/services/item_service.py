@@ -446,6 +446,7 @@ def list_items(
                 "reorder_point": reorder_point,
                 "stocking_policy": item.stocking_policy or "on_demand",
                 "needs_reorder": item_needs_reorder,
+                "image_url": item.image_url,
             }
         )
 
