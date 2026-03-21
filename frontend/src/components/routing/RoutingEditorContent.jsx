@@ -505,12 +505,12 @@ export default function RoutingEditorContent({
       const rate = parseFloat(op.hourly_rate) || 0;
       laborCost = (totalMinutes / 60) * rate;
     }
-    // Sum material costs from operationMaterials state (not op.material_cost
-    // which isn't on the standard routing response)
+    // Sum per-unit material costs from operationMaterials state.
+    // Skip batch/order materials to match backend routing total.
     const mats = op.id ? operationMaterials[op.id] || [] : [];
-    const materialCost = mats.reduce(
-      (s, m) => s + parseFloat(m.extended_cost || 0), 0
-    );
+    const materialCost = mats
+      .filter((m) => !m.quantity_per || m.quantity_per.toLowerCase() === "unit")
+      .reduce((s, m) => s + parseFloat(m.extended_cost || 0), 0);
     return sum + laborCost + materialCost;
   }, 0);
 

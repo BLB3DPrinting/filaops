@@ -1192,7 +1192,11 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
             for op in routing.operations:
                 if op.is_active:
                     for mat in op.materials:
-                        if mat.extended_cost and mat.extended_cost > 0:
+                        # Only include per-unit materials — batch/order are
+                        # excluded from material_cost so must not exclude
+                        # the matching BOM line either (would lose the cost)
+                        is_per_unit = not mat.quantity_per or str(mat.quantity_per).strip().lower() == "unit"
+                        if is_per_unit and mat.extended_cost and mat.extended_cost > 0:
                             routing_material_ids.add(mat.component_id)
 
         # Always store full BOM cost (what the BOM page shows)

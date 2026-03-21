@@ -135,6 +135,7 @@ class Routing(Base):
         self.total_setup_time_minutes = total_setup
         self.total_run_time_minutes = total_run
         self.total_cost = total_cost
+        self.updated_at = datetime.now(timezone.utc)
 
 
 class RoutingOperation(Base):
@@ -228,7 +229,7 @@ class RoutingOperation(Base):
 
     @property
     def calculated_cost(self):
-        """Labor cost for this operation (setup + run time at work center rate)"""
+        """Time-based cost for this operation (setup + run at combined hourly rate)"""
         total_minutes = float(self.setup_time_minutes or 0) + float(self.run_time_minutes or 0)
         hours = total_minutes / 60
         return hours * self.effective_hourly_rate()
@@ -243,7 +244,7 @@ class RoutingOperation(Base):
         """
         total = 0
         for mat in self.materials:
-            if mat.quantity_per and mat.quantity_per not in ("unit", "UNIT"):
+            if mat.quantity_per and str(mat.quantity_per).strip().lower() != "unit":
                 continue
             total += mat.extended_cost or 0
         return total
