@@ -178,7 +178,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
         business_hours_end=settings.business_hours_end,
         business_days_per_week=settings.business_days_per_week,
         business_work_days=settings.business_work_days,
-        default_margin_percent=float(settings.default_margin_percent) if settings.default_margin_percent else None,
+        default_margin_percent=float(settings.default_margin_percent) if settings.default_margin_percent is not None else None,
         updated_at=settings.updated_at,
     )
 

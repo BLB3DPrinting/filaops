@@ -1,7 +1,9 @@
 /**
  * Header bar for the Items page.
- * Contains page title, view toggle, action buttons, and recost result banner.
+ * Contains page title, view toggle, action buttons, and recost/pricing result banners.
  */
+import { useFormatCurrency } from "../../hooks/useFormatCurrency";
+
 export default function ItemsPageHeader({
   viewMode,
   onViewModeChange,
@@ -17,6 +19,7 @@ export default function ItemsPageHeader({
   onNewMaterial,
   onNewItem,
 }) {
+  const formatCurrency = useFormatCurrency();
   return (
     <>
       {/* Header */}
@@ -137,8 +140,8 @@ export default function ItemsPageHeader({
                 <div className="mt-2 text-sm text-gray-400 max-h-32 overflow-auto">
                   {suggestPricesResult.items.slice(0, 10).map((item, i) => (
                     <div key={i}>
-                      {item.sku}: ${item.old_price?.toFixed(2) ?? "none"} → $
-                      {item.new_price.toFixed(2)}
+                      {item.sku}: {item.old_price != null ? formatCurrency(item.old_price) : "none"} →{" "}
+                      {formatCurrency(item.new_price)}
                     </div>
                   ))}
                   {suggestPricesResult.items.length > 10 && (

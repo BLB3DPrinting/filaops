@@ -22,20 +22,6 @@ from app.services.bom_management_service import recalculate_bom_cost
 
 logger = get_logger(__name__)
 
-# Legacy markup constant — kept only as fallback for _get_default_margin_percent
-_LEGACY_MARKUP = 3.5
-
-
-def _get_default_margin_percent(db: Session) -> float:
-    """Read default margin from company_settings, fall back to legacy markup."""
-    from app.models.company_settings import CompanySettings
-    settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-    if settings and settings.default_margin_percent:
-        return float(settings.default_margin_percent)
-    # Legacy fallback: 3.5x markup = 71.43% margin
-    return (1 - 1 / _LEGACY_MARKUP) * 100
-
-
 # ---------------------------------------------------------------------------
 # Inline UOM Conversion (fallback when database UOM table is empty)
 # ---------------------------------------------------------------------------
@@ -1353,7 +1339,7 @@ def get_price_candidates(
             "name": item.name,
             "item_type": item.item_type or "finished_good",
             "standard_cost": float(item.standard_cost),
-            "current_selling_price": float(item.selling_price) if item.selling_price else None,
+            "current_selling_price": float(item.selling_price) if item.selling_price is not None else None,
         }
         for item in items
     ]
@@ -1368,9 +1354,22 @@ def apply_suggested_prices(
     skipped = 0
     results = []
 
+    # Batch-fetch all products to avoid N+1
+    item_ids = [entry["id"] for entry in items if "id" in entry]
+    products = db.query(Product).filter(Product.id.in_(item_ids)).all()
+    products_by_id = {p.id: p for p in products}
+
+    # Excluded types (defense in depth — candidates endpoint already filters)
+    excluded_types = {"material", "supply"}
+
     for entry in items:
-        product = db.query(Product).filter(Product.id == entry["id"]).first()
+        product = products_by_id.get(entry["id"])
         if not product:
+            skipped += 1
+            continue
+
+        # Enforce same exclusion as get_price_candidates
+        if (product.item_type in excluded_types) or product.material_type_id is not None:
             skipped += 1
             continue
 
@@ -1379,7 +1378,13 @@ def apply_suggested_prices(
             skipped += 1
             continue
 
-        old_price = float(product.selling_price) if product.selling_price else None
+        old_price = float(product.selling_price) if product.selling_price is not None else None
+
+        # Skip no-op writes
+        if old_price is not None and abs(old_price - float(new_price)) < 0.0001:
+            skipped += 1
+            continue
+
         product.selling_price = new_price
         product.updated_at = datetime.now(timezone.utc)
         updated += 1

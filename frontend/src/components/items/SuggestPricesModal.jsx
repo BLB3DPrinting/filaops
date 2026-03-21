@@ -29,12 +29,14 @@ export default function SuggestPricesModal({
   // Fetch settings + candidates when modal opens
   useEffect(() => {
     if (!isOpen) return;
+    let cancelled = false;
 
     const fetchData = async () => {
       setLoading(true);
       try {
         // Fetch default margin from settings
         const settings = await api.get("/api/v1/settings/company");
+        if (cancelled) return;
         if (settings.default_margin_percent != null) {
           setMarginPercent(settings.default_margin_percent);
         }
@@ -47,17 +49,19 @@ export default function SuggestPricesModal({
         }
         const qs = params.toString();
         const items = await api.get(`/api/v1/items/price-candidates${qs ? `?${qs}` : ""}`);
+        if (cancelled) return;
         setCandidates(items);
         // Default: select all items
         setSelectedIds(new Set(items.map((i) => i.id)));
       } catch (err) {
-        toast.error(err.message || "Failed to load price candidates");
+        if (!cancelled) toast.error(err.message || "Failed to load price candidates");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchData();
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, [isOpen, selectedCategory, filters, api, toast]);
 
   // Client-side margin calculation
   const calculatedItems = useMemo(() => {
@@ -101,7 +105,7 @@ export default function SuggestPricesModal({
       .filter((c) => selectedIds.has(c.id))
       .map((c) => ({
         id: c.id,
-        selling_price: parseFloat(c.suggested_price.toFixed(4)),
+        selling_price: c.suggested_price.toFixed(4),
       }));
 
     if (itemsToApply.length === 0) return;
@@ -212,6 +216,7 @@ export default function SuggestPricesModal({
                         checked={selectedIds.size === calculatedItems.length}
                         onChange={toggleAll}
                         className="accent-purple-500"
+                        aria-label="Select all items"
                       />
                     </th>
                     <th className="pb-2 pr-4">SKU</th>
@@ -243,6 +248,7 @@ export default function SuggestPricesModal({
                             checked={selectedIds.has(item.id)}
                             onChange={() => toggleItem(item.id)}
                             className="accent-purple-500"
+                            aria-label={`Select ${item.sku}`}
                           />
                         </td>
                         <td className="py-2 pr-4 font-mono text-gray-300">
@@ -255,7 +261,7 @@ export default function SuggestPricesModal({
                           {formatCurrency(item.standard_cost)}
                         </td>
                         <td className="py-2 pr-4 text-right text-gray-400">
-                          {item.current_selling_price
+                          {item.current_selling_price != null
                             ? formatCurrency(item.current_selling_price)
                             : "---"}
                         </td>
