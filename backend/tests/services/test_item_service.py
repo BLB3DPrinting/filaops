@@ -17,6 +17,7 @@ Covers:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from app.services import item_service
 from app.models.product import Product
@@ -926,6 +927,143 @@ class TestCalculateItemCost:
         result = item_service.calculate_item_cost(product, db)
         assert result["cost_source"] == "purchased"
         assert result["purchase_cost"] == 8.00
+
+
+class TestRoutingCostDeduplication:
+    """Test that materials on both BOM and routing operations are not double-counted."""
+
+    def test_routing_material_excludes_bom_line(self, db, make_product, make_bom):
+        """When a component is on both BOM and routing operation, count it once via routing."""
+        from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+        from app.models.work_center import WorkCenter
+
+        fg = make_product(standard_cost=Decimal("0"))
+        mat = make_product(
+            item_type="material", standard_cost=Decimal("20.00"),
+            unit="EA", purchase_factor=Decimal("1"),
+        )
+
+        # Put material on the BOM
+        make_bom(fg.id, lines=[
+            {"component_id": mat.id, "quantity": Decimal("2"), "unit": "EA"},
+        ])
+
+        # Also put material on a routing operation
+        wc = db.query(WorkCenter).first()
+        routing = Routing(
+            product_id=fg.id, code=f"RTG-DEDUP-{uuid4().hex[:8]}", name="Test",
+            is_active=True, version=1,
+        )
+        db.add(routing)
+        db.flush()
+        op = RoutingOperation(
+            routing_id=routing.id, work_center_id=wc.id if wc else None,
+            sequence=10, operation_code="OP10", operation_name="Test Op",
+            setup_time_minutes=Decimal("0"), run_time_minutes=Decimal("0"),
+            is_active=True,
+        )
+        db.add(op)
+        db.flush()
+        rom = RoutingOperationMaterial(
+            routing_operation_id=op.id, component_id=mat.id,
+            quantity=Decimal("2"), unit="EA",
+        )
+        db.add(rom)
+        db.commit()
+
+        result = item_service.calculate_item_cost(fg, db)
+        # Material cost should appear once: via routing (2 × $20 = $40), not BOM
+        assert result["total_cost"] == pytest.approx(40.0, rel=1e-2)
+
+    def test_no_routing_uses_full_bom(self, db, make_product, make_bom):
+        """Without a routing, BOM cost is the full material cost."""
+        fg = make_product(standard_cost=Decimal("0"))
+        comp = make_product(
+            item_type="component", standard_cost=Decimal("5.00"), unit="EA",
+        )
+        make_bom(fg.id, lines=[
+            {"component_id": comp.id, "quantity": Decimal("3"), "unit": "EA"},
+        ])
+        db.commit()
+
+        result = item_service.calculate_item_cost(fg, db)
+        assert result["bom_cost"] == pytest.approx(15.0)
+        assert result["routing_cost"] == 0.0
+
+
+class TestEffectiveHourlyRate:
+    """Test RoutingOperation.effective_hourly_rate() component-wise logic."""
+
+    def test_work_center_rates_summed(self, db):
+        from app.models.manufacturing import RoutingOperation
+        from app.models.work_center import WorkCenter
+
+        wc = WorkCenter(
+            name=f"WC-{uuid4().hex[:8]}", code=f"WC-{uuid4().hex[:8]}", center_type="assembly",
+            machine_rate_per_hour=Decimal("10.00"),
+            labor_rate_per_hour=Decimal("15.00"),
+            overhead_rate_per_hour=Decimal("5.00"),
+        )
+        db.add(wc)
+        db.flush()
+
+        op = RoutingOperation(
+            work_center_id=wc.id, sequence=10,
+            operation_code="T1", operation_name="Test",
+            setup_time_minutes=Decimal("0"), run_time_minutes=Decimal("60"),
+            is_active=True,
+        )
+        op.work_center = wc
+        assert op.effective_hourly_rate() == pytest.approx(30.0)
+        assert op.calculated_cost == pytest.approx(30.0)  # 1hr × $30
+
+    def test_labor_override_keeps_machine_and_overhead(self, db):
+        from app.models.manufacturing import RoutingOperation
+        from app.models.work_center import WorkCenter
+
+        wc = WorkCenter(
+            name=f"WC-{uuid4().hex[:8]}", code=f"WC-{uuid4().hex[:8]}", center_type="assembly",
+            machine_rate_per_hour=Decimal("10.00"),
+            labor_rate_per_hour=Decimal("15.00"),
+            overhead_rate_per_hour=Decimal("5.00"),
+        )
+        db.add(wc)
+        db.flush()
+
+        op = RoutingOperation(
+            work_center_id=wc.id, sequence=10,
+            operation_code="T2", operation_name="Test",
+            setup_time_minutes=Decimal("0"), run_time_minutes=Decimal("60"),
+            labor_rate_override=Decimal("20.00"),
+            is_active=True,
+        )
+        op.work_center = wc
+        # Labor overridden to $20, machine $10 + overhead $5 from WC
+        assert op.effective_hourly_rate() == pytest.approx(35.0)
+
+    def test_zero_override_is_respected(self, db):
+        from app.models.manufacturing import RoutingOperation
+        from app.models.work_center import WorkCenter
+
+        wc = WorkCenter(
+            name=f"WC-{uuid4().hex[:8]}", code=f"WC-{uuid4().hex[:8]}", center_type="assembly",
+            machine_rate_per_hour=Decimal("10.00"),
+            labor_rate_per_hour=Decimal("15.00"),
+            overhead_rate_per_hour=Decimal("5.00"),
+        )
+        db.add(wc)
+        db.flush()
+
+        op = RoutingOperation(
+            work_center_id=wc.id, sequence=10,
+            operation_code="T3", operation_name="Test",
+            setup_time_minutes=Decimal("0"), run_time_minutes=Decimal("60"),
+            labor_rate_override=Decimal("0"),  # Explicitly $0
+            is_active=True,
+        )
+        op.work_center = wc
+        # Labor zeroed, machine $10 + overhead $5
+        assert op.effective_hourly_rate() == pytest.approx(15.0)
 
 
 class TestRecostItem:

@@ -611,28 +611,9 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
             + (op.move_time_minutes or Decimal("0"))
         )
 
-        # Labor cost — component-wise rate (overrides replace individual components)
-        total_costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
-        costed_hours = total_costed_minutes / 60
-        wc = op.work_center
-        machine = (
-            op.machine_rate_override
-            if op.machine_rate_override is not None
-            else (wc.machine_rate_per_hour or Decimal("0")) if wc else Decimal("0")
-        )
-        labor = (
-            op.labor_rate_override
-            if op.labor_rate_override is not None
-            else (wc.labor_rate_per_hour or Decimal("0")) if wc else Decimal("0")
-        )
-        overhead = (wc.overhead_rate_per_hour or Decimal("0")) if wc else Decimal("0")
-        rate = machine + labor + overhead
-        total_cost += Decimal(str(costed_hours)) * rate
-
-        # Operation material costs
-        for mat in op.materials:
-            if mat.extended_cost:
-                total_cost += Decimal(str(mat.extended_cost))
+        # Delegate to model properties — single source of truth for rate logic
+        total_cost += Decimal(str(op.calculated_cost))
+        total_cost += Decimal(str(op.material_cost))
 
     routing.total_setup_time_minutes = total_setup
     routing.total_run_time_minutes = total_run

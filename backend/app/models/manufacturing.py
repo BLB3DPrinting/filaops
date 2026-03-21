@@ -212,7 +212,12 @@ class RoutingOperation(Base):
         )
 
     def effective_hourly_rate(self):
-        """Component-wise hourly rate, applying per-component overrides."""
+        """Component-wise hourly rate, applying per-component overrides.
+
+        Overhead has no override — it always comes from the work center.
+        This is intentional: overhead is a facility-level cost, not
+        something operators adjust per-operation.
+        """
         wc = self.work_center
         machine = (
             float(self.machine_rate_override)
@@ -239,7 +244,7 @@ class RoutingOperation(Base):
         """Total material cost for this operation"""
         total = 0
         for mat in self.materials:
-            total += mat.extended_cost
+            total += mat.extended_cost or 0
         return total
 
 
