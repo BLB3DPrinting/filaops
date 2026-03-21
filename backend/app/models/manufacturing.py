@@ -131,19 +131,7 @@ class Routing(Base):
             # Labor cost: setup + run time at work center rate
             costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
             costed_hours = costed_minutes / 60
-            if op.labor_rate_override is not None:
-                rate = float(op.labor_rate_override)
-            elif op.machine_rate_override is not None:
-                rate = float(op.machine_rate_override)
-            elif op.work_center:
-                rate = (
-                    float(op.work_center.machine_rate_per_hour or 0)
-                    + float(op.work_center.labor_rate_per_hour or 0)
-                    + float(op.work_center.overhead_rate_per_hour or 0)
-                )
-            else:
-                rate = 0
-            total_cost += costed_hours * rate
+            total_cost += costed_hours * op.effective_hourly_rate()
 
             # Operation material costs
             for mat in op.materials:
@@ -223,24 +211,28 @@ class RoutingOperation(Base):
             float(self.move_time_minutes or 0)
         )
 
+    def effective_hourly_rate(self):
+        """Component-wise hourly rate, applying per-component overrides."""
+        wc = self.work_center
+        machine = (
+            float(self.machine_rate_override)
+            if self.machine_rate_override is not None
+            else float(wc.machine_rate_per_hour or 0) if wc else 0.0
+        )
+        labor = (
+            float(self.labor_rate_override)
+            if self.labor_rate_override is not None
+            else float(wc.labor_rate_per_hour or 0) if wc else 0.0
+        )
+        overhead = float(wc.overhead_rate_per_hour or 0) if wc else 0.0
+        return machine + labor + overhead
+
     @property
     def calculated_cost(self):
         """Labor cost for this operation (setup + run time at work center rate)"""
         total_minutes = float(self.setup_time_minutes or 0) + float(self.run_time_minutes or 0)
         hours = total_minutes / 60
-        if self.labor_rate_override is not None:
-            rate = float(self.labor_rate_override)
-        elif self.machine_rate_override is not None:
-            rate = float(self.machine_rate_override)
-        elif self.work_center:
-            rate = (
-                float(self.work_center.machine_rate_per_hour or 0)
-                + float(self.work_center.labor_rate_per_hour or 0)
-                + float(self.work_center.overhead_rate_per_hour or 0)
-            )
-        else:
-            rate = 0
-        return hours * rate
+        return hours * self.effective_hourly_rate()
 
     @property
     def material_cost(self):

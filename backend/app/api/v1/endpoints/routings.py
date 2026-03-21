@@ -399,17 +399,8 @@ def _build_operation_response(op: RoutingOperation) -> RoutingOperationResponse:
         (op.move_time_minutes or Decimal("0"))
     )
 
-    # Calculate cost (includes setup + run time)
-    total_costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)  # type: ignore[arg-type]
-    costed_hours = total_costed_minutes / 60
-    rate = op.labor_rate_override or op.machine_rate_override
-    if not rate and op.work_center:  # type: ignore[truthy-bool]
-        rate = (
-            (op.work_center.machine_rate_per_hour or Decimal("0")) +
-            (op.work_center.labor_rate_per_hour or Decimal("0")) +
-            (op.work_center.overhead_rate_per_hour or Decimal("0"))
-        )
-    calculated_cost = Decimal(str(costed_hours)) * (rate or Decimal("0"))
+    # Use model's component-wise rate calculation
+    calculated_cost = Decimal(str(op.calculated_cost))
 
     return RoutingOperationResponse(  # type: ignore[arg-type]
         id=op.id,
