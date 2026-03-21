@@ -496,13 +496,17 @@ export default function RoutingEditorContent({
     0
   );
   const totalCost = operations.reduce((sum, op) => {
+    let laborCost;
     if (op.calculated_cost != null) {
-      return sum + parseFloat(op.calculated_cost);
+      laborCost = parseFloat(op.calculated_cost);
+    } else {
+      // Fallback for newly-added operations not yet saved to backend
+      const totalMinutes = (parseFloat(op.setup_time_minutes) || 0) + (parseFloat(op.run_time_minutes) || 0);
+      const rate = parseFloat(op.hourly_rate) || 0;
+      laborCost = (totalMinutes / 60) * rate;
     }
-    // Fallback for newly-added operations not yet saved to backend
-    const totalMinutes = (parseFloat(op.setup_time_minutes) || 0) + (parseFloat(op.run_time_minutes) || 0);
-    const rate = parseFloat(op.hourly_rate) || 0;
-    return sum + (totalMinutes / 60) * rate;
+    const materialCost = parseFloat(op.material_cost) || 0;
+    return sum + laborCost + materialCost;
   }, 0);
 
   const needsProductSelection =

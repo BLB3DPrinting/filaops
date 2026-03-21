@@ -581,10 +581,16 @@ def get_manufacturing_bom(db: Session, product_id: int) -> tuple[Routing, Produc
 
 
 def recalculate_routing_totals(routing: Routing, db: Session) -> None:
-    """Recalculate routing totals from active operations."""
+    """Recalculate routing totals from active operations.
+
+    Cost includes setup + run time labor AND operation material costs.
+    """
     operations = (
         db.query(RoutingOperation)
-        .options(joinedload(RoutingOperation.work_center))
+        .options(
+            joinedload(RoutingOperation.work_center),
+            joinedload(RoutingOperation.materials),
+        )
         .filter(
             RoutingOperation.routing_id == routing.id,
             RoutingOperation.is_active.is_(True),
@@ -604,6 +610,7 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
             + (op.move_time_minutes or Decimal("0"))
         )
 
+        # Labor cost
         total_costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
         costed_hours = total_costed_minutes / 60
         rate = op.labor_rate_override or op.machine_rate_override
@@ -614,6 +621,11 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
                 + (op.work_center.overhead_rate_per_hour or Decimal("0"))
             )
         total_cost += Decimal(str(costed_hours)) * (rate or Decimal("0"))
+
+        # Operation material costs
+        for mat in op.materials:
+            if mat.extended_cost:
+                total_cost += Decimal(str(mat.extended_cost))
 
     routing.total_setup_time_minutes = total_setup
     routing.total_run_time_minutes = total_run

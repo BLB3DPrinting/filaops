@@ -1164,18 +1164,30 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
     if bom:
         cost_source = "manufactured"
         bom_id = bom.id
-        bom_cost_decimal = recalculate_bom_cost(bom, db)
-        bom.total_cost = bom_cost_decimal  # Keep BOM total_cost in sync
-        bom_cost = float(bom_cost_decimal)
 
         routing = (
             db.query(Routing)
             .filter(Routing.product_id == item.id, Routing.is_active.is_(True))
             .first()
         )
-        if routing and routing.total_cost:
-            routing_cost = float(routing.total_cost)
+
+        # Collect component IDs costed via routing operations to avoid
+        # double-counting the same material in both BOM and routing.
+        routing_material_ids = set()
+        if routing:
+            routing.recalculate_totals()
+            routing_cost = float(routing.total_cost) if routing.total_cost else 0.0
             routing_id = routing.id
+            for op in routing.operations:
+                if op.is_active:
+                    for mat in op.materials:
+                        routing_material_ids.add(mat.component_id)
+
+        bom_cost_decimal = recalculate_bom_cost(
+            bom, db, exclude_component_ids=routing_material_ids or None
+        )
+        bom.total_cost = bom_cost_decimal  # Keep BOM total_cost in sync
+        bom_cost = float(bom_cost_decimal)
 
         total_cost = bom_cost + routing_cost
     else:

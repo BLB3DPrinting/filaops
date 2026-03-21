@@ -112,7 +112,10 @@ class Routing(Base):
         return f"<Routing {self.code} for product_id={self.product_id}>"
 
     def recalculate_totals(self):
-        """Recalculate total times and cost from operations"""
+        """Recalculate total times and cost from operations.
+
+        Cost includes setup + run time labor AND operation material costs.
+        """
         total_setup = 0
         total_run = 0
         total_cost = 0
@@ -125,11 +128,22 @@ class Routing(Base):
             total_run += float(op.wait_time_minutes or 0)
             total_run += float(op.move_time_minutes or 0)
 
-            # Calculate operation cost
-            op_time_hours = float(op.run_time_minutes or 0) / 60
-            if op.work_center:
-                rate = op.labor_rate_override or op.machine_rate_override or op.work_center.total_rate_per_hour
-                total_cost += op_time_hours * float(rate or 0)
+            # Labor cost: setup + run time at work center rate
+            costed_minutes = float(op.setup_time_minutes or 0) + float(op.run_time_minutes or 0)
+            costed_hours = costed_minutes / 60
+            rate = op.labor_rate_override or op.machine_rate_override
+            if not rate and op.work_center:
+                rate = (
+                    float(op.work_center.machine_rate_per_hour or 0)
+                    + float(op.work_center.labor_rate_per_hour or 0)
+                    + float(op.work_center.overhead_rate_per_hour or 0)
+                )
+            total_cost += costed_hours * float(rate or 0)
+
+            # Operation material costs
+            for mat in op.materials:
+                if mat.extended_cost:
+                    total_cost += float(mat.extended_cost)
 
         self.total_setup_time_minutes = total_setup
         self.total_run_time_minutes = total_run
@@ -206,12 +220,16 @@ class RoutingOperation(Base):
 
     @property
     def calculated_cost(self):
-        """Cost for this operation based on time and rates (includes setup + run)"""
+        """Labor cost for this operation (setup + run time at work center rate)"""
         total_minutes = float(self.setup_time_minutes or 0) + float(self.run_time_minutes or 0)
         hours = total_minutes / 60
         rate = self.labor_rate_override or self.machine_rate_override
         if not rate and self.work_center:
-            rate = self.work_center.total_rate_per_hour
+            rate = (
+                float(self.work_center.machine_rate_per_hour or 0)
+                + float(self.work_center.labor_rate_per_hour or 0)
+                + float(self.work_center.overhead_rate_per_hour or 0)
+            )
         return hours * float(rate or 0)
 
     @property
