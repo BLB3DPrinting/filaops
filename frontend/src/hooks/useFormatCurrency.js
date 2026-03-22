@@ -15,13 +15,18 @@ export function useFormatCurrency() {
   const { currency_code, locale } = useLocale();
 
   return useCallback(
-    (n) => {
+    (n, { maxDecimals } = {}) => {
       if (n == null || !Number.isFinite(Number(n))) return "";
+      // Default: show up to 4 decimals for sub-cent values (e.g., $0.0642/ea
+      // from $8.99 / 140pcs), but trim trailing zeros so $5.00 stays clean.
+      const val = Number(n);
+      const max = maxDecimals ?? (Math.abs(val) < 1 && val !== 0 ? 4 : 2);
       return new Intl.NumberFormat(locale, {
         style: "currency",
         currency: currency_code,
-        maximumFractionDigits: 2,
-      }).format(Number(n));
+        minimumFractionDigits: 2,
+        maximumFractionDigits: max,
+      }).format(val);
     },
     [currency_code, locale]
   );
