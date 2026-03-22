@@ -17,14 +17,15 @@ export function useFormatCurrency() {
   return useCallback(
     (n, { maxDecimals } = {}) => {
       if (n == null || !Number.isFinite(Number(n))) return "";
-      // Default: show up to 4 decimals for sub-cent values (e.g., $0.0642/ea
-      // from $8.99 / 140pcs), but trim trailing zeros so $5.00 stays clean.
+      // Show up to 4 decimals for sub-dollar values (e.g., $0.0642/ea
+      // from $8.99 / 140pcs), but keep $5.00 clean at currency default.
+      // Don't force minimumFractionDigits — let Intl use the currency's
+      // native minor-unit default (2 for USD, 0 for JPY, etc.).
       const val = Number(n);
       const max = maxDecimals ?? (Math.abs(val) < 1 && val !== 0 ? 4 : 2);
       return new Intl.NumberFormat(locale, {
         style: "currency",
         currency: currency_code,
-        minimumFractionDigits: 2,
         maximumFractionDigits: max,
       }).format(val);
     },

@@ -254,7 +254,7 @@ class RoutingOperation(Base):
         for mat in self.materials:
             if mat.quantity_per and str(mat.quantity_per).strip().lower() != "unit":
                 continue
-            total += Decimal(str(mat.extended_cost or 0))
+            total += mat.extended_cost or Decimal("0")
         return total
 
 
@@ -289,6 +289,7 @@ class RoutingOperationMaterial(Base):
     # Flags
     is_cost_only = Column(Boolean, default=False, nullable=False)  # Don't consume inventory
     is_optional = Column(Boolean, default=False, nullable=False)   # Not required to complete op
+    is_variable = Column(Boolean, default=False, nullable=False)   # Swap per variant
     
     # Notes
     notes = Column(Text, nullable=True)
@@ -307,7 +308,7 @@ class RoutingOperationMaterial(Base):
     @property
     def unit_cost(self):
         """
-        Cost per STORAGE unit of this material.
+        Cost per STORAGE unit of this material (Decimal).
 
         Component costs are stored per PURCHASE unit (e.g., $/KG for filament).
         Must divide by purchase_factor to get cost per STORAGE unit (e.g., $/G).
@@ -317,18 +318,18 @@ class RoutingOperationMaterial(Base):
           - Hardware: $5/EA  ÷ 1    = $5/EA
         """
         if not self.component:
-            return 0
+            return Decimal("0")
         cost = self.component.standard_cost or self.component.average_cost or self.component.last_cost
         if not cost:
-            return 0
-        purchase_factor = float(self.component.purchase_factor or 1)
-        return float(cost) / purchase_factor
+            return Decimal("0")
+        purchase_factor = Decimal(str(self.component.purchase_factor or 1))
+        return Decimal(str(cost)) / purchase_factor
 
     @property
     def extended_cost(self):
-        """Total cost for this material line (quantity × unit_cost)"""
-        qty = float(self.quantity or 0)
-        scrap = float(self.scrap_factor or 0) / 100
+        """Total cost for this material line (quantity × unit_cost). Returns Decimal."""
+        qty = Decimal(str(self.quantity or 0))
+        scrap = Decimal(str(self.scrap_factor or 0)) / Decimal("100")
         qty_with_scrap = qty * (1 + scrap)
         return qty_with_scrap * self.unit_cost
 
