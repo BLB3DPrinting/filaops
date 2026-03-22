@@ -2126,7 +2126,9 @@ def duplicate_item(
                 })
 
         db.flush()
-        new_routing.recalculate_totals()
+        # Use service function (does its own eager-loading) to avoid N+1
+        from app.services.routing_service import recalculate_routing_totals
+        recalculate_routing_totals(new_routing, db)
         routing_id = new_routing.id
 
     db.commit()

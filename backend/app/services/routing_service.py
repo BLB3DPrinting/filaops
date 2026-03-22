@@ -631,9 +631,9 @@ def recalculate_routing_totals(routing: Routing, db: Session) -> None:
             + (op.move_time_minutes or Decimal("0"))
         )
 
-        # Delegate to model properties — single source of truth for rate logic
-        total_cost += Decimal(str(op.calculated_cost))
-        total_cost += Decimal(str(op.material_cost))
+        # Delegate to model properties (return Decimal natively)
+        total_cost += op.calculated_cost
+        total_cost += op.material_cost
 
     routing.total_setup_time_minutes = total_setup
     routing.total_run_time_minutes = total_run

@@ -8,6 +8,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from app.db.base import Base
 
@@ -115,18 +116,20 @@ class Routing(Base):
         """Recalculate total times and cost from operations.
 
         Cost includes setup + run time labor AND operation material costs.
+        All accumulation uses Decimal to match the service function and
+        avoid float drift on Numeric(18,4) columns.
         """
-        total_setup = 0
-        total_run = 0
-        total_cost = 0
+        total_setup = Decimal("0")
+        total_run = Decimal("0")
+        total_cost = Decimal("0")
 
         for op in self.operations:
             if not op.is_active:
                 continue
-            total_setup += float(op.setup_time_minutes or 0)
-            total_run += float(op.run_time_minutes or 0)
-            total_run += float(op.wait_time_minutes or 0)
-            total_run += float(op.move_time_minutes or 0)
+            total_setup += Decimal(str(op.setup_time_minutes or 0))
+            total_run += Decimal(str(op.run_time_minutes or 0))
+            total_run += Decimal(str(op.wait_time_minutes or 0))
+            total_run += Decimal(str(op.move_time_minutes or 0))
 
             # Delegate to operation properties — single source of truth
             total_cost += op.calculated_cost
@@ -206,33 +209,36 @@ class RoutingOperation(Base):
             float(self.move_time_minutes or 0)
         )
 
+    @property
     def effective_hourly_rate(self):
         """Component-wise hourly rate, applying per-component overrides.
 
         Overhead has no override — it always comes from the work center.
         This is intentional: overhead is a facility-level cost, not
         something operators adjust per-operation.
+
+        Returns Decimal for consistent accumulation in cost totals.
         """
         wc = self.work_center
         machine = (
-            float(self.machine_rate_override)
+            Decimal(str(self.machine_rate_override))
             if self.machine_rate_override is not None
-            else float(wc.machine_rate_per_hour or 0) if wc else 0.0
+            else Decimal(str(wc.machine_rate_per_hour or 0)) if wc else Decimal("0")
         )
         labor = (
-            float(self.labor_rate_override)
+            Decimal(str(self.labor_rate_override))
             if self.labor_rate_override is not None
-            else float(wc.labor_rate_per_hour or 0) if wc else 0.0
+            else Decimal(str(wc.labor_rate_per_hour or 0)) if wc else Decimal("0")
         )
-        overhead = float(wc.overhead_rate_per_hour or 0) if wc else 0.0
+        overhead = Decimal(str(wc.overhead_rate_per_hour or 0)) if wc else Decimal("0")
         return machine + labor + overhead
 
     @property
     def calculated_cost(self):
         """Time-based cost for this operation (setup + run at combined hourly rate)"""
-        total_minutes = float(self.setup_time_minutes or 0) + float(self.run_time_minutes or 0)
-        hours = total_minutes / 60
-        return hours * self.effective_hourly_rate()
+        total_minutes = Decimal(str(self.setup_time_minutes or 0)) + Decimal(str(self.run_time_minutes or 0))
+        hours = total_minutes / Decimal("60")
+        return hours * self.effective_hourly_rate
 
     @property
     def material_cost(self):
@@ -241,12 +247,14 @@ class RoutingOperation(Base):
         Only includes quantity_per='unit' (or unset, defaulting to per-unit).
         Batch/order materials are not per-unit costs and would inflate
         the routing template cost incorrectly if included.
+
+        Returns Decimal for consistent accumulation in cost totals.
         """
-        total = 0
+        total = Decimal("0")
         for mat in self.materials:
             if mat.quantity_per and str(mat.quantity_per).strip().lower() != "unit":
                 continue
-            total += mat.extended_cost or 0
+            total += Decimal(str(mat.extended_cost or 0))
         return total
 
 
