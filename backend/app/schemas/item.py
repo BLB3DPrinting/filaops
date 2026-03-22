@@ -256,6 +256,11 @@ class ItemListResponse(BaseModel):
     material_type_code: Optional[str] = None
     color_code: Optional[str] = None
 
+    # Variant info
+    parent_product_id: Optional[int] = None
+    is_template: bool = False
+    variant_count: int = 0
+
     class Config:
         from_attributes = True
 
@@ -289,6 +294,11 @@ class ItemResponse(ItemBase):
     color_code: Optional[str] = None
     color_name: Optional[str] = None
     color_hex: Optional[str] = None
+
+    # Variant info
+    parent_product_id: Optional[int] = None
+    is_template: bool = False
+    variant_count: int = 0
 
     # Timestamps
     created_at: datetime
@@ -355,3 +365,43 @@ class PriceApplyEntry(BaseModel):
 class ApplySuggestedPricesRequest(BaseModel):
     """Bulk apply suggested selling prices."""
     items: List[PriceApplyEntry]
+
+
+# ============================================================================
+# Variant Matrix
+# ============================================================================
+
+class VariantMaterialSelection(BaseModel):
+    """A single material+color combo for variant creation."""
+    material_type_id: int
+    color_id: int
+
+
+class VariantCreateRequest(BaseModel):
+    """Create a single variant from a template product."""
+    material_type_id: int
+    color_id: int
+    selling_price: Optional[Decimal] = None
+    gcode_file_path: Optional[str] = None
+
+
+class VariantBulkCreateRequest(BaseModel):
+    """Bulk-create variants from MaterialColor selections."""
+    selections: List[VariantMaterialSelection]
+
+
+class VariantListResponse(BaseModel):
+    """Summary of a variant for the matrix grid."""
+    id: int
+    sku: str
+    name: str
+    material_type_code: Optional[str] = None
+    color_code: Optional[str] = None
+    color_hex: Optional[str] = None
+    standard_cost: Optional[Decimal] = None
+    selling_price: Optional[Decimal] = None
+    on_hand_qty: Optional[Decimal] = None
+    active: bool = True
+
+    class Config:
+        from_attributes = True

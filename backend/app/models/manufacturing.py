@@ -281,6 +281,7 @@ class RoutingOperationMaterial(Base):
     # Flags
     is_cost_only = Column(Boolean, default=False, nullable=False)  # Don't consume inventory
     is_optional = Column(Boolean, default=False, nullable=False)   # Not required to complete op
+    is_variable = Column(Boolean, default=False, nullable=False)   # Swap per variant
     
     # Notes
     notes = Column(Text, nullable=True)

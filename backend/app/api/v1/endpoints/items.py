@@ -27,10 +27,13 @@ from app.schemas.item import (
     MaterialItemCreate,
     DuplicateItemRequest,
     ApplySuggestedPricesRequest,
+    VariantCreateRequest,
+    VariantBulkCreateRequest,
 )
 from app.schemas.item_demand import ItemDemandSummary
 from app.services.item_demand import get_item_demand_summary
 from app.services import item_service
+from app.services import variant_service
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -207,6 +210,7 @@ async def list_items(
     search: Optional[str] = Query(None, description="Search SKU or name"),
     active_only: bool = Query(True, description="Only show active items"),
     needs_reorder: bool = Query(False, description="Only show items below reorder point"),
+    exclude_variants: bool = Query(True, description="Hide variant products (show only templates and standalone)"),
     limit: int = Query(50, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -220,6 +224,7 @@ async def list_items(
         search=search,
         active_only=active_only,
         needs_reorder=needs_reorder,
+        exclude_variants=exclude_variants,
         limit=limit,
         offset=offset,
     )
@@ -246,6 +251,9 @@ async def list_items(
             needs_reorder=item["needs_reorder"],
             description=item.get("description"),
             image_url=item.get("image_url"),
+            parent_product_id=item.get("parent_product_id"),
+            is_template=item.get("is_template", False),
+            variant_count=item.get("variant_count", 0),
         )
         for item in items_data
     ]
@@ -616,3 +624,68 @@ async def apply_suggested_prices(
     return item_service.apply_suggested_prices(
         db, [entry.model_dump() for entry in request.items]
     )
+
+
+# ---------------------------------------------------------------------------
+# Variant Matrix
+# ---------------------------------------------------------------------------
+
+@router.get("/{item_id}/variants")
+async def get_variants(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all variants for a template product."""
+    return variant_service.list_variants(db, item_id)
+
+
+@router.get("/{item_id}/variant-matrix")
+async def get_variant_matrix(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the full variant matrix: template, variants, and available combos."""
+    return variant_service.get_variant_matrix(db, item_id)
+
+
+@router.post("/{item_id}/variants", status_code=201)
+async def create_variant(
+    item_id: int,
+    request: VariantCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a single variant from a template product."""
+    return variant_service.create_variant(
+        db,
+        item_id,
+        request.material_type_id,
+        request.color_id,
+        selling_price=request.selling_price,
+        gcode_file_path=request.gcode_file_path,
+    )
+
+
+@router.post("/{item_id}/variants/bulk", status_code=201)
+async def bulk_create_variants(
+    item_id: int,
+    request: VariantBulkCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk-create variants from MaterialColor selections."""
+    selections = [s.model_dump() for s in request.selections]
+    return variant_service.bulk_create_variants(db, item_id, selections)
+
+
+@router.delete("/{item_id}/variants/{variant_id}")
+async def delete_variant(
+    item_id: int,
+    variant_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a variant product."""
+    return variant_service.delete_variant(db, variant_id)

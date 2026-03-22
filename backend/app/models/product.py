@@ -1,7 +1,7 @@
 """
 Product model - unified item management for products, components, and supplies
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean, Text, BigInteger, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Boolean, Text, BigInteger, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -95,6 +95,11 @@ class Product(Base):
     sales_channel = Column(String(20), default='public')  # 'public' | 'b2b' | 'internal'
     customer_id = Column(Integer, ForeignKey('customers.id', ondelete='SET NULL'), nullable=True, index=True)  # Restrict to specific customer (B2B)
 
+    # Variant Matrix
+    parent_product_id = Column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_template = Column(Boolean, default=False, nullable=False)
+    variant_metadata = Column(JSON, nullable=True)  # {"material_type_id", "color_id", codes, etc.}
+
     # Flags
     is_raw_material = Column(Boolean, default=False)
     has_bom = Column(Boolean, default=False)
@@ -117,6 +122,10 @@ class Product(Base):
     quotes = relationship("Quote", back_populates="product")  # For auto-created custom products
     item_category = relationship("ItemCategory", back_populates="products")
     routings = relationship("Routing", back_populates="product")
+
+    # Variant relationships
+    parent_product = relationship("Product", remote_side="Product.id",
+                                  foreign_keys=[parent_product_id], backref="variants")
 
     # Spool tracking (for filament/materials)
     spools = relationship("MaterialSpool", back_populates="product")

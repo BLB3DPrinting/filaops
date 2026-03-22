@@ -409,6 +409,7 @@ class RoutingOperationMaterialBase(BaseModel):
     scrap_factor: Optional[Decimal] = Field(Decimal("0"), ge=0, le=100)
     is_cost_only: bool = False
     is_optional: bool = False
+    is_variable: bool = False
     notes: Optional[str] = None
 
     @field_validator('unit')
@@ -433,6 +434,7 @@ class RoutingOperationMaterialUpdate(BaseModel):
     scrap_factor: Optional[Decimal] = Field(None, ge=0, le=100)
     is_cost_only: Optional[bool] = None
     is_optional: Optional[bool] = None
+    is_variable: Optional[bool] = None
     notes: Optional[str] = None
 
     @field_validator('unit')

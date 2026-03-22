@@ -290,6 +290,7 @@ def list_items(
     search: str | None = None,
     active_only: bool = True,
     needs_reorder: bool = False,
+    exclude_variants: bool = True,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -303,6 +304,9 @@ def list_items(
 
     if active_only:
         query = query.filter(Product.active.is_(True))
+
+    if exclude_variants:
+        query = query.filter(Product.parent_product_id.is_(None))
 
     if item_type:
         if item_type == "filament":
@@ -408,6 +412,21 @@ def list_items(
         )
         alloc_map = {r.component_id: float(r.allocated) for r in alloc_rows}
 
+    # Batch variant count query for templates
+    variant_count_map: dict[int, int] = {}
+    template_ids = [item.id for item in items if item.is_template]
+    if template_ids:
+        vc_rows = (
+            db.query(
+                Product.parent_product_id,
+                func.count(Product.id).label("cnt"),
+            )
+            .filter(Product.parent_product_id.in_(template_ids))
+            .group_by(Product.parent_product_id)
+            .all()
+        )
+        variant_count_map = {r.parent_product_id: r.cnt for r in vc_rows}
+
     result = []
     for item in items:
         on_hand = on_hand_map.get(item.id, 0.0)
@@ -448,6 +467,9 @@ def list_items(
                 "needs_reorder": item_needs_reorder,
                 "description": item.description,
                 "image_url": item.image_url,
+                "parent_product_id": item.parent_product_id,
+                "is_template": item.is_template,
+                "variant_count": variant_count_map.get(item.id, 0),
             }
         )
 
@@ -2111,6 +2133,7 @@ def duplicate_item(
                     scrap_factor=mat.scrap_factor,
                     is_cost_only=mat.is_cost_only,
                     is_optional=mat.is_optional,
+                    is_variable=mat.is_variable,
                     notes=mat.notes,
                 )
                 db.add(new_mat)

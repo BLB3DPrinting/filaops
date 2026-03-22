@@ -78,6 +78,24 @@ def setup_database():
             "ALTER TABLE company_settings "
             "ADD COLUMN IF NOT EXISTS default_margin_percent NUMERIC(5,2)"
         ))
+        # Migration 067: variant matrix
+        conn.execute(text(
+            "ALTER TABLE products "
+            "ADD COLUMN IF NOT EXISTS parent_product_id INTEGER "
+            "REFERENCES products(id) ON DELETE SET NULL"
+        ))
+        conn.execute(text(
+            "ALTER TABLE products "
+            "ADD COLUMN IF NOT EXISTS is_template BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE products "
+            "ADD COLUMN IF NOT EXISTS variant_metadata JSONB"
+        ))
+        conn.execute(text(
+            "ALTER TABLE routing_operation_materials "
+            "ADD COLUMN IF NOT EXISTS is_variable BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
         # Add CHECK constraint if it doesn't already exist
         conn.execute(text("""
             DO $$
