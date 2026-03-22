@@ -1,4 +1,4 @@
-<!-- AUTO-GENERATED — Do not edit manually. Regenerate: cd backend && python scripts/generate_migrations_log.py -->
+<!-- AUTO-GENERATED — Do not edit manually. This file is regenerated from the codebase. -->
 
 # FilaOps Migrations Log
 

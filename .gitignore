@@ -154,6 +154,11 @@ tables_output.txt
 .claude/skills/review-council*
 *-review-log.txt
 
+# Doc generation scripts (run locally, commit results only)
+backend/scripts/generate_api_reference.py
+backend/scripts/generate_schema_reference.py
+backend/scripts/generate_migrations_log.py
+
 # MkDocs build output
 site/
 
