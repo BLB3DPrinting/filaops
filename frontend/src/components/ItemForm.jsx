@@ -464,10 +464,12 @@ export default function ItemForm({
                           }
 
                           const data = await res.json();
-                          // Build full URL — use current origin if API_URL is empty (proxied)
+                          // In proxied mode (API_URL empty), use path as-is — nginx handles /static/
                           const imageUrl = data.url.startsWith("http")
                             ? data.url
-                            : `${API_URL || window.location.origin}${data.url}`;
+                            : API_URL
+                              ? `${API_URL}${data.url}`
+                              : data.url;
                           setFormData((prev) => ({ ...prev, image_url: imageUrl }));
                         } catch (err) {
                           setError(err.message);
