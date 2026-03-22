@@ -464,15 +464,10 @@ export default function ItemForm({
                           }
 
                           const data = await res.json();
-                          // In proxied mode (API_URL empty), use path as-is — nginx handles /static/
-                          const imageUrl = data.url.startsWith("http")
-                            ? data.url
-                            : API_URL
-                              ? `${API_URL}${data.url}`
-                              : data.url;
-                          setFormData((prev) => ({ ...prev, image_url: imageUrl }));
+                          // Always store the relative path — nginx/proxy handles routing
+                          setFormData((prev) => ({ ...prev, image_url: data.url }));
                         } catch (err) {
-                          setError(err.message);
+                          setError("Image upload failed. Please try again or paste a URL instead.");
                         } finally {
                           setUploading(false);
                           // Reset file input
