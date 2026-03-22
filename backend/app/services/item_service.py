@@ -2068,6 +2068,7 @@ def duplicate_item(
         op_id_map: dict[int, int] = {}
         source_ops = (
             db.query(RoutingOperation)
+            .options(joinedload(RoutingOperation.materials))
             .filter(RoutingOperation.routing_id == active_routing.id)
             .order_by(RoutingOperation.sequence)
             .all()
@@ -2126,7 +2127,9 @@ def duplicate_item(
                 })
 
         db.flush()
-        new_routing.recalculate_totals()
+        # Use service function (does its own eager-loading) to avoid N+1
+        from app.services.routing_service import recalculate_routing_totals
+        recalculate_routing_totals(new_routing, db)
         routing_id = new_routing.id
 
     db.commit()

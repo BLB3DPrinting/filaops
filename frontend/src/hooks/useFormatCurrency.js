@@ -15,13 +15,19 @@ export function useFormatCurrency() {
   const { currency_code, locale } = useLocale();
 
   return useCallback(
-    (n) => {
+    (n, { maxDecimals } = {}) => {
       if (n == null || !Number.isFinite(Number(n))) return "";
+      // Show up to 4 decimals for sub-dollar values (e.g., $0.0642/ea
+      // from $8.99 / 140pcs), but keep $5.00 clean at currency default.
+      // Don't force minimumFractionDigits — let Intl use the currency's
+      // native minor-unit default (2 for USD, 0 for JPY, etc.).
+      const val = Number(n);
+      const max = maxDecimals ?? (Math.abs(val) < 1 && val !== 0 ? 4 : 2);
       return new Intl.NumberFormat(locale, {
         style: "currency",
         currency: currency_code,
-        maximumFractionDigits: 2,
-      }).format(Number(n));
+        maximumFractionDigits: max,
+      }).format(val);
     },
     [currency_code, locale]
   );

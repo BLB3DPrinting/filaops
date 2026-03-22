@@ -950,6 +950,13 @@ class TestRoutingCostDeduplication:
 
         # Also put material on a routing operation
         wc = db.query(WorkCenter).first()
+        if not wc:
+            wc = WorkCenter(
+                name=f"WC-{uuid4().hex[:8]}", code=f"WC-{uuid4().hex[:8]}",
+                center_type="assembly",
+            )
+            db.add(wc)
+            db.flush()
         routing = Routing(
             product_id=fg.id, code=f"RTG-DEDUP-{uuid4().hex[:8]}", name="Test",
             is_active=True, version=1,
@@ -1014,7 +1021,7 @@ class TestEffectiveHourlyRate:
             is_active=True,
         )
         op.work_center = wc
-        assert op.effective_hourly_rate() == pytest.approx(30.0)
+        assert op.effective_hourly_rate == pytest.approx(30.0)
         # 30min setup + 60min run = 90min = 1.5hr × $30 = $45
         assert op.calculated_cost == pytest.approx(45.0)
 
@@ -1040,7 +1047,7 @@ class TestEffectiveHourlyRate:
         )
         op.work_center = wc
         # Labor overridden to $20, machine $10 + overhead $5 from WC
-        assert op.effective_hourly_rate() == pytest.approx(35.0)
+        assert op.effective_hourly_rate == pytest.approx(35.0)
 
     def test_zero_override_is_respected(self, db):
         from app.models.manufacturing import RoutingOperation
@@ -1064,7 +1071,7 @@ class TestEffectiveHourlyRate:
         )
         op.work_center = wc
         # Labor zeroed, machine $10 + overhead $5
-        assert op.effective_hourly_rate() == pytest.approx(15.0)
+        assert op.effective_hourly_rate == pytest.approx(15.0)
 
 
 class TestRecostItem:

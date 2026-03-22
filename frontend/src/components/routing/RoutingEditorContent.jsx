@@ -500,7 +500,8 @@ export default function RoutingEditorContent({
     if (op.calculated_cost != null) {
       laborCost = parseFloat(op.calculated_cost);
     } else {
-      // Fallback for newly-added operations not yet saved to backend
+      // Fallback for newly-added operations not yet saved to backend.
+      // Uses work center total_rate (rate overrides not applied until save).
       const totalMinutes = (parseFloat(op.setup_time_minutes) || 0) + (parseFloat(op.run_time_minutes) || 0);
       const rate = parseFloat(op.hourly_rate) || 0;
       laborCost = (totalMinutes / 60) * rate;
