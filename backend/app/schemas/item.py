@@ -247,7 +247,7 @@ class ItemListResponse(BaseModel):
     needs_reorder: bool = False  # Only true for stocked items below reorder_point
 
     # Product image
-    image_url: Optional[str] = None
+    image_url: Optional[str] = Field(default=None, max_length=500)
 
     # Material info (for filament items)
     material_type_id: Optional[int] = None
