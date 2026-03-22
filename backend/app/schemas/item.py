@@ -230,6 +230,7 @@ class ItemListResponse(BaseModel):
     id: int
     sku: str
     name: str
+    description: Optional[str] = None
     item_type: str
     procurement_type: str = "buy"
     category_id: Optional[int] = None

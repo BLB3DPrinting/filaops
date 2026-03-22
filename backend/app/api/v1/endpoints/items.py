@@ -244,6 +244,7 @@ async def list_items(
             reorder_point=item["reorder_point"],
             stocking_policy=item["stocking_policy"],
             needs_reorder=item["needs_reorder"],
+            description=item.get("description"),
             image_url=item.get("image_url"),
         )
         for item in items_data
