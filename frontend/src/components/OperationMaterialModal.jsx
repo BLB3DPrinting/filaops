@@ -28,6 +28,7 @@ export default function OperationMaterialModal({
     scrap_factor: 0,
     is_cost_only: false,
     is_optional: false,
+    is_variable: false,
     notes: '',
   });
 
@@ -44,6 +45,7 @@ export default function OperationMaterialModal({
         scrap_factor: material.scrap_factor || 0,
         is_cost_only: material.is_cost_only || false,
         is_optional: material.is_optional || false,
+        is_variable: material.is_variable ?? false,
         notes: material.notes || '',
       });
     } else {
@@ -56,6 +58,7 @@ export default function OperationMaterialModal({
         scrap_factor: 0,
         is_cost_only: false,
         is_optional: false,
+        is_variable: false,
         notes: '',
       });
     }
@@ -115,6 +118,7 @@ export default function OperationMaterialModal({
         scrap_factor: parseFloat(formData.scrap_factor) || 0,
         is_cost_only: formData.is_cost_only,
         is_optional: formData.is_optional,
+        is_variable: formData.is_variable,
         notes: formData.notes || null,
       };
 
@@ -314,7 +318,7 @@ export default function OperationMaterialModal({
             </div>
 
             {/* Options */}
-            <div className="flex gap-6">
+            <div className="flex flex-wrap gap-6">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -332,6 +336,16 @@ export default function OperationMaterialModal({
                   className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500"
                 />
                 <span className="text-sm text-gray-300">Optional</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.is_variable}
+                  onChange={(e) => setFormData({ ...formData, is_variable: e.target.checked })}
+                  className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300">Variable</span>
+                <span className="text-xs text-gray-500">(swap this material per variant)</span>
               </label>
             </div>
 

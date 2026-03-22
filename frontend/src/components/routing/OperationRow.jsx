@@ -193,6 +193,11 @@ export default function OperationRow({
                         {mat.is_optional && (
                           <span className="text-xs px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">optional</span>
                         )}
+                        {mat.is_variable && (
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            Variable
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
