@@ -28,7 +28,7 @@ export default function BulkUpdateModal({
     if (categoryId) updateData.category_id = parseInt(categoryId);
     if (itemType) updateData.item_type = itemType;
     if (procurementType) updateData.procurement_type = procurementType;
-    if (active !== "") updateData.active = active === "true";
+    if (active !== "") updateData.is_active = active === "true";
     onSave(updateData);
   };
 
