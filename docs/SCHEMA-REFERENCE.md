@@ -1,4 +1,4 @@
-<!-- AUTO-GENERATED — Do not edit manually. This file is regenerated from the codebase. -->
+<!-- AUTO-GENERATED — Do not edit manually. Regenerate: cd backend && python scripts/generate_schema_reference.py -->
 
 # FilaOps Database Schema Reference
 

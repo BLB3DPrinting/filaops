@@ -1,4 +1,4 @@
-<!-- AUTO-GENERATED — Do not edit manually. This file is regenerated from the codebase. -->
+<!-- AUTO-GENERATED — Do not edit manually. Regenerate: cd backend && python scripts/generate_migrations_log.py -->
 
 # FilaOps Migrations Log
 
@@ -1022,7 +1022,7 @@
 
 ## Migration Dependencies
 
-```
+```text
 baseline_001
     |
 b1815de543ea (001_initial_postgres_schema)
@@ -1148,4 +1148,4 @@ alembic history --verbose
 ---
 
 *Last updated: 2026-03-22*
-*Generated for FilaOps Core (Open Source)*
+*Generated for FilaOps Core v3.5.0*

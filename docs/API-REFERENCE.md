@@ -1,4 +1,4 @@
-<!-- AUTO-GENERATED — Do not edit manually. This file is regenerated from the codebase. -->
+<!-- AUTO-GENERATED — Do not edit manually. Regenerate: cd backend && python scripts/generate_api_reference.py -->
 
 # FilaOps API Reference
 
@@ -88,24 +88,24 @@ Authorization: Bearer <access_token>
 | GET | `/sales-orders/payment-statuses` | Get valid payment status values for sales orders. | CUSTOMER |
 | POST | `/sales-orders/` | Create a manual sales order (line_item type). | CUSTOMER |
 | POST | `/sales-orders/convert/{quote_id}` | Convert an accepted quote to a sales order. | CUSTOMER |
-| GET | `/sales-orders/` | Get list of sales orders. | CUSTOMER |
-| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | CUSTOMER |
-| GET | `/sales-orders/{order_id}/packing-slip/pdf` | Generate and return a packing slip PDF for a sales order. | CUSTOMER |
-| GET | `/sales-orders/{order_id}/required-orders` | Get full MRP cascade of WOs and POs needed to fulfill this sales order. | CUSTOMER |
+| GET | `/sales-orders/` | Get list of sales orders. | ADMIN |
+| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | ADMIN |
+| GET | `/sales-orders/{order_id}/packing-slip/pdf` | Generate and return a packing slip PDF for a sales order. | ADMIN |
+| GET | `/sales-orders/{order_id}/required-orders` | Get full MRP cascade of WOs and POs needed to fulfill this sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/blocking-issues` | Get blocking issues analysis for a sales order. | CUSTOMER |
 | GET | `/sales-orders/{order_id}/fulfillment-status` | Get fulfillment status for a sales order. | CUSTOMER |
-| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | CUSTOMER |
+| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | ADMIN |
 | POST | `/sales-orders/{order_id}/pre-flight-check` | Pre-flight check before confirming a sales order. | CUSTOMER |
-| PATCH | `/sales-orders/{order_id}/status` | Update sales order status (admin only). | CUSTOMER |
-| PATCH | `/sales-orders/{order_id}/payment` | Update payment information for an order (admin only). | CUSTOMER |
-| PATCH | `/sales-orders/{order_id}/shipping` | Update shipping information for an order (admin only). | CUSTOMER |
-| PATCH | `/sales-orders/{order_id}/address` | Update shipping address for an order (admin only). | CUSTOMER |
-| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | CUSTOMER |
-| DELETE | `/sales-orders/{order_id}` | Delete a sales order (admin only). | CUSTOMER |
-| POST | `/sales-orders/{order_id}/ship` | Create shipping label and mark order as shipped. | CUSTOMER |
-| POST | `/sales-orders/{order_id}/generate-production-orders` | Generate production orders from a sales order (admin only). | CUSTOMER |
-| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | CUSTOMER |
-| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | CUSTOMER |
+| PATCH | `/sales-orders/{order_id}/status` | Update sales order status (admin only). | ADMIN |
+| PATCH | `/sales-orders/{order_id}/payment` | Update payment information for an order (admin only). | ADMIN |
+| PATCH | `/sales-orders/{order_id}/shipping` | Update shipping information for an order (admin only). | ADMIN |
+| PATCH | `/sales-orders/{order_id}/address` | Update shipping address for an order (admin only). | ADMIN |
+| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | ADMIN |
+| DELETE | `/sales-orders/{order_id}` | Delete a sales order (admin only). | ADMIN |
+| POST | `/sales-orders/{order_id}/ship` | Create shipping label and mark order as shipped. | ADMIN |
+| POST | `/sales-orders/{order_id}/generate-production-orders` | Generate production orders from a sales order (admin only). | ADMIN |
+| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | ADMIN |
+| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | ADMIN |
 | GET | `/sales-orders/{order_id}/shipping-events` | List shipping events for a sales order. | PUBLIC |
 | POST | `/sales-orders/{order_id}/shipping-events` | Add a shipping event to a sales order. | CUSTOMER |
 
@@ -262,7 +262,7 @@ Authorization: Bearer <access_token>
 | GET | `/materials/options` | Get all material options for the quote portal. | PUBLIC |
 | GET | `/materials/types` | Get list of material types (for first dropdown). | PUBLIC |
 | GET | `/materials/types/{material_type_code}/colors` | Get available colors for a specific material type (for second dropdown). | PUBLIC |
-| POST | `/materials/types/{material_type_code}/colors` | Create a new color and link it to a material type. | CUSTOMER |
+| POST | `/materials/types/{material_type_code}/colors` | Create a new color and link it to a material type. | ADMIN |
 | GET | `/materials/for-bom` | Get all materials formatted for BOM usage. | PUBLIC |
 | GET | `/materials/for-order` | Get material inventory items formatted for sales order line selection. | CUSTOMER |
 | GET | `/materials/pricing/{material_type_code}` | Get pricing information for a material type. | PUBLIC |
@@ -441,16 +441,16 @@ Authorization: Bearer <access_token>
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
 | GET | `/settings/company` | Get company settings | CUSTOMER |
-| PATCH | `/settings/company` | Update company settings | CUSTOMER |
-| POST | `/settings/company/logo` | Upload company logo | CUSTOMER |
+| PATCH | `/settings/company` | Update company settings | ADMIN |
+| POST | `/settings/company/logo` | Upload company logo | ADMIN |
 | GET | `/settings/company/logo` | Get company logo image (no auth required for PDF generation) | PUBLIC |
-| DELETE | `/settings/company/logo` | Delete company logo | CUSTOMER |
+| DELETE | `/settings/company/logo` | Delete company logo | ADMIN |
 | GET | `/settings/ai` | Get AI configuration settings (API keys masked) | CUSTOMER |
-| PATCH | `/settings/ai` | Update AI configuration settings | CUSTOMER |
-| POST | `/settings/ai/test` | Test the configured AI connection | CUSTOMER |
-| POST | `/settings/ai/start-ollama` | Attempt to start the Ollama service | CUSTOMER |
+| PATCH | `/settings/ai` | Update AI configuration settings | ADMIN |
+| POST | `/settings/ai/test` | Test the configured AI connection | ADMIN |
+| POST | `/settings/ai/start-ollama` | Attempt to start the Ollama service | ADMIN |
 | GET | `/settings/ai/anthropic-status` | Check if the anthropic package is installed. | CUSTOMER |
-| POST | `/settings/ai/install-anthropic` | Install the anthropic Python package. | CUSTOMER |
+| POST | `/settings/ai/install-anthropic` | Install the anthropic Python package. | ADMIN |
 
 ---
 
@@ -464,9 +464,9 @@ Authorization: Bearer <access_token>
 | ------ | ---- | ----------- | ---- |
 | GET | `/tax-rates` | List active tax rates. Pass include_inactive=true to see all. | CUSTOMER |
 | GET | `/tax-rates/{tax_rate_id}` | Get tax rate | CUSTOMER |
-| POST | `/tax-rates` | Create tax rate | CUSTOMER |
-| PATCH | `/tax-rates/{tax_rate_id}` | Update tax rate | CUSTOMER |
-| DELETE | `/tax-rates/{tax_rate_id}` | Delete tax rate | CUSTOMER |
+| POST | `/tax-rates` | Create tax rate | ADMIN |
+| PATCH | `/tax-rates/{tax_rate_id}` | Update tax rate | ADMIN |
+| DELETE | `/tax-rates/{tax_rate_id}` | Delete tax rate | ADMIN |
 
 ---
 
@@ -556,19 +556,19 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/security/audit` | Run security audit and return results. | CUSTOMER |
-| GET | `/security/audit/export` | Export security audit report. | CUSTOMER |
-| GET | `/security/status` | Get quick security status overview. | CUSTOMER |
-| POST | `/security/remediate/generate-secret-key` | Generate a secure SECRET_KEY for the user to copy. | CUSTOMER |
-| POST | `/security/remediate/open-env-file` | Open the .env file in the system's default text editor. | CUSTOMER |
-| POST | `/security/remediate/update-secret-key` | Automatically update the SECRET_KEY in the .env file. | CUSTOMER |
-| POST | `/security/remediate/open-restart-terminal` | Open a terminal window with instructions to restart the backend. | CUSTOMER |
-| POST | `/security/remediate/fix-dependencies` | Automatically scan and fix vulnerable dependencies. | CUSTOMER |
-| POST | `/security/remediate/fix-rate-limiting` | Automatically install slowapi for rate limiting. | CUSTOMER |
-| POST | `/security/remediate/setup-https` | Automatically set up HTTPS with Caddy reverse proxy. | CUSTOMER |
-| GET | `/security/remediate/check-caddy` | Check if Caddy is installed and get its version. | CUSTOMER |
-| POST | `/security/remediate/fix-dotfile-blocking` | Automatically update Caddyfile to block access to dotfiles (.env, .git, etc.). | CUSTOMER |
-| GET | `/security/remediate/{check_id}` | Get detailed remediation steps for a specific check. | CUSTOMER |
+| GET | `/security/audit` | Run security audit and return results. | ADMIN |
+| GET | `/security/audit/export` | Export security audit report. | ADMIN |
+| GET | `/security/status` | Get quick security status overview. | ADMIN |
+| POST | `/security/remediate/generate-secret-key` | Generate a secure SECRET_KEY for the user to copy. | ADMIN |
+| POST | `/security/remediate/open-env-file` | Open the .env file in the system's default text editor. | ADMIN |
+| POST | `/security/remediate/update-secret-key` | Automatically update the SECRET_KEY in the .env file. | ADMIN |
+| POST | `/security/remediate/open-restart-terminal` | Open a terminal window with instructions to restart the backend. | ADMIN |
+| POST | `/security/remediate/fix-dependencies` | Automatically scan and fix vulnerable dependencies. | ADMIN |
+| POST | `/security/remediate/fix-rate-limiting` | Automatically install slowapi for rate limiting. | ADMIN |
+| POST | `/security/remediate/setup-https` | Automatically set up HTTPS with Caddy reverse proxy. | ADMIN |
+| GET | `/security/remediate/check-caddy` | Check if Caddy is installed and get its version. | ADMIN |
+| POST | `/security/remediate/fix-dotfile-blocking` | Automatically update Caddyfile to block access to dotfiles (.env, .git, etc.). | ADMIN |
+| GET | `/security/remediate/{check_id}` | Get detailed remediation steps for a specific check. | ADMIN |
 
 ---
 
@@ -964,4 +964,4 @@ All endpoints are prefixed with `/api/v1/`
 ---
 
 *Last updated: 2026-03-22*
-*Generated for FilaOps Core*
+*Generated for FilaOps Core v3.5.0*
