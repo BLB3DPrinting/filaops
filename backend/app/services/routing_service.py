@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -509,7 +510,14 @@ def add_operation_material(
 
     material = RoutingOperationMaterial(routing_operation_id=operation_id, **data)
     db.add(material)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
+        )
 
     # Recalculate routing totals to include the new material cost
     operation = db.query(RoutingOperation).filter(RoutingOperation.id == operation_id).first()
@@ -545,7 +553,14 @@ def update_operation_material(
         setattr(material, field, value)
 
     material.updated_at = datetime.now(timezone.utc)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
+        )
 
     # Recalculate routing totals to reflect the material change
     if material.routing_operation and material.routing_operation.routing:

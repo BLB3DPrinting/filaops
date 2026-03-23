@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -932,7 +933,14 @@ def add_bom_line(db: Session, bom_id: int, line_data: BOMLineCreate) -> dict:
     db.add(line)
 
     # Recalculate BOM cost
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
+        )
     bom.total_cost = recalculate_bom_cost(bom, db)
 
     db.commit()
@@ -981,7 +989,14 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
     bom = db.query(BOM).filter(BOM.id == bom_id).first()
     bom.total_cost = recalculate_bom_cost(bom, db)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
+        )
     db.refresh(line)
 
     # Get component for response

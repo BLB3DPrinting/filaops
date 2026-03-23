@@ -957,10 +957,12 @@ class TestGetInventorySummary:
     """Cover lines 246, 290-297."""
 
     def test_summary_returns_items(self, db, make_product):
-        # TODO(pre-existing): Fails when the test DB accumulates inventory rows from previous
-        # runs with on_hand_quantity=0 for this product, causing get_inventory_summary
-        # (show_zero=False) to filter it out. Root cause: db fixture uses rollback but
-        # service-level db.commit() calls persist data across test runs on the shared DB.
+        # NOTE(pre-existing): This test has historically failed with `assert 0 >= 1`.
+        # The db fixture uses join_transaction_mode="create_savepoint" so service-level
+        # db.commit() calls only release/recreate savepoints — they do not persist across
+        # tests. If this becomes flaky again, investigate whether get_inventory_summary
+        # uses a separate session/connection that doesn't see the savepoint-scoped data,
+        # or whether a fixture misconfiguration caused the isolation to break.
         product = make_product(unit="EA", item_type="finished_good")
         location = inventory_transaction_service._get_or_create_default_location(db)
         _make_inventory(db, product.id, location.id, Decimal("50"))
