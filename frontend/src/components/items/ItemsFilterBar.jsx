@@ -79,6 +79,17 @@ export default function ItemsFilterBar({
           />
           Active only
         </label>
+        <label className="flex items-center gap-2 text-gray-400">
+          <input
+            type="checkbox"
+            checked={filters.includeVariants}
+            onChange={(e) =>
+              onFiltersChange({ ...filters, includeVariants: e.target.checked })
+            }
+            className="rounded"
+          />
+          Show variants
+        </label>
       </div>
 
       {/* Stats - Clickable filters */}

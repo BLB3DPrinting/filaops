@@ -448,6 +448,7 @@ def _build_material_response(material: RoutingOperationMaterial) -> RoutingOpera
         scrap_factor=material.scrap_factor,
         is_cost_only=material.is_cost_only,
         is_optional=material.is_optional,
+        is_variable=material.is_variable,
         notes=material.notes,
         unit_cost=material.unit_cost or Decimal("0"),
         extended_cost=material.extended_cost or Decimal("0"),

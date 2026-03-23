@@ -136,6 +136,7 @@ def create_variant(
     # Set variant-specific fields on the newly created product
     variant = db.query(Product).filter(Product.id == result["id"]).first()
     variant.parent_product_id = template_id
+    variant.is_template = False  # Variants are never templates themselves
     variant.variant_metadata = {
         "material_type_id": material_type_id,
         "color_id": color_id,

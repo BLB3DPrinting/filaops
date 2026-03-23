@@ -32,6 +32,7 @@ export default function AdminItems() {
     search: "",
     itemType: "all",
     activeOnly: true,
+    includeVariants: false,
   });
   const [quickFilter, setQuickFilter] = useState(null); // null | "all" | "finished_good" | "component" | "material" | "supply" | "needs_reorder"
 
@@ -126,6 +127,7 @@ export default function AdminItems() {
         params.set("category_id", selectedCategory.toString());
       if (filters.itemType !== "all") params.set("item_type", filters.itemType);
       if (filters.search) params.set("search", filters.search);
+      if (filters.includeVariants) params.set("exclude_variants", "false");
 
       const data = await api.get(`/api/v1/items?${params}`);
       setItems(data.items || []);
@@ -142,6 +144,7 @@ export default function AdminItems() {
     filters.activeOnly,
     filters.itemType,
     filters.search,
+    filters.includeVariants,
     selectedCategory,
   ]);
 
@@ -152,7 +155,7 @@ export default function AdminItems() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [selectedCategory, filters.itemType, filters.activeOnly]);
+  }, [selectedCategory, filters.itemType, filters.activeOnly, filters.includeVariants]);
 
   // Fetch stats from dedicated lightweight endpoint
   const fetchStats = useCallback(async () => {
