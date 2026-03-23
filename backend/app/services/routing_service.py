@@ -512,12 +512,14 @@ def add_operation_material(
     db.add(material)
     try:
         db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
-        )
+        if getattr(exc.orig, "sqlstate", None) == "23505":
+            raise HTTPException(
+                status_code=409,
+                detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
+            )
+        raise
 
     # Recalculate routing totals to include the new material cost
     operation = db.query(RoutingOperation).filter(RoutingOperation.id == operation_id).first()
@@ -555,12 +557,14 @@ def update_operation_material(
     material.updated_at = datetime.now(timezone.utc)
     try:
         db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
-        )
+        if getattr(exc.orig, "sqlstate", None) == "23505":
+            raise HTTPException(
+                status_code=409,
+                detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
+            )
+        raise
 
     # Recalculate routing totals to reflect the material change
     if material.routing_operation and material.routing_operation.routing:

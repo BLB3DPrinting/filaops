@@ -935,12 +935,14 @@ def add_bom_line(db: Session, bom_id: int, line_data: BOMLineCreate) -> dict:
     # Recalculate BOM cost
     try:
         db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
-        )
+        if getattr(exc.orig, "sqlstate", None) == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
+            )
+        raise
     bom.total_cost = recalculate_bom_cost(bom, db)
 
     db.commit()
@@ -991,12 +993,14 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
 
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
-        )
+        if getattr(exc.orig, "sqlstate", None) == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This material is already on this BOM — adjust the quantity on the existing line instead.",
+            )
+        raise
     db.refresh(line)
 
     # Get component for response

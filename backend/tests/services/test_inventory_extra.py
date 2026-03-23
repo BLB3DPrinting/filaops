@@ -957,17 +957,13 @@ class TestGetInventorySummary:
     """Cover lines 246, 290-297."""
 
     def test_summary_returns_items(self, db, make_product):
-        # NOTE(pre-existing): This test has historically failed with `assert 0 >= 1`.
-        # The db fixture uses join_transaction_mode="create_savepoint" so service-level
-        # db.commit() calls only release/recreate savepoints — they do not persist across
-        # tests. If this becomes flaky again, investigate whether get_inventory_summary
-        # uses a separate session/connection that doesn't see the savepoint-scoped data,
-        # or whether a fixture misconfiguration caused the isolation to break.
         product = make_product(unit="EA", item_type="finished_good")
         location = inventory_transaction_service._get_or_create_default_location(db)
         _make_inventory(db, product.id, location.id, Decimal("50"))
 
-        result = inventory_transaction_service.get_inventory_summary(db, show_zero=False)
+        result = inventory_transaction_service.get_inventory_summary(
+            db, show_zero=False, search=product.name
+        )
         assert "items" in result
         assert "total" in result
         found = [i for i in result["items"] if i["product_id"] == product.id]
