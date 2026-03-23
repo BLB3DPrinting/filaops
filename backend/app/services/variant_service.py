@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.logging_config import get_logger
 from app.models import Product, Inventory
 from app.models.material import MaterialType, Color, MaterialColor
-from app.models.manufacturing import RoutingOperationMaterial
+from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.services.item_service import (
     duplicate_item,
     get_item,
@@ -380,3 +380,152 @@ def delete_variant(db: Session, variant_id: int) -> dict:
     db.commit()
 
     return {"id": variant_id, "sku": sku, "status": "deleted", "remaining_variants": remaining}
+
+
+def sync_routing_to_variants(db: Session, template_id: int) -> dict:
+    """
+    Propagate the template's active routing to all variants.
+
+    For each variant:
+    - Replaces its routing operations wholesale from the template
+    - Preserves material substitutions: is_variable materials are swapped
+      to the variant's target material (from variant_metadata)
+    - Non-variable materials, times, work centers, and sequence are
+      taken directly from the template (no drift possible)
+    - Uses savepoints so a bad variant doesn't roll back the others
+
+    Returns: {"synced": N, "errors": [{"sku": ..., "error": ...}]}
+    """
+    from datetime import datetime, timezone
+    from app.services.routing_service import recalculate_routing_totals
+
+    template = get_item(db, template_id)
+    if not template.is_template:
+        raise HTTPException(status_code=400, detail="Item is not a template")
+
+    # Load template routing
+    template_routing = (
+        db.query(Routing)
+        .filter(Routing.product_id == template_id, Routing.is_active.is_(True))
+        .first()
+    )
+    if not template_routing:
+        raise HTTPException(status_code=400, detail="Template has no active routing to sync from")
+
+    # Eagerly load operations + materials so we can iterate after clearing variant ops
+    template_ops = (
+        db.query(RoutingOperation)
+        .filter(RoutingOperation.routing_id == template_routing.id)
+        .order_by(RoutingOperation.sequence)
+        .all()
+    )
+    # Snapshot materials per op before we touch anything
+    op_materials: dict[int, list[RoutingOperationMaterial]] = {
+        op.id: list(op.materials) for op in template_ops
+    }
+
+    variants = db.query(Product).filter(Product.parent_product_id == template_id).all()
+
+    synced = 0
+    errors = []
+
+    for variant in variants:
+        savepoint = db.begin_nested()
+        try:
+            # Resolve this variant's target material from stored metadata
+            meta = variant.variant_metadata or {}
+            mat_type_id = meta.get("material_type_id")
+            color_id_meta = meta.get("color_id")
+            target_material = None
+            if mat_type_id and color_id_meta:
+                target_material = (
+                    db.query(Product)
+                    .filter(
+                        Product.material_type_id == mat_type_id,
+                        Product.color_id == color_id_meta,
+                        Product.active.is_(True),
+                    )
+                    .first()
+                )
+
+            # Get or create variant routing
+            variant_routing = (
+                db.query(Routing)
+                .filter(Routing.product_id == variant.id, Routing.is_active.is_(True))
+                .first()
+            )
+            if not variant_routing:
+                variant_routing = Routing(
+                    product_id=variant.id,
+                    name=f"Routing for {variant.name}"[:200],
+                    is_active=True,
+                )
+                db.add(variant_routing)
+                db.flush()
+
+            # Clear existing operations — cascade deletes materials via ORM relationship
+            variant_routing.operations = []
+            db.flush()
+
+            # Re-copy operations from template
+            for t_op in template_ops:
+                new_op = RoutingOperation(
+                    routing_id=variant_routing.id,
+                    sequence=t_op.sequence,
+                    operation_code=t_op.operation_code,
+                    operation_name=t_op.operation_name,
+                    description=t_op.description,
+                    work_center_id=t_op.work_center_id,
+                    setup_time_minutes=t_op.setup_time_minutes,
+                    run_time_minutes=t_op.run_time_minutes,
+                    wait_time_minutes=t_op.wait_time_minutes,
+                    move_time_minutes=t_op.move_time_minutes,
+                    runtime_source=t_op.runtime_source,
+                    units_per_cycle=t_op.units_per_cycle,
+                    scrap_rate_percent=t_op.scrap_rate_percent,
+                    labor_rate_override=t_op.labor_rate_override,
+                    machine_rate_override=t_op.machine_rate_override,
+                    is_active=t_op.is_active,
+                )
+                db.add(new_op)
+                db.flush()
+
+                for t_mat in op_materials[t_op.id]:
+                    # Swap is_variable materials to this variant's target
+                    component_id = (
+                        target_material.id
+                        if t_mat.is_variable and target_material
+                        else t_mat.component_id
+                    )
+                    new_mat = RoutingOperationMaterial(
+                        routing_operation_id=new_op.id,
+                        component_id=component_id,
+                        quantity=t_mat.quantity,
+                        quantity_per=t_mat.quantity_per,
+                        unit=t_mat.unit,
+                        scrap_factor=t_mat.scrap_factor,
+                        is_cost_only=t_mat.is_cost_only,
+                        is_optional=t_mat.is_optional,
+                        is_variable=t_mat.is_variable,
+                        notes=t_mat.notes,
+                    )
+                    db.add(new_mat)
+
+            db.flush()
+            recalculate_routing_totals(variant_routing, db)
+
+            try:
+                calculate_item_cost(variant, db)
+            except Exception:
+                logger.warning(f"Could not recalculate cost for variant {variant.sku} during sync")
+
+            savepoint.commit()
+            synced += 1
+
+        except Exception as e:
+            savepoint.rollback()
+            logger.error(f"Failed to sync routing to variant {variant.sku}: {e}")
+            errors.append({"sku": variant.sku, "error": str(e)})
+
+    db.commit()
+    return {"synced": synced, "total": len(variants), "errors": errors}

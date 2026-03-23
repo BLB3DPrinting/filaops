@@ -680,6 +680,16 @@ async def bulk_create_variants(
     return variant_service.bulk_create_variants(db, item_id, selections)
 
 
+@router.post("/{item_id}/variants/sync-routing")
+async def sync_variant_routing(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Propagate the template's routing to all variants, preserving material substitutions."""
+    return variant_service.sync_routing_to_variants(db, item_id)
+
+
 @router.delete("/{item_id}/variants/{variant_id}")
 async def delete_variant(
     item_id: int,

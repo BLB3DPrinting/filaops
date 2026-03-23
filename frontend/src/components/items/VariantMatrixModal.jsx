@@ -18,6 +18,7 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
   const [selectedCombos, setSelectedCombos] = useState(new Set()); // "mtId-colorId"
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState(null); // variantId pending confirm
+  const [syncing, setSyncing] = useState(false);
 
   const fetchMatrix = useCallback(async () => {
     if (!item?.id) return;
@@ -120,6 +121,32 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
     }
   };
 
+  const handleSyncRouting = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/items/${item.id}/variants/sync-routing`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Sync failed');
+      }
+      const result = await res.json();
+      if (result.errors?.length) {
+        toast.error(`Synced ${result.synced}/${result.total} — ${result.errors.length} error(s)`);
+      } else {
+        toast.success(`Routing synced to ${result.synced} variant${result.synced !== 1 ? 's' : ''}`);
+      }
+      fetchMatrix();
+      onSuccess?.();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleDeleteVariant = async () => {
     if (!deletingId) return;
     try {
@@ -165,6 +192,16 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
                   <span className="px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-400 border border-purple-500/30">
                     {variantCount} variant{variantCount !== 1 ? 's' : ''}
                   </span>
+                )}
+                {variantCount > 0 && (
+                  <button
+                    onClick={handleSyncRouting}
+                    disabled={syncing}
+                    title="Push template routing changes (times, work centers, operations) to all variants. Material substitutions are preserved."
+                    className="px-3 py-1 text-xs rounded border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {syncing ? 'Syncing…' : 'Sync Routing'}
+                  </button>
                 )}
               </div>
               {matrixData && (
