@@ -15,12 +15,21 @@ Three reference docs in `docs/` are generated from the codebase for AI and devel
 | `SCHEMA-REFERENCE.md` | `backend/app/models/*.py` | `generate_schema_reference.py` |
 | `MIGRATIONS-LOG.md` | `backend/migrations/versions/*.py` | `generate_migrations_log.py` |
 
-## When to Use
+## When to Run
 
-- Issue or PR asks for doc regeneration
-- Preparing a release (version bump)
-- After adding new endpoints, models, or migrations
-- When doc metrics (counts) don't match codebase
+**At release time** — after all PRs for a version are merged to `main`, before tagging.
+
+```
+merge PRs → checkout main → run scripts → commit docs → tag release
+```
+
+The docs describe the released state of the codebase, not in-flight changes. The version stamp in each footer (`v3.5.0`) makes staleness obvious — if `VERSION` says `3.6.0` but the docs say `v3.5.0`, regenerate.
+
+**Not per-PR.** Running on every PR adds review noise for docs most contributors don't read. The scripts are gitignored (local-only), so CI can't run them anyway.
+
+**Other triggers:**
+- Issue or PR explicitly asks for doc regeneration
+- When doc metrics (endpoint/model/migration counts) visibly don't match codebase
 
 ## Quick Reference: Running the Scripts
 
