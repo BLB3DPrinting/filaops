@@ -35,6 +35,7 @@ from app.services import (
     production_execution,
     operation_blocking,
     operation_generation,
+    routing_service,
 )
 from app.services.operation_status import OperationError
 from app.services.operation_blocking import OperationBlockingError
@@ -1522,3 +1523,33 @@ class TestExplodeBomAndReserveMaterials:
         # Both should be skipped
         assert len(reserved) == 0
         assert len(insufficient) == 0
+
+
+# =============================================================================
+# routing_service.py — add_operation_material (duplicate guard)
+# =============================================================================
+
+class TestAddOperationMaterialDuplicateGuard:
+    def test_raises_409_for_duplicate_component(self, db):
+        from fastapi import HTTPException
+
+        product = _make_product(db, item_type="finished_good")
+        comp = _make_product(db, item_type="raw_material", standard_cost=Decimal("1.00"))
+        db.commit()
+
+        _routing, ops = _make_routing(db, product)
+        routing_op = ops[0]
+        db.commit()
+
+        data = {
+            "component_id": comp.id,
+            "quantity": Decimal("10"),
+            "unit": "EA",
+            "quantity_per": "unit",
+        }
+        routing_service.add_operation_material(db, routing_op.id, data=data)
+
+        with pytest.raises(HTTPException) as exc_info:
+            routing_service.add_operation_material(db, routing_op.id, data=data)
+        assert exc_info.value.status_code == 409
+        assert "already on this operation" in exc_info.value.detail

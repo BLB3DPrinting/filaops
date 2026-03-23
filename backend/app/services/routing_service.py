@@ -488,6 +488,21 @@ def add_operation_material(
     if not component:
         raise HTTPException(status_code=400, detail="Component product not found")
 
+    # Guard: prevent duplicate materials on the same operation
+    duplicate = (
+        db.query(RoutingOperationMaterial)
+        .filter(
+            RoutingOperationMaterial.routing_operation_id == operation_id,
+            RoutingOperationMaterial.component_id == data["component_id"],
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail="This material is already on this operation — adjust the quantity on the existing entry instead.",
+        )
+
     # Convert enum values
     if "quantity_per" in data and hasattr(data["quantity_per"], "value"):
         data["quantity_per"] = data["quantity_per"].value

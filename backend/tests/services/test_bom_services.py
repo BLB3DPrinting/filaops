@@ -667,6 +667,19 @@ class TestAddBomLine:
             bom_management_service.add_bom_line(db, bom.id, line_data)
         assert exc_info.value.status_code == 400
 
+    def test_raises_409_for_duplicate_component(self, db, make_product, make_bom):
+        fg = make_product()
+        comp = make_product(standard_cost=Decimal("2.00"))
+        bom = make_bom(product_id=fg.id)
+
+        line_data = BOMLineCreate(component_id=comp.id, quantity=Decimal("5"), unit="EA")
+        bom_management_service.add_bom_line(db, bom.id, line_data)
+
+        with pytest.raises(HTTPException) as exc_info:
+            bom_management_service.add_bom_line(db, bom.id, line_data)
+        assert exc_info.value.status_code == 409
+        assert "already on this BOM" in exc_info.value.detail
+
 
 # =============================================================================
 # bom_management_service.py — update_bom_line

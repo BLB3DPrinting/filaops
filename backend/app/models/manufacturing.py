@@ -4,7 +4,7 @@ Manufacturing Routes Models
 Work Centers, Resources, Routings, and Routing Operations.
 """
 from sqlalchemy import (
-    Column, Integer, String, Numeric, Boolean, DateTime, Text, Date, ForeignKey
+    Column, Integer, String, Numeric, Boolean, DateTime, Text, Date, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -273,6 +273,9 @@ class RoutingOperationMaterial(Base):
     - OP-50 Ship: 6x6x6 Box 1 EA per unit
     """
     __tablename__ = "routing_operation_materials"
+    __table_args__ = (
+        UniqueConstraint("routing_operation_id", "component_id", name="uq_routing_op_materials_op_component"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     routing_operation_id = Column(Integer, ForeignKey("routing_operations.id", ondelete="CASCADE"), 

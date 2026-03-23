@@ -1,7 +1,7 @@
 """
 Bill of Materials models
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -49,6 +49,9 @@ class BOM(Base):
 class BOMLine(Base):
     """BOM Line model - matches bom_lines table"""
     __tablename__ = "bom_lines"
+    __table_args__ = (
+        UniqueConstraint("bom_id", "component_id", name="uq_bom_lines_bom_component"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
 
