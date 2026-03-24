@@ -305,6 +305,7 @@ export default function AdminPriceLevels() {
       {showAssignModal && assigningLevel && (
         <AssignCustomersModal
           level={assigningLevel}
+          allLevels={priceLevels || []}
           onAssign={handleAssign}
           onUnassign={handleUnassign}
           onClose={() => {
@@ -502,7 +503,7 @@ function PriceLevelModal({ level, onSave, onClose }) {
 
 // -- Customer Assignment Modal --
 
-function AssignCustomersModal({ level, onAssign, onUnassign, onClose }) {
+function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onClose }) {
   const api = useApi();
   const [availableCustomers, setAvailableCustomers] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
@@ -528,16 +529,31 @@ function AssignCustomersModal({ level, onAssign, onUnassign, onClose }) {
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
+  // Build map: customer_id → { levelName, levelId } for ALL tiers
+  const customerTierMap = new Map();
+  for (const lvl of allLevels) {
+    for (const c of lvl.customers || []) {
+      customerTierMap.set(c.customer_id, { levelName: lvl.name, levelId: lvl.id });
+    }
+  }
+
   const assignedIds = new Set(
     (level.customers || []).map((c) => c.customer_id)
   );
 
+  const matchesSearch = (c) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      c.display_name?.toLowerCase().includes(q) ||
+      c.company_name?.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q)
+    );
+  };
+
+  // Unassigned from THIS level, matching search
   const unassigned = availableCustomers.filter(
-    (c) =>
-      !assignedIds.has(c.id) &&
-      (c.display_name?.toLowerCase().includes(search.toLowerCase()) ||
-        c.company_name?.toLowerCase().includes(search.toLowerCase()) ||
-        c.email?.toLowerCase().includes(search.toLowerCase()))
+    (c) => !assignedIds.has(c.id) && matchesSearch(c)
   );
 
   return (
@@ -622,25 +638,33 @@ function AssignCustomersModal({ level, onAssign, onUnassign, onClose }) {
                   {search ? "No matching customers" : "All customers are assigned"}
                 </p>
               ) : (
-                unassigned.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => onAssign(c.id)}
-                    className="w-full flex items-center justify-between bg-gray-800/50 hover:bg-gray-800 rounded px-3 py-2 text-left transition-colors"
-                  >
-                    <div>
-                      <span className="text-white text-sm">
-                        {c.company_name || c.display_name || c.email}
+                unassigned.map((c) => {
+                  const currentTier = customerTierMap.get(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => onAssign(c.id)}
+                      className="w-full flex items-center justify-between bg-gray-800/50 hover:bg-gray-800 rounded px-3 py-2 text-left transition-colors"
+                    >
+                      <div>
+                        <span className="text-white text-sm">
+                          {c.company_name || c.display_name || c.email}
+                        </span>
+                        {c.email && c.company_name && (
+                          <span className="text-gray-500 text-xs ml-2">{c.email}</span>
+                        )}
+                        {currentTier && (
+                          <span className="text-amber-400/80 text-xs ml-2">
+                            — {currentTier.levelName}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-gray-500 text-xs whitespace-nowrap ml-2">
+                        {currentTier ? "Move" : "Add"}
                       </span>
-                      {c.email && c.company_name && (
-                        <span className="text-gray-500 text-xs ml-2">{c.email}</span>
-                      )}
-                    </div>
-                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               )}
             </div>
           )}
