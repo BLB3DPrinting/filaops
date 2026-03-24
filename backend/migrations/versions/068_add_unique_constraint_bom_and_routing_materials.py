@@ -12,12 +12,12 @@ beyond the first (lowest id) for each duplicate group are deleted. This prevents
 the migration from failing on existing environments that already contain duplicates.
 
 Revision ID: 068
-Revises: 066
+Revises: 067
 """
 from alembic import op
 
 revision = "068"
-down_revision = "066"
+down_revision = "067"
 branch_labels = None
 depends_on = None
 
