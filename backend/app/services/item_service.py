@@ -484,7 +484,7 @@ def get_item_stats(db: Session) -> dict:
     """
     type_counts = (
         db.query(Product.item_type, func.count(Product.id))
-        .filter(Product.active.is_(True))
+        .filter(Product.active.is_(True), Product.parent_product_id.is_(None))
         .group_by(Product.item_type)
         .all()
     )
@@ -495,6 +495,7 @@ def get_item_stats(db: Session) -> dict:
         .outerjoin(Inventory, Inventory.product_id == Product.id)
         .filter(
             Product.active.is_(True),
+            Product.parent_product_id.is_(None),
             Product.stocking_policy == "stocked",
             Product.reorder_point.isnot(None),
         )

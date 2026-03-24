@@ -393,14 +393,15 @@ export default function ItemsTable({
                   >
                     Duplicate
                   </button>
-                  {item.is_template && (
+                  {!item.parent_product_id && (
                     <button
                       onClick={() => onManageVariants?.(item)}
                       title="Manage Variants"
+                      aria-label="Manage Variants"
                       className="p-1.5 rounded text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
                     >
                       {/* 2×2 grid icon */}
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <rect x="3" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                         <rect x="14" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                         <rect x="3" y="14" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />

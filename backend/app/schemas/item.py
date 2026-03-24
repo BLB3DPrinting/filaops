@@ -7,7 +7,7 @@ Supports unified item management for:
 - Supplies (consumables like filament, packaging)
 - Services (non-physical items like machine time)
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
@@ -384,10 +384,24 @@ class VariantCreateRequest(BaseModel):
     selling_price: Optional[Decimal] = None
     gcode_file_path: Optional[str] = None
 
+    @field_validator("selling_price")
+    @classmethod
+    def selling_price_non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("selling_price must not be negative")
+        return v
+
 
 class VariantBulkCreateRequest(BaseModel):
     """Bulk-create variants from MaterialColor selections."""
     selections: List[VariantMaterialSelection]
+
+    @field_validator("selections")
+    @classmethod
+    def selections_non_empty(cls, v):
+        if len(v) == 0:
+            raise ValueError("selections must not be empty")
+        return v
 
 
 class VariantListResponse(BaseModel):

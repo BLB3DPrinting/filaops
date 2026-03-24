@@ -517,6 +517,11 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
 
                 for t_mat in op_materials[t_op.id]:
                     # Swap is_variable materials to this variant's target
+                    if t_mat.is_variable and not target_material:
+                        logger.warning(
+                            "Variable material on op %s (component_id=%s) has no target for variant %s",
+                            t_op.operation_code, t_mat.component_id, variant.sku,
+                        )
                     component_id = (
                         target_material.id
                         if t_mat.is_variable and target_material
