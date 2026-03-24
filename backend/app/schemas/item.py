@@ -284,9 +284,10 @@ class ItemResponse(ItemBase):
     available_qty: Optional[Decimal] = None
     allocated_qty: Optional[Decimal] = None
 
-    # BOM info
+    # BOM / Routing info
     has_bom: bool = False
     bom_count: int = 0
+    has_routing: bool = False
 
     # Material info (for filament items)
     material_type_code: Optional[str] = None

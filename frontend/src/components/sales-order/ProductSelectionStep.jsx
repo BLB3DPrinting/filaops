@@ -108,7 +108,7 @@ export default function ProductSelectionStep({
             {(() => {
               const searchTerm = productSearch.trim().toLowerCase();
               const filteredProducts = products.filter((p) => {
-                if (!p.has_bom) return false;
+                if (!p.has_bom && !p.has_routing) return false;
                 if (!searchTerm) return true;
                 const nameMatch = (p.name || "").toLowerCase().includes(searchTerm);
                 const skuMatch = (p.sku || "").toLowerCase().includes(searchTerm);
@@ -119,8 +119,8 @@ export default function ProductSelectionStep({
                 return (
                   <div className="col-span-3 text-center py-8 text-gray-500">
                     {searchTerm
-                      ? `No products with BOM found matching "${productSearch}"`
-                      : "No products with BOM available. Create a BOM for your products to sell them."}
+                      ? `No sellable products found matching "${productSearch}"`
+                      : "No sellable products available. Create a BOM or routing for your products to sell them."}
                   </div>
                 );
               }

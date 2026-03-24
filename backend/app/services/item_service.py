@@ -772,6 +772,12 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         .count()
     )
 
+    routing_count = (
+        db.query(Routing)
+        .filter(Routing.product_id == item.id, Routing.is_active.is_(True))
+        .count()
+    )
+
     return {
         "id": item.id,
         "sku": item.sku,
@@ -806,6 +812,7 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         "allocated_qty": allocated,
         "has_bom": item.has_bom or bom_count > 0,
         "bom_count": bom_count,
+        "has_routing": routing_count > 0,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }
