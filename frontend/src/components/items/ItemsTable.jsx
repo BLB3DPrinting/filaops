@@ -393,19 +393,21 @@ export default function ItemsTable({
                   >
                     Duplicate
                   </button>
-                  <button
-                    onClick={() => onManageVariants?.(item)}
-                    title="Manage Variants"
-                    className="p-1.5 rounded text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
-                  >
-                    {/* 2×2 grid icon */}
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <rect x="3" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                      <rect x="14" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                      <rect x="3" y="14" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                      <rect x="14" y="14" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
+                  {item.is_template && (
+                    <button
+                      onClick={() => onManageVariants?.(item)}
+                      title="Manage Variants"
+                      className="p-1.5 rounded text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+                    >
+                      {/* 2×2 grid icon */}
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <rect x="3" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                        <rect x="14" y="3" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                        <rect x="3" y="14" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                        <rect x="14" y="14" width="7" height="7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  )}
                   {(item.procurement_type === "make" ||
                     item.procurement_type === "make_or_buy") && (
                     <>

@@ -9,12 +9,16 @@ import { useState, useEffect, useCallback } from 'react';
 import Modal from '../Modal';
 import ConfirmDialog from '../ConfirmDialog';
 import { useToast } from '../Toast';
-import { API_URL } from '../../config/api';
+import { useApi } from '../../hooks/useApi';
+import { useFormatCurrency } from '../../hooks/useFormatCurrency';
 
 export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess }) {
+  const api = useApi();
   const toast = useToast();
+  const formatCurrency = useFormatCurrency();
   const [matrixData, setMatrixData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [selectedCombos, setSelectedCombos] = useState(new Set()); // "mtId-colorId"
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState(null); // variantId pending confirm
@@ -23,18 +27,18 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
   const fetchMatrix = useCallback(async () => {
     if (!item?.id) return;
     setLoading(true);
+    setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/${item.id}/variant-matrix`, {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error('Failed to load variant matrix');
-      setMatrixData(await res.json());
+      const data = await api.get(`/api/v1/items/${item.id}/variant-matrix`);
+      setMatrixData(data);
+      setError(null);
     } catch (err) {
       toast.error(err.message);
+      setError('Failed to load variant matrix');
     } finally {
       setLoading(false);
     }
-  }, [item?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item?.id, api, toast]);
 
   useEffect(() => {
     if (isOpen) {
@@ -99,17 +103,7 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
         const [material_type_id, color_id] = key.split('-').map(Number);
         return { material_type_id, color_id };
       });
-      const res = await fetch(`${API_URL}/api/v1/items/${item.id}/variants/bulk`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selections }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Failed to create variants');
-      }
-      const result = await res.json();
+      const result = await api.post(`/api/v1/items/${item.id}/variants/bulk`, { selections });
       toast.success(`Created ${result.created?.length ?? selections.length} variant(s)`);
       setSelectedCombos(new Set());
       fetchMatrix();
@@ -124,15 +118,7 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
   const handleSyncRouting = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/${item.id}/variants/sync-routing`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Sync failed');
-      }
-      const result = await res.json();
+      const result = await api.post(`/api/v1/items/${item.id}/variants/sync-routing`);
       if (result.errors?.length) {
         toast.error(`Synced ${result.synced}/${result.total} — ${result.errors.length} error(s)`);
       } else {
@@ -150,14 +136,7 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
   const handleDeleteVariant = async () => {
     if (!deletingId) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/items/${item.id}/variants/${deletingId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Failed to delete variant');
-      }
+      await api.del(`/api/v1/items/${item.id}/variants/${deletingId}`);
       toast.success('Variant deleted');
       setDeletingId(null);
       setSelectedCombos(new Set());
@@ -223,6 +202,15 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
               <div className="text-center py-8 text-gray-400">Loading matrix...</div>
             )}
 
+            {!loading && error && !matrixData && (
+              <div className="p-8 text-center">
+                <p className="text-red-400 mb-4">{error}</p>
+                <button onClick={fetchMatrix} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm">
+                  Retry
+                </button>
+              </div>
+            )}
+
             {!loading && matrixData && (
               <>
                 {/* Warning: no variable materials */}
@@ -235,6 +223,13 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
                 )}
 
                 {/* Combo Grid */}
+                {hasVariableMatls && uniqueMaterials.length === 0 && uniqueColors.length === 0 && (
+                  <div className="p-6 text-center text-gray-400">
+                    <p>No available material/color combinations found.</p>
+                    <p className="text-sm mt-1">Ensure your catalog has MaterialColor entries for variable material types.</p>
+                  </div>
+                )}
+
                 {uniqueMaterials.length > 0 && uniqueColors.length > 0 && (
                   <div>
                     <h3 className="text-sm font-medium text-gray-300 mb-3">Available Combinations</h3>
@@ -346,10 +341,15 @@ export default function VariantMatrixModal({ isOpen, onClose, item, onSuccess })
                               </td>
                               <td className="py-2 px-3 text-gray-400">{v.material_type_code}</td>
                               <td className="py-2 px-3 text-right text-gray-400">
-                                {v.standard_cost != null ? `$${parseFloat(v.standard_cost).toFixed(2)}` : '—'}
+                                {v.standard_cost != null ? formatCurrency(v.standard_cost) : '—'}
                               </td>
                               <td className="py-2 px-3 text-right text-gray-300">
-                                {v.on_hand_qty != null ? parseFloat(v.on_hand_qty).toFixed(0) : '—'}
+                                {v.on_hand_qty != null
+                                  ? <>
+                                      {parseFloat(v.on_hand_qty).toLocaleString()}
+                                      {v.inventory_uom && <span className="text-gray-500 text-xs ml-1">{v.inventory_uom}</span>}
+                                    </>
+                                  : '—'}
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className={`px-2 py-0.5 rounded-full text-xs ${v.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>

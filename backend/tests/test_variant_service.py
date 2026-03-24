@@ -381,7 +381,7 @@ class TestDeleteVariant:
         db.refresh(template_product)
         assert template_product.is_template is True
 
-        variant_service.delete_variant(db, result["id"])
+        variant_service.delete_variant(db, template_product.id, result["id"])
 
         db.refresh(template_product)
         assert template_product.is_template is False
@@ -389,7 +389,7 @@ class TestDeleteVariant:
     def test_delete_non_variant_fails(self, db, template_product):
         """Deleting a product without parent_product_id should fail."""
         with pytest.raises(HTTPException) as exc_info:
-            variant_service.delete_variant(db, template_product.id)
+            variant_service.delete_variant(db, 99999, template_product.id)
         assert exc_info.value.status_code == 400
 
 

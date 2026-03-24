@@ -1979,6 +1979,7 @@ def duplicate_item(
         "average_cost", "last_cost",
         "gcode_file_path", "image_url",
         "customer_id",
+        "parent_product_id", "is_template", "variant_metadata",
     }
 
     # Clone product fields

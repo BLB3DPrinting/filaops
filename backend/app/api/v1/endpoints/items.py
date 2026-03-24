@@ -698,4 +698,4 @@ async def delete_variant(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a variant product."""
-    return variant_service.delete_variant(db, variant_id)
+    return variant_service.delete_variant(db, item_id, variant_id)

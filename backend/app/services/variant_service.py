@@ -46,8 +46,6 @@ def _find_material_product(db: Session, material_type_id: int, color_id: int) ->
 
 def _get_variable_material_ids(db: Session, template: Product) -> set[int]:
     """Get component_ids of all is_variable=True routing materials for the template."""
-    from app.models.manufacturing import Routing, RoutingOperation
-
     rows = (
         db.query(RoutingOperationMaterial.component_id)
         .join(RoutingOperation, RoutingOperationMaterial.routing_operation_id == RoutingOperation.id)
@@ -233,28 +231,34 @@ def list_variants(db: Session, template_id: int) -> list[dict]:
         )
         inv_data = {r.product_id: r.on_hand for r in inv_rows}
 
+    # Batch-load color hex codes to avoid N+1 queries
+    all_color_ids = set()
+    for v in variants:
+        meta = v.variant_metadata or {}
+        cid = meta.get("color_id")
+        if cid:
+            all_color_ids.add(cid)
+    color_hex_map: dict[int, str | None] = {}
+    if all_color_ids:
+        color_rows = db.query(Color).filter(Color.id.in_(all_color_ids)).all()
+        color_hex_map = {c.id: c.hex_code for c in color_rows}
+
     result = []
     for v in variants:
         meta = v.variant_metadata or {}
+        color_id = meta.get("color_id")
         result.append({
             "id": v.id,
             "sku": v.sku,
             "name": v.name,
             "material_type_code": meta.get("material_type_code"),
             "color_code": meta.get("color_code"),
-            "color_hex": None,  # Populated below if color exists
+            "color_hex": color_hex_map.get(color_id) if color_id else None,
             "standard_cost": float(v.standard_cost) if v.standard_cost else None,
             "selling_price": float(v.selling_price) if v.selling_price else None,
             "on_hand_qty": float(inv_data.get(v.id, 0)),
             "active": v.active,
         })
-
-        # Resolve color hex if we have a color_id in metadata
-        color_id = meta.get("color_id")
-        if color_id:
-            color = db.query(Color).filter(Color.id == color_id).first()
-            if color:
-                result[-1]["color_hex"] = color.hex_code
 
     return result
 
@@ -294,13 +298,27 @@ def get_variant_matrix(db: Session, template_id: int) -> dict:
 
     material_colors = mc_query.all()
 
+    # Pre-fetch all needed MaterialType and Color objects in batch
+    mc_mat_type_ids = {mc.material_type_id for mc in material_colors}
+    mc_color_ids = {mc.color_id for mc in material_colors}
+    mat_type_map: dict[int, MaterialType] = {}
+    color_map: dict[int, Color] = {}
+    if mc_mat_type_ids:
+        mat_type_map = {
+            mt.id: mt for mt in db.query(MaterialType).filter(MaterialType.id.in_(mc_mat_type_ids)).all()
+        }
+    if mc_color_ids:
+        color_map = {
+            c.id: c for c in db.query(Color).filter(Color.id.in_(mc_color_ids)).all()
+        }
+
     # Build a lookup of existing variant SKUs
     existing_skus = {v["sku"] for v in variants}
 
     available_combos = []
     for mc in material_colors:
-        mat_type = db.query(MaterialType).filter(MaterialType.id == mc.material_type_id).first()
-        color = db.query(Color).filter(Color.id == mc.color_id).first()
+        mat_type = mat_type_map.get(mc.material_type_id)
+        color = color_map.get(mc.color_id)
         if not mat_type or not color:
             continue
 
@@ -332,7 +350,7 @@ def get_variant_matrix(db: Session, template_id: int) -> dict:
     }
 
 
-def delete_variant(db: Session, variant_id: int) -> dict:
+def delete_variant(db: Session, item_id: int, variant_id: int) -> dict:
     """
     Delete a variant product and its BOM/routing. Clears is_template on parent if last variant.
     """
@@ -342,6 +360,8 @@ def delete_variant(db: Session, variant_id: int) -> dict:
     variant = get_item(db, variant_id)
     if not variant.parent_product_id:
         raise HTTPException(status_code=400, detail="Product is not a variant (no parent_product_id)")
+    if variant.parent_product_id != item_id:
+        raise HTTPException(status_code=400, detail="Variant does not belong to this item")
 
     parent_id = variant.parent_product_id
     sku = variant.sku
@@ -396,7 +416,6 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
 
     Returns: {"synced": N, "errors": [{"sku": ..., "error": ...}]}
     """
-    from datetime import datetime, timezone
     from app.services.routing_service import recalculate_routing_totals
 
     template = get_item(db, template_id)
@@ -517,7 +536,7 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
             try:
                 calculate_item_cost(variant, db)
             except Exception:
-                logger.warning(f"Could not recalculate cost for variant {variant.sku} during sync")
+                logger.warning(f"Could not recalculate cost for variant {variant.sku} during sync", exc_info=True)
 
             savepoint.commit()
             synced += 1
