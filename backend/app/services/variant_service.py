@@ -9,7 +9,7 @@ logic for the actual product/BOM/routing cloning.
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -288,15 +288,17 @@ def get_variant_matrix(db: Session, template_id: int) -> dict:
         variable_material_type_ids = {r[0] for r in rows}
 
     # Get all available MaterialColor combos for those material types
-    mc_query = db.query(MaterialColor).join(
-        MaterialType, MaterialColor.material_type_id == MaterialType.id
-    ).join(
-        Color, MaterialColor.color_id == Color.id
-    )
-    if variable_material_type_ids:
+    if not variable_material_type_ids:
+        logger.warning("Template %d has no variable material types — returning empty matrix", template_id)
+        material_colors = []
+    else:
+        mc_query = db.query(MaterialColor).join(
+            MaterialType, MaterialColor.material_type_id == MaterialType.id
+        ).join(
+            Color, MaterialColor.color_id == Color.id
+        )
         mc_query = mc_query.filter(MaterialColor.material_type_id.in_(variable_material_type_ids))
-
-    material_colors = mc_query.all()
+        material_colors = mc_query.all()
 
     # Pre-fetch all needed MaterialType and Color objects in batch
     mc_mat_type_ids = {mc.material_type_id for mc in material_colors}
@@ -426,6 +428,7 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
     template_routing = (
         db.query(Routing)
         .filter(Routing.product_id == template_id, Routing.is_active.is_(True))
+        .order_by(desc(Routing.version))
         .first()
     )
     if not template_routing:
@@ -477,6 +480,9 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
                 variant_routing = Routing(
                     product_id=variant.id,
                     name=f"Routing for {variant.name}"[:200],
+                    code=f"RTG-{variant.sku}"[:50],
+                    version=1,
+                    revision="1.0",
                     is_active=True,
                 )
                 db.add(variant_routing)
