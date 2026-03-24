@@ -314,15 +314,20 @@ class RoutingOperationMaterial(Base):
         """
         Cost per STORAGE unit of this material (Decimal).
 
-        Component standard_cost is already stored per storage unit
-        (e.g., $/G for filament, $/EA for hardware). No conversion needed.
+        Component costs are stored per PURCHASE unit (e.g., $/KG for filament).
+        Must divide by purchase_factor to get cost per STORAGE unit (e.g., $/G).
+
+        Examples:
+          - Filament: $20/KG ÷ 1000 = $0.02/G
+          - Hardware: $5/EA  ÷ 1    = $5/EA
         """
         if not self.component:
             return Decimal("0")
         cost = self.component.standard_cost or self.component.average_cost or self.component.last_cost
         if not cost:
             return Decimal("0")
-        return Decimal(str(cost))
+        purchase_factor = Decimal(str(self.component.purchase_factor or 1))
+        return Decimal(str(cost)) / purchase_factor
 
     @property
     def extended_cost(self):
