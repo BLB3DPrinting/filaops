@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
@@ -530,12 +530,15 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
   }, [onClose]);
 
   // Build map: customer_id → { levelName, levelId } for ALL tiers
-  const customerTierMap = new Map();
-  for (const lvl of allLevels) {
-    for (const c of lvl.customers || []) {
-      customerTierMap.set(c.customer_id, { levelName: lvl.name, levelId: lvl.id });
+  const customerTierMap = useMemo(() => {
+    const map = new Map();
+    for (const lvl of allLevels) {
+      for (const c of lvl.customers || []) {
+        map.set(c.customer_id, { levelName: lvl.name, levelId: lvl.id });
+      }
     }
-  }
+    return map;
+  }, [allLevels]);
 
   const assignedIds = new Set(
     (level.customers || []).map((c) => c.customer_id)
