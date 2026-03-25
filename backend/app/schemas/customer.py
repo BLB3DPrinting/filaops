@@ -97,6 +97,9 @@ class CustomerListResponse(BaseModel):
     total_spent: float = 0.0
     last_order_date: Optional[datetime] = None
 
+    # PRO price level discount (None if PRO not installed)
+    discount_percent: Optional[float] = None
+
     created_at: datetime
 
     class Config:
@@ -119,6 +122,9 @@ class CustomerResponse(CustomerBase):
     order_count: int = 0
     quote_count: int = 0
     total_spent: float = 0.0
+
+    # PRO price level discount (None if PRO not installed)
+    discount_percent: Optional[float] = None
 
     class Config:
         from_attributes = True

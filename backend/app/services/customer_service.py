@@ -9,6 +9,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
+import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy import Integer, cast, desc, func
 from sqlalchemy.orm import Session
@@ -74,8 +75,44 @@ def _get_customer_or_404(db: Session, customer_id: int) -> User:
     return customer
 
 
-def _customer_response(customer: User, stats: dict) -> dict:
+def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[float]:
+    """Look up a customer's price level discount percentage.
+
+    Price levels are managed by the PRO plugin. If PRO is not installed
+    (tables don't exist), returns None for graceful degradation.
+
+    Uses a savepoint so that a failed query (e.g. missing PRO tables)
+    does not poison the outer transaction.
+    """
+    try:
+        nested = db.begin_nested()
+        try:
+            result = db.execute(
+                sa.text("""
+                    SELECT pl.discount_percent
+                    FROM pro_customer_price_levels cpl
+                    JOIN price_levels pl ON pl.id = cpl.price_level_id
+                    WHERE cpl.customer_id = :customer_id
+                    LIMIT 1
+                """),
+                {"customer_id": customer_id},
+            ).fetchone()
+            nested.commit()
+            if result:
+                return float(result[0])
+        except Exception:
+            nested.rollback()
+    except Exception:
+        pass
+    return None
+
+
+def _customer_response(customer: User, stats: dict, db: Optional[Session] = None) -> dict:
     """Build a full CustomerResponse dict from a User instance and stats."""
+    discount_percent = None
+    if db is not None:
+        discount_percent = _get_customer_discount_percent(db, customer.id)
+
     return {
         "id": customer.id,
         "customer_number": customer.customer_number,
@@ -104,6 +141,7 @@ def _customer_response(customer: User, stats: dict) -> dict:
         "order_count": stats["order_count"],
         "quote_count": stats["quote_count"],
         "total_spent": stats["total_spent"],
+        "discount_percent": discount_percent,
     }
 
 
@@ -272,7 +310,7 @@ def get_customer_detail(db: Session, customer_id: int) -> dict:
     """Get a single customer with full details and stats."""
     customer = _get_customer_or_404(db, customer_id)
     stats = _get_customer_stats(db, customer_id)
-    return _customer_response(customer, stats)
+    return _customer_response(customer, stats, db=db)
 
 
 def create_customer(
@@ -329,7 +367,7 @@ def create_customer(
         "order_count": 0,
         "quote_count": 0,
         "total_spent": 0.0,
-    })
+    }, db=db)
 
 
 def update_customer(
@@ -361,7 +399,7 @@ def update_customer(
     db.refresh(customer)
 
     stats = _get_customer_stats(db, customer_id)
-    return _customer_response(customer, stats)
+    return _customer_response(customer, stats, db=db)
 
 
 def delete_customer(db: Session, customer_id: int, admin_id: int) -> dict:

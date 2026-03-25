@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
+import sqlalchemy as sa
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
@@ -32,6 +33,42 @@ from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
 
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# Price Level Helpers (PRO graceful degradation)
+# =============================================================================
+
+def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[Decimal]:
+    """Look up a customer's price level discount percentage.
+
+    Price levels are managed by the PRO plugin. If PRO is not installed
+    (tables don't exist), returns None for graceful degradation.
+
+    Uses a savepoint so that a failed query (e.g. missing PRO tables)
+    does not poison the outer transaction.
+    """
+    try:
+        nested = db.begin_nested()
+        try:
+            result = db.execute(
+                sa.text("""
+                    SELECT pl.discount_percent
+                    FROM pro_customer_price_levels cpl
+                    JOIN price_levels pl ON pl.id = cpl.price_level_id
+                    WHERE cpl.customer_id = :customer_id
+                    LIMIT 1
+                """),
+                {"customer_id": customer_id},
+            ).fetchone()
+            nested.commit()
+            if result:
+                return Decimal(str(result[0]))
+        except Exception:
+            nested.rollback()
+    except Exception:
+        pass
+    return None
 
 
 # =============================================================================
@@ -638,6 +675,24 @@ def create_sales_order(
         total_price += line_total
         total_quantity += line["quantity"]
 
+    # Look up customer price level discount (PRO feature, graceful degradation)
+    discount_percent = None
+    if customer_id:
+        discount_percent = _get_customer_discount_percent(db, customer_id)
+
+    if discount_percent and discount_percent > 0:
+        # Apply discount to each line
+        total_price = Decimal("0")
+        for vl in validated_lines:
+            original_price = vl["unit_price"]
+            discounted_price = (
+                original_price * (Decimal("1") - discount_percent / Decimal("100"))
+            ).quantize(Decimal("0.01"))
+            vl["unit_price"] = discounted_price
+            vl["line_total"] = discounted_price * vl["quantity"]
+            vl["discount_percent"] = discount_percent
+            total_price += vl["line_total"]
+
     # Generate order number
     order_number = generate_order_number(db)
 
@@ -726,7 +781,7 @@ def create_sales_order(
             quantity=line_data["quantity"],
             unit_price=line_data["unit_price"],
             total=line_data["line_total"],
-            discount=Decimal("0"),
+            discount=line_data.get("discount_percent", Decimal("0")),
             tax_rate=Decimal("0"),
             notes=line_data["notes"],
             created_by=created_by_user_id,
