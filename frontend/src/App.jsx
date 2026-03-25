@@ -41,6 +41,7 @@ const AdminOrderImport = lazy(() => import("./pages/admin/AdminOrderImport"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminQuotes = lazy(() => import("./pages/admin/AdminQuotes"));
 const AdminPayments = lazy(() => import("./pages/admin/AdminPayments"));
+const AdminInvoices = lazy(() => import("./pages/admin/AdminInvoices"));
 const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 const AdminLocations = lazy(() => import("./pages/admin/AdminLocations"));
 const AdminAccounting = lazy(() => import("./pages/admin/AdminAccounting"));
@@ -118,6 +119,7 @@ export default function App() {
             <Route path="orders/:orderId" element={<Suspense fallback={<PageLoader />}><OrderDetail /></Suspense>} />
             <Route path="quotes" element={<Suspense fallback={<PageLoader />}><AdminQuotes /></Suspense>} />
             <Route path="payments" element={<Suspense fallback={<PageLoader />}><AdminPayments /></Suspense>} />
+            <Route path="invoices" element={<Suspense fallback={<PageLoader />}><AdminInvoices /></Suspense>} />
             <Route path="customers" element={<Suspense fallback={<PageLoader />}><AdminCustomers /></Suspense>} />
             <Route path="bom" element={<Suspense fallback={<PageLoader />}><AdminBOM /></Suspense>} />
             <Route

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
+import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 import StatCard from "../../components/StatCard";
 import RecentOrderRow from "../../components/dashboard/RecentOrderRow";
 import SalesChart from "../../components/dashboard/SalesChart";
@@ -8,7 +9,9 @@ import ProductionPipeline from "../../components/dashboard/ProductionPipeline";
 
 export default function AdminDashboard() {
   const api = useApi();
+  const formatCurrency = useFormatCurrency();
   const [stats, setStats] = useState(null);
+  const [invoiceSummary, setInvoiceSummary] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [pendingPOs, setPendingPOs] = useState([]);
   const [salesData, setSalesData] = useState(null);
@@ -50,10 +53,11 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
 
-      const [summaryResult, ordersResult, posResult] = await Promise.allSettled([
+      const [summaryResult, ordersResult, posResult, invoiceSummaryResult] = await Promise.allSettled([
         api.get("/api/v1/admin/dashboard/summary"),
         api.get("/api/v1/admin/dashboard/recent-orders?limit=5"),
         api.get("/api/v1/purchase-orders?status=draft,ordered&limit=5"),
+        api.get("/api/v1/invoices/summary"),
       ]);
 
       if (summaryResult.status === "fulfilled") {
@@ -69,6 +73,10 @@ export default function AdminDashboard() {
       if (posResult.status === "fulfilled") {
         const posData = posResult.value;
         setPendingPOs(posData.items || posData || []);
+      }
+
+      if (invoiceSummaryResult.status === "fulfilled") {
+        setInvoiceSummary(invoiceSummaryResult.value);
       }
     } catch (err) {
       setError(err.message);
@@ -183,7 +191,8 @@ export default function AdminDashboard() {
         stats?.inventory?.low_stock_count > 0 ||
         stats?.production?.ready_to_start > 0 ||
         stats?.orders?.ready_to_ship > 0 ||
-        stats?.quotes?.pending > 0) && (
+        stats?.quotes?.pending > 0 ||
+        invoiceSummary?.overdue_count > 0) && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
             <svg
@@ -212,6 +221,21 @@ export default function AdminDashboard() {
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
                   <span className="text-white">
                     {stats.orders.overdue} Overdue Order{stats.orders.overdue !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <span className="text-xs text-red-400 font-medium">URGENT</span>
+              </Link>
+            )}
+            {/* Critical - Overdue Invoices */}
+            {invoiceSummary?.overdue_count > 0 && (
+              <Link
+                to="/admin/invoices?status=overdue"
+                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  <span className="text-white">
+                    {invoiceSummary.overdue_count} Overdue Invoice{invoiceSummary.overdue_count !== 1 ? "s" : ""}
                   </span>
                 </div>
                 <span className="text-xs text-red-400 font-medium">URGENT</span>
@@ -296,7 +320,7 @@ export default function AdminDashboard() {
             View all →
           </Link>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             title="Pending Quotes"
             value={stats?.quotes?.pending || 0}
@@ -329,6 +353,17 @@ export default function AdminDashboard() {
             subtitle={`${stats?.revenue?.orders_last_30_days || 0} orders`}
             color="success"
             to="/admin/payments"
+          />
+          <StatCard
+            title="Accounts Receivable"
+            value={formatCurrency(invoiceSummary?.total_ar || 0)}
+            subtitle={
+              invoiceSummary?.overdue_count > 0
+                ? `${invoiceSummary.overdue_count} overdue`
+                : "No overdue invoices"
+            }
+            color={invoiceSummary?.overdue_count > 0 ? "danger" : "success"}
+            to="/admin/invoices"
           />
         </div>
       </div>
