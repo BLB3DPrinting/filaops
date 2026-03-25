@@ -138,9 +138,21 @@ export default function ProductSelectionStep({
                   <div className="text-gray-500 text-xs font-mono">
                     {product.sku}
                   </div>
-                  <div className="text-green-400 text-sm mt-1">
-                    ${parseFloat(product.selling_price || 0).toFixed(2)}
-                  </div>
+                  {customerDiscount ? (
+                    <div className="mt-1">
+                      <span className="text-gray-500 line-through text-xs">
+                        ${parseFloat(product.selling_price || 0).toFixed(2)}
+                      </span>
+                      <span className="text-green-400 text-sm ml-1">
+                        ${(parseFloat(product.selling_price || 0) * (1 - customerDiscount / 100)).toFixed(2)}
+                      </span>
+                      <span className="text-green-500 text-[10px] ml-1">-{customerDiscount}%</span>
+                    </div>
+                  ) : (
+                    <div className="text-green-400 text-sm mt-1">
+                      ${parseFloat(product.selling_price || 0).toFixed(2)}
+                    </div>
+                  )}
                 </button>
               ));
             })()}

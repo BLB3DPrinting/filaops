@@ -9,10 +9,20 @@ export default function ReviewStep({
   lineItems,
   orderTotal,
   taxSettings,
+  customerDiscount = null,
 }) {
   return (
     <div className="space-y-6">
       <h3 className="text-lg font-semibold text-white">Review Order</h3>
+
+      {/* Customer Discount Notice */}
+      {customerDiscount && (
+        <div className="bg-green-900/20 border border-green-500/30 rounded-lg px-4 py-3 flex items-center gap-2">
+          <span className="text-green-400 font-medium text-sm">
+            {customerDiscount}% customer discount will be applied at checkout
+          </span>
+        </div>
+      )}
 
       {/* Customer Info */}
       <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
