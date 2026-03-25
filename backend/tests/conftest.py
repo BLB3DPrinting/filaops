@@ -53,6 +53,22 @@ def setup_database():
             "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
         ))
         # i18n / multi-tax additions (migration 062, 063)
+        # Payment terms columns on users (customer payment terms feature)
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(20) DEFAULT 'cod'"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_for_terms BOOLEAN DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_for_terms_at TIMESTAMPTZ"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_for_terms_by INTEGER"
+        ))
         conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS locale VARCHAR(20)"))
         conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
         conn.execute(text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
