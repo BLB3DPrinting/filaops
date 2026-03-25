@@ -6,10 +6,11 @@ For admin management of customers (users with account_type='customer')
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, model_validator
 from datetime import datetime
 
 VALID_PAYMENT_TERMS = Literal["cod", "prepay", "net15", "net30", "card_on_file"]
+NET_TERMS = {"net15", "net30"}
 
 
 # ============================================================================
@@ -84,6 +85,19 @@ class CustomerUpdate(BaseModel):
     payment_terms: Optional[VALID_PAYMENT_TERMS] = None
     credit_limit: Optional[Decimal] = Field(None, ge=0)
     approved_for_terms: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def net_terms_require_approval(self):
+        # Only validate when payment_terms is explicitly set to a net term
+        # AND approved_for_terms is explicitly set to False (not just omitted)
+        if (
+            self.payment_terms in NET_TERMS
+            and self.approved_for_terms is False
+        ):
+            raise ValueError(
+                f"Payment terms '{self.payment_terms}' require approved_for_terms=true"
+            )
+        return self
 
 
 class CustomerListResponse(BaseModel):
