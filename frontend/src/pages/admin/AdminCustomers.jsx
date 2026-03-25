@@ -5,7 +5,7 @@ import { useApi } from "../../hooks/useApi";
 import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
 import StatCard from "../../components/StatCard";
-import { STATUS_OPTIONS, getStatusStyle } from "../../components/customers/constants";
+import { STATUS_OPTIONS, getStatusStyle, PAYMENT_TERMS_LABELS } from "../../components/customers/constants";
 import CustomerModal from "../../components/customers/CustomerModal";
 import CustomerDetailsModal from "../../components/customers/CustomerDetailsModal";
 import ImportCSVModal from "../../components/customers/ImportCSVModal";
@@ -243,6 +243,9 @@ export default function AdminCustomers() {
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-400 uppercase">
                   Company
                 </th>
+                <th className="text-center py-3 px-4 text-xs font-medium text-gray-400 uppercase">
+                  Terms
+                </th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-gray-400 uppercase">
                   Orders
                 </th>
@@ -272,6 +275,9 @@ export default function AdminCustomers() {
                   <td className="py-3 px-4 text-gray-300">{customer.email}</td>
                   <td className="py-3 px-4 text-gray-400">
                     {customer.company_name || "-"}
+                  </td>
+                  <td className="py-3 px-4 text-center text-gray-300 text-sm">
+                    {PAYMENT_TERMS_LABELS[customer.payment_terms] || customer.payment_terms?.toUpperCase() || "COD"}
                   </td>
                   <td className="py-3 px-4 text-right text-gray-300">
                     {customer.order_count || 0}
@@ -314,7 +320,7 @@ export default function AdminCustomers() {
               ))}
               {filteredCustomers.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-500">
+                  <td colSpan={9} className="py-12 text-center text-gray-500">
                     No customers found
                   </td>
                 </tr>

@@ -7,6 +7,14 @@ import { useState } from "react";
 import Modal from "../Modal";
 import { STATUS_OPTIONS, formatPhoneNumber } from "./constants";
 
+const PAYMENT_TERMS_OPTIONS = [
+  { value: "cod", label: "COD (Cash on Delivery)" },
+  { value: "prepay", label: "Prepay" },
+  { value: "net15", label: "Net 15" },
+  { value: "net30", label: "Net 30" },
+  { value: "card_on_file", label: "Card on File" },
+];
+
 export default function CustomerModal({ customer, onSave, onClose }) {
   const [form, setForm] = useState({
     email: customer?.email || "",
@@ -29,11 +37,25 @@ export default function CustomerModal({ customer, onSave, onClose }) {
     shipping_state: customer?.shipping_state || "",
     shipping_zip: customer?.shipping_zip || "",
     shipping_country: customer?.shipping_country || "USA",
+    // Payment Terms
+    payment_terms: customer?.payment_terms || "cod",
+    credit_limit: customer?.credit_limit ?? "",
+    approved_for_terms: customer?.approved_for_terms || false,
   });
+  const [termsError, setTermsError] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSave(form);
+    setTermsError("");
+    if ((form.payment_terms === "net15" || form.payment_terms === "net30") && !form.approved_for_terms) {
+      setTermsError("Customer must be approved for terms before assigning Net 15 or Net 30.");
+      return;
+    }
+    const payload = {
+      ...form,
+      credit_limit: form.credit_limit === "" ? null : parseFloat(form.credit_limit),
+    };
+    onSave(payload);
   };
 
   const copyBillingToShipping = () => {
@@ -150,6 +172,72 @@ export default function CustomerModal({ customer, onSave, onClose }) {
               }
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
             />
+          </div>
+
+          {/* Payment Terms */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-400 uppercase mb-3">
+              Payment Terms
+            </h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Terms
+                </label>
+                <select
+                  value={form.payment_terms}
+                  onChange={(e) => {
+                    setForm({ ...form, payment_terms: e.target.value });
+                    setTermsError("");
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                >
+                  {PAYMENT_TERMS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Credit Limit
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.credit_limit}
+                  onChange={(e) =>
+                    setForm({ ...form, credit_limit: e.target.value })
+                  }
+                  placeholder="No limit"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                />
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 cursor-pointer pb-2">
+                  <input
+                    type="checkbox"
+                    checked={form.approved_for_terms}
+                    onChange={(e) => {
+                      setForm({ ...form, approved_for_terms: e.target.checked });
+                      setTermsError("");
+                    }}
+                    className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">Approved for Terms</span>
+                </label>
+              </div>
+            </div>
+            {termsError && (
+              <p className="mt-2 text-sm text-red-400">{termsError}</p>
+            )}
+            {(form.payment_terms === "net15" || form.payment_terms === "net30") && !form.approved_for_terms && !termsError && (
+              <p className="mt-2 text-sm text-yellow-400">
+                Net terms require approval before saving.
+              </p>
+            )}
           </div>
 
           {/* Billing Address */}

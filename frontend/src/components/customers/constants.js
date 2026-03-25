@@ -17,6 +17,15 @@ export function getStatusStyle(status) {
   return STATUS_CLASS[found.color];
 }
 
+// Payment terms display labels
+export const PAYMENT_TERMS_LABELS = {
+  cod: "COD",
+  prepay: "Prepay",
+  net15: "Net 15",
+  net30: "Net 30",
+  card_on_file: "Card on File",
+};
+
 // Format phone number as (XXX) XXX-XXXX
 export const formatPhoneNumber = (value) => {
   const digits = value.replace(/\D/g, "").slice(0, 10);

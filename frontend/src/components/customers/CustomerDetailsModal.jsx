@@ -8,6 +8,7 @@ import { API_URL } from "../../config/api";
 import Modal from "../Modal";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
+import { PAYMENT_TERMS_LABELS } from "./constants";
 
 // B2B Portal Settings Tab Component
 function PortalSettingsTab({ customerId, portalDetails, loading, onRefresh }) {
@@ -414,6 +415,40 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
                     >
                       {customer.status}
                     </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Terms */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-400 uppercase mb-3">
+                  Payment Terms
+                </h3>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Terms:</span>{" "}
+                    <span className="text-white">
+                      {PAYMENT_TERMS_LABELS[customer.payment_terms] || customer.payment_terms?.toUpperCase() || "COD"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Credit Limit:</span>{" "}
+                    <span className="text-white">
+                      {customer.credit_limit != null
+                        ? formatCurrency(customer.credit_limit)
+                        : "No limit"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Approved for Terms:</span>{" "}
+                    <span className={customer.approved_for_terms ? "text-green-400" : "text-gray-400"}>
+                      {customer.approved_for_terms ? "Yes" : "No"}
+                    </span>
+                    {customer.approved_for_terms && customer.terms_approved_date && (
+                      <span className="text-gray-500 text-xs ml-1">
+                        ({new Date(customer.terms_approved_date).toLocaleDateString()})
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
