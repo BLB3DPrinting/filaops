@@ -412,6 +412,28 @@ def list_items(
         )
         alloc_map = {r.component_id: float(r.allocated) for r in alloc_rows}
 
+    # Batch BOM existence query
+    bom_ids: set[int] = set()
+    if item_ids:
+        bom_rows = (
+            db.query(BOM.product_id)
+            .filter(BOM.product_id.in_(item_ids), BOM.active.is_(True))
+            .distinct()
+            .all()
+        )
+        bom_ids = {r.product_id for r in bom_rows}
+
+    # Batch routing existence query
+    routing_ids: set[int] = set()
+    if item_ids:
+        routing_rows = (
+            db.query(Routing.product_id)
+            .filter(Routing.product_id.in_(item_ids), Routing.is_active.is_(True))
+            .distinct()
+            .all()
+        )
+        routing_ids = {r.product_id for r in routing_rows}
+
     # Batch variant count query for templates
     variant_count_map: dict[int, int] = {}
     template_ids = [item.id for item in items if item.is_template]
@@ -467,6 +489,8 @@ def list_items(
                 "needs_reorder": item_needs_reorder,
                 "description": item.description,
                 "image_url": item.image_url,
+                "has_bom": item.has_bom or item.id in bom_ids,
+                "has_routing": item.id in routing_ids,
                 "parent_product_id": item.parent_product_id,
                 "is_template": item.is_template,
                 "variant_count": variant_count_map.get(item.id, 0),
@@ -772,11 +796,11 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         .count()
     )
 
-    routing_count = (
-        db.query(Routing)
+    has_active_routing = (
+        db.query(Routing.id)
         .filter(Routing.product_id == item.id, Routing.is_active.is_(True))
-        .count()
-    )
+        .first()
+    ) is not None
 
     return {
         "id": item.id,
@@ -812,7 +836,7 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         "allocated_qty": allocated,
         "has_bom": item.has_bom or bom_count > 0,
         "bom_count": bom_count,
-        "has_routing": routing_count > 0,
+        "has_routing": has_active_routing,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

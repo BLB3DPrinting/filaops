@@ -250,6 +250,10 @@ class ItemListResponse(BaseModel):
     # Product image
     image_url: Optional[str] = Field(default=None, max_length=500)
 
+    # BOM / Routing info
+    has_bom: bool = False
+    has_routing: bool = False
+
     # Material info (for filament items)
     material_type_id: Optional[int] = None
     color_id: Optional[int] = None
