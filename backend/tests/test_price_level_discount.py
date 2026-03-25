@@ -1,7 +1,7 @@
 """Tests for sales order price level auto-apply (PRO graceful degradation)."""
 from decimal import Decimal
 
-from app.services.sales_order_service import _get_customer_discount_percent
+from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
 
 
 class TestPriceLevelLookup:

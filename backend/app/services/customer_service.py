@@ -7,6 +7,7 @@ import csv
 import io
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 import sqlalchemy as sa
@@ -75,7 +76,7 @@ def _get_customer_or_404(db: Session, customer_id: int) -> User:
     return customer
 
 
-def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[float]:
+def get_customer_discount_percent(db: Session, customer_id: int) -> Optional[Decimal]:
     """Look up a customer's price level discount percentage.
 
     Price levels are managed by the PRO plugin. If PRO is not installed
@@ -83,6 +84,8 @@ def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[fl
 
     Uses a savepoint so that a failed query (e.g. missing PRO tables)
     does not poison the outer transaction.
+
+    Returns Decimal for safe arithmetic in order/invoice calculations.
     """
     try:
         nested = db.begin_nested()
@@ -99,7 +102,7 @@ def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[fl
             ).fetchone()
             nested.commit()
             if result:
-                return float(result[0])
+                return Decimal(str(result[0]))
         except Exception:
             nested.rollback()
     except Exception:
@@ -111,7 +114,7 @@ def _customer_response(customer: User, stats: dict, db: Optional[Session] = None
     """Build a full CustomerResponse dict from a User instance and stats."""
     discount_percent = None
     if db is not None:
-        discount_percent = _get_customer_discount_percent(db, customer.id)
+        discount_percent = get_customer_discount_percent(db, customer.id)
 
     return {
         "id": customer.id,

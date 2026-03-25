@@ -39,36 +39,8 @@ logger = get_logger(__name__)
 # Price Level Helpers (PRO graceful degradation)
 # =============================================================================
 
-def _get_customer_discount_percent(db: Session, customer_id: int) -> Optional[Decimal]:
-    """Look up a customer's price level discount percentage.
-
-    Price levels are managed by the PRO plugin. If PRO is not installed
-    (tables don't exist), returns None for graceful degradation.
-
-    Uses a savepoint so that a failed query (e.g. missing PRO tables)
-    does not poison the outer transaction.
-    """
-    try:
-        nested = db.begin_nested()
-        try:
-            result = db.execute(
-                sa.text("""
-                    SELECT pl.discount_percent
-                    FROM pro_customer_price_levels cpl
-                    JOIN price_levels pl ON pl.id = cpl.price_level_id
-                    WHERE cpl.customer_id = :customer_id
-                    LIMIT 1
-                """),
-                {"customer_id": customer_id},
-            ).fetchone()
-            nested.commit()
-            if result:
-                return Decimal(str(result[0]))
-        except Exception:
-            nested.rollback()
-    except Exception:
-        pass
-    return None
+# Canonical implementation lives in customer_service — single source of truth
+from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
 
 
 # =============================================================================
