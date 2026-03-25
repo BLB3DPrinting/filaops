@@ -1,7 +1,8 @@
 """
 User model for customer portal authentication
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Numeric
+from sqlalchemy.sql import text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -52,6 +53,13 @@ class User(Base):
     # Account Status
     status = Column(String(20), default='active', nullable=False, index=True)  # active, inactive, suspended
     account_type = Column(String(20), default='customer', nullable=False)  # customer, admin, operator
+
+    # Payment Terms (for account_type='customer')
+    payment_terms = Column(String(20), server_default="cod")  # cod, prepay, net15, net30, card_on_file
+    credit_limit = Column(Numeric(12, 2), nullable=True)  # NULL = no limit, 0 = no credit
+    approved_for_terms = Column(Boolean, server_default=text("false"))
+    approved_for_terms_at = Column(DateTime(timezone=True), nullable=True)
+    approved_for_terms_by = Column(Integer, nullable=True)
 
     # Timestamps (using timezone=False for PostgreSQL TIMESTAMP compatibility)
     created_at = Column(DateTime(timezone=False), server_default=func.now(), nullable=False)
