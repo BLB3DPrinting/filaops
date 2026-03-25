@@ -1260,6 +1260,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
               lineItems={lineItems}
               orderTotal={orderTotal}
               taxSettings={taxSettings}
+              customerDiscount={customerDiscount}
             />
           )}
         </div>

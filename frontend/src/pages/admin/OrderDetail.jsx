@@ -631,6 +631,68 @@ export default function OrderDetail() {
         </div>
       </div>
 
+      {/* Line Items */}
+      {order.lines && order.lines.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Line Items</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-700 text-gray-400">
+                <th className="text-left py-2 px-3">Product</th>
+                <th className="text-left py-2 px-3">SKU</th>
+                <th className="text-right py-2 px-3">Qty</th>
+                <th className="text-right py-2 px-3">Unit Price</th>
+                <th className="text-right py-2 px-3">Discount</th>
+                <th className="text-right py-2 px-3">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {order.lines.map((line, idx) => {
+                const discount = parseFloat(line.discount || 0);
+                return (
+                  <tr key={line.id || idx}>
+                    <td className="py-2 px-3 text-white">
+                      {line.product_name || line.material_name || "N/A"}
+                    </td>
+                    <td className="py-2 px-3 text-gray-400 font-mono text-xs">
+                      {line.product_sku || line.sku || "\u2014"}
+                    </td>
+                    <td className="py-2 px-3 text-right text-white">
+                      {line.quantity}
+                    </td>
+                    <td className="py-2 px-3 text-right text-gray-300">
+                      ${parseFloat(line.unit_price || 0).toFixed(2)}
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      {discount > 0 ? (
+                        <span className="text-green-400 font-medium">
+                          -{discount}%
+                        </span>
+                      ) : (
+                        <span className="text-gray-600">\u2014</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right text-green-400 font-medium">
+                      ${parseFloat(line.total || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-gray-700">
+                <td colSpan={5} className="py-3 px-3 text-right text-white font-medium">
+                  Order Total
+                </td>
+                <td className="py-3 px-3 text-right text-green-400 font-bold">
+                  ${parseFloat(order.total_price || 0).toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
       {/* Customer Information */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4">Customer</h2>
