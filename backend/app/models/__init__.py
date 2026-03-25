@@ -35,6 +35,9 @@ from app.models.customer import Customer
 # Accounting (GL)
 from app.models.accounting import GLAccount, GLFiscalPeriod, GLJournalEntry, GLJournalEntryLine
 
+# Invoicing
+from app.models.invoice import Invoice, InvoiceLine
+
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
@@ -119,4 +122,7 @@ __all__ = [
     "GLJournalEntryLine",
     # Tax Rates
     "TaxRate",
+    # Invoicing
+    "Invoice",
+    "InvoiceLine",
 ]
