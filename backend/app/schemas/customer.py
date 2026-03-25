@@ -88,12 +88,7 @@ class CustomerUpdate(BaseModel):
 
     @model_validator(mode="after")
     def net_terms_require_approval(self):
-        # Only validate when payment_terms is explicitly set to a net term
-        # AND approved_for_terms is explicitly set to False (not just omitted)
-        if (
-            self.payment_terms in NET_TERMS
-            and self.approved_for_terms is False
-        ):
+        if self.payment_terms in NET_TERMS and not self.approved_for_terms:
             raise ValueError(
                 f"Payment terms '{self.payment_terms}' require approved_for_terms=true"
             )

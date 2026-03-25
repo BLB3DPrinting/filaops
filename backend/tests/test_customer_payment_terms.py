@@ -72,10 +72,11 @@ class TestCustomerPaymentTerms:
         assert create_resp.status_code == 201, create_resp.text
         customer_id = create_resp.json()["id"]
 
-        # Update to net15 with credit limit
+        # Update to net15 with credit limit (requires approval)
         update_resp = client.patch(f"/api/v1/admin/customers/{customer_id}", json={
             "payment_terms": "net15",
             "credit_limit": 2500.00,
+            "approved_for_terms": True,
         })
         assert update_resp.status_code == 200, update_resp.text
         data = update_resp.json()
@@ -143,7 +144,27 @@ class TestCustomerPaymentTerms:
         assert data["approved_for_terms_by"] is None
 
     # ------------------------------------------------------------------ #
-    # 6. Payment terms in list response
+    # 6. Net terms without approval is rejected
+    # ------------------------------------------------------------------ #
+    def test_net_terms_without_approval_rejected(self, client):
+        """Setting net terms without approved_for_terms is rejected."""
+        create_resp = client.post("/api/v1/admin/customers/", json={
+            "email": _unique_email(),
+            "first_name": "Bypass",
+            "last_name": "Test",
+            "company_name": "BypassCo",
+        })
+        assert create_resp.status_code == 201
+        customer_id = create_resp.json()["id"]
+
+        # Try to set net30 without approval — should fail
+        resp = client.patch(f"/api/v1/admin/customers/{customer_id}", json={
+            "payment_terms": "net30",
+        })
+        assert resp.status_code == 422
+
+    # ------------------------------------------------------------------ #
+    # 7. Payment terms in list response
     # ------------------------------------------------------------------ #
     def test_payment_terms_in_list_response(self, client):
         """Payment terms field appears in customer list endpoint."""

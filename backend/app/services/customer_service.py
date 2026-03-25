@@ -364,6 +364,8 @@ def update_customer(
 
     # Fields that can be explicitly set to NULL via PATCH
     clearable_fields = {"credit_limit", "approved_for_terms"}
+    # Audit fields managed by server logic, never set directly from client
+    audit_fields = {"approved_for_terms_at", "approved_for_terms_by"}
 
     update_fields = data.model_dump(exclude_unset=True)
 
@@ -371,6 +373,8 @@ def update_customer(
     was_approved = customer.approved_for_terms
 
     for field, value in update_fields.items():
+        if field in audit_fields:
+            continue
         if value is not None or field in clearable_fields:
             setattr(customer, field, value)
 
