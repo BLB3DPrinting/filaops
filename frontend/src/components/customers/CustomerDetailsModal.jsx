@@ -444,9 +444,9 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
                     <span className={customer.approved_for_terms ? "text-green-400" : "text-gray-400"}>
                       {customer.approved_for_terms ? "Yes" : "No"}
                     </span>
-                    {customer.approved_for_terms && customer.terms_approved_date && (
+                    {customer.approved_for_terms && customer.approved_for_terms_at && (
                       <span className="text-gray-500 text-xs ml-1">
-                        ({new Date(customer.terms_approved_date).toLocaleDateString()})
+                        ({new Date(customer.approved_for_terms_at).toLocaleDateString()})
                       </span>
                     )}
                   </div>
