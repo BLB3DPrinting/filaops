@@ -35,6 +35,7 @@ from app.api.v1.endpoints import (
     maintenance,
     command_center,
     security,
+    invoices,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 
@@ -135,6 +136,9 @@ router.include_router(
     prefix="/purchase-orders",
     tags=["purchase-orders"]
 )
+
+# Invoices (Core billing)
+router.include_router(invoices.router)
 
 # Invoice Import is a PRO feature
 # Exports (QuickBooks) is a PRO feature
