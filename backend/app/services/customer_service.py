@@ -324,6 +324,9 @@ def create_customer(
         shipping_country=data.shipping_country or "USA",
         payment_terms=data.payment_terms or "cod",
         credit_limit=data.credit_limit,
+        approved_for_terms=data.approved_for_terms or False,
+        approved_for_terms_at=now if data.approved_for_terms else None,
+        approved_for_terms_by=admin_id if data.approved_for_terms else None,
         created_by=admin_id,
         created_at=now,
         updated_at=now,
@@ -359,17 +362,27 @@ def update_customer(
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
 
+    # Fields that can be explicitly set to NULL via PATCH
+    clearable_fields = {"credit_limit", "approved_for_terms"}
+
     update_fields = data.model_dump(exclude_unset=True)
+
+    # Capture prior approval state before setattr overwrites it
+    was_approved = customer.approved_for_terms
+
     for field, value in update_fields.items():
-        if value is not None:
+        if value is not None or field in clearable_fields:
             setattr(customer, field, value)
 
-    # Handle terms approval tracking
+    # Handle terms approval tracking — only on actual transition
     if "approved_for_terms" in update_fields:
-        if update_fields["approved_for_terms"]:
+        new_val = update_fields["approved_for_terms"]
+        if new_val and not was_approved:
+            # Transition: unapproved → approved
             customer.approved_for_terms_at = datetime.now(timezone.utc)
             customer.approved_for_terms_by = admin_id
-        else:
+        elif not new_val and was_approved:
+            # Transition: approved → revoked
             customer.approved_for_terms_at = None
             customer.approved_for_terms_by = None
 

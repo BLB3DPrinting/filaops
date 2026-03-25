@@ -5,15 +5,7 @@
  */
 import { useState } from "react";
 import Modal from "../Modal";
-import { STATUS_OPTIONS, formatPhoneNumber } from "./constants";
-
-const PAYMENT_TERMS_OPTIONS = [
-  { value: "cod", label: "COD (Cash on Delivery)" },
-  { value: "prepay", label: "Prepay" },
-  { value: "net15", label: "Net 15" },
-  { value: "net30", label: "Net 30" },
-  { value: "card_on_file", label: "Card on File" },
-];
+import { STATUS_OPTIONS, PAYMENT_TERMS_OPTIONS, formatPhoneNumber } from "./constants";
 
 export default function CustomerModal({ customer, onSave, onClose }) {
   const [form, setForm] = useState({

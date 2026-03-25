@@ -4,10 +4,12 @@ Customer Pydantic Schemas
 For admin management of customers (users with account_type='customer')
 """
 from decimal import Decimal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, EmailStr
-from typing import Optional
 from datetime import datetime
+
+VALID_PAYMENT_TERMS = Literal["cod", "prepay", "net15", "net30", "card_on_file"]
 
 
 # ============================================================================
@@ -48,8 +50,9 @@ class CustomerCreate(CustomerBase):
     status: Optional[str] = Field("active")
 
     # Payment Terms
-    payment_terms: Optional[str] = Field("cod", max_length=20)
-    credit_limit: Optional[Decimal] = None
+    payment_terms: Optional[VALID_PAYMENT_TERMS] = "cod"
+    credit_limit: Optional[Decimal] = Field(None, ge=0)
+    approved_for_terms: Optional[bool] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -78,8 +81,8 @@ class CustomerUpdate(BaseModel):
     shipping_country: Optional[str] = Field(None, max_length=100)
 
     # Payment Terms
-    payment_terms: Optional[str] = Field(None, max_length=20)
-    credit_limit: Optional[Decimal] = None
+    payment_terms: Optional[VALID_PAYMENT_TERMS] = None
+    credit_limit: Optional[Decimal] = Field(None, ge=0)
     approved_for_terms: Optional[bool] = None
 
 

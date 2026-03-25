@@ -17,14 +17,18 @@ export function getStatusStyle(status) {
   return STATUS_CLASS[found.color];
 }
 
-// Payment terms display labels
-export const PAYMENT_TERMS_LABELS = {
-  cod: "COD",
-  prepay: "Prepay",
-  net15: "Net 15",
-  net30: "Net 30",
-  card_on_file: "Card on File",
-};
+// Payment terms — single source of truth for options + labels
+export const PAYMENT_TERMS_OPTIONS = [
+  { value: "cod", label: "COD (Cash on Delivery)" },
+  { value: "prepay", label: "Prepay" },
+  { value: "net15", label: "Net 15" },
+  { value: "net30", label: "Net 30" },
+  { value: "card_on_file", label: "Card on File" },
+];
+
+export const PAYMENT_TERMS_LABELS = Object.fromEntries(
+  PAYMENT_TERMS_OPTIONS.map((o) => [o.value, o.label])
+);
 
 // Format phone number as (XXX) XXX-XXXX
 export const formatPhoneNumber = (value) => {

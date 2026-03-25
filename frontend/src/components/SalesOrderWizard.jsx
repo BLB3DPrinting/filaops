@@ -147,6 +147,9 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
   const [laborCost, setLaborCost] = useState(0); // Cost from routing operations
   const [targetMargin, setTargetMargin] = useState(40); // Default 40% margin
 
+  // Customer discount from price level (PRO feature, gracefully degrades)
+  const [customerDiscount, setCustomerDiscount] = useState(null);
+
   // Tax settings from company settings
   const [taxSettings, setTaxSettings] = useState({
     tax_enabled: false,
@@ -267,6 +270,39 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     if (totalCost <= 0) return 0;
     return totalCost / (1 - targetMargin / 100);
   }, [totalCost, targetMargin]);
+
+  // Fetch customer's price level discount when customer changes
+  useEffect(() => {
+    if (!orderData.customer_id) {
+      setCustomerDiscount(null);
+      return;
+    }
+    const fetchDiscount = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/v1/pro/catalogs/price-levels`,
+          { credentials: "include" }
+        );
+        if (res.ok) {
+          const levels = await res.json();
+          const assigned = (Array.isArray(levels) ? levels : []).find((l) =>
+            l.customers?.some((c) => c.customer_id === orderData.customer_id)
+          );
+          setCustomerDiscount(
+            assigned && assigned.discount_percent > 0
+              ? assigned.discount_percent
+              : null
+          );
+        } else {
+          setCustomerDiscount(null);
+        }
+      } catch {
+        // PRO not installed or endpoint unavailable — no discount
+        setCustomerDiscount(null);
+      }
+    };
+    fetchDiscount();
+  }, [orderData.customer_id]);
 
   const fetchCustomers = async () => {
     try {
@@ -1198,6 +1234,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
               materialInventory={materialInventory}
               materialSearch={materialSearch}
               setMaterialSearch={setMaterialSearch}
+              customerDiscount={customerDiscount}
               showItemWizard={showItemWizard}
               itemWizardProps={{
                 ITEM_TYPES,

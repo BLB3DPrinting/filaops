@@ -129,6 +129,27 @@ def setup_database():
             END
             $$;
         """))
+        # Migration 069: customer payment terms
+        conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(20) DEFAULT 'cod'"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(12,2)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS approved_for_terms BOOLEAN DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS approved_for_terms_at TIMESTAMPTZ"
+        ))
+        conn.execute(text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS approved_for_terms_by INTEGER"
+        ))
         conn.commit()
 
     # Seed required data

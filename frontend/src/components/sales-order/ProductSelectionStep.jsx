@@ -21,6 +21,7 @@ export default function ProductSelectionStep({
   materialInventory = [],
   materialSearch = "",
   setMaterialSearch,
+  customerDiscount = null,
   // Item creation wizard props
   showItemWizard,
   itemWizardProps,

@@ -125,9 +125,12 @@ class TestCustomerPaymentTerms:
         assert create_resp.status_code == 201, create_resp.text
         customer_id = create_resp.json()["id"]
 
-        client.patch(f"/api/v1/admin/customers/{customer_id}", json={
+        approve_resp = client.patch(f"/api/v1/admin/customers/{customer_id}", json={
             "approved_for_terms": True,
         })
+        assert approve_resp.status_code == 200, approve_resp.text
+        assert approve_resp.json()["approved_for_terms"] is True
+        assert approve_resp.json()["approved_for_terms_at"] is not None
 
         # Revoke
         revoke_resp = client.patch(f"/api/v1/admin/customers/{customer_id}", json={
