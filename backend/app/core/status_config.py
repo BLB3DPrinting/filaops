@@ -104,6 +104,7 @@ OPERATION_STATUS_TRANSITIONS: Dict[str, Set[str]] = {
 
 class SalesOrderStatus(str, Enum):
     """Valid status values for Sales Orders"""
+    PENDING_CONFIRMATION = "pending_confirmation"  # Awaiting admin review (external orders)
     DRAFT = "draft"
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -117,6 +118,10 @@ class SalesOrderStatus(str, Enum):
 
 
 SALES_ORDER_TRANSITIONS: Dict[str, Set[str]] = {
+    SalesOrderStatus.PENDING_CONFIRMATION: {
+        SalesOrderStatus.CONFIRMED,
+        SalesOrderStatus.CANCELLED,
+    },
     SalesOrderStatus.DRAFT: {
         SalesOrderStatus.PENDING,
         SalesOrderStatus.CANCELLED,

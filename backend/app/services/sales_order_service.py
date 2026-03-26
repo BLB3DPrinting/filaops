@@ -365,6 +365,7 @@ def list_sales_orders(
     is_admin: bool = False,
     status_filter: Optional[str] = None,
     statuses: Optional[list[str]] = None,
+    source: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     sort_by: str = "order_date",
@@ -403,6 +404,10 @@ def list_sales_orders(
         query = query.filter(SalesOrder.status.in_(statuses))
     elif status_filter:
         query = query.filter(SalesOrder.status == status_filter)
+
+    # Source filtering
+    if source:
+        query = query.filter(SalesOrder.source == source)
 
     # Sorting — "order_date" maps to created_at (SalesOrder has no order_date column)
     if sort_by == "customer_name":
@@ -1222,6 +1227,92 @@ def cancel_sales_order(
         user_id=user_id,
     )
 
+    return order
+
+
+def confirm_external_order(
+    db: Session,
+    order_id: int,
+    confirmed_by_user_id: int,
+) -> SalesOrder:
+    """Confirm a pending_confirmation order — transitions to confirmed."""
+    from app.services import notification_service
+
+    order = get_sales_order(db, order_id)
+
+    if order.status != "pending_confirmation":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Order status is '{order.status}', expected 'pending_confirmation'"
+        )
+
+    # Look up admin name for notification
+    admin = db.query(User).filter(User.id == confirmed_by_user_id).first()
+    admin_name = getattr(admin, "full_name", None) or getattr(admin, "email", "Admin")
+
+    order.status = "confirmed"
+    order.confirmed_at = datetime.now(timezone.utc)
+
+    record_order_event(
+        db=db,
+        order_id=order_id,
+        event_type="status_change",
+        title="Order confirmed",
+        description="External order confirmed by operator",
+        old_value="pending_confirmation",
+        new_value="confirmed",
+        user_id=confirmed_by_user_id,
+    )
+
+    db.commit()
+    db.refresh(order)
+
+    # Auto-create notification for confirmed order
+    notification_service.create_notification(
+        db,
+        thread_subject=f"Order {order.order_number} confirmed",
+        sales_order_id=order.id,
+        sender_type="admin",
+        sender_name=admin_name,
+        body=f"Order {order.order_number} was confirmed by {admin_name}.",
+        source="system",
+    )
+
+    return order
+
+
+def reject_external_order(
+    db: Session,
+    order_id: int,
+    reason: str,
+    rejected_by_user_id: int,
+) -> SalesOrder:
+    """Reject a pending_confirmation order — transitions to cancelled with reason."""
+    order = get_sales_order(db, order_id)
+
+    if order.status != "pending_confirmation":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Order status is '{order.status}', expected 'pending_confirmation'"
+        )
+
+    order.status = "cancelled"
+    order.cancelled_at = datetime.now(timezone.utc)
+    order.cancellation_reason = reason
+
+    record_order_event(
+        db=db,
+        order_id=order_id,
+        event_type="cancelled",
+        title="Order rejected",
+        description=reason,
+        old_value="pending_confirmation",
+        new_value="cancelled",
+        user_id=rejected_by_user_id,
+    )
+
+    db.commit()
+    db.refresh(order)
     return order
 
 

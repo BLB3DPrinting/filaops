@@ -59,6 +59,11 @@ export default function OrderDetail() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Confirm/Reject external order state
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
+
   // Invoice generation state
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
@@ -370,6 +375,34 @@ export default function OrderDetail() {
     }
   };
 
+  const handleConfirmOrder = async () => {
+    setConfirmingOrder(true);
+    try {
+      await api.post(`/api/v1/sales-orders/${orderId}/confirm`);
+      toast.success(`Order ${order.order_number} confirmed`);
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to confirm order");
+    } finally {
+      setConfirmingOrder(false);
+    }
+  };
+
+  const handleRejectOrder = async () => {
+    if (!rejectReason.trim()) return;
+    try {
+      await api.post(`/api/v1/sales-orders/${orderId}/reject`, {
+        reason: rejectReason,
+      });
+      toast.success(`Order ${order.order_number} rejected`);
+      setShowRejectModal(false);
+      setRejectReason("");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to reject order");
+    }
+  };
+
   const handleDeleteOrder = async () => {
     try {
       await api.del(`/api/v1/sales-orders/${orderId}`);
@@ -520,6 +553,23 @@ export default function OrderDetail() {
             >
               Ship Order
             </button>
+          )}
+          {order.status === "pending_confirmation" && (
+            <>
+              <button
+                onClick={handleConfirmOrder}
+                disabled={confirmingOrder}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
+              >
+                {confirmingOrder ? "Confirming..." : "Confirm Order"}
+              </button>
+              <button
+                onClick={() => setShowRejectModal(true)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Reject Order
+              </button>
+            </>
           )}
           {canCancelOrder() && (
             <button
@@ -910,6 +960,45 @@ export default function OrderDetail() {
           onDelete={handleDeleteOrder}
           onClose={() => setShowDeleteConfirm(false)}
         />
+      )}
+
+      {/* Reject Order Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">
+              Reject Order {order.order_number}
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">
+              This will cancel the order and notify the source system.
+            </p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 mb-4"
+              rows={3}
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowRejectModal(false);
+                  setRejectReason("");
+                }}
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectOrder}
+                disabled={!rejectReason.trim()}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Reject Order
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

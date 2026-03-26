@@ -36,6 +36,7 @@ from app.api.v1.endpoints import (
     command_center,
     security,
     invoices,
+    notifications,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 
@@ -139,6 +140,9 @@ router.include_router(
 
 # Invoices (Core billing)
 router.include_router(invoices.router)
+
+# Notifications (operator messaging)
+router.include_router(notifications.router)
 
 # Invoice Import is a PRO feature
 # Exports (QuickBooks) is a PRO feature

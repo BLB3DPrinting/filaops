@@ -150,6 +150,11 @@ def setup_database():
             "ALTER TABLE users "
             "ADD COLUMN IF NOT EXISTS approved_for_terms_by INTEGER"
         ))
+        # Migration 072: portal order ingestion
+        conn.execute(text(
+            "ALTER TABLE sales_orders "
+            "ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"
+        ))
         conn.commit()
 
     # Seed required data

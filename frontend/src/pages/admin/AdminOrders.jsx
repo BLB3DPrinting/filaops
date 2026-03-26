@@ -60,7 +60,10 @@ export default function AdminOrders() {
       params.set("limit", "100");
 
       // Fulfillment state filter (UI-303)
-      if (fulfillmentFilter) {
+      if (fulfillmentFilter === "pending_review") {
+        // Special filter: show orders awaiting admin confirmation
+        params.set("status", "pending_confirmation");
+      } else if (fulfillmentFilter) {
         params.set("fulfillment_state", fulfillmentFilter);
       }
 

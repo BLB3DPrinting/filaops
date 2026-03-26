@@ -13,6 +13,7 @@ const STATUS_STYLES = {
   blocked: 'bg-red-100 text-red-800',
   shipped: 'bg-gray-100 text-gray-600',
   cancelled: 'bg-gray-100 text-gray-400',
+  pending_confirmation: 'bg-purple-100 text-purple-800',
 };
 
 // Human-readable labels for fulfillment states
@@ -22,6 +23,23 @@ const STATUS_LABELS = {
   blocked: 'Blocked',
   shipped: 'Shipped',
   cancelled: 'Cancelled',
+  pending_confirmation: 'Pending Review',
+};
+
+// Source badge styles
+const SOURCE_STYLES = {
+  api: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  portal: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  squarespace: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+  woocommerce: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+};
+
+const SOURCE_LABELS = {
+  api: 'API',
+  portal: 'Portal',
+  squarespace: 'Squarespace',
+  woocommerce: 'WooCommerce',
+  manual: 'Manual',
 };
 
 /**
@@ -52,7 +70,8 @@ function getProgressColor(percent) {
  */
 export default function SalesOrderCard({ order, onViewDetails, onShip }) {
   const { fulfillment } = order;
-  const state = fulfillment?.state || 'blocked';
+  // Use pending_confirmation status directly if that's the order status
+  const state = order.status === 'pending_confirmation' ? 'pending_confirmation' : (fulfillment?.state || 'blocked');
   const canShip = fulfillment?.can_ship_complete || fulfillment?.can_ship_partial;
   const percent = fulfillment?.fulfillment_percent ?? 0;
 
@@ -64,7 +83,14 @@ export default function SalesOrderCard({ order, onViewDetails, onShip }) {
       {/* Header: Order number, customer, and status badge */}
       <div className="flex justify-between items-start mb-3">
         <div>
-          <h3 className="font-semibold text-green-400">{order.order_number}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-green-400">{order.order_number}</h3>
+            {order.source && order.source !== 'manual' && (
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${SOURCE_STYLES[order.source] || 'bg-gray-500/20 text-gray-300 border-gray-500/30'}`}>
+                {SOURCE_LABELS[order.source] || order.source}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-300">{order.customer_name || 'No Customer'}</p>
         </div>
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[state] || STATUS_STYLES.blocked}`}>

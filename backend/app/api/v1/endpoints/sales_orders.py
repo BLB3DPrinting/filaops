@@ -343,6 +343,7 @@ async def get_user_sales_orders(
     ),
     sort_by: str = Query("order_date", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
+    source: Optional[str] = Query(None, description="Filter by source (manual, portal, api, squarespace, woocommerce)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -358,6 +359,7 @@ async def get_user_sales_orders(
     - fulfillment_state: Filter by fulfillment state(s), comma-separated
     - sort_by: Sort field (order_date, fulfillment_priority, fulfillment_percent, customer_name)
     - sort_order: Sort order (asc or desc)
+    - source: Filter by order source
     """
     if limit > 100:
         limit = 100
@@ -400,6 +402,7 @@ async def get_user_sales_orders(
             is_admin=is_admin,
             status_filter=status_filter,
             statuses=status,
+            source=source,
             skip=0,
             limit=10000,  # Get all for fulfillment filtering
             sort_by="order_date",
@@ -455,6 +458,7 @@ async def get_user_sales_orders(
         is_admin=is_admin,
         status_filter=status_filter,
         statuses=status,
+        source=source,
         skip=skip,
         limit=limit,
         sort_by=sort_by,
@@ -803,6 +807,61 @@ async def cancel_sales_order(
     db.commit()
     db.refresh(order)
 
+    return order
+
+
+class RejectRequest(BaseModel):
+    """Rejection reason for external orders"""
+    reason: str
+
+
+@router.post("/{order_id}/confirm", response_model=SalesOrderResponse)
+async def confirm_external_order(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Confirm a pending_confirmation order from an external source.
+
+    Transitions the order from pending_confirmation to confirmed and sets confirmed_at.
+    Admin only.
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only administrators can confirm orders")
+
+    order = sales_order_service.confirm_external_order(
+        db,
+        order_id=order_id,
+        confirmed_by_user_id=current_user.id,
+    )
+    return order
+
+
+@router.post("/{order_id}/reject", response_model=SalesOrderResponse)
+async def reject_external_order(
+    order_id: int,
+    reject_request: RejectRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Reject a pending_confirmation order from an external source.
+
+    Transitions the order from pending_confirmation to cancelled with a reason.
+    Admin only.
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only administrators can reject orders")
+
+    order = sales_order_service.reject_external_order(
+        db,
+        order_id=order_id,
+        reason=reject_request.reason,
+        rejected_by_user_id=current_user.id,
+    )
     return order
 
 

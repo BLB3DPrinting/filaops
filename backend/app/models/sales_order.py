@@ -123,6 +123,7 @@ class SalesOrder(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     confirmed_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)  # When external order was submitted for review
 
     # MRP Tracking (for Material Requirements Planning)
     mrp_status = Column(String(50), nullable=True, index=True)
@@ -145,7 +146,7 @@ class SalesOrder(Base):
     @property
     def is_cancellable(self) -> bool:
         """Check if order can be cancelled"""
-        return self.status in ["draft", "pending_payment", "payment_failed", "confirmed", "on_hold"]
+        return self.status in ["pending_confirmation", "draft", "pending_payment", "payment_failed", "confirmed", "on_hold"]
 
     @property
     def is_paid(self) -> bool:

@@ -38,6 +38,9 @@ from app.models.accounting import GLAccount, GLFiscalPeriod, GLJournalEntry, GLJ
 # Invoicing
 from app.models.invoice import Invoice, InvoiceLine
 
+# Notifications
+from app.models.notification import Notification
+
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
@@ -125,4 +128,6 @@ __all__ = [
     # Invoicing
     "Invoice",
     "InvoiceLine",
+    # Notifications
+    "Notification",
 ]

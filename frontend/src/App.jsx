@@ -53,6 +53,7 @@ const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
 const AdminPriceLevels = lazy(() => import("./pages/admin/AdminPriceLevels"));
 const AdminAccessRequests = lazy(() => import("./pages/admin/AdminAccessRequests"));
 const AdminCatalogs = lazy(() => import("./pages/admin/AdminCatalogs"));
+const AdminNotifications = lazy(() => import("./pages/admin/AdminNotifications"));
 const MaterialTraceability = lazy(() => import("./pages/admin/quality/MaterialTraceability"));
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 
@@ -121,6 +122,7 @@ export default function App() {
             <Route path="payments" element={<Suspense fallback={<PageLoader />}><AdminPayments /></Suspense>} />
             <Route path="invoices" element={<Suspense fallback={<PageLoader />}><AdminInvoices /></Suspense>} />
             <Route path="customers" element={<Suspense fallback={<PageLoader />}><AdminCustomers /></Suspense>} />
+            <Route path="messages" element={<Suspense fallback={<PageLoader />}><AdminNotifications /></Suspense>} />
             <Route path="bom" element={<Suspense fallback={<PageLoader />}><AdminBOM /></Suspense>} />
             <Route
               path="products"

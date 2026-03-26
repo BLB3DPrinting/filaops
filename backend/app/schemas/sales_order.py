@@ -145,8 +145,11 @@ class SalesOrderListResponse(SalesOrderBase):
     id: int
     quote_id: Optional[int]
     product_id: Optional[int] = None  # Direct product link
+    source: Optional[str] = None
+    source_order_id: Optional[str] = None
     created_at: datetime
     confirmed_at: Optional[datetime]
+    submitted_at: Optional[datetime] = None
     estimated_completion_date: Optional[datetime]
     # Shipping address fields for shipping page
     shipping_address_line1: Optional[str] = None
@@ -240,6 +243,7 @@ class SalesOrderResponse(SalesOrderBase):
     created_at: datetime
     updated_at: datetime
     confirmed_at: Optional[datetime]
+    submitted_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -248,6 +252,7 @@ class SalesOrderResponse(SalesOrderBase):
 class SalesOrderStatsResponse(BaseModel):
     """Sales order statistics"""
     total_orders: int
+    pending_confirmation_orders: int
     pending_orders: int
     confirmed_orders: int
     in_production_orders: int

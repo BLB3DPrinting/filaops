@@ -6,6 +6,7 @@
 // Fulfillment state filter options
 const FILTER_OPTIONS = [
   { value: '', label: 'All' },
+  { value: 'pending_review', label: 'Pending Review', color: 'purple' },
   { value: 'ready_to_ship', label: 'Ready to Ship', color: 'green' },
   { value: 'partially_ready', label: 'Partially Ready', color: 'yellow' },
   { value: 'blocked', label: 'Blocked', color: 'red' },
@@ -25,6 +26,10 @@ const SORT_OPTIONS = [
 
 // Color classes for filter buttons
 const FILTER_COLORS = {
+  purple: {
+    active: 'bg-purple-600 text-white border-purple-600',
+    inactive: 'bg-purple-500/10 text-purple-400 border-purple-500/30 hover:bg-purple-500/20',
+  },
   green: {
     active: 'bg-green-600 text-white border-green-600',
     inactive: 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20',

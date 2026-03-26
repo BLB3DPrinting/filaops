@@ -22,6 +22,7 @@ from app.models.product import Product
 from app.models.inventory import InventoryTransaction
 from app.models.payment import Payment
 from app.api.v1.deps import get_current_staff_user
+from app.services import notification_service
 
 router = APIRouter(prefix="/dashboard", tags=["Admin - Dashboard"])
 
@@ -317,6 +318,9 @@ async def get_dashboard_summary(
     quotes_this_week = db.query(Quote).filter(Quote.created_at >= week_ago).count()
 
     # Orders
+    pending_confirmation_orders = db.query(SalesOrder).filter(
+        SalesOrder.status == "pending_confirmation"
+    ).count()
     confirmed_orders = db.query(SalesOrder).filter(SalesOrder.status == "confirmed").count()
     in_production_orders = db.query(SalesOrder).filter(SalesOrder.status == "in_production").count()
     ready_to_ship_orders = db.query(SalesOrder).filter(SalesOrder.status == "ready_to_ship").count()
@@ -558,6 +562,7 @@ async def get_dashboard_summary(
             "this_week": quotes_this_week,
         },
         "orders": {
+            "pending_confirmation": pending_confirmation_orders,
             "confirmed": confirmed_orders,
             "in_production": in_production_orders,
             "ready_to_ship": ready_to_ship_orders,
@@ -579,6 +584,9 @@ async def get_dashboard_summary(
         "revenue": {
             "last_30_days": float(revenue_30_days),
             "orders_last_30_days": orders_30_days,
+        },
+        "notifications": {
+            "unread": notification_service.get_unread_count(db),
         },
     }
 

@@ -188,6 +188,8 @@ export default function AdminDashboard() {
 
       {/* Action Items Section */}
       {(stats?.orders?.overdue > 0 ||
+        stats?.orders?.pending_confirmation > 0 ||
+        stats?.notifications?.unread > 0 ||
         stats?.inventory?.low_stock_count > 0 ||
         stats?.production?.ready_to_start > 0 ||
         stats?.orders?.ready_to_ship > 0 ||
@@ -239,6 +241,36 @@ export default function AdminDashboard() {
                   </span>
                 </div>
                 <span className="text-xs text-red-400 font-medium">URGENT</span>
+              </Link>
+            )}
+            {/* Pending Confirmation Orders */}
+            {stats?.orders?.pending_confirmation > 0 && (
+              <Link
+                to="/admin/orders?filter=pending_review"
+                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  <span className="text-white">
+                    {stats.orders.pending_confirmation} Order{stats.orders.pending_confirmation !== 1 ? "s" : ""} Pending Review
+                  </span>
+                </div>
+                <span className="text-xs text-purple-400 font-medium">REVIEW</span>
+              </Link>
+            )}
+            {/* Unread Messages */}
+            {stats?.notifications?.unread > 0 && (
+              <Link
+                to="/admin/messages"
+                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span className="text-white">
+                    {stats.notifications.unread} Unread Message{stats.notifications.unread !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <span className="text-xs text-blue-400">Read</span>
               </Link>
             )}
             {/* Warning - Low Stock */}
