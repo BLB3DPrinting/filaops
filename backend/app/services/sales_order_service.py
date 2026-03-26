@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-import sqlalchemy as sa
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
@@ -31,16 +30,9 @@ from app.models.bom import BOM, BOMLine
 from app.models.inventory import Inventory
 from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
+from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
 
 logger = get_logger(__name__)
-
-
-# =============================================================================
-# Price Level Helpers (PRO graceful degradation)
-# =============================================================================
-
-# Canonical implementation lives in customer_service — single source of truth
-from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
 
 
 # =============================================================================
