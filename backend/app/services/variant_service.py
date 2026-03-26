@@ -554,8 +554,8 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
 
         except Exception as e:
             savepoint.rollback()
-            logger.error(f"Failed to sync routing to variant {variant.sku}: {e}")
-            errors.append({"sku": variant.sku, "error": str(e)})
+            logger.error(f"Failed to sync routing to variant {variant.sku}: {e}", exc_info=True)
+            errors.append({"sku": variant.sku, "error": "Sync failed for this variant"})
 
     db.commit()
     return {"synced": synced, "total": len(variants), "errors": errors}
