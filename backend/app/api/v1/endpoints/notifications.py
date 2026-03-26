@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.schemas.notification import (
     NotificationResponse,
     NotificationReply,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 @router.get("/unread-count", response_model=UnreadCountResponse)
 async def get_unread_count(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get count of unread notifications for badge display."""
@@ -37,7 +37,7 @@ async def list_threads(
     skip: int = 0,
     limit: int = 50,
     unread_only: bool = Query(False, description="Only show threads with unread messages"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List notification threads with summary info."""
@@ -50,7 +50,7 @@ async def list_threads(
 @router.get("/{thread_id}", response_model=List[NotificationResponse])
 async def get_thread(
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get all messages in a notification thread."""
@@ -61,7 +61,7 @@ async def get_thread(
 async def reply_to_thread(
     thread_id: str,
     reply: NotificationReply,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Reply to a notification thread."""
@@ -74,7 +74,7 @@ async def reply_to_thread(
 @router.post("/{thread_id}/read")
 async def mark_thread_read(
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Mark all messages in a thread as read."""
@@ -85,7 +85,7 @@ async def mark_thread_read(
 @router.post("/{notification_id}/mark-read", response_model=NotificationResponse)
 async def mark_notification_read(
     notification_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Mark a single notification as read."""

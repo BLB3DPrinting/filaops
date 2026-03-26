@@ -138,22 +138,15 @@ def reply_to_thread(
     body: str,
 ) -> Notification:
     """Add a reply to an existing thread."""
-    # Verify thread exists
-    exists = (
-        db.query(Notification.id)
-        .filter(Notification.thread_id == thread_id)
-        .first()
-    )
-    if not exists:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    # Get the thread subject and sales_order_id from the first message
+    # Get the first message (verifies thread exists + provides metadata)
     first_msg = (
         db.query(Notification)
         .filter(Notification.thread_id == thread_id)
         .order_by(Notification.created_at)
         .first()
     )
+    if not first_msg:
+        raise HTTPException(status_code=404, detail="Thread not found")
 
     notification = Notification(
         thread_id=thread_id,

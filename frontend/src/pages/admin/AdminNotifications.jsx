@@ -116,10 +116,13 @@ export default function AdminNotifications() {
             </div>
           ) : (
             threads.map((thread) => (
-              <button
+              <div
                 key={thread.thread_id}
+                role="button"
+                tabIndex={0}
                 onClick={() => selectThread(thread)}
-                className={`w-full text-left p-4 border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectThread(thread); }}
+                className={`w-full text-left p-4 border-b border-gray-800 hover:bg-gray-800/50 transition-colors cursor-pointer ${
                   selectedThread?.thread_id === thread.thread_id ? "bg-gray-800" : ""
                 }`}
               >
@@ -154,7 +157,7 @@ export default function AdminNotifications() {
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>

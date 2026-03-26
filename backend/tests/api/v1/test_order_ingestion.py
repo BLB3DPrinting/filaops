@@ -123,6 +123,7 @@ class TestSourceFilter:
         response = client.get(f"{BASE_URL}?source=api")
         assert response.status_code == 200
         orders = response.json()
+        assert len(orders) > 0, "Expected at least one order with source=api"
         for order in orders:
             assert order.get("source") == "api"
 

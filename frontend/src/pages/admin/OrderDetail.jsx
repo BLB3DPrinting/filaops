@@ -388,8 +388,11 @@ export default function OrderDetail() {
     }
   };
 
+  const [rejectingOrder, setRejectingOrder] = useState(false);
+
   const handleRejectOrder = async () => {
     if (!rejectReason.trim()) return;
+    setRejectingOrder(true);
     try {
       await api.post(`/api/v1/sales-orders/${orderId}/reject`, {
         reason: rejectReason,
@@ -400,6 +403,8 @@ export default function OrderDetail() {
       fetchOrder();
     } catch (err) {
       toast.error(err.message || "Failed to reject order");
+    } finally {
+      setRejectingOrder(false);
     }
   };
 
@@ -991,10 +996,10 @@ export default function OrderDetail() {
               </button>
               <button
                 onClick={handleRejectOrder}
-                disabled={!rejectReason.trim()}
+                disabled={!rejectReason.trim() || rejectingOrder}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Reject Order
+                {rejectingOrder ? "Rejecting..." : "Reject Order"}
               </button>
             </div>
           </div>

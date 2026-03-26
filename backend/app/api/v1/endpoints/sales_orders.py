@@ -856,6 +856,9 @@ async def reject_external_order(
     if not is_admin:
         raise HTTPException(status_code=403, detail="Only administrators can reject orders")
 
+    if not reject_request.reason.strip():
+        raise HTTPException(status_code=400, detail="Rejection reason cannot be empty")
+
     order = sales_order_service.reject_external_order(
         db,
         order_id=order_id,
