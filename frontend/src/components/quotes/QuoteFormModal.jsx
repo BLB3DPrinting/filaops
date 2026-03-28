@@ -50,7 +50,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/products?limit=500&active_only=true`, {
+      const res = await fetch(`${API_URL}/api/v1/items?limit=500&active_only=true`, {
         credentials: "include",
       });
       if (res.ok) {
@@ -308,8 +308,8 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 ) : filteredProducts.length === 0 ? (
                   <div className="col-span-full text-center py-8 text-gray-500">
                     {productSearch.trim()
-                      ? `No products with BOM found matching "${productSearch}"`
-                      : "No products with BOM available. Create a product with BOM first."}
+                      ? `No manufacturing-ready products found matching "${productSearch}"`
+                      : "No manufacturing-ready products available. Add a BOM or active routing first."}
                   </div>
                 ) : (
                   filteredProducts.map((product) => (
@@ -328,7 +328,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                         <span className="text-green-400 font-medium">
                           ${parseFloat(product.selling_price || 0).toFixed(2)}
                         </span>
-                        <span className="text-xs text-blue-400">Has BOM</span>
+                        <span className="text-xs text-blue-400">
+                          {product.has_bom && product.has_routing
+                            ? "BOM + Routing"
+                            : product.has_bom
+                              ? "Has BOM"
+                              : "Has Routing"}
+                        </span>
                       </div>
                     </button>
                   ))
