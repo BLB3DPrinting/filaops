@@ -50,7 +50,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/items?limit=500&active_only=true`, {
+      const res = await fetch(`${API_URL}/api/v1/items?limit=500&active_only=true&item_type=finished_good`, {
         credentials: "include",
       });
       if (res.ok) {

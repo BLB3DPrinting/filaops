@@ -1,5 +1,19 @@
 # FilaOps Core — Open Source ERP (v3.2.x)
 
+## 🧠 Aeonyx — READ INSTITUTIONAL MEMORY FIRST
+
+Before starting work, check Aeonyx shared memory for context from prior sessions:
+
+```
+mem_recall("filaops core")       # Recent Core changes, GL bugs, schema issues
+mem_recall("sacred rule")        # Entanglement findings (#476 price levels)
+mem_recall("pattern")            # Recurring patterns (duplicate filters, etc.)
+mem_recall("Track 3 sync")      # Portal sync status, Core column names used
+```
+
+If Aeonyx MCP is not connected, check `.mcp.json` in the repo root for config.
+Before editing high-collision files (manufacturing.py, item_service.py, order_service.py), call `rex_claim_files` per memory #26.
+
 ## 🔴 SACRED RULE — READ FIRST, NEVER VIOLATE
 
 **"NO Core Changes from PRO. PRO Must Not Break Core."**
@@ -92,7 +106,7 @@ When adding new tables, APIs, or systems to Core:
 4. If there's ANY mismatch, **STOP and clarify with Brandan**
 
 | Database | Purpose | Used By |
-|----------|---------|---------|
+|----------|---------|---------| 
 | `filaops` | Dev/open-source testing | This repo |
 | `filaops_prod` | Production + PRO dev | Legacy — being consolidated |
 | `filaops_test` | Automated tests | pytest |
@@ -137,6 +151,57 @@ If a test was failing before you started:
 3. If it requires human judgment or a larger change, add a `# TODO(pre-existing): [description of failure and likely cause]` comment to the test AND note it in your commit message
 
 "Pre-existing failure" is never an excuse to silently skip it. Broken is broken — at minimum, flag it so it doesn't get forgotten.
+
+## Aeonyx Session Protocol (Institutional Memory + T-REX Safety)
+
+Aeonyx MCP tools are available in this workspace. Follow this protocol every session.
+
+### Session Lifecycle
+
+**1. Register (start of session):**
+```
+rex_register_session(session_id="<generate-uuid>", branch="<current-branch>", task="<what you're doing>")
+```
+
+**2. Claim files (before editing):**
+```
+rex_claim_files(session_id="<id>", branch="<branch>", files='["file1.py","file2.py"]')
+```
+- If `rex_check_conflicts` returns `block` → STOP, tell the human
+- If it returns `warn` → proceed with caution, note the overlap
+
+**3. Check memory (before major work):**
+```
+mem_recall("<topic you're about to work on>")
+```
+Read any past incidents, decisions, or patterns before diving in.
+
+**4. During work — store what matters:**
+
+| Situation | Action |
+|-----------|--------|
+| Significant decision (tech choice, approach, tradeoff) | `mem_remember(content="...", category="decision", domain="filaops")` |
+| Something broke or went wrong | `mem_remember(content="...", category="incident", domain="filaops", force=true)` |
+| Recurring pattern or convention discovered | `mem_remember(content="...", category="pattern", domain="filaops")` |
+| Found a bug you didn't cause and aren't tasked to fix | `cortex_observe(session_id="<id>", description="...", file_path="...", severity="error")` |
+
+**5. End of session:**
+```
+rex_end_session(session_id="<id>")
+```
+
+### What NOT to Store
+
+- Don't store every file edit — the write gate rejects noise
+- Don't attribute blame to other agents — describe events and systems, not actors
+- Don't store "started working on X" — only outcomes and decisions
+
+### Pre-Existing Issues — NEVER Ignore
+
+If you encounter a failing test, broken import, or inconsistent state you didn't cause:
+1. Report it: `cortex_observe(session_id="<id>", description="what's broken", file_path="the file", severity="error")`
+2. Continue your assigned task
+3. Do NOT silently skip it. Do NOT fix it unless asked.
 
 ## Git Workflow
 
