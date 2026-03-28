@@ -105,9 +105,9 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
   };
 
-  // Filter products that have a BOM
+  // Filter products that have a BOM or active routing (manufacturing-ready)
   const filteredProducts = products.filter((p) => {
-    if (!p.has_bom) return false;
+    if (!p.has_bom && !p.has_routing) return false;
     if (!productSearch.trim()) return true;
     const search = productSearch.toLowerCase();
     return (
