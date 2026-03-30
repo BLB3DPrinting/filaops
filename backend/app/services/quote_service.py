@@ -60,10 +60,10 @@ def list_quotes(
     limit: int = 50,
 ) -> list[dict]:
     """List all quotes with optional filtering."""
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import selectinload
 
     query = db.query(Quote).options(
-        joinedload(Quote.lines)
+        selectinload(Quote.lines)
     ).order_by(desc(Quote.created_at), desc(Quote.id))
 
     if status_filter:
@@ -183,6 +183,13 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
 
     has_lines = getattr(request, "lines", None) and len(request.lines) > 0
 
+    # Validate: reject explicitly empty lines array
+    if getattr(request, "lines", None) is not None and len(request.lines) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="lines array cannot be empty"
+        )
+
     # Validate: either lines or header-level product fields must be provided
     if not has_lines:
         if not request.product_name:
@@ -217,7 +224,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     if has_lines:
         subtotal = Decimal("0")
         for line in request.lines:
-            line_price = line.unit_price
+            line_price = Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
             if discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
             subtotal += line_price * line.quantity
@@ -295,7 +302,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     # Create line items
     if has_lines:
         for idx, line_data in enumerate(request.lines, start=1):
-            line_price = line_data.unit_price
+            line_price = Decimal(str(line_data.unit_price)).quantize(Decimal("0.01"))
             line_discount = None
             if discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
@@ -308,7 +315,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
                 quantity=line_data.quantity,
                 unit_price=line_price,
                 discount_percent=line_discount,
-                total=line_price * line_data.quantity,
+                total=(line_price * line_data.quantity).quantize(Decimal("0.01")),
                 material_type=line_data.material_type,
                 color=line_data.color,
                 notes=line_data.notes,
@@ -417,12 +424,12 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         subtotal = Decimal("0")
         for idx, line_data in enumerate(lines_data, start=1):
             ld = line_data if isinstance(line_data, dict) else line_data.model_dump()
-            line_price = Decimal(str(ld["unit_price"]))
+            line_price = Decimal(str(ld["unit_price"])).quantize(Decimal("0.01"))
             line_discount = None
             if discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
                 line_discount = discount_percent
-            line_total = line_price * ld["quantity"]
+            line_total = (line_price * ld["quantity"]).quantize(Decimal("0.01"))
             subtotal += line_total
 
             line = QuoteLine(
@@ -673,7 +680,6 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     if has_lines:
         for ql in quote.lines:
             # unit_price is already net (discount applied), so discount=0
-            # Store discount_percent in notes for audit trail
             sol = SalesOrderLine(
                 sales_order_id=sales_order.id,
                 product_id=ql.product_id,

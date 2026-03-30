@@ -29,6 +29,7 @@ export default function QuoteDetailModal({
   // Fetch full quote detail (with lines) since list items don't include them
   const [fullQuote, setFullQuote] = useState(quote);
   useEffect(() => {
+    setFullQuote(quote); // Reset immediately when quote prop changes
     fetch(`${API_URL}/api/v1/quotes/${quote.id}`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => { if (data) setFullQuote(data); })

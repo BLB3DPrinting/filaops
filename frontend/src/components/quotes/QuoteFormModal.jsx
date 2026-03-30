@@ -191,7 +191,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
           product_name: product.name,
           product_sku: product.sku,
           quantity: 1,
-          unit_price: product.selling_price || "",
+          unit_price: product.selling_price ?? "",
           material_type: "",
           color: "",
           notes: "",
@@ -235,7 +235,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
 
     for (const li of lineItems) {
-      if (!li.product_name || !li.unit_price) {
+      if (!li.product_name || li.unit_price === "" || li.unit_price === null || isNaN(Number(li.unit_price))) {
         toast.error("Each line item needs a product name and unit price");
         return;
       }
