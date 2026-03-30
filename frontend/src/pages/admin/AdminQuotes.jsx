@@ -177,8 +177,9 @@ export default function AdminQuotes() {
 
   const handleDuplicateQuote = async (quote) => {
     try {
+      // Don't pass customer_id — prices are already net (discount applied).
+      // Passing customer_id would re-apply the discount on the backend.
       const newQuoteData = {
-        customer_id: quote.customer_id || null,
         customer_name: quote.customer_name || null,
         customer_email: quote.customer_email || null,
         customer_notes: quote.customer_notes || null,

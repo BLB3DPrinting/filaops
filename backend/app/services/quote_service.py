@@ -396,6 +396,13 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
 
     # If lines provided, replace all existing lines and recalculate from them
     if lines_data is not None:
+        # Reject empty lines array (would crash on index access)
+        if len(lines_data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="lines array cannot be empty"
+            )
+
         # Delete existing lines
         for existing_line in list(quote.lines):
             db.delete(existing_line)
@@ -439,8 +446,21 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         quote.unit_price = None
         quote.subtotal = subtotal
 
+        # Resolve tax (respect apply_tax toggle during multi-line edit)
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
         shipping = quote.shipping_cost or Decimal("0")
-        if quote.tax_rate:
+        if apply_tax is not None:
+            if apply_tax:
+                tax_rate, tax_amount, tax_name = _resolve_tax(db, subtotal, request, company_settings)
+                quote.tax_rate = tax_rate
+                quote.tax_amount = tax_amount
+                quote.tax_name = tax_name
+                quote.total_price = subtotal + (tax_amount or Decimal("0")) + shipping
+            else:
+                quote.tax_rate = None
+                quote.tax_amount = None
+                quote.total_price = subtotal + shipping
+        elif quote.tax_rate:
             quote.tax_amount = subtotal * quote.tax_rate
             quote.total_price = subtotal + quote.tax_amount + shipping
         else:
@@ -652,12 +672,14 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     # Create SalesOrderLines for multi-line quotes
     if has_lines:
         for ql in quote.lines:
+            # unit_price is already net (discount applied), so discount=0
+            # Store discount_percent in notes for audit trail
             sol = SalesOrderLine(
                 sales_order_id=sales_order.id,
                 product_id=ql.product_id,
                 quantity=ql.quantity,
                 unit_price=ql.unit_price,
-                discount=ql.discount_percent or Decimal("0"),
+                discount=Decimal("0"),
                 total=ql.total,
                 notes=ql.notes,
             )

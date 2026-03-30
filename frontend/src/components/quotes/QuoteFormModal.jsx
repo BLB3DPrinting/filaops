@@ -299,6 +299,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
       customer_notes: form.customer_notes || null,
       admin_notes: form.admin_notes || null,
       apply_tax: form.apply_tax,
+      tax_rate_id: form.tax_rate_id || null,
       shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
     };
 
