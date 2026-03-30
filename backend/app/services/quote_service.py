@@ -945,7 +945,6 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     content.append(Spacer(1, 0.1*inch))
 
     # Build line items — from quote.lines if multi-line, else from header
-    from sqlalchemy.orm import joinedload as _jl
     if not hasattr(quote, '_sa_instance_state') or not quote.lines:
         # Ensure lines are loaded
         db.refresh(quote)
