@@ -712,7 +712,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 {customerDiscount && (
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-green-400">Customer Discount ({customerDiscount}%):</span>
-                    <span className="text-green-400">Applied at checkout</span>
+                    <span className="text-green-400">Applied to line prices</span>
                   </div>
                 )}
                 {form.apply_tax && taxAmount > 0 && (

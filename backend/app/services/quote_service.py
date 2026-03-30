@@ -58,7 +58,7 @@ def list_quotes(
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
-) -> list[dict]:
+) -> list[Quote]:
     """List all quotes with optional filtering."""
     from sqlalchemy.orm import selectinload
 
@@ -678,6 +678,15 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
 
     # Create SalesOrderLines for multi-line quotes
     if has_lines:
+        # Validate: ck_sol_product_or_material requires product_id to be set
+        missing = [ql.product_name for ql in quote.lines if not ql.product_id]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot convert: line(s) missing product link: {', '.join(missing)}. "
+                       "Edit the quote and select a product from the catalog for each line."
+            )
+
         for ql in quote.lines:
             # unit_price is already net (discount applied), so discount=0
             sol = SalesOrderLine(
