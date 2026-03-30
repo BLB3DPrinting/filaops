@@ -21,7 +21,7 @@ from unittest.mock import Mock, MagicMock, patch
 from app.services.quote_conversion_service import (
     generate_sales_order_number,
     generate_production_order_code,
-    convert_quote_to_order,
+    convert_portal_quote_to_order,
     ConversionResult,
     ShippingInfo,
 )
@@ -105,7 +105,7 @@ class TestConvertQuoteToOrder:
         quote = Mock()
         quote.status = "draft"
 
-        result = convert_quote_to_order(quote, db)
+        result = convert_portal_quote_to_order(quote, db)
 
         assert result.success is False
         assert "status must be 'accepted' or 'approved'" in result.error_message
@@ -118,7 +118,7 @@ class TestConvertQuoteToOrder:
         quote.status = "accepted"
         quote.is_expired = True
 
-        result = convert_quote_to_order(quote, db)
+        result = convert_portal_quote_to_order(quote, db)
 
         assert result.success is False
         assert "expired" in result.error_message
@@ -132,7 +132,7 @@ class TestConvertQuoteToOrder:
         quote.is_expired = False
         quote.sales_order_id = 123
 
-        result = convert_quote_to_order(quote, db)
+        result = convert_portal_quote_to_order(quote, db)
 
         assert result.success is False
         assert "already converted" in result.error_message

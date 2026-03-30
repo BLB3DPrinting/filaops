@@ -90,7 +90,7 @@ def generate_production_order_code(db: Session) -> str:
     return f"PO-{year}-{next_num:03d}"
 
 
-def convert_quote_to_order(
+def convert_portal_quote_to_order(
     quote: Quote,
     db: Session,
     shipping: Optional[ShippingInfo] = None,
@@ -98,22 +98,23 @@ def convert_quote_to_order(
     auto_confirm: bool = False,
 ) -> ConversionResult:
     """
-    Convert an accepted quote to a complete order.
-    
-    This function handles the entire conversion flow:
+    Portal/automation quote-to-order conversion (full pipeline).
+
+    Unlike quote_service.convert_quote_to_order (admin path — SalesOrder only),
+    this handles the complete portal conversion flow:
     1. Validate quote data
     2. Create custom Product (if not exists)
     3. Create BOM with material and packaging
     4. Create Sales Order
     5. Create Production Order
-    
+
     Args:
         quote: The accepted Quote object
         db: Database session
         shipping: Optional shipping information (uses quote's shipping if not provided)
         payment_status: Initial payment status (default: "pending")
         auto_confirm: If True, set order status to "confirmed" instead of "pending"
-    
+
     Returns:
         ConversionResult with all created objects or error message
     """
@@ -330,7 +331,7 @@ def convert_quote_after_payment(
             error_message=f"Quote {quote_id} not found"
         )
     
-    result = convert_quote_to_order(
+    result = convert_portal_quote_to_order(
         quote=quote,
         db=db,
         payment_status="paid",

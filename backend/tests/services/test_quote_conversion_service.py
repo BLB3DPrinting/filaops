@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from app.services.quote_conversion_service import (
     generate_sales_order_number,
     generate_production_order_code,
-    convert_quote_to_order,
+    convert_portal_quote_to_order,
     convert_quote_after_payment,
     ShippingInfo,
     ConversionResult,
@@ -89,7 +89,7 @@ class TestConvertQuoteToOrder:
 
     def test_rejects_non_accepted_status(self, db):
         quote = self._make_quote(db, status="draft")
-        result = convert_quote_to_order(quote, db)
+        result = convert_portal_quote_to_order(quote, db)
         assert result.success is False
         assert "status" in result.error_message.lower()
 
@@ -102,7 +102,7 @@ class TestConvertQuoteToOrder:
         quote = self._make_quote(db, status="accepted")
         quote.sales_order_id = so.id
         db.flush()
-        result = convert_quote_to_order(quote, db)
+        result = convert_portal_quote_to_order(quote, db)
         assert result.success is False
         assert "already converted" in result.error_message.lower()
 
