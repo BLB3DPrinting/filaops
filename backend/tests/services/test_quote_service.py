@@ -94,6 +94,7 @@ def _make_manual_quote_request(**overrides):
         customer_email="john@example.com",
         customer_notes=None,
         admin_notes=None,
+        lines=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

@@ -235,19 +235,21 @@ class TestCreateQuote:
         delta = expires_at - created_at
         assert 59 <= delta.days <= 61
 
-    def test_create_missing_product_name_returns_422(self, client):
+    def test_create_missing_product_name_returns_400(self, client):
+        """product_name is optional in schema but service validates it when no lines provided."""
         resp = client.post(BASE_URL, json={
             "quantity": 1,
             "unit_price": "10.00",
         })
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
-    def test_create_missing_unit_price_returns_422(self, client):
+    def test_create_missing_unit_price_returns_400(self, client):
+        """unit_price is optional in schema but service validates it when no lines provided."""
         resp = client.post(BASE_URL, json={
             "product_name": "Widget",
             "quantity": 1,
         })
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
     def test_create_negative_unit_price_returns_422(self, client):
         resp = client.post(BASE_URL, json={

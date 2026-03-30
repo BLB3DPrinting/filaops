@@ -370,18 +370,20 @@ class TestCreateQuote:
         assert 59 <= delta.days <= 61
 
     def test_create_quote_missing_product_name_fails(self, client):
+        """product_name is optional in schema but service validates when no lines provided."""
         response = client.post(BASE_URL, json={
             "quantity": 1,
             "unit_price": "10.00",
         })
-        assert response.status_code == 422
+        assert response.status_code == 400
 
     def test_create_quote_missing_unit_price_fails(self, client):
+        """unit_price is optional in schema but service validates when no lines provided."""
         response = client.post(BASE_URL, json={
             "product_name": "Widget",
             "quantity": 1,
         })
-        assert response.status_code == 422
+        assert response.status_code == 400
 
     def test_create_quote_negative_unit_price_fails(self, client):
         response = client.post(BASE_URL, json={

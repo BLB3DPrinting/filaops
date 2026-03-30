@@ -181,7 +181,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     quote_number = generate_quote_number(db)
     expires_at = datetime.now(timezone.utc) + timedelta(days=request.valid_days)
 
-    has_lines = request.lines and len(request.lines) > 0
+    has_lines = getattr(request, "lines", None) and len(request.lines) > 0
 
     # Validate: either lines or header-level product fields must be provided
     if not has_lines:
@@ -326,7 +326,8 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     db.refresh(quote)
     quote.line_count = len(quote.lines) if quote.lines else (1 if quote.product_name else 0)
 
-    logger.info(f"Quote {quote_number} created by user {user_id} ({len(request.lines) if has_lines else 1} line(s))")
+    line_count = len(request.lines) if has_lines else 1
+    logger.info(f"Quote {quote_number} created by user {user_id} ({line_count} line(s))")
     return quote
 
 
