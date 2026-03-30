@@ -28,13 +28,44 @@ router = APIRouter(prefix="/quotes", tags=["Quotes"])
 # SCHEMAS (Community Edition - Manual Quotes)
 # ============================================================================
 
+class QuoteLineCreate(BaseModel):
+    """Schema for a line item when creating/updating a multi-line quote"""
+    product_id: Optional[int] = Field(None, description="Link to product")
+    product_name: str = Field(..., max_length=255, description="Product/item name")
+    quantity: int = Field(1, ge=1, le=10000, description="Quantity")
+    unit_price: Decimal = Field(..., ge=0, description="Price per unit")
+    material_type: Optional[str] = Field(None, max_length=50)
+    color: Optional[str] = Field(None, max_length=50)
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class QuoteLineResponse(BaseModel):
+    """Response schema for a quote line item"""
+    id: int
+    line_number: int
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    quantity: int
+    unit_price: Decimal
+    discount_percent: Optional[Decimal] = None
+    total: Decimal
+    material_type: Optional[str] = None
+    color: Optional[str] = None
+    notes: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class ManualQuoteCreate(BaseModel):
     """Schema for creating a manual quote"""
     product_id: Optional[int] = Field(None, description="Link to product with BOM")
-    product_name: str = Field(..., max_length=255, description="Product/item name")
+    product_name: Optional[str] = Field(None, max_length=255, description="Product/item name (required if no lines)")
     description: Optional[str] = Field(None, max_length=1000, description="Product description")
-    quantity: int = Field(1, ge=1, le=10000, description="Quantity")
-    unit_price: Decimal = Field(..., ge=0, description="Price per unit")
+    quantity: Optional[int] = Field(None, ge=1, le=10000, description="Quantity (required if no lines)")
+    unit_price: Optional[Decimal] = Field(None, ge=0, description="Price per unit (required if no lines)")
+
+    # Multi-line items (if provided, header product fields are ignored)
+    lines: Optional[List[QuoteLineCreate]] = Field(None, description="Line items for multi-product quotes")
 
     # Customer info
     customer_id: Optional[int] = Field(None, description="Link to customer record (users table)")
@@ -66,6 +97,9 @@ class ManualQuoteUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     quantity: Optional[int] = Field(None, ge=1, le=10000)
     unit_price: Optional[Decimal] = Field(None, ge=0)
+
+    # Multi-line items (replaces all existing lines when provided)
+    lines: Optional[List[QuoteLineCreate]] = Field(None, description="Updated line items (replaces existing)")
 
     customer_id: Optional[int] = Field(None, description="Link to customer record")
     customer_name: Optional[str] = Field(None, max_length=200)
@@ -114,6 +148,7 @@ class QuoteListItem(BaseModel):
     tax_amount: Optional[Decimal]
     shipping_cost: Optional[Decimal] = None
     total_price: Decimal
+    discount_percent: Optional[Decimal] = None
     status: str
     customer_id: Optional[int]
     customer_name: Optional[str]
@@ -121,6 +156,7 @@ class QuoteListItem(BaseModel):
     material_type: Optional[str]
     color: Optional[str]
     has_image: bool = False
+    line_count: int = 0
     created_at: datetime
     expires_at: datetime
     sales_order_id: Optional[int]
@@ -134,6 +170,9 @@ class QuoteDetail(QuoteListItem):
     customer_notes: Optional[str]
     admin_notes: Optional[str]
     rejection_reason: Optional[str]
+
+    # Line items (empty for legacy single-item quotes)
+    lines: List[QuoteLineResponse] = []
 
     # Shipping
     shipping_name: Optional[str]

@@ -8,7 +8,7 @@ from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.payment import Payment
 from app.models.bom import BOM, BOMLine
 from app.models.printer import Printer
-from app.models.quote import Quote, QuoteFile, QuoteMaterial
+from app.models.quote import Quote, QuoteFile, QuoteLine, QuoteMaterial
 from app.models.user import User, RefreshToken
 from app.models.material import MaterialType, Color, MaterialColor, MaterialInventory
 from app.models.vendor import Vendor
@@ -67,6 +67,7 @@ __all__ = [
     # Quotes
     "Quote",
     "QuoteFile",
+    "QuoteLine",
     "QuoteMaterial",
     # Users
     "User",

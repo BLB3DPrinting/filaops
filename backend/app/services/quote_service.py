@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models.company_settings import CompanySettings
-from app.models.quote import Quote
-from app.models.sales_order import SalesOrder
+from app.models.quote import Quote, QuoteLine
+from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 
 logger = get_logger(__name__)
@@ -58,9 +58,13 @@ def list_quotes(
     search: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
-) -> list[Quote]:
+) -> list[dict]:
     """List all quotes with optional filtering."""
-    query = db.query(Quote).order_by(desc(Quote.created_at), desc(Quote.id))
+    from sqlalchemy.orm import joinedload
+
+    query = db.query(Quote).options(
+        joinedload(Quote.lines)
+    ).order_by(desc(Quote.created_at), desc(Quote.id))
 
     if status_filter:
         query = query.filter(Quote.status == status_filter)
@@ -75,7 +79,13 @@ def list_quotes(
         )
 
     quotes = query.offset(skip).limit(limit).all()
-    return quotes
+
+    # Add line_count for each quote
+    results = []
+    for q in quotes:
+        q.line_count = len(q.lines) if q.lines else (1 if q.product_name else 0)
+        results.append(q)
+    return results
 
 
 def get_quote_stats(db: Session) -> dict:
@@ -116,13 +126,18 @@ def get_quote_stats(db: Session) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_quote_detail(db: Session, quote_id: int) -> Quote:
-    """Fetch quote or 404."""
-    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    """Fetch quote with lines or 404."""
+    from sqlalchemy.orm import joinedload
+
+    quote = db.query(Quote).options(
+        joinedload(Quote.lines)
+    ).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Quote {quote_id} not found"
         )
+    quote.line_count = len(quote.lines) if quote.lines else (1 if quote.product_name else 0)
     return quote
 
 
@@ -130,58 +145,56 @@ def get_quote_detail(db: Session, quote_id: int) -> Quote:
 # Create
 # ---------------------------------------------------------------------------
 
-def create_quote(db: Session, request, user_id: int) -> Quote:
-    """Create a new manual quote.
+def _resolve_tax(db: Session, subtotal: Decimal, request, company_settings) -> tuple:
+    """Resolve tax using three-tier fallback. Returns (tax_rate, tax_amount, tax_name)."""
+    from app.services.tax_rate_service import get_tax_rate as _get_tr, get_default_tax_rate
 
-    ``request`` is expected to be a ``ManualQuoteCreate`` Pydantic model.
-    """
-    quote_number = generate_quote_number(db)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=request.valid_days)
-
-    # Calculate subtotal
-    subtotal = request.unit_price * request.quantity
-
-    # Get company settings for tax
-    company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-
-    # Determine if tax should be applied
     apply_tax = request.apply_tax
     if apply_tax is None and company_settings:
         apply_tax = company_settings.tax_enabled
 
-    # Calculate tax — three-tier resolution:
-    #   1. Specific tax_rate_id → use that TaxRate
-    #   2. apply_tax=True → default TaxRate from tax_rates table
-    #   3. Fall back to CompanySettings.tax_rate (legacy single-rate)
-    from app.services.tax_rate_service import get_tax_rate as _get_tr, get_default_tax_rate
-    tax_rate = None
-    tax_amount = None
-    tax_name = None
-    total_price = subtotal
-
     tax_rate_id = getattr(request, "tax_rate_id", None)
     if tax_rate_id:
         tr = _get_tr(db, tax_rate_id)
-        tax_rate = tr.rate
-        tax_name = tr.name
-        tax_amount = subtotal * tax_rate
-        total_price = subtotal + tax_amount
+        return tr.rate, subtotal * tr.rate, tr.name
     elif apply_tax:
         default_tr = get_default_tax_rate(db)
         if default_tr:
-            tax_rate = default_tr.rate
-            tax_name = default_tr.name
-            tax_amount = subtotal * tax_rate
-            total_price = subtotal + tax_amount
+            return default_tr.rate, subtotal * default_tr.rate, default_tr.name
         elif company_settings and company_settings.tax_rate:
-            tax_rate = company_settings.tax_rate
-            tax_name = company_settings.tax_name
-            tax_amount = subtotal * tax_rate
-            total_price = subtotal + tax_amount
+            return company_settings.tax_rate, subtotal * company_settings.tax_rate, company_settings.tax_name
+    return None, None, None
 
-    # Add shipping cost
-    shipping_cost = request.shipping_cost or Decimal("0")
-    total_price = total_price + shipping_cost
+
+def _get_customer_discount(db: Session, customer_id: int) -> Optional[Decimal]:
+    """Look up customer's price level discount (PRO feature, graceful degradation)."""
+    from app.services.customer_service import get_customer_discount_percent
+    return get_customer_discount_percent(db, customer_id)
+
+
+def create_quote(db: Session, request, user_id: int) -> Quote:
+    """Create a new manual quote.
+
+    ``request`` is expected to be a ``ManualQuoteCreate`` Pydantic model.
+    Supports both single-item (header fields) and multi-line (request.lines) quotes.
+    """
+    quote_number = generate_quote_number(db)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=request.valid_days)
+
+    has_lines = request.lines and len(request.lines) > 0
+
+    # Validate: either lines or header-level product fields must be provided
+    if not has_lines:
+        if not request.product_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either 'lines' or 'product_name' + 'unit_price' must be provided"
+            )
+        if request.unit_price is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="unit_price is required for single-item quotes"
+            )
 
     # Validate customer_id if provided
     if request.customer_id:
@@ -195,9 +208,49 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
                 detail="Invalid customer_id - customer not found"
             )
 
-    # Validate material exists if color provided (use effective material type)
+    # Look up customer discount (PRO price level)
+    discount_percent = None
+    if request.customer_id:
+        discount_percent = _get_customer_discount(db, request.customer_id)
+
+    # Calculate subtotal — from lines or header
+    if has_lines:
+        subtotal = Decimal("0")
+        for line in request.lines:
+            line_price = line.unit_price
+            if discount_percent and discount_percent > 0:
+                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
+            subtotal += line_price * line.quantity
+        # Use first line's product for header-level backward compat
+        header_product_name = request.lines[0].product_name
+        header_product_id = request.lines[0].product_id
+        header_quantity = sum(l.quantity for l in request.lines)
+        header_unit_price = None  # Multi-line: no single unit price
+    else:
+        unit_price = request.unit_price
+        quantity = request.quantity or 1
+        if discount_percent and discount_percent > 0:
+            unit_price = (unit_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
+        subtotal = unit_price * quantity
+        header_product_name = request.product_name
+        header_product_id = request.product_id
+        header_quantity = quantity
+        header_unit_price = unit_price
+
+    # Get company settings for tax
+    company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+
+    # Resolve tax
+    tax_rate, tax_amount, tax_name = _resolve_tax(db, subtotal, request, company_settings)
+    total_price = subtotal + (tax_amount or Decimal("0"))
+
+    # Add shipping cost
+    shipping_cost = request.shipping_cost or Decimal("0")
+    total_price = total_price + shipping_cost
+
+    # Validate material exists if color provided (single-item only)
     effective_material_type = request.material_type or "PLA"
-    if request.color:
+    if not has_lines and request.color:
         from app.services.material_service import get_material_product
         material_product = get_material_product(db, effective_material_type, request.color)
         if not material_product:
@@ -212,30 +265,56 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     quote = Quote(
         quote_number=quote_number,
         user_id=user_id,
-        product_id=request.product_id,
-        product_name=request.product_name,
-        quantity=request.quantity,
-        unit_price=request.unit_price,
+        product_id=header_product_id,
+        product_name=header_product_name,
+        quantity=header_quantity,
+        unit_price=header_unit_price,
         subtotal=subtotal,
         tax_rate=tax_rate,
         tax_amount=tax_amount,
         tax_name=tax_name,
+        discount_percent=discount_percent,
         shipping_cost=shipping_cost if shipping_cost > 0 else None,
         total_price=total_price,
-        material_type=effective_material_type,
-        color=request.color,
+        material_type=effective_material_type if not has_lines else None,
+        color=request.color if not has_lines else None,
         customer_id=request.customer_id,
         customer_name=request.customer_name,
         customer_email=request.customer_email,
         customer_notes=request.customer_notes,
         admin_notes=request.admin_notes,
         status="pending",
-        file_format="manual",  # Indicates manually created
+        file_format="manual",
         file_size_bytes=0,
         expires_at=expires_at,
     )
 
     db.add(quote)
+    db.flush()  # Get quote.id for line items
+
+    # Create line items
+    if has_lines:
+        for idx, line_data in enumerate(request.lines, start=1):
+            line_price = line_data.unit_price
+            line_discount = None
+            if discount_percent and discount_percent > 0:
+                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
+                line_discount = discount_percent
+            line = QuoteLine(
+                quote_id=quote.id,
+                product_id=line_data.product_id,
+                line_number=idx,
+                product_name=line_data.product_name,
+                quantity=line_data.quantity,
+                unit_price=line_price,
+                discount_percent=line_discount,
+                total=line_price * line_data.quantity,
+                material_type=line_data.material_type,
+                color=line_data.color,
+                notes=line_data.notes,
+            )
+            db.add(line)
+
     try:
         db.commit()
     except IntegrityError:
@@ -245,8 +324,9 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
             detail="Quote number collision, please retry"
         )
     db.refresh(quote)
+    quote.line_count = len(quote.lines) if quote.lines else (1 if quote.product_name else 0)
 
-    logger.info(f"Quote {quote_number} created by user {user_id}")
+    logger.info(f"Quote {quote_number} created by user {user_id} ({len(request.lines) if has_lines else 1} line(s))")
     return quote
 
 
@@ -303,6 +383,9 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
                     )
                 )
 
+    # Handle lines update — replace all existing lines
+    lines_data = update_data.pop("lines", None)
+
     # Update fields (exclude apply_tax as it's not a model field)
     apply_tax = update_data.pop("apply_tax", None)
     shipping_cost_updated = "shipping_cost" in update_data
@@ -310,8 +393,60 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     for field, value in update_data.items():
         setattr(quote, field, value)
 
-    # Recalculate pricing if price, quantity, tax, or shipping changed
-    if request.unit_price is not None or request.quantity is not None or apply_tax is not None or shipping_cost_updated:
+    # If lines provided, replace all existing lines and recalculate from them
+    if lines_data is not None:
+        # Delete existing lines
+        for existing_line in list(quote.lines):
+            db.delete(existing_line)
+
+        # Look up customer discount
+        discount_percent = None
+        if quote.customer_id:
+            discount_percent = _get_customer_discount(db, quote.customer_id)
+        quote.discount_percent = discount_percent
+
+        # Create new lines
+        subtotal = Decimal("0")
+        for idx, line_data in enumerate(lines_data, start=1):
+            ld = line_data if isinstance(line_data, dict) else line_data.model_dump()
+            line_price = Decimal(str(ld["unit_price"]))
+            line_discount = None
+            if discount_percent and discount_percent > 0:
+                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
+                line_discount = discount_percent
+            line_total = line_price * ld["quantity"]
+            subtotal += line_total
+
+            line = QuoteLine(
+                quote_id=quote.id,
+                product_id=ld.get("product_id"),
+                line_number=idx,
+                product_name=ld["product_name"],
+                quantity=ld["quantity"],
+                unit_price=line_price,
+                discount_percent=line_discount,
+                total=line_total,
+                material_type=ld.get("material_type"),
+                color=ld.get("color"),
+                notes=ld.get("notes"),
+            )
+            db.add(line)
+
+        # Update header from lines
+        quote.product_name = lines_data[0]["product_name"] if isinstance(lines_data[0], dict) else lines_data[0].product_name
+        quote.quantity = sum(ld["quantity"] if isinstance(ld, dict) else ld.quantity for ld in lines_data)
+        quote.unit_price = None
+        quote.subtotal = subtotal
+
+        shipping = quote.shipping_cost or Decimal("0")
+        if quote.tax_rate:
+            quote.tax_amount = subtotal * quote.tax_rate
+            quote.total_price = subtotal + quote.tax_amount + shipping
+        else:
+            quote.total_price = subtotal + shipping
+
+    # Recalculate pricing for single-item updates (only if no lines provided)
+    elif request.unit_price is not None or request.quantity is not None or apply_tax is not None or shipping_cost_updated:
         unit_price = request.unit_price if request.unit_price is not None else quote.unit_price
         quantity = request.quantity if request.quantity is not None else quote.quantity
         subtotal = unit_price * quantity
@@ -321,7 +456,6 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         # Handle tax calculation
         if apply_tax is not None:
             if apply_tax:
-                # Get company settings for tax rate
                 company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
                 if company_settings and company_settings.tax_rate:
                     quote.tax_rate = company_settings.tax_rate
@@ -332,12 +466,10 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
                     quote.tax_amount = None
                     quote.total_price = subtotal + shipping
             else:
-                # Remove tax
                 quote.tax_rate = None
                 quote.tax_amount = None
                 quote.total_price = subtotal + shipping
         else:
-            # Keep existing tax settings, just recalculate with new subtotal
             if quote.tax_rate:
                 quote.tax_amount = subtotal * quote.tax_rate
                 quote.total_price = subtotal + quote.tax_amount + shipping
@@ -347,6 +479,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     quote.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(quote)
+    quote.line_count = len(quote.lines) if quote.lines else (1 if quote.product_name else 0)
 
     logger.info(f"Quote {quote.quote_number} updated")
     return quote
@@ -409,15 +542,23 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
 # ---------------------------------------------------------------------------
 
 def convert_quote_to_order(db: Session, quote_id: int) -> dict:
-    """Convert an accepted/approved quote to a sales order."""
-    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    """Convert an accepted/approved quote to a sales order.
+
+    Multi-line quotes create a SalesOrder with order_type="line_item" and
+    one SalesOrderLine per QuoteLine. Single-item quotes use the existing
+    header-only order_type="quote_based" flow.
+    """
+    from sqlalchemy.orm import joinedload
+
+    quote = db.query(Quote).options(
+        joinedload(Quote.lines)
+    ).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Quote {quote_id} not found"
         )
 
-    # Check quote can be converted
     if quote.status not in ["approved", "accepted"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -430,36 +571,25 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
             detail=f"Quote already converted to order {quote.sales_order_id}"
         )
 
-    # Check if expired
     if quote.expires_at.replace(tzinfo=None) < datetime.now(timezone.utc).replace(tzinfo=None):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Quote has expired"
         )
 
-    # Generate order number using DB-side numeric max (same pattern as quote numbers)
+    # Generate order number
     year = datetime.now(timezone.utc).year
     order_prefix = f"SO-{year}-"
-
     max_seq = db.query(
-        func.max(
-            cast(func.replace(SalesOrder.order_number, order_prefix, ''), Integer)
-        )
-    ).filter(
-        SalesOrder.order_number.like(f"{order_prefix}%")
-    ).scalar() or 0
+        func.max(cast(func.replace(SalesOrder.order_number, order_prefix, ''), Integer))
+    ).filter(SalesOrder.order_number.like(f"{order_prefix}%")).scalar() or 0
+    order_number = f"{order_prefix}{max_seq + 1:04d}"
 
-    next_seq = max_seq + 1
-    order_number = f"{order_prefix}{next_seq:04d}"
-
-    # Create sales order
-    # Note: quote.subtotal is pre-tax, quote.total_price includes tax
-    # SalesOrder.total_price should be pre-tax (subtotal), grand_total = subtotal + tax + shipping
     subtotal = quote.subtotal or (quote.unit_price * quote.quantity if quote.unit_price else quote.total_price)
     tax = quote.tax_amount or Decimal("0")
     shipping = quote.shipping_cost or Decimal("0")
 
-    # Get shipping address: prefer quote's address, fall back to customer's address
+    # Resolve shipping address (quote → customer fallback)
     shipping_address_line1 = quote.shipping_address_line1
     shipping_address_line2 = quote.shipping_address_line2
     shipping_city = quote.shipping_city
@@ -468,7 +598,6 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     shipping_country = quote.shipping_country
     customer_phone = quote.shipping_phone
 
-    # If quote doesn't have shipping address but has customer_id, get from customer
     if not shipping_address_line1 and quote.customer_id:
         customer = db.query(User).filter(User.id == quote.customer_id).first()
         if customer:
@@ -481,33 +610,33 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
             if not customer_phone:
                 customer_phone = customer.phone
 
+    has_lines = quote.lines and len(quote.lines) > 0
+
     sales_order = SalesOrder(
         order_number=order_number,
         quote_id=quote.id,
-        user_id=quote.user_id,  # Required: copy from quote
-        order_type="quote_based",
+        user_id=quote.user_id,
+        order_type="line_item" if has_lines else "quote_based",
         source="portal",
-        product_id=quote.product_id,  # Link to product for BOM explosion
+        product_id=quote.product_id if not has_lines else None,
         product_name=quote.product_name,
         quantity=quote.quantity,
-        material_type=quote.material_type or "PLA",  # Required: default to PLA if not set
+        material_type=quote.material_type or "PLA",
         finish=quote.finish or "standard",
         unit_price=quote.unit_price,
-        total_price=subtotal,  # Pre-tax subtotal
+        total_price=subtotal,
         tax_amount=tax,
-        tax_rate=quote.tax_rate,  # Preserve tax rate from quote
+        tax_rate=quote.tax_rate,
         shipping_cost=shipping,
-        grand_total=subtotal + tax + shipping,  # Total including tax and shipping
+        grand_total=subtotal + tax + shipping,
         status="pending",
         payment_status="pending",
         rush_level=quote.rush_level or "standard",
         customer_notes=quote.customer_notes,
-        # Customer info (copied from quote)
         customer_id=quote.customer_id,
         customer_name=quote.customer_name,
         customer_email=quote.customer_email,
         customer_phone=customer_phone,
-        # Shipping address fields (from quote or customer fallback)
         shipping_address_line1=shipping_address_line1,
         shipping_address_line2=shipping_address_line2,
         shipping_city=shipping_city,
@@ -517,7 +646,21 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     )
 
     db.add(sales_order)
-    db.flush()  # Get the ID
+    db.flush()
+
+    # Create SalesOrderLines for multi-line quotes
+    if has_lines:
+        for ql in quote.lines:
+            sol = SalesOrderLine(
+                sales_order_id=sales_order.id,
+                product_id=ql.product_id,
+                quantity=ql.quantity,
+                unit_price=ql.unit_price,
+                discount=ql.discount_percent or Decimal("0"),
+                total=ql.total,
+                notes=ql.notes,
+            )
+            db.add(sol)
 
     # Update quote
     quote.status = "converted"
@@ -535,7 +678,7 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
         )
     db.refresh(sales_order)
 
-    logger.info(f"Quote {quote.quote_number} converted to order {order_number}")
+    logger.info(f"Quote {quote.quote_number} converted to order {order_number} ({len(quote.lines)} lines)")
 
     return {
         "message": f"Quote converted to order {order_number}",
@@ -800,27 +943,52 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     content.append(Paragraph("QUOTE DETAILS", heading_style))
     content.append(Spacer(1, 0.1*inch))
 
-    material_desc = esc(quote.material_type or 'N/A')
-    if quote.color:
-        material_desc += f" - {esc(quote.color)}"
+    # Build line items — from quote.lines if multi-line, else from header
+    from sqlalchemy.orm import joinedload as _jl
+    if not hasattr(quote, '_sa_instance_state') or not quote.lines:
+        # Ensure lines are loaded
+        db.refresh(quote)
 
-    # Calculate subtotal
-    subtotal = float(quote.subtotal) if quote.subtotal else float(quote.unit_price or 0) * quote.quantity
+    has_lines = quote.lines and len(quote.lines) > 0
 
-    # Build table with proper tax breakdown
-    table_data = [
-        ['Description', 'Material', 'Qty', 'Unit Price', 'Amount'],
-        [
+    table_data = [['Description', 'Material', 'Qty', 'Unit Price', 'Amount']]
+
+    if has_lines:
+        subtotal = Decimal("0")
+        for ql in quote.lines:
+            mat_desc = esc(ql.material_type or '')
+            if ql.color:
+                mat_desc += f" - {esc(ql.color)}" if mat_desc else esc(ql.color)
+            mat_desc = mat_desc or 'N/A'
+            line_total = float(ql.total)
+            subtotal += ql.total
+            table_data.append([
+                esc(ql.product_name or 'Item'),
+                mat_desc,
+                str(ql.quantity),
+                _fmt(float(ql.unit_price)),
+                _fmt(line_total),
+            ])
+        subtotal = float(subtotal)
+    else:
+        material_desc = esc(quote.material_type or 'N/A')
+        if quote.color:
+            material_desc += f" - {esc(quote.color)}"
+        subtotal = float(quote.subtotal) if quote.subtotal else float(quote.unit_price or 0) * quote.quantity
+        table_data.append([
             esc(quote.product_name or 'Custom Item'),
             material_desc,
             str(quote.quantity),
             _fmt(float(quote.unit_price or 0)),
             _fmt(subtotal),
-        ],
-    ]
+        ])
 
     # Add subtotal row
     table_data.append(['', '', '', 'Subtotal:', _fmt(subtotal)])
+
+    # Add discount row if applicable
+    if quote.discount_percent and float(quote.discount_percent) > 0:
+        table_data.append(['', '', '', f'Discount ({float(quote.discount_percent):.0f}%):', 'Applied per line'])
 
     # Add tax row if applicable
     if quote.tax_rate and quote.tax_amount:

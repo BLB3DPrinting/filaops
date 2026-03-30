@@ -1,7 +1,10 @@
 /**
  * QuoteFormModal - 2-step form for creating/editing quotes.
  *
- * Extracted from AdminQuotes.jsx (ARCHITECT-002)
+ * Step 1: Select one or more products (multi-line support).
+ * Step 2: Customer info, tax, shipping, notes.
+ *
+ * Extracted from AdminQuotes.jsx (ARCHITECT-002), extended for multi-line quotes.
  */
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,35 +14,59 @@ import { useToast } from "../Toast";
 export default function QuoteFormModal({ quote, onSave, onClose }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [step, setStep] = useState(quote ? 2 : 1); // 1=product, 2=customer+details
+  const [step, setStep] = useState(quote ? 2 : 1);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [companySettings, setCompanySettings] = useState(null);
   const [taxRates, setTaxRates] = useState([]);
   const [productSearch, setProductSearch] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveAsCustomer, setSaveAsCustomer] = useState(false);
+
+  // Multi-line items state
+  const [lineItems, setLineItems] = useState(() => {
+    if (quote?.lines?.length > 0) {
+      return quote.lines.map((l) => ({
+        product_id: l.product_id,
+        product_name: l.product_name,
+        product_sku: "",
+        quantity: l.quantity,
+        unit_price: l.unit_price,
+        material_type: l.material_type || "",
+        color: l.color || "",
+        notes: l.notes || "",
+      }));
+    }
+    if (quote?.product_name) {
+      return [{
+        product_id: quote.product_id,
+        product_name: quote.product_name,
+        product_sku: "",
+        quantity: quote.quantity || 1,
+        unit_price: quote.unit_price || "",
+        material_type: quote.material_type || "",
+        color: quote.color || "",
+        notes: "",
+      }];
+    }
+    return [];
+  });
+
+  // Customer discount from price level (PRO feature, gracefully degrades)
+  const [customerDiscount, setCustomerDiscount] = useState(null);
 
   const [form, setForm] = useState({
-    product_id: quote?.product_id || null,
-    product_name: quote?.product_name || "",
-    quantity: quote?.quantity || 1,
-    unit_price: quote?.unit_price || "",
     customer_id: quote?.customer_id || null,
     customer_name: quote?.customer_name || "",
     customer_email: quote?.customer_email || "",
-    material_type: quote?.material_type || "",
-    color: quote?.color || "",
     customer_notes: quote?.customer_notes || "",
     admin_notes: quote?.admin_notes || "",
-    apply_tax: quote?.tax_rate ? true : null, // null = use company default
+    apply_tax: quote?.tax_rate ? true : null,
     tax_rate_id: null,
     shipping_cost: quote?.shipping_cost || "",
     valid_days: 30,
   });
-  const [saveAsCustomer, setSaveAsCustomer] = useState(false);
-
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -47,6 +74,38 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     fetchCompanySettings();
     fetchTaxRates();
   }, []);
+
+  // Fetch customer discount when customer changes
+  useEffect(() => {
+    if (!form.customer_id) {
+      setCustomerDiscount(null);
+      return;
+    }
+    const fetchDiscount = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/pro/catalogs/price-levels`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const levels = await res.json();
+          const assigned = (Array.isArray(levels) ? levels : []).find((l) =>
+            l.customers?.some((c) => c.customer_id === form.customer_id)
+          );
+          setCustomerDiscount(
+            assigned && assigned.discount_percent > 0
+              ? assigned.discount_percent
+              : null
+          );
+        } else {
+          setCustomerDiscount(null);
+        }
+      } catch {
+        // PRO not installed or endpoint unavailable
+        setCustomerDiscount(null);
+      }
+    };
+    fetchDiscount();
+  }, [form.customer_id]);
 
   const fetchProducts = async () => {
     try {
@@ -74,7 +133,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
         setCustomers(data.items || data || []);
       }
     } catch {
-      // Customers fetch failure is non-critical
+      // Non-critical
     }
   };
 
@@ -86,13 +145,12 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
       if (res.ok) {
         const data = await res.json();
         setCompanySettings(data);
-        // Default apply_tax based on company settings
         if (form.apply_tax === null && !quote) {
           setForm((f) => ({ ...f, apply_tax: data.tax_enabled }));
         }
       }
     } catch {
-      // Company settings fetch failure is non-critical
+      // Non-critical
     }
   };
 
@@ -101,13 +159,12 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
       const res = await fetch(`${API_URL}/api/v1/tax-rates`, { credentials: "include" });
       if (res.ok) setTaxRates(await res.json());
     } catch {
-      // Non-critical — falls back to legacy apply_tax checkbox
+      // Non-critical
     }
   };
 
-  // Filter products that have a BOM or active routing (manufacturing-ready)
+  // Filter products — show all active finished goods (no BOM/routing filter)
   const filteredProducts = products.filter((p) => {
-    if (!p.has_bom && !p.has_routing) return false;
     if (!productSearch.trim()) return true;
     const search = productSearch.toLowerCase();
     return (
@@ -116,104 +173,43 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     );
   });
 
-  const handleSelectProduct = (product) => {
-    setSelectedProduct(product);
-    setForm((f) => ({
-      ...f,
-      product_id: product.id,
-      product_name: product.name,
-      unit_price: product.selling_price || "",
-      material_type: product.category || "",
-    }));
-    setStep(2);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.product_name || !form.unit_price) {
-      toast.error("Product and unit price are required");
-      return;
-    }
-
-    // Validate save as customer requires email
-    if (saveAsCustomer && !form.customer_email) {
-      toast.error("Customer email is required to save as new customer");
-      return;
-    }
-
-    setSaving(true);
-
-    // If saving as new customer, create customer first
-    let customerId = form.customer_id;
-    if (saveAsCustomer && !customerId && form.customer_email) {
-      try {
-        // Parse name into first/last
-        const nameParts = (form.customer_name || "").trim().split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
-
-        const customerRes = await fetch(`${API_URL}/api/v1/admin/customers`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: form.customer_email,
-            first_name: firstName || null,
-            last_name: lastName || null,
-          }),
-        });
-
-        if (customerRes.ok) {
-          const newCustomer = await customerRes.json();
-          customerId = newCustomer.id;
-          toast.success(`Customer ${newCustomer.customer_number} created`);
-        } else {
-          const err = await customerRes.json();
-          // If customer exists, try to find them
-          if (err.detail?.includes("already exists")) {
-            toast.info("Customer already exists, linking to quote");
-          } else {
-            throw new Error(err.detail || "Failed to create customer");
-          }
-        }
-      } catch (err) {
-        console.error("Failed to create customer:", err);
-        // Continue with quote creation even if customer creation fails
+  // Add product to line items (or increment qty if already present)
+  const handleAddProduct = (product) => {
+    setLineItems((prev) => {
+      const existing = prev.find((li) => li.product_id === product.id);
+      if (existing) {
+        return prev.map((li) =>
+          li.product_id === product.id
+            ? { ...li, quantity: li.quantity + 1 }
+            : li
+        );
       }
-    }
-
-    // Build the payload - only send fields the backend accepts
-    const payload = {
-      product_id: form.product_id || null,
-      product_name: form.product_name,
-      quantity: form.quantity,
-      unit_price: parseFloat(form.unit_price),
-      customer_id: customerId || null,
-      customer_name: form.customer_name || null,
-      customer_email: form.customer_email || null,
-      material_type: form.material_type || null,
-      color: form.color || null,
-      customer_notes: form.customer_notes || null,
-      admin_notes: form.admin_notes || null,
-      apply_tax: form.apply_tax,
-      shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
-    };
-
-    // Only include valid_days for new quotes (not updates)
-    if (!quote) {
-      payload.valid_days = form.valid_days;
-    }
-
-    try {
-      await onSave(payload);
-    } finally {
-      setSaving(false);
-    }
+      return [
+        ...prev,
+        {
+          product_id: product.id,
+          product_name: product.name,
+          product_sku: product.sku,
+          quantity: 1,
+          unit_price: product.selling_price || "",
+          material_type: "",
+          color: "",
+          notes: "",
+        },
+      ];
+    });
   };
 
-  // Handle customer selection from dropdown
+  const handleRemoveLine = (index) => {
+    setLineItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateLine = (index, field, value) => {
+    setLineItems((prev) =>
+      prev.map((li, i) => (i === index ? { ...li, [field]: value } : li))
+    );
+  };
+
   const handleCustomerSelect = (e) => {
     const customerId = e.target.value ? parseInt(e.target.value) : null;
     if (customerId) {
@@ -231,8 +227,97 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
   };
 
-  // Calculate totals preview
-  const subtotal = (parseFloat(form.unit_price) || 0) * (form.quantity || 1);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (lineItems.length === 0) {
+      toast.error("Add at least one product");
+      return;
+    }
+
+    for (const li of lineItems) {
+      if (!li.product_name || !li.unit_price) {
+        toast.error("Each line item needs a product name and unit price");
+        return;
+      }
+    }
+
+    if (saveAsCustomer && !form.customer_email) {
+      toast.error("Customer email is required to save as new customer");
+      return;
+    }
+
+    setSaving(true);
+
+    // Create customer if needed
+    let customerId = form.customer_id;
+    if (saveAsCustomer && !customerId && form.customer_email) {
+      try {
+        const nameParts = (form.customer_name || "").trim().split(" ");
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        const customerRes = await fetch(`${API_URL}/api/v1/admin/customers`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: form.customer_email,
+            first_name: firstName || null,
+            last_name: lastName || null,
+          }),
+        });
+
+        if (customerRes.ok) {
+          const newCustomer = await customerRes.json();
+          customerId = newCustomer.id;
+          toast.success(`Customer ${newCustomer.customer_number} created`);
+        } else {
+          const err = await customerRes.json();
+          if (err.detail?.includes("already exists")) {
+            toast.info("Customer already exists, linking to quote");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to create customer:", err);
+      }
+    }
+
+    // Build payload with lines array
+    const payload = {
+      lines: lineItems.map((li) => ({
+        product_id: li.product_id || null,
+        product_name: li.product_name,
+        quantity: li.quantity,
+        unit_price: parseFloat(li.unit_price),
+        material_type: li.material_type || null,
+        color: li.color || null,
+        notes: li.notes || null,
+      })),
+      customer_id: customerId || null,
+      customer_name: form.customer_name || null,
+      customer_email: form.customer_email || null,
+      customer_notes: form.customer_notes || null,
+      admin_notes: form.admin_notes || null,
+      apply_tax: form.apply_tax,
+      shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
+    };
+
+    if (!quote) {
+      payload.valid_days = form.valid_days;
+    }
+
+    try {
+      await onSave(payload);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Calculate totals
+  const subtotal = lineItems.reduce(
+    (sum, li) => sum + (parseFloat(li.unit_price) || 0) * (li.quantity || 1),
+    0
+  );
   const taxRate = form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0;
   const taxAmount = subtotal * taxRate;
   const shippingCost = parseFloat(form.shipping_cost) || 0;
@@ -242,7 +327,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
         <div className="fixed inset-0 bg-black/70" onClick={onClose} />
-        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-3xl w-full mx-auto p-6">
+        <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-4xl w-full mx-auto p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold text-white">
               {quote ? "Edit Quote" : "New Quote"} - Step {step} of 2
@@ -263,9 +348,9 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-white font-medium mb-2">Select Product</h4>
+                <h4 className="text-white font-medium mb-2">Add Products</h4>
                 <p className="text-gray-400 text-sm mb-4">
-                  Choose an existing product with BOM, or{" "}
+                  Select products for this quote, or{" "}
                   <button
                     onClick={() => navigate("/admin/items?action=new")}
                     className="text-blue-400 hover:underline"
@@ -300,7 +385,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
               </div>
 
               {/* Product Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[400px] overflow-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-auto">
                 {loading ? (
                   <div className="col-span-full flex justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -308,45 +393,113 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 ) : filteredProducts.length === 0 ? (
                   <div className="col-span-full text-center py-8 text-gray-500">
                     {productSearch.trim()
-                      ? `No manufacturing-ready products found matching "${productSearch}"`
-                      : "No manufacturing-ready products available. Add a BOM or active routing first."}
+                      ? `No products found matching "${productSearch}"`
+                      : "No finished goods available."}
                   </div>
                 ) : (
-                  filteredProducts.map((product) => (
-                    <button
-                      key={product.id}
-                      onClick={() => handleSelectProduct(product)}
-                      className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
-                        selectedProduct?.id === product.id
-                          ? "border-blue-500 bg-blue-900/20"
-                          : "border-gray-700"
-                      }`}
-                    >
-                      <div className="text-white font-medium truncate">{product.name}</div>
-                      <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
-                      <div className="flex justify-between items-center mt-2">
-                        <span className="text-green-400 font-medium">
-                          ${parseFloat(product.selling_price || 0).toFixed(2)}
-                        </span>
-                        <span className="text-xs text-blue-400">
-                          {product.has_bom && product.has_routing
-                            ? "BOM + Routing"
-                            : product.has_bom
-                              ? "Has BOM"
-                              : "Has Routing"}
-                        </span>
-                      </div>
-                    </button>
-                  ))
+                  filteredProducts.map((product) => {
+                    const inCart = lineItems.some((li) => li.product_id === product.id);
+                    return (
+                      <button
+                        key={product.id}
+                        onClick={() => handleAddProduct(product)}
+                        className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
+                          inCart ? "border-blue-500 bg-blue-900/20" : "border-gray-700"
+                        }`}
+                      >
+                        <div className="text-white font-medium truncate">{product.name}</div>
+                        <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="text-green-400 font-medium">
+                            ${parseFloat(product.selling_price || 0).toFixed(2)}
+                          </span>
+                          {inCart && (
+                            <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                              Added
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-gray-700">
+              {/* Selected Items Table */}
+              {lineItems.length > 0 && (
+                <div className="border-t border-gray-700 pt-4">
+                  <h4 className="text-white font-medium mb-3">
+                    Selected Items ({lineItems.length})
+                  </h4>
+                  <div className="bg-gray-800/50 rounded-lg border border-gray-700 divide-y divide-gray-700">
+                    {lineItems.map((li, idx) => (
+                      <div key={idx} className="p-3 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white font-medium truncate">{li.product_name}</div>
+                          {li.product_sku && (
+                            <div className="text-gray-500 text-xs">{li.product_sku}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-gray-400 text-sm">Qty:</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={li.quantity}
+                            onChange={(e) =>
+                              handleUpdateLine(idx, "quantity", parseInt(e.target.value) || 1)
+                            }
+                            className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-center"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-gray-400 text-sm">$</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={li.unit_price}
+                            onChange={(e) =>
+                              handleUpdateLine(idx, "unit_price", e.target.value)
+                            }
+                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-right"
+                          />
+                        </div>
+                        <div className="text-green-400 font-medium w-24 text-right">
+                          ${((parseFloat(li.unit_price) || 0) * (li.quantity || 1)).toFixed(2)}
+                        </div>
+                        <button
+                          onClick={() => handleRemoveLine(idx)}
+                          className="text-red-400 hover:text-red-300 p-1"
+                          title="Remove"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                    <div className="p-3 flex justify-between bg-gray-800/80">
+                      <span className="text-white font-medium">Subtotal</span>
+                      <span className="text-green-400 font-bold">${subtotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-4 border-t border-gray-700">
                 <button
                   onClick={onClose}
                   className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={() => setStep(2)}
+                  disabled={lineItems.length === 0}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Continue
                 </button>
               </div>
             </div>
@@ -354,55 +507,42 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
           {step === 2 && (
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Selected Product */}
+              {/* Line Items Summary */}
               <div className="bg-gray-800 rounded-lg p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-white font-medium">{form.product_name}</h4>
-                    <p className="text-gray-400 text-sm">{selectedProduct?.sku ?? quote?.product_sku ?? ""}</p>
-                  </div>
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-white font-medium">
+                    {lineItems.length === 1
+                      ? lineItems[0].product_name
+                      : `${lineItems.length} items`}
+                  </h4>
                   <button
                     type="button"
                     onClick={() => setStep(1)}
                     className="text-blue-400 text-sm hover:underline"
                   >
-                    Change
+                    Edit Items
                   </button>
                 </div>
-              </div>
-
-              {/* Quantity & Price */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Quantity *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.quantity}
-                    onChange={(e) => setForm((f) => ({ ...f, quantity: parseInt(e.target.value) || 1 }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Unit Price *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.unit_price}
-                    onChange={(e) => setForm((f) => ({ ...f, unit_price: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
-                    required
-                  />
-                </div>
+                {lineItems.length > 1 && (
+                  <div className="space-y-1">
+                    {lineItems.map((li, idx) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span className="text-gray-300 truncate">
+                          {li.product_name} x{li.quantity}
+                        </span>
+                        <span className="text-gray-400">
+                          ${((parseFloat(li.unit_price) || 0) * li.quantity).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Customer Info */}
               <div className="border-t border-gray-700 pt-4">
                 <h4 className="text-sm font-medium text-gray-300 mb-3">Customer Information</h4>
 
-                {/* Customer Selection Dropdown */}
                 {customers.length > 0 && (
                   <div className="mb-4">
                     <label className="block text-sm text-gray-400 mb-1">Select Existing Customer</label>
@@ -418,6 +558,15 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {/* Customer Discount Notice */}
+                {customerDiscount && (
+                  <div className="bg-green-900/20 border border-green-500/30 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+                    <span className="text-green-400 font-medium text-sm">
+                      {customerDiscount}% customer discount will be applied
+                    </span>
                   </div>
                 )}
 
@@ -442,7 +591,6 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                   </div>
                 </div>
 
-                {/* Save as new customer option - only show if not already a customer */}
                 {!form.customer_id && form.customer_email && (
                   <div className="mt-3">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -463,7 +611,6 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
               {/* Tax & Shipping */}
               <div className="border-t border-gray-700 pt-4 space-y-4">
                 {taxRates.length >= 2 ? (
-                  /* Multi-rate: show dropdown */
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Tax Rate</label>
                     <select
@@ -484,7 +631,6 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                     </select>
                   </div>
                 ) : companySettings?.tax_enabled && (
-                  /* Single rate: legacy checkbox */
                   <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
@@ -556,12 +702,18 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 </div>
               )}
 
-              {/* Total Preview with Tax & Shipping Breakdown */}
+              {/* Total Preview */}
               <div className="bg-gray-800 rounded-lg p-4 space-y-2">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-400">Subtotal:</span>
+                  <span className="text-gray-400">Subtotal ({lineItems.length} item{lineItems.length !== 1 ? "s" : ""}):</span>
                   <span className="text-white">${subtotal.toFixed(2)}</span>
                 </div>
+                {customerDiscount && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-green-400">Customer Discount ({customerDiscount}%):</span>
+                    <span className="text-green-400">Applied at checkout</span>
+                  </div>
+                )}
                 {form.apply_tax && taxAmount > 0 && (
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-400">

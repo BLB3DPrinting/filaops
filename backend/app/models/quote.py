@@ -123,6 +123,11 @@ class Quote(Base):
     sales_order = relationship("SalesOrder", back_populates="quote", uselist=False)
     product = relationship("Product", back_populates="quotes")  # Auto-created custom product
     materials = relationship("QuoteMaterial", back_populates="quote", cascade="all, delete-orphan")  # Multi-material breakdown
+    lines = relationship("QuoteLine", back_populates="quote", cascade="all, delete-orphan",
+                         order_by="QuoteLine.line_number")  # Multi-line-item support
+
+    # Customer discount (from PRO price level, snapshotted at quote creation)
+    discount_percent = Column(Numeric(5, 2), nullable=True)
 
     def __repr__(self):
         return f"<Quote(id={self.id}, number={self.quote_number}, status={self.status}, price=${self.total_price})>"
@@ -280,3 +285,40 @@ class QuoteMaterial(Base):
 
     def __repr__(self):
         return f"<QuoteMaterial(id={self.id}, slot={self.slot_number}, material={self.material_type}, color={self.color_code}, grams={self.material_grams})>"
+
+
+class QuoteLine(Base):
+    """
+    Line item in a multi-product quote.
+
+    Each line represents one product with its own quantity, price, and optional
+    material/color. The quote header holds customer info, tax, shipping, and status.
+
+    For legacy single-item quotes (no lines), the header-level product fields
+    are used instead. The service layer checks len(quote.lines) to decide.
+    """
+    __tablename__ = "quote_lines"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quote_id = Column(Integer, ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
+
+    line_number = Column(Integer, nullable=False, default=1)
+    product_name = Column(String(255), nullable=True)
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Numeric(10, 2), nullable=False)
+    discount_percent = Column(Numeric(5, 2), nullable=True)
+    total = Column(Numeric(10, 2), nullable=False)  # quantity * unit_price (after discount)
+
+    material_type = Column(String(50), nullable=True)
+    color = Column(String(50), nullable=True)
+    notes = Column(String(1000), nullable=True)
+
+    created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
+
+    # Relationships
+    quote = relationship("Quote", back_populates="lines")
+    product = relationship("Product")
+
+    def __repr__(self):
+        return f"<QuoteLine(id={self.id}, line={self.line_number}, product={self.product_name}, qty={self.quantity})>"

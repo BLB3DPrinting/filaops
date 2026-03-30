@@ -178,20 +178,33 @@ export default function AdminQuotes() {
   const handleDuplicateQuote = async (quote) => {
     try {
       const newQuoteData = {
-        product_id: quote.product_id || null,
-        product_name: quote.product_name,
-        quantity: quote.quantity,
-        unit_price: parseFloat(quote.unit_price || 0),
         customer_id: quote.customer_id || null,
         customer_name: quote.customer_name || null,
         customer_email: quote.customer_email || null,
-        material_type: quote.material_type || null,
-        color: quote.color || null,
         customer_notes: quote.customer_notes || null,
         admin_notes: `Duplicated from ${quote.quote_number}`,
         apply_tax: quote.tax_rate ? true : false,
         valid_days: 30,
       };
+
+      // Duplicate with lines if multi-line, otherwise use header fields
+      if (quote.lines?.length > 0) {
+        newQuoteData.lines = quote.lines.map((l) => ({
+          product_id: l.product_id || null,
+          product_name: l.product_name,
+          quantity: l.quantity,
+          unit_price: parseFloat(l.unit_price || 0),
+          material_type: l.material_type || null,
+          color: l.color || null,
+        }));
+      } else {
+        newQuoteData.product_id = quote.product_id || null;
+        newQuoteData.product_name = quote.product_name;
+        newQuoteData.quantity = quote.quantity;
+        newQuoteData.unit_price = parseFloat(quote.unit_price || 0);
+        newQuoteData.material_type = quote.material_type || null;
+        newQuoteData.color = quote.color || null;
+      }
 
       const newQuote = await api.post("/api/v1/quotes", newQuoteData);
       toast.success(`Quote duplicated as ${newQuote.quote_number}`);
@@ -414,8 +427,12 @@ export default function AdminQuotes() {
                       <span className="text-white font-mono">{quote.quote_number}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-white">{quote.product_name || "—"}</span>
-                      {quote.material_type && (
+                      <span className="text-white">
+                        {quote.line_count > 1
+                          ? `${quote.line_count} items`
+                          : quote.product_name || "—"}
+                      </span>
+                      {quote.line_count <= 1 && quote.material_type && (
                         <span className="text-gray-500 text-sm ml-2">
                           ({quote.material_type}
                           {quote.color ? ` / ${quote.color}` : ""})

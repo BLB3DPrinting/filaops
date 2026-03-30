@@ -169,30 +169,58 @@ export default function QuoteDetailModal({
           {/* Quote Details */}
           <div className="space-y-4">
             <div className="bg-gray-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-3">Product Details</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                <div>
-                  <span className="text-gray-400">Product:</span>
-                  <span className="text-white ml-2">{quote.product_name || "—"}</span>
+              <h4 className="text-sm font-medium text-gray-300 mb-3">
+                {quote.lines?.length > 0 ? `Items (${quote.lines.length})` : "Product Details"}
+              </h4>
+
+              {/* Multi-line items */}
+              {quote.lines?.length > 0 ? (
+                <div className="space-y-2 mb-4">
+                  {quote.lines.map((line) => (
+                    <div key={line.id} className="flex justify-between items-center text-sm py-2 border-b border-gray-700 last:border-0">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-white">{line.product_name}</span>
+                        {(line.material_type || line.color) && (
+                          <span className="text-gray-500 ml-2 text-xs">
+                            {[line.material_type, line.color].filter(Boolean).join(" / ")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-right">
+                        <span className="text-gray-400">x{line.quantity}</span>
+                        <span className="text-gray-400">@ ${parseFloat(line.unit_price).toFixed(2)}</span>
+                        <span className="text-white font-medium w-20">${parseFloat(line.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <span className="text-gray-400">Quantity:</span>
-                  <span className="text-white ml-2">{quote.quantity}</span>
-                </div>
-                {quote.material_type && (
+              ) : (
+                /* Legacy single-item display */
+                <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                   <div>
-                    <span className="text-gray-400">Material:</span>
-                    <span className="text-white ml-2">
-                      {quote.material_type}
-                      {quote.color ? ` / ${quote.color}` : ""}
-                    </span>
+                    <span className="text-gray-400">Product:</span>
+                    <span className="text-white ml-2">{quote.product_name || "—"}</span>
                   </div>
-                )}
-                <div>
-                  <span className="text-gray-400">Unit Price:</span>
-                  <span className="text-white ml-2">${parseFloat(quote.unit_price || 0).toFixed(2)}</span>
+                  <div>
+                    <span className="text-gray-400">Quantity:</span>
+                    <span className="text-white ml-2">{quote.quantity}</span>
+                  </div>
+                  {quote.material_type && (
+                    <div>
+                      <span className="text-gray-400">Material:</span>
+                      <span className="text-white ml-2">
+                        {quote.material_type}
+                        {quote.color ? ` / ${quote.color}` : ""}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-400">Unit Price:</span>
+                    <span className="text-white ml-2">${parseFloat(quote.unit_price || 0).toFixed(2)}</span>
+                  </div>
                 </div>
-              </div>
+              )}
+
               {/* Price Breakdown */}
               <div className="border-t border-gray-700 pt-3 space-y-2">
                 <div className="flex justify-between text-sm">
@@ -201,6 +229,14 @@ export default function QuoteDetailModal({
                     ${parseFloat(quote.subtotal || (quote.unit_price * quote.quantity) || 0).toFixed(2)}
                   </span>
                 </div>
+                {quote.discount_percent && parseFloat(quote.discount_percent) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-green-400">
+                      Customer Discount ({parseFloat(quote.discount_percent)}%):
+                    </span>
+                    <span className="text-green-400">Applied per line</span>
+                  </div>
+                )}
                 {quote.tax_rate && quote.tax_amount && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">
