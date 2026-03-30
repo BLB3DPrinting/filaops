@@ -224,7 +224,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         # Use first line's product for header-level backward compat
         header_product_name = request.lines[0].product_name
         header_product_id = request.lines[0].product_id
-        header_quantity = sum(l.quantity for l in request.lines)
+        header_quantity = sum(line.quantity for line in request.lines)
         header_unit_price = None  # Multi-line: no single unit price
     else:
         unit_price = request.unit_price
