@@ -1,15 +1,28 @@
 # FilaOps Core — Open Source ERP (v3.2.x)
 
+## 🧠 Aeonyx — READ INSTITUTIONAL MEMORY FIRST
+
+Before starting work, check Aeonyx shared memory for context from prior sessions:
+```
+mem_recall("filaops portal")     # Portal GTM status, deployed features, known bugs
+mem_recall("sacred rule")        # Entanglement findings, Core/PRO boundary violations
+mem_recall("Track 3 sync")      # Order sync status, remaining bugs
+mem_recall("pattern")           # Recurring patterns to watch for (duplicate filters, etc.)
+```
+
+If Aeonyx MCP is not connected, check `.mcp.json` in the repo root for config.
+Before editing high-collision files, call `rex_claim_files` per memory #26.
+
 ## 🔴 SACRED RULE — READ FIRST, NEVER VIOLATE
 
 **"NO Core Changes from PRO. PRO Must Not Break Core."**
 
 This rule is absolute. It means:
+- NEVER modify files in Core (`C:\repos\filaops`) from this repo
+- NEVER add Core dependencies on any ecosystem package
 - Core must run perfectly with zero PRO code installed
-- No imports, references, or dependencies on `filaops-pro` anywhere in Core
-- No PRO-specific tables, columns, or migrations in Core
-- No conditional logic like `if pro_enabled:` in Core code
-- PRO extends Core via the `register()` pattern — Core never knows PRO exists
+- If `filaops-pro` is uninstalled, Core runs identically
+- PRO hooks into Core via `register(app)` — Core never knows PRO exists
 
 The ONLY exception is if Brandan explicitly authorizes a specific change.
 
