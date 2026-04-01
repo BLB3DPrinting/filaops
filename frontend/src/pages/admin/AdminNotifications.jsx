@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
 function formatTimeAgo(dateStr) {
   const date = new Date(dateStr);
@@ -26,6 +27,7 @@ export default function AdminNotifications() {
   const api = useApi();
   const toast = useToast();
   const navigate = useNavigate();
+  const { isPro } = useFeatureFlags();
 
   const [threads, setThreads] = useState([]);
   const [selectedThread, setSelectedThread] = useState(null);
@@ -148,13 +150,15 @@ export default function AdminNotifications() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-white">Messages</h1>
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={openCompose}
-            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            + New Message
-          </button>
+          {isPro && (
+            <button
+              type="button"
+              onClick={openCompose}
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              + New Message
+            </button>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
               type="checkbox"
