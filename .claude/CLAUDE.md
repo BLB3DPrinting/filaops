@@ -10,10 +10,10 @@
 
 This rule is absolute. It means:
 - NEVER modify files in Core (`C:\repos\filaops`) from the ecosystem repo
-- NEVER add Core dependencies on any ecosystem package
+- NEVER add Core dependencies on any PRO / `filaops-ecosystem` package (normal third-party libraries are fine)
 - Core must run perfectly with zero PRO code installed
 - If `filaops-pro` is uninstalled, Core runs identically
-- PRO hooks into Core via `register(app)` — Core never knows PRO exists
+- PRO integrates via `register(app)`; keep Core-to-PRO coupling explicit, minimal, and behind extension interfaces
 
 The ONLY exception is if Brandan explicitly authorizes a specific change.
 
@@ -112,17 +112,17 @@ These rely on agent compliance. They are important but they are not the safety b
 The protocol is: **register → claim → recall → work (observe/remember) → end.**
 
 **1. Register (start of every session):**
-```
+```text
 rex_register_session(session_id="<generate-uuid>", branch="<current-branch>", task="<what you're doing>")
 ```
 
 **2. Claim files (before editing anything):**
-```
+```text
 rex_claim_files(session_id="<id>", branch="<branch>", files='["file1.py","file2.py"]')
 ```
 
 **3. Check memory (before major work):**
-```
+```text
 mem_recall("filaops")            # General context
 mem_recall("sacred rule")        # Core/PRO boundary violations
 mem_recall("pattern")            # Recurring patterns to watch for
@@ -140,13 +140,13 @@ This is not optional — the gate in 0.2 will block you anyway.
 | Found a bug you didn't cause and aren't tasked to fix | `cortex_observe(session_id="<id>", description="...", file_path="...", severity="error")` |
 
 After `mem_remember`, immediately anchor critical memories:
-```
+```text
 mem_anchor(memory_id="<id-from-remember>", pinned=true)
 ```
 Then verify storage with `mem_get(id="<id>")` — do NOT rely on `mem_recall` to find new memories, as WRRF fuzzy search buries zero-access entries under high-access anchored ones.
 
 **5. End of session:**
-```
+```text
 rex_end_session(session_id="<id>")
 ```
 
@@ -239,7 +239,7 @@ npm, PyPI, and other registries can serve different content for the same version
 #### 1.12 AI Contribution Disclosure
 This project does not use Undercover Mode. All AI contributions are attributed in commit messages, PR descriptions, and documentation. The format is:
 
-```
+```text
 feat: implement session TTL auto-renewal
 
 Co-authored-by: Claude <claude@anthropic.com>
@@ -291,7 +291,7 @@ If you are an agent reading this and you find yourself constructing a justificat
 
 ## Architecture: How Core and PRO Relate
 
-```
+```text
 ┌─────────────────────────────────┐
 │         FilaOps Core            │  ← This repo. Open source. Runs standalone.
 │   FastAPI + React + PostgreSQL  │
