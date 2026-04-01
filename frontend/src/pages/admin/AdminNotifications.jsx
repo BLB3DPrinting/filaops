@@ -81,7 +81,7 @@ export default function AdminNotifications() {
     setShowCompose(true);
     if (customers.length === 0) {
       try {
-        const data = await api.get("/api/v1/customers?limit=200");
+        const data = await api.get("/api/v1/admin/customers?limit=200");
         const list = Array.isArray(data) ? data : data.items || data.customers || [];
         setCustomers(list);
       } catch {
