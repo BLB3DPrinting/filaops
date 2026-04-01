@@ -2,6 +2,19 @@
 
 > **Philosophy**: Behavioral instructions are defense-in-depth. Primary safety is enforced mechanically via PreToolUse hooks and T-REX session protocol. If a mechanical gate and a behavioral instruction conflict, the gate wins. Always.
 
+## 🧠 Aeonyx — READ INSTITUTIONAL MEMORY FIRST
+
+Before starting work, check Aeonyx shared memory for context from prior sessions:
+```
+mem_recall("filaops portal")     # Portal GTM status, deployed features, known bugs
+mem_recall("sacred rule")        # Entanglement findings, Core/PRO boundary violations
+mem_recall("Track 3 sync")      # Order sync status, remaining bugs
+mem_recall("pattern")           # Recurring patterns to watch for (duplicate filters, etc.)
+```
+
+If Aeonyx MCP is not connected, check `.mcp.json` in the repo root for config.
+Before editing high-collision files, call `rex_claim_files` per memory #26.
+
 ---
 
 ## 🔴 SACRED RULE — READ FIRST, NEVER VIOLATE

@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
 function formatTimeAgo(dateStr) {
   const date = new Date(dateStr);
@@ -26,6 +27,7 @@ export default function AdminNotifications() {
   const api = useApi();
   const toast = useToast();
   const navigate = useNavigate();
+  const { isPro } = useFeatureFlags();
 
   const [threads, setThreads] = useState([]);
   const [selectedThread, setSelectedThread] = useState(null);
@@ -34,6 +36,15 @@ export default function AdminNotifications() {
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
+
+  // Compose new thread state
+  const [showCompose, setShowCompose] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [composeRecipient, setComposeRecipient] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [composeSending, setComposeSending] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
 
   useEffect(() => {
     fetchThreads();
@@ -68,6 +79,53 @@ export default function AdminNotifications() {
     }
   };
 
+  const openCompose = async () => {
+    setShowCompose(true);
+    if (customers.length === 0) {
+      try {
+        const data = await api.get("/api/v1/admin/customers?limit=200");
+        const list = Array.isArray(data) ? data : data.items || data.customers || [];
+        setCustomers(list);
+      } catch {
+        // Fallback: admin can type email manually
+      }
+    }
+  };
+
+  const handleCompose = async () => {
+    if (!composeRecipient || !composeSubject.trim() || !composeBody.trim()) return;
+    setComposeSending(true);
+    try {
+      await api.post("/api/v1/pro/portal/admin/messages/new", {
+        recipient_email: composeRecipient,
+        subject: composeSubject,
+        body: composeBody,
+      });
+      toast.success("Message sent");
+      setShowCompose(false);
+      setComposeRecipient("");
+      setComposeSubject("");
+      setComposeBody("");
+      setCustomerSearch("");
+      fetchThreads();
+    } catch (err) {
+      toast.error(err?.message || "Failed to send message");
+    } finally {
+      setComposeSending(false);
+    }
+  };
+
+  const filteredCustomers = customers.filter(c => {
+    const q = customerSearch.toLowerCase();
+    if (!q) return true;
+    return (
+      (c.email || "").toLowerCase().includes(q) ||
+      (c.company_name || "").toLowerCase().includes(q) ||
+      (c.first_name || "").toLowerCase().includes(q) ||
+      (c.last_name || "").toLowerCase().includes(q)
+    );
+  }).slice(0, 20);
+
   const handleReply = async () => {
     if (!replyText.trim() || !selectedThread) return;
     setSending(true);
@@ -91,16 +149,104 @@ export default function AdminNotifications() {
     <div className="h-[calc(100vh-8rem)]">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-white">Messages</h1>
-        <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={unreadOnly}
-            onChange={(e) => setUnreadOnly(e.target.checked)}
-            className="rounded bg-gray-800 border-gray-600 text-blue-500 focus:ring-blue-500"
-          />
-          Unread only
-        </label>
+        <div className="flex items-center gap-4">
+          {isPro && (
+            <button
+              type="button"
+              onClick={openCompose}
+              className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              + New Message
+            </button>
+          )}
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={unreadOnly}
+              onChange={(e) => setUnreadOnly(e.target.checked)}
+              className="rounded bg-gray-800 border-gray-600 text-blue-500 focus:ring-blue-500"
+            />
+            Unread only
+          </label>
+        </div>
       </div>
+
+      {/* Compose Overlay */}
+      {showCompose && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowCompose(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">New Message to Customer</h2>
+              <button type="button" onClick={() => setShowCompose(false)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">To (customer)</label>
+              <input
+                type="text"
+                value={customerSearch}
+                onChange={(e) => { setCustomerSearch(e.target.value); setComposeRecipient(""); }}
+                placeholder="Search by name, email, or company..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+              {customerSearch && !composeRecipient && filteredCustomers.length > 0 && (
+                <div className="mt-1 max-h-40 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg">
+                  {filteredCustomers.map((c) => (
+                    <button
+                      type="button"
+                      key={c.id || c.email}
+                      onClick={() => { setComposeRecipient(c.email); setCustomerSearch(c.company_name ? `${c.company_name} (${c.email})` : c.email); }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+                    >
+                      <span className="font-medium">{c.company_name || `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.email}</span>
+                      {c.company_name && <span className="text-gray-500 ml-2">{c.email}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {composeRecipient && (
+                <p className="text-xs text-green-400 mt-1">✓ {composeRecipient}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Subject</label>
+              <input
+                type="text"
+                value={composeSubject}
+                onChange={(e) => setComposeSubject(e.target.value)}
+                placeholder="Quote follow-up, order update, etc."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Message</label>
+              <textarea
+                value={composeBody}
+                onChange={(e) => setComposeBody(e.target.value)}
+                placeholder="Type your message..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+                rows={4}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setShowCompose(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCompose}
+                disabled={!composeRecipient || !composeSubject.trim() || !composeBody.trim() || composeSending}
+                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {composeSending ? "Sending..." : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-4 h-[calc(100%-3rem)]">
         {/* Thread List */}
