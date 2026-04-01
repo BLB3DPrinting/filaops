@@ -5,7 +5,8 @@
 ## 🧠 Aeonyx — READ INSTITUTIONAL MEMORY FIRST
 
 Before starting work, check Aeonyx shared memory for context from prior sessions:
-```
+
+```text
 mem_recall("filaops portal")     # Portal GTM status, deployed features, known bugs
 mem_recall("sacred rule")        # Entanglement findings, Core/PRO boundary violations
 mem_recall("Track 3 sync")      # Order sync status, remaining bugs
@@ -86,7 +87,7 @@ BEFORE any database operation (migrations, queries, schema changes):
 `npm install`, `pip install`, or any package installation command is **blocked** unless:
 
 1. A lockfile exists in the project root.
-2. The install command uses frozen/locked mode (`npm ci`, `pip install --no-deps`).
+2. The install command uses frozen/locked mode (`npm ci`, `pip install --require-hashes -r requirements.txt` or `pip-sync`).
 
 - Any command that would modify a lockfile requires explicit human approval.
 - Enforcement: Shell hook or CI policy.
@@ -112,7 +113,7 @@ During build and install steps, outbound network connections are logged.
 
 - Any connection to a domain not in the project's known-good allowlist triggers an alert via `cortex_observe`.
 - The agent should report any unexpected network activity it observes in build output.
-- Read operations (file reads, grep, git log, issue queries) are not gated — gating reads would make agents unusable. However, read operations are logged for audit trail purposes. The absence of a gate is not the absence of visibility.
+- Reconnaissance reads (file reads, grep, git log, issue queries) are not gated — gating them would make agents unusable. However, reads that are preconditions for edits — specifically `mem_recall` (Gate 0.2) and file claim validation (Gate 0.3) — are gated. All read operations are logged for audit trail purposes. The absence of a gate is not the absence of visibility.
 
 ---
 
@@ -400,4 +401,4 @@ cd frontend && npx vitest run
 
 ---
 
-*Merged — 2026-04-01. Three-layer safety architecture integrated with FilaOps Core operational context. Supply chain and build artifact gates added in response to the axios supply chain attack (2026-03-31), Claude Code source map leak (2026-03-31), and Mythos/Capybara disclosure (2026-03-26). The Sacred Rule remains the highest-priority project-specific constraint.*
+*Proposed — 2026-04-01. Three-layer safety architecture integrated with FilaOps Core operational context. Supply chain and build artifact gates added in response to the axios supply chain attack (2026-03-31), Claude Code source map leak (2026-03-31), and Mythos/Capybara disclosure (2026-03-26). The Sacred Rule remains the highest-priority project-specific constraint.*
