@@ -336,7 +336,7 @@ class TestCloseShortSalesOrder:
             product_id=product.id,
             quantity_ordered=15,
             quantity_completed=Decimal("12"),
-            status="short",
+            status="complete",
             created_by="test@filaops.dev",
         )
         db.add(po)

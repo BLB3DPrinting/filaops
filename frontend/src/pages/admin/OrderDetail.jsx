@@ -401,6 +401,7 @@ export default function OrderDetail() {
       setShowCloseShortModal(false);
       setCloseShortReason("");
       fetchOrder();
+      refetchFulfillment();
     } catch (err) {
       toast.error(err.message || "Failed to close order short");
     } finally {
@@ -906,7 +907,7 @@ export default function OrderDetail() {
             </tbody>
             <tfoot>
               <tr className="border-t border-gray-700">
-                <td colSpan={canEditLines() ? 5 : 4} className="py-3 px-3 text-right text-white font-medium">
+                <td colSpan={canEditLines() ? 6 : 5} className="py-3 px-3 text-right text-white font-medium">
                   Order Total
                 </td>
                 <td className="py-3 px-3 text-right text-green-400 font-bold">
@@ -1120,10 +1121,14 @@ export default function OrderDetail() {
                   <tbody className="divide-y divide-gray-700">
                     {order.lines.map((line) => {
                       const shipped = parseFloat(line.shipped_quantity || 0);
-                      // Match POs to lines: by sales_order_line_id first, then product_id
-                      const produced = productionOrders
-                        .filter((po) => po.sales_order_line_id === line.id || (!po.sales_order_line_id && po.product_id === line.product_id))
-                        .reduce((sum, po) => sum + parseFloat(po.quantity_completed || 0), 0);
+                      // Match POs to lines: prefer sales_order_line_id, fall back to product_id (1:1 match only)
+                      const directPOs = productionOrders.filter((po) => po.sales_order_line_id === line.id);
+                      const legacyPO = directPOs.length === 0
+                        ? productionOrders.find((po) => !po.sales_order_line_id && po.product_id === line.product_id)
+                        : null;
+                      const produced = directPOs.length > 0
+                        ? directPOs.reduce((sum, po) => sum + parseFloat(po.quantity_completed || 0), 0)
+                        : parseFloat(legacyPO?.quantity_completed || 0);
                       const actual = Math.max(shipped, produced);
                       const isShort = actual < parseFloat(line.quantity);
                       return (
