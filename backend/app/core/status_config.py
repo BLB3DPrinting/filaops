@@ -136,16 +136,19 @@ SALES_ORDER_TRANSITIONS: Dict[str, Set[str]] = {
         SalesOrderStatus.READY_TO_SHIP,  # If no production needed
         SalesOrderStatus.ON_HOLD,
         SalesOrderStatus.CANCELLED,
+        SalesOrderStatus.COMPLETED,  # Close short
     },
     SalesOrderStatus.IN_PRODUCTION: {
         SalesOrderStatus.READY_TO_SHIP,
         SalesOrderStatus.ON_HOLD,
         SalesOrderStatus.CANCELLED,
+        SalesOrderStatus.COMPLETED,  # Close short
     },
     SalesOrderStatus.READY_TO_SHIP: {
         SalesOrderStatus.SHIPPED,
         SalesOrderStatus.ON_HOLD,
         SalesOrderStatus.CANCELLED,
+        SalesOrderStatus.COMPLETED,  # Close short
     },
     SalesOrderStatus.SHIPPED: {
         SalesOrderStatus.DELIVERED,
@@ -162,6 +165,7 @@ SALES_ORDER_TRANSITIONS: Dict[str, Set[str]] = {
         SalesOrderStatus.IN_PRODUCTION,
         SalesOrderStatus.READY_TO_SHIP,
         SalesOrderStatus.CANCELLED,
+        SalesOrderStatus.COMPLETED,  # Close short
     },
 }
 

@@ -155,6 +155,23 @@ def setup_database():
             "ALTER TABLE sales_orders "
             "ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"
         ))
+        # Migration 074: close short and line editing
+        conn.execute(text(
+            "ALTER TABLE sales_orders "
+            "ADD COLUMN IF NOT EXISTS closed_short BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        conn.execute(text(
+            "ALTER TABLE sales_orders "
+            "ADD COLUMN IF NOT EXISTS closed_short_at TIMESTAMPTZ"
+        ))
+        conn.execute(text(
+            "ALTER TABLE sales_orders "
+            "ADD COLUMN IF NOT EXISTS close_short_reason TEXT"
+        ))
+        conn.execute(text(
+            "ALTER TABLE sales_order_lines "
+            "ADD COLUMN IF NOT EXISTS original_quantity NUMERIC(10,2)"
+        ))
         conn.commit()
 
     # Seed required data

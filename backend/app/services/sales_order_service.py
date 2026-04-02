@@ -1230,6 +1230,262 @@ def cancel_sales_order(
     return order
 
 
+# =============================================================================
+# Line Editing & Close Short
+# =============================================================================
+
+EDITABLE_STATUSES = {"confirmed", "in_production", "on_hold"}
+CLOSE_SHORT_STATUSES = {"confirmed", "in_production", "ready_to_ship", "on_hold"}
+
+
+def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
+    """Recalculate order header totals from line items.
+
+    Sums all line totals and updates tax + grand total on the header.
+    For quote-based orders with a single line, also syncs header quantity.
+    Does NOT commit — caller handles the transaction.
+    """
+    lines = db.query(SalesOrderLine).filter(
+        SalesOrderLine.sales_order_id == order.id
+    ).all()
+
+    if not lines:
+        return
+
+    line_total = sum((ln.total or Decimal("0")) for ln in lines)
+    line_qty = sum((ln.quantity or Decimal("0")) for ln in lines)
+
+    order.total_price = line_total
+    order.quantity = int(line_qty)
+
+    # Recalculate tax if order is taxable
+    if order.is_taxable and order.tax_rate:
+        order.tax_amount = (line_total * order.tax_rate).quantize(Decimal("0.01"))
+    else:
+        order.tax_amount = order.tax_amount or Decimal("0")
+
+    shipping = order.shipping_cost or Decimal("0")
+    tax = order.tax_amount or Decimal("0")
+    order.grand_total = (line_total + tax + shipping).quantize(Decimal("0.01"))
+
+    # For quote-based single-line orders, sync the header unit_price
+    if order.order_type == "quote_based" and len(lines) == 1:
+        order.unit_price = lines[0].unit_price
+
+
+def edit_sales_order_lines(
+    db: Session,
+    order_id: int,
+    line_updates: list[dict],
+    user_id: int,
+) -> SalesOrder:
+    """Edit line quantities on a sales order.
+
+    Args:
+        order_id: Order to edit
+        line_updates: List of {line_id, new_quantity, reason}
+        user_id: Admin user making the change
+
+    Returns:
+        Updated SalesOrder
+
+    Raises:
+        HTTPException: If order status doesn't allow editing or quantity invalid
+    """
+    order = get_sales_order(db, order_id)
+
+    if order.status not in EDITABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot edit lines on order with status '{order.status}'. "
+                   f"Allowed statuses: {', '.join(sorted(EDITABLE_STATUSES))}"
+        )
+
+    for update in line_updates:
+        line = db.query(SalesOrderLine).filter(
+            SalesOrderLine.id == update["line_id"],
+            SalesOrderLine.sales_order_id == order_id,
+        ).first()
+
+        if not line:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Line {update['line_id']} not found on order {order.order_number}"
+            )
+
+        new_qty = Decimal(str(update["new_quantity"]))
+        shipped = line.shipped_quantity or Decimal("0")
+
+        if new_qty < shipped:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reduce line {line.id} below shipped quantity ({shipped})"
+            )
+
+        old_qty = line.quantity
+
+        # Preserve original quantity on first edit only
+        if line.original_quantity is None:
+            line.original_quantity = old_qty
+
+        line.quantity = new_qty
+        discount = line.discount or Decimal("0")
+        line.total = (new_qty * line.unit_price - discount).quantize(Decimal("0.01"))
+
+        # Resolve product name for the event
+        product_name = "Line"
+        if line.product_id:
+            product = db.query(Product).filter(Product.id == line.product_id).first()
+            if product:
+                product_name = product.name
+
+        record_order_event(
+            db=db,
+            order_id=order_id,
+            event_type="line_edited",
+            title=f"{product_name} quantity changed",
+            description=f"Quantity changed from {old_qty} to {new_qty}. Reason: {update['reason']}",
+            old_value=str(old_qty),
+            new_value=str(new_qty),
+            user_id=user_id,
+        )
+
+        logger.info(
+            "SO %s line %d qty %s → %s (reason: %s)",
+            order.order_number, line.id, old_qty, new_qty, update["reason"],
+        )
+
+    _recalculate_order_totals(db, order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def close_short_sales_order(
+    db: Session,
+    order_id: int,
+    user_id: int,
+    reason: str,
+) -> SalesOrder:
+    """Close an order short — accept partial fulfillment and complete.
+
+    Adjusts each line's quantity to the actual shipped/produced amount,
+    recalculates totals, and transitions the order to 'completed'.
+
+    Args:
+        order_id: Order to close short
+        user_id: Admin user performing the action
+        reason: Reason for closing short
+
+    Returns:
+        Updated SalesOrder (status = completed, closed_short = True)
+
+    Raises:
+        HTTPException: If order status doesn't allow close-short
+    """
+    order = get_sales_order(db, order_id)
+
+    if order.status not in CLOSE_SHORT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot close short an order with status '{order.status}'. "
+                   f"Allowed statuses: {', '.join(sorted(CLOSE_SHORT_STATUSES))}"
+        )
+
+    lines = db.query(SalesOrderLine).filter(
+        SalesOrderLine.sales_order_id == order_id
+    ).all()
+
+    # Determine actual quantities from production orders
+    linked_pos = db.query(ProductionOrder).filter(
+        ProductionOrder.sales_order_id == order_id
+    ).all()
+
+    # Build two maps for PO completed quantities:
+    # 1. By sales_order_line_id (preferred, direct linkage)
+    # 2. By product_id (fallback for legacy POs without line linkage)
+    po_completed_by_line = {}
+    po_completed_by_product = {}
+    for po in linked_pos:
+        completed = getattr(po, "quantity_completed", None) or Decimal("0")
+        line_id = getattr(po, "sales_order_line_id", None)
+        if line_id:
+            po_completed_by_line[line_id] = (
+                po_completed_by_line.get(line_id, Decimal("0")) + completed
+            )
+        if po.product_id:
+            po_completed_by_product[po.product_id] = (
+                po_completed_by_product.get(po.product_id, Decimal("0")) + completed
+            )
+
+    original_total = order.grand_total
+    adjustments = []
+
+    for line in lines:
+        old_qty = line.quantity
+        shipped = line.shipped_quantity or Decimal("0")
+        # Try direct line linkage first, fall back to product_id match
+        produced = po_completed_by_line.get(line.id, Decimal("0"))
+        if produced == 0 and line.product_id:
+            produced = po_completed_by_product.get(
+                line.product_id, Decimal("0")
+            )
+
+        # Use the greater of shipped or produced as actual quantity
+        actual_qty = max(shipped, produced)
+
+        # If nothing shipped/produced, keep original (close-short still allowed
+        # for partial orders where some lines are fully done and others aren't)
+        if actual_qty <= 0:
+            actual_qty = old_qty
+
+        if actual_qty != old_qty:
+            if line.original_quantity is None:
+                line.original_quantity = old_qty
+            line.quantity = actual_qty
+            discount = line.discount or Decimal("0")
+            line.total = (actual_qty * line.unit_price - discount).quantize(Decimal("0.01"))
+            adjustments.append(f"{old_qty} → {actual_qty}")
+        else:
+            adjustments.append(f"{old_qty} (unchanged)")
+
+    _recalculate_order_totals(db, order)
+
+    old_status = order.status
+    order.status = "completed"
+    order.actual_completion_date = datetime.now(timezone.utc)
+    order.closed_short = True
+    order.closed_short_at = datetime.now(timezone.utc)
+    order.close_short_reason = reason
+
+    adjusted_total = order.grand_total
+
+    record_order_event(
+        db=db,
+        order_id=order_id,
+        event_type="closed_short",
+        title="Order closed short",
+        description=(
+            f"Order closed short. Original total: ${original_total}, "
+            f"adjusted total: ${adjusted_total}. "
+            f"Line adjustments: {', '.join(adjustments)}. "
+            f"Reason: {reason}"
+        ),
+        old_value=old_status,
+        new_value="completed",
+        user_id=user_id,
+    )
+
+    logger.info(
+        "SO %s closed short: $%s → $%s (reason: %s)",
+        order.order_number, original_total, adjusted_total, reason,
+    )
+
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 def confirm_external_order(
     db: Session,
     order_id: int,

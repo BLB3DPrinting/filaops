@@ -119,6 +119,11 @@ class SalesOrder(Base):
     cancelled_at = Column(DateTime, nullable=True)
     cancellation_reason = Column(Text, nullable=True)
 
+    # Close Short (partial fulfillment accepted)
+    closed_short = Column(Boolean, nullable=False, default=False)
+    closed_short_at = Column(DateTime, nullable=True)
+    close_short_reason = Column(Text, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -198,6 +203,7 @@ class SalesOrderLine(Base):
     total = Column(Numeric(10, 2), nullable=False)  # quantity * unit_price - discount + tax
     allocated_quantity = Column(Numeric(10, 2), nullable=True, default=0)
     shipped_quantity = Column(Numeric(10, 2), nullable=True, default=0)
+    original_quantity = Column(Numeric(10, 2), nullable=True)  # Pre-edit quantity (NULL = never edited)
 
     # Notes
     notes = Column(Text, nullable=True)

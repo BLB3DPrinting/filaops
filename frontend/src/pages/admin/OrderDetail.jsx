@@ -67,6 +67,17 @@ export default function OrderDetail() {
   // Invoice generation state
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
+  // Line editing state
+  const [editingLineId, setEditingLineId] = useState(null);
+  const [editQty, setEditQty] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [savingLineEdit, setSavingLineEdit] = useState(false);
+
+  // Close short state
+  const [showCloseShortModal, setShowCloseShortModal] = useState(false);
+  const [closeShortReason, setCloseShortReason] = useState("");
+  const [closingShort, setClosingShort] = useState(false);
+
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
 
@@ -375,6 +386,51 @@ export default function OrderDetail() {
     }
   };
 
+  const canCloseShort = () => {
+    return order && ["confirmed", "in_production", "ready_to_ship", "on_hold"].includes(order.status);
+  };
+
+  const handleCloseShort = async () => {
+    if (!closeShortReason.trim()) return;
+    setClosingShort(true);
+    try {
+      await api.post(`/api/v1/sales-orders/${orderId}/close-short`, {
+        reason: closeShortReason,
+      });
+      toast.success(`Order ${order.order_number} closed short`);
+      setShowCloseShortModal(false);
+      setCloseShortReason("");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to close order short");
+    } finally {
+      setClosingShort(false);
+    }
+  };
+
+  const handleSaveLineEdit = async (lineId) => {
+    if (!editQty || !editReason.trim()) return;
+    setSavingLineEdit(true);
+    try {
+      await api.patch(`/api/v1/sales-orders/${orderId}/lines`, {
+        lines: [{ line_id: lineId, new_quantity: parseFloat(editQty), reason: editReason }],
+      });
+      toast.success("Line quantity updated");
+      setEditingLineId(null);
+      setEditQty("");
+      setEditReason("");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to update line");
+    } finally {
+      setSavingLineEdit(false);
+    }
+  };
+
+  const canEditLines = () => {
+    return order && ["confirmed", "in_production", "on_hold"].includes(order.status);
+  };
+
   const handleConfirmOrder = async () => {
     setConfirmingOrder(true);
     try {
@@ -584,6 +640,14 @@ export default function OrderDetail() {
               Cancel Order
             </button>
           )}
+          {canCloseShort() && (
+            <button
+              onClick={() => setShowCloseShortModal(true)}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
+            >
+              Close Short
+            </button>
+          )}
         </div>
       </div>
 
@@ -717,7 +781,14 @@ export default function OrderDetail() {
           </div>
           <div>
             <div className="text-sm text-gray-400">Status</div>
-            <div className="text-white font-medium">{order.status}</div>
+            <div className="text-white font-medium flex items-center gap-2">
+              {order.status}
+              {order.closed_short && (
+                <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Closed Short
+                </span>
+              )}
+            </div>
           </div>
           <div>
             <div className="text-sm text-gray-400">Total</div>
@@ -738,14 +809,16 @@ export default function OrderDetail() {
                 <th className="text-left py-2 px-3">Product</th>
                 <th className="text-left py-2 px-3">SKU</th>
                 <th className="text-right py-2 px-3">Qty</th>
+                <th className="text-right py-2 px-3">Shipped</th>
                 <th className="text-right py-2 px-3">Unit Price</th>
-                <th className="text-right py-2 px-3">Discount</th>
                 <th className="text-right py-2 px-3">Total</th>
+                {canEditLines() && <th className="text-center py-2 px-3 w-16"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {order.lines.map((line, idx) => {
-                const discount = parseFloat(line.discount || 0);
+                const isEditing = editingLineId === line.id;
+                const shipped = parseFloat(line.shipped_quantity || 0);
                 return (
                   <tr key={line.id || idx}>
                     <td className="py-2 px-3 text-white">
@@ -755,30 +828,85 @@ export default function OrderDetail() {
                       {line.product_sku || line.sku || "\u2014"}
                     </td>
                     <td className="py-2 px-3 text-right text-white">
-                      {line.quantity}
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editQty}
+                          onChange={(e) => setEditQty(e.target.value)}
+                          min={shipped}
+                          step="1"
+                          className="w-20 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="flex items-center justify-end gap-1">
+                          {line.original_quantity && parseFloat(line.original_quantity) !== parseFloat(line.quantity) && (
+                            <span className="text-gray-500 line-through text-xs">{line.original_quantity}</span>
+                          )}
+                          {line.quantity}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right text-gray-400">
+                      {shipped > 0 ? shipped : "\u2014"}
                     </td>
                     <td className="py-2 px-3 text-right text-gray-300">
                       ${parseFloat(line.unit_price || 0).toFixed(2)}
                     </td>
-                    <td className="py-2 px-3 text-right">
-                      {discount > 0 ? (
-                        <span className="text-green-400 font-medium">
-                          -{discount}%
-                        </span>
-                      ) : (
-                        <span className="text-gray-600">\u2014</span>
-                      )}
-                    </td>
                     <td className="py-2 px-3 text-right text-green-400 font-medium">
                       ${parseFloat(line.total || 0).toFixed(2)}
                     </td>
+                    {canEditLines() && (
+                      <td className="py-2 px-3 text-center">
+                        {isEditing ? (
+                          <div className="flex gap-1 justify-center">
+                            <button
+                              onClick={() => handleSaveLineEdit(line.id)}
+                              disabled={savingLineEdit || !editQty || !editReason.trim()}
+                              className="text-green-400 hover:text-green-300 disabled:opacity-50 text-xs"
+                              title="Save"
+                            >
+                              {savingLineEdit ? "..." : "\u2713"}
+                            </button>
+                            <button
+                              onClick={() => { setEditingLineId(null); setEditQty(""); setEditReason(""); }}
+                              className="text-gray-400 hover:text-white text-xs"
+                              title="Cancel"
+                            >
+                              \u2717
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setEditingLineId(line.id); setEditQty(String(line.quantity)); setEditReason(""); }}
+                            className="text-gray-500 hover:text-blue-400 text-xs"
+                            title="Edit quantity"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
+              {editingLineId && (
+                <tr>
+                  <td colSpan={canEditLines() ? 7 : 6} className="py-2 px-3">
+                    <input
+                      type="text"
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      placeholder="Reason for change (required)..."
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:border-blue-500"
+                    />
+                  </td>
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t border-gray-700">
-                <td colSpan={5} className="py-3 px-3 text-right text-white font-medium">
+                <td colSpan={canEditLines() ? 5 : 4} className="py-3 px-3 text-right text-white font-medium">
                   Order Total
                 </td>
                 <td className="py-3 px-3 text-right text-green-400 font-bold">
@@ -965,6 +1093,83 @@ export default function OrderDetail() {
           onDelete={handleDeleteOrder}
           onClose={() => setShowDeleteConfirm(false)}
         />
+      )}
+
+      {/* Close Short Modal */}
+      {showCloseShortModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCloseShortModal(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Close Order Short
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">
+              This will adjust line quantities to match actual shipped/produced amounts and mark the order as completed.
+            </p>
+
+            {order.lines && order.lines.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-3 mb-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-400 text-xs">
+                      <th className="text-left py-1">Product</th>
+                      <th className="text-right py-1">Ordered</th>
+                      <th className="text-right py-1">Produced</th>
+                      <th className="text-right py-1">Shipped</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700">
+                    {order.lines.map((line) => {
+                      const shipped = parseFloat(line.shipped_quantity || 0);
+                      // Match POs to lines: by sales_order_line_id first, then product_id
+                      const produced = productionOrders
+                        .filter((po) => po.sales_order_line_id === line.id || (!po.sales_order_line_id && po.product_id === line.product_id))
+                        .reduce((sum, po) => sum + parseFloat(po.quantity_completed || 0), 0);
+                      const actual = Math.max(shipped, produced);
+                      const isShort = actual < parseFloat(line.quantity);
+                      return (
+                        <tr key={line.id}>
+                          <td className="py-1 text-white text-xs">{line.product_name || line.material_name || "N/A"}</td>
+                          <td className="py-1 text-right text-white">{line.quantity}</td>
+                          <td className={`py-1 text-right ${isShort ? "text-amber-400" : "text-green-400"}`}>{produced || "\u2014"}</td>
+                          <td className="py-1 text-right text-gray-400">{shipped || "\u2014"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4">
+              <p className="text-amber-400 text-sm">
+                This action cannot be undone. The order will be completed with adjusted totals.
+              </p>
+            </div>
+
+            <textarea
+              value={closeShortReason}
+              onChange={(e) => setCloseShortReason(e.target.value)}
+              placeholder="Reason for closing short (required)..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 mb-4"
+              rows={2}
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowCloseShortModal(false); setCloseShortReason(""); }}
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCloseShort}
+                disabled={!closeShortReason.trim() || closingShort}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {closingShort ? "Closing..." : "Close Order Short"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Reject Order Modal */}

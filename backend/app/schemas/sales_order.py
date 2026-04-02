@@ -118,6 +118,23 @@ class SalesOrderCancel(BaseModel):
     cancellation_reason: str = Field(..., max_length=1000)
 
 
+class SalesOrderLineUpdate(BaseModel):
+    """Update a single line item quantity"""
+    line_id: int = Field(..., description="ID of the line to update")
+    new_quantity: Decimal = Field(..., gt=0, le=10000, description="New quantity (must be >= shipped quantity)")
+    reason: str = Field(..., min_length=1, max_length=500, description="Reason for the change")
+
+
+class SalesOrderEditLines(BaseModel):
+    """Edit one or more line quantities on a sales order"""
+    lines: List[SalesOrderLineUpdate] = Field(..., min_length=1)
+
+
+class SalesOrderCloseShort(BaseModel):
+    """Close an order short - accept partial fulfillment"""
+    reason: str = Field(..., min_length=1, max_length=1000, description="Reason for closing short")
+
+
 # ============================================================================
 # Response Schemas
 # ============================================================================
@@ -179,6 +196,9 @@ class SalesOrderLineResponse(BaseModel):
     unit_price: Decimal
     total: Decimal  # Matches model field name
     discount: Optional[Decimal] = Decimal("0")
+    allocated_quantity: Optional[Decimal] = Decimal("0")
+    shipped_quantity: Optional[Decimal] = Decimal("0")
+    original_quantity: Optional[Decimal] = None
     notes: Optional[str] = None
 
     class Config:
@@ -238,6 +258,11 @@ class SalesOrderResponse(SalesOrderBase):
     # Cancellation
     cancelled_at: Optional[datetime]
     cancellation_reason: Optional[str]
+
+    # Close Short
+    closed_short: Optional[bool] = False
+    closed_short_at: Optional[datetime] = None
+    close_short_reason: Optional[str] = None
 
     # Timestamps
     created_at: datetime

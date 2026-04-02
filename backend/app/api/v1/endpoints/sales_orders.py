@@ -29,6 +29,8 @@ from app.schemas.sales_order import (
     SalesOrderUpdateShipping,
     SalesOrderUpdateAddress,
     SalesOrderCancel,
+    SalesOrderEditLines,
+    SalesOrderCloseShort,
 )
 from app.schemas.order_event import (
     OrderEventCreate,
@@ -101,6 +103,10 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
                 quantity=line.quantity if line.quantity else Decimal("0"),
                 unit_price=line.unit_price,
                 total=line_total,
+                discount=line.discount or Decimal("0"),
+                allocated_quantity=line.allocated_quantity or Decimal("0"),
+                shipped_quantity=line.shipped_quantity or Decimal("0"),
+                original_quantity=line.original_quantity,
                 notes=line.notes,
             ))
 
@@ -150,6 +156,9 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
         "production_notes": order.production_notes,
         "cancelled_at": getattr(order, "cancelled_at", None),
         "cancellation_reason": order.cancellation_reason,
+        "closed_short": getattr(order, "closed_short", False),
+        "closed_short_at": getattr(order, "closed_short_at", None),
+        "close_short_reason": getattr(order, "close_short_reason", None),
         "created_at": order.created_at,
         "updated_at": order.updated_at,
         "confirmed_at": getattr(order, "confirmed_at", None),
@@ -808,6 +817,57 @@ async def cancel_sales_order(
     db.refresh(order)
 
     return order
+
+
+@router.patch("/{order_id}/lines", response_model=SalesOrderResponse)
+async def edit_order_lines(
+    order_id: int,
+    edit_request: SalesOrderEditLines,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Edit line item quantities on a sales order.
+
+    Admin only. Allowed on orders with status: confirmed, in_production, on_hold.
+    Cannot reduce quantity below already-shipped amount.
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    line_updates = [
+        {"line_id": ln.line_id, "new_quantity": ln.new_quantity, "reason": ln.reason}
+        for ln in edit_request.lines
+    ]
+
+    order = sales_order_service.edit_sales_order_lines(
+        db, order_id=order_id, line_updates=line_updates, user_id=current_user.id
+    )
+    return build_sales_order_response(order, db)
+
+
+@router.post("/{order_id}/close-short", response_model=SalesOrderResponse)
+async def close_short_order(
+    order_id: int,
+    close_request: SalesOrderCloseShort,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Close an order short — accept partial fulfillment and complete.
+
+    Admin only. Adjusts line quantities to actual shipped/produced amounts,
+    recalculates totals, and transitions to completed status.
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    order = sales_order_service.close_short_sales_order(
+        db, order_id=order_id, user_id=current_user.id, reason=close_request.reason
+    )
+    return build_sales_order_response(order, db)
 
 
 class RejectRequest(BaseModel):
