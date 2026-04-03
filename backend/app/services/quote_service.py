@@ -844,18 +844,26 @@ def delete_quote_image(db: Session, quote_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
-    """Generate a PDF for a quote using ReportLab. Returns the BytesIO buffer."""
+    """Generate a professional B2B quote PDF using ReportLab.
+
+    Layout: branded header bar, two-column info block (company | quote details),
+    clean line-item table with alternating rows, totals section, and footer with
+    validity + terms consolidated on one page.
+    """
     from xml.sax.saxutils import escape as _xml_escape
 
     def esc(value: str | None) -> str:
-        """Escape user-provided text for ReportLab Paragraph XML."""
         return _xml_escape(value) if value else ""
 
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
+        HRFlowable,
+    )
 
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
@@ -864,10 +872,9 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             detail=f"Quote {quote_id} not found"
         )
 
-    # Get company settings
     company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
-    # Currency symbol map for PDF rendering (Intl not available in Python)
+    # -- Currency formatting --
     _CURRENCY_SYMBOLS = {
         "USD": "$", "CAD": "CA$", "AUD": "A$", "NZD": "NZ$",
         "GBP": "\u00a3", "EUR": "\u20ac", "CHF": "CHF\u00a0",
@@ -881,219 +888,417 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     _sym = _CURRENCY_SYMBOLS.get(_currency, f"{_currency}\u00a0")
 
     def _fmt(amount: float) -> str:
-        """Format a monetary amount with the company currency symbol."""
-        # TODO: zero-decimal currencies (JPY, KRW) should use :,.0f — add when going international
         return f"{_sym}{amount:,.2f}"
 
-    # Create PDF buffer
+    # -- Brand colors --
+    BRAND_DARK = colors.HexColor('#0f172a')    # slate-900
+    BRAND_ACCENT = colors.HexColor('#2563eb')  # blue-600
+    BRAND_LIGHT = colors.HexColor('#f8fafc')   # slate-50
+    BRAND_BORDER = colors.HexColor('#e2e8f0')  # slate-200
+    BRAND_MUTED = colors.HexColor('#64748b')   # slate-500
+    ROW_STRIPE = colors.HexColor('#f1f5f9')    # slate-100
+
+    # -- PDF setup --
     pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    doc = SimpleDocTemplate(
+        pdf_buffer, pagesize=letter,
+        topMargin=0.4 * inch, bottomMargin=0.5 * inch,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+    )
+    page_width = letter[0] - 1.2 * inch  # usable width
 
-    # Styles
+    # -- Styles --
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#2563eb'))
-    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, textColor=colors.gray)
-    normal_style = styles['Normal']
-    small_style = ParagraphStyle('Small', parent=normal_style, fontSize=9)
+    s_normal = styles['Normal']
 
-    # Build content
+    s_quote_label = ParagraphStyle(
+        'QuoteLabel', parent=s_normal,
+        fontSize=28, fontName='Helvetica-Bold',
+        textColor=BRAND_DARK, spaceAfter=2,
+    )
+    s_quote_number = ParagraphStyle(
+        'QuoteNumber', parent=s_normal,
+        fontSize=11, textColor=BRAND_MUTED,
+    )
+    s_section = ParagraphStyle(
+        'Section', parent=s_normal,
+        fontSize=8, fontName='Helvetica-Bold',
+        textColor=BRAND_MUTED, spaceBefore=4, spaceAfter=4,
+        tracking=1.5,
+    )
+    s_company_name = ParagraphStyle(
+        'CompanyName', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_detail = ParagraphStyle(
+        'Detail', parent=s_normal,
+        fontSize=9, textColor=BRAND_MUTED, leading=13,
+    )
+    s_detail_right = ParagraphStyle(
+        'DetailRight', parent=s_detail, alignment=TA_RIGHT,
+    )
+    s_customer_name = ParagraphStyle(
+        'CustomerName', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_total_label = ParagraphStyle(
+        'TotalLabel', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
+    s_total_value = ParagraphStyle(
+        'TotalValue', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_ACCENT,
+        alignment=TA_RIGHT,
+    )
+    s_footer = ParagraphStyle(
+        'Footer', parent=s_normal,
+        fontSize=8, textColor=BRAND_MUTED, leading=11,
+    )
+    s_footer_center = ParagraphStyle(
+        'FooterCenter', parent=s_footer, alignment=TA_CENTER,
+    )
+    s_validity = ParagraphStyle(
+        'Validity', parent=s_normal,
+        fontSize=9, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        backColor=colors.HexColor('#eff6ff'),  # blue-50
+        borderPadding=(8, 12, 8, 12),
+    )
+    s_notes = ParagraphStyle(
+        'Notes', parent=s_normal,
+        fontSize=9, textColor=BRAND_DARK, leading=13,
+        borderPadding=(8, 10, 8, 10),
+        backColor=ROW_STRIPE,
+    )
+
     content = []
 
-    # Header with logo
+    # ================================================================
+    # HEADER — Logo + Company info (left) | Quote number + date (right)
+    # ================================================================
+    company_lines = []
+    if company_settings:
+        if company_settings.company_name:
+            company_lines.append(Paragraph(esc(company_settings.company_name), s_company_name))
+        addr_parts = []
+        if company_settings.company_address_line1:
+            addr_parts.append(esc(company_settings.company_address_line1))
+        city_state = ""
+        if company_settings.company_city:
+            city_state = esc(company_settings.company_city)
+        if company_settings.company_state:
+            city_state += f", {esc(company_settings.company_state)}"
+        if company_settings.company_zip:
+            city_state += f" {esc(company_settings.company_zip)}"
+        if city_state:
+            addr_parts.append(city_state)
+        if company_settings.company_phone:
+            addr_parts.append(esc(company_settings.company_phone))
+        if company_settings.company_email:
+            addr_parts.append(esc(company_settings.company_email))
+        if addr_parts:
+            company_lines.append(Paragraph("<br/>".join(addr_parts), s_detail))
+
+    # Left side: logo + company
+    left_header = []
     if company_settings and company_settings.logo_data:
         try:
             logo_buffer = io.BytesIO(company_settings.logo_data)
-            logo_img = Image(logo_buffer, width=1.5*inch, height=1.5*inch)
+            logo_img = Image(logo_buffer, width=1.2 * inch, height=1.2 * inch)
             logo_img.hAlign = 'LEFT'
-
-            # Company info for header
-            company_info = []
-            if company_settings.company_name:
-                company_info.append(f"<b>{esc(company_settings.company_name)}</b>")
-            if company_settings.company_address_line1:
-                company_info.append(esc(company_settings.company_address_line1))
-            if company_settings.company_city or company_settings.company_state:
-                city_state = f"{esc(company_settings.company_city or '')}, {esc(company_settings.company_state or '')} {esc(company_settings.company_zip or '')}".strip(", ")
-                company_info.append(city_state)
-            if company_settings.company_phone:
-                company_info.append(esc(company_settings.company_phone))
-            if company_settings.company_email:
-                company_info.append(esc(company_settings.company_email))
-
-            # Create header table with logo and company info
-            header_data = [[logo_img, Paragraph("<br/>".join(company_info), normal_style)]]
-            header_table = Table(header_data, colWidths=[2*inch, 4.5*inch])
-            header_table.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            logo_row = Table(
+                [[logo_img, company_lines]],
+                colWidths=[1.4 * inch, 2.4 * inch],
+            )
+            logo_row.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
-            content.append(header_table)
-            content.append(Spacer(1, 0.3*inch))
+            left_header.append(logo_row)
         except Exception:
-            # If logo fails, just continue without it
-            pass
-    elif company_settings and company_settings.company_name:
-        # No logo but have company name
-        content.append(Paragraph(f"<b>{esc(company_settings.company_name)}</b>", title_style))
-        content.append(Spacer(1, 0.2*inch))
+            left_header.extend(company_lines)
+    else:
+        left_header.extend(company_lines)
 
-    # Quote title, customer info, and optional image in a compact layout
-    # Build left column content (quote info + customer)
-    left_content = []
-    left_content.append(Paragraph("QUOTE", title_style))
-    left_content.append(Paragraph(f"<b>{esc(quote.quote_number)}</b>", normal_style))
-    left_content.append(Paragraph(f"Date: {quote.created_at.strftime('%B %d, %Y')}", normal_style))
-    left_content.append(Spacer(1, 0.15*inch))
-    left_content.append(Paragraph("CUSTOMER", heading_style))
-    left_content.append(Paragraph(f"<b>{esc(quote.customer_name or 'N/A')}</b>", normal_style))
+    # Right side: QUOTE label + number + date
+    right_header = [
+        Paragraph("QUOTE", s_quote_label),
+        Paragraph(esc(quote.quote_number), s_quote_number),
+        Spacer(1, 4),
+        Paragraph(f"Date: {quote.created_at.strftime('%B %d, %Y')}", s_detail_right),
+    ]
+    if quote.expires_at:
+        right_header.append(
+            Paragraph(f"Valid until: {quote.expires_at.strftime('%B %d, %Y')}", s_detail_right)
+        )
+
+    header_table = Table(
+        [[left_header, right_header]],
+        colWidths=[page_width * 0.55, page_width * 0.45],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+    ]))
+    content.append(header_table)
+    content.append(Spacer(1, 0.15 * inch))
+    content.append(HRFlowable(width="100%", thickness=1, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ================================================================
+    # CUSTOMER + QUOTE IMAGE (two-column if image exists)
+    # ================================================================
+    customer_block = [
+        Paragraph("PREPARED FOR", s_section),
+        Paragraph(esc(quote.customer_name or 'N/A'), s_customer_name),
+    ]
     if quote.customer_email:
-        left_content.append(Paragraph(esc(quote.customer_email), normal_style))
+        customer_block.append(Paragraph(esc(quote.customer_email), s_detail))
 
-    # If we have an image, create a two-column layout
     if quote.image_data:
         try:
             img_buffer = io.BytesIO(quote.image_data)
-            # Scale image to fit nicely - max 2 inches
-            quote_img = Image(img_buffer, width=2*inch, height=2*inch)
+            quote_img = Image(img_buffer, width=1.8 * inch, height=1.8 * inch)
             quote_img.hAlign = 'RIGHT'
-
-            # Create a table with quote info on left, image on right
-            info_table = Table(
-                [[left_content, quote_img]],
-                colWidths=[4.5*inch, 2.2*inch]
+            cust_table = Table(
+                [[customer_block, quote_img]],
+                colWidths=[page_width - 2.2 * inch, 2.2 * inch],
             )
-            info_table.setStyle(TableStyle([
+            cust_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
             ]))
-            content.append(info_table)
+            content.append(cust_table)
         except Exception:
-            # If image fails, just use the left content
-            for item in left_content:
+            for item in customer_block:
                 content.append(item)
     else:
-        # No image - just add left content
-        for item in left_content:
+        for item in customer_block:
             content.append(item)
 
-    content.append(Spacer(1, 0.2*inch))
+    content.append(Spacer(1, 0.25 * inch))
 
-    # Quote Details Table
-    content.append(Paragraph("QUOTE DETAILS", heading_style))
-    content.append(Spacer(1, 0.1*inch))
-
-    # Build line items — from quote.lines if multi-line, else from header
+    # ================================================================
+    # LINE ITEMS TABLE
+    # ================================================================
     if not hasattr(quote, '_sa_instance_state') or not quote.lines:
-        # Ensure lines are loaded
         db.refresh(quote)
 
     has_lines = quote.lines and len(quote.lines) > 0
 
-    table_data = [['Description', 'Material', 'Qty', 'Unit Price', 'Amount']]
+    # Check if any line has material info — hide column if all N/A
+    show_material = False
+    if has_lines:
+        for ql in quote.lines:
+            if ql.material_type or ql.color:
+                show_material = True
+                break
+    else:
+        if quote.material_type or quote.color:
+            show_material = True
+
+    # Table header style
+    th = ParagraphStyle('TH', parent=s_normal, fontSize=8, fontName='Helvetica-Bold', textColor=BRAND_MUTED)
+    th_right = ParagraphStyle('THRight', parent=th, alignment=TA_RIGHT)
+    td = ParagraphStyle('TD', parent=s_normal, fontSize=9, textColor=BRAND_DARK)
+    td_right = ParagraphStyle('TDRight', parent=td, alignment=TA_RIGHT)
+    td_bold = ParagraphStyle('TDBold', parent=td, fontName='Helvetica-Bold')
+    td_bold_right = ParagraphStyle('TDBoldRight', parent=td_bold, alignment=TA_RIGHT)
+    td_accent = ParagraphStyle('TDAccent', parent=td_bold_right, textColor=BRAND_ACCENT)
+    td_muted = ParagraphStyle('TDMuted', parent=td, textColor=BRAND_MUTED, fontSize=8)
+    td_muted_right = ParagraphStyle('TDMutedRight', parent=td_muted, alignment=TA_RIGHT)
+
+    if show_material:
+        headers = [
+            Paragraph('#', th),
+            Paragraph('ITEM', th),
+            Paragraph('MATERIAL', th),
+            Paragraph('QTY', th_right),
+            Paragraph('UNIT PRICE', th_right),
+            Paragraph('AMOUNT', th_right),
+        ]
+        col_widths = [0.3 * inch, 2.3 * inch, 1.3 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch]
+    else:
+        headers = [
+            Paragraph('#', th),
+            Paragraph('ITEM', th),
+            Paragraph('QTY', th_right),
+            Paragraph('UNIT PRICE', th_right),
+            Paragraph('AMOUNT', th_right),
+        ]
+        col_widths = [0.3 * inch, 3.4 * inch, 0.6 * inch, 1.1 * inch, 1.1 * inch]
+
+    table_data = [headers]
+    line_num = 0
 
     if has_lines:
         subtotal = Decimal("0")
         for ql in quote.lines:
+            line_num += 1
             mat_desc = esc(ql.material_type or '')
             if ql.color:
-                mat_desc += f" - {esc(ql.color)}" if mat_desc else esc(ql.color)
-            mat_desc = mat_desc or 'N/A'
+                mat_desc += f" {esc(ql.color)}" if mat_desc else esc(ql.color)
             line_total = float(ql.total)
             subtotal += ql.total
-            table_data.append([
-                esc(ql.product_name or 'Item'),
-                mat_desc,
-                str(ql.quantity),
-                _fmt(float(ql.unit_price)),
-                _fmt(line_total),
+            row = [
+                Paragraph(str(line_num), td_muted),
+                Paragraph(esc(ql.product_name or 'Item'), td),
+            ]
+            if show_material:
+                row.append(Paragraph(mat_desc or '\u2014', td_muted))
+            row.extend([
+                Paragraph(str(ql.quantity), td_right),
+                Paragraph(_fmt(float(ql.unit_price)), td_right),
+                Paragraph(_fmt(line_total), td_bold_right),
             ])
+            table_data.append(row)
         subtotal = float(subtotal)
     else:
-        material_desc = esc(quote.material_type or 'N/A')
+        line_num = 1
+        material_desc = esc(quote.material_type or '')
         if quote.color:
-            material_desc += f" - {esc(quote.color)}"
+            material_desc += f" {esc(quote.color)}"
         subtotal = float(quote.subtotal) if quote.subtotal else float(quote.unit_price or 0) * quote.quantity
-        table_data.append([
-            esc(quote.product_name or 'Custom Item'),
-            material_desc,
-            str(quote.quantity),
-            _fmt(float(quote.unit_price or 0)),
-            _fmt(subtotal),
+        row = [
+            Paragraph('1', td_muted),
+            Paragraph(esc(quote.product_name or 'Custom Item'), td),
+        ]
+        if show_material:
+            row.append(Paragraph(material_desc or '\u2014', td_muted))
+        row.extend([
+            Paragraph(str(quote.quantity), td_right),
+            Paragraph(_fmt(float(quote.unit_price or 0)), td_right),
+            Paragraph(_fmt(subtotal), td_bold_right),
+        ])
+        table_data.append(row)
+
+    num_cols = len(headers)
+    items_table = Table(table_data, colWidths=col_widths)
+
+    # Build table style
+    ts = [
+        # Header row
+        ('BACKGROUND', (0, 0), (-1, 0), BRAND_DARK),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        # Data rows
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        # Subtle grid
+        ('LINEBELOW', (0, 0), (-1, -2), 0.5, BRAND_BORDER),
+        ('LINEBELOW', (0, -1), (-1, -1), 0.5, BRAND_BORDER),
+        # Alignment
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]
+    # Alternating row stripes
+    for i in range(1, len(table_data)):
+        if i % 2 == 0:
+            ts.append(('BACKGROUND', (0, i), (-1, i), ROW_STRIPE))
+
+    items_table.setStyle(TableStyle(ts))
+    content.append(items_table)
+    content.append(Spacer(1, 0.15 * inch))
+
+    # ================================================================
+    # TOTALS — right-aligned summary block
+    # ================================================================
+    totals_data = []
+
+    totals_data.append([
+        Paragraph('Subtotal', td_muted_right),
+        Paragraph(_fmt(subtotal), td_right),
+    ])
+
+    if quote.discount_percent and float(quote.discount_percent) > 0:
+        totals_data.append([
+            Paragraph(f'Discount ({float(quote.discount_percent):.0f}%)', td_muted_right),
+            Paragraph('Applied per line', td_muted_right),
         ])
 
-    # Add subtotal row
-    table_data.append(['', '', '', 'Subtotal:', _fmt(subtotal)])
-
-    # Add discount row if applicable
-    if quote.discount_percent and float(quote.discount_percent) > 0:
-        table_data.append(['', '', '', f'Discount ({float(quote.discount_percent):.0f}%):', 'Applied per line'])
-
-    # Add tax row if applicable
     if quote.tax_rate and quote.tax_amount:
         tax_percent = float(quote.tax_rate) * 100
         tax_name = "Sales Tax"
         if company_settings and company_settings.tax_name:
             tax_name = esc(company_settings.tax_name)
-        table_data.append(['', '', '', f'{tax_name} ({tax_percent:.2f}%):', _fmt(float(quote.tax_amount))])
+        totals_data.append([
+            Paragraph(f'{tax_name} ({tax_percent:.2f}%)', td_muted_right),
+            Paragraph(_fmt(float(quote.tax_amount)), td_right),
+        ])
 
-    # Add shipping row if applicable
     if quote.shipping_cost and float(quote.shipping_cost) > 0:
-        table_data.append(['', '', '', 'Shipping:', _fmt(float(quote.shipping_cost))])
+        totals_data.append([
+            Paragraph('Shipping', td_muted_right),
+            Paragraph(_fmt(float(quote.shipping_cost)), td_right),
+        ])
 
-    # Add total row
-    table_data.append(['', '', '', 'TOTAL:', _fmt(float(quote.total_price or 0))])
+    # Total row
+    totals_data.append([
+        Paragraph('Total Due', s_total_label),
+        Paragraph(_fmt(float(quote.total_price or 0)), s_total_value),
+    ])
 
-    table = Table(table_data, colWidths=[2.5*inch, 1.5*inch, 0.5*inch, 1.2*inch, 0.8*inch])
-    table.setStyle(TableStyle([
-        # Header row
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        # Data rows
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-        # Total row (last row) - bold
-        ('FONTNAME', (3, -1), (-1, -1), 'Helvetica-Bold'),
-        ('LINEABOVE', (3, -1), (-1, -1), 1, colors.black),
-        # Grid
-        ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#e5e7eb')),
-        ('LINEBELOW', (0, 1), (-1, 1), 0.5, colors.HexColor('#e5e7eb')),
-        ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
-    ]))
-    content.append(table)
-    content.append(Spacer(1, 0.3*inch))
+    totals_width = 3.0 * inch
+    spacer_width = page_width - totals_width
+    totals_table = Table(
+        [[Spacer(spacer_width, 1), Table(
+            totals_data,
+            colWidths=[1.6 * inch, 1.4 * inch],
+            style=TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('LINEABOVE', (0, -1), (-1, -1), 1.5, BRAND_DARK),
+                ('TOPPADDING', (0, -1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, -1), (-1, -1), 4),
+            ]),
+        )]],
+        colWidths=[spacer_width, totals_width],
+    )
+    totals_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    content.append(totals_table)
+    content.append(Spacer(1, 0.3 * inch))
 
-    # Notes
+    # ================================================================
+    # NOTES (if any)
+    # ================================================================
     if quote.customer_notes:
-        content.append(Paragraph("NOTES", heading_style))
-        content.append(Paragraph(esc(quote.customer_notes), normal_style))
-        content.append(Spacer(1, 0.2*inch))
+        content.append(Paragraph("NOTES", s_section))
+        content.append(Paragraph(esc(quote.customer_notes), s_notes))
+        content.append(Spacer(1, 0.2 * inch))
 
-    # Validity
-    content.append(Spacer(1, 0.2*inch))
-    validity_style = ParagraphStyle('Validity', parent=normal_style, backColor=colors.HexColor('#fef3c7'), borderPadding=10)
-    content.append(Paragraph(
-        f"<b>Quote Valid Until:</b> {quote.expires_at.strftime('%B %d, %Y')}",
-        validity_style
-    ))
-    content.append(Spacer(1, 0.3*inch))
+    # ================================================================
+    # VALIDITY BANNER
+    # ================================================================
+    if quote.expires_at:
+        content.append(Paragraph(
+            f"This quote is valid until <b>{quote.expires_at.strftime('%B %d, %Y')}</b>. "
+            "To accept, please contact us referencing your quote number.",
+            s_validity,
+        ))
+        content.append(Spacer(1, 0.2 * inch))
 
-    # Terms (from company settings)
+    # ================================================================
+    # TERMS & CONDITIONS (compact)
+    # ================================================================
     if company_settings and company_settings.quote_terms:
-        content.append(Paragraph("TERMS &amp; CONDITIONS", heading_style))
-        content.append(Paragraph(esc(company_settings.quote_terms), small_style))
-        content.append(Spacer(1, 0.2*inch))
+        content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+        content.append(Spacer(1, 0.1 * inch))
+        content.append(Paragraph("TERMS &amp; CONDITIONS", s_section))
+        content.append(Paragraph(esc(company_settings.quote_terms), s_footer))
+        content.append(Spacer(1, 0.15 * inch))
 
-    # Footer
+    # ================================================================
+    # FOOTER
+    # ================================================================
+    content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.1 * inch))
     if company_settings and company_settings.quote_footer:
-        content.append(Paragraph(esc(company_settings.quote_footer), normal_style))
+        content.append(Paragraph(esc(company_settings.quote_footer), s_footer_center))
     else:
-        content.append(Paragraph("Thank you for your business!", normal_style))
-        content.append(Paragraph("To accept this quote, please contact us with your quote number.", normal_style))
+        content.append(Paragraph("Thank you for your business!", s_footer_center))
 
     # Build PDF
     doc.build(content)
     pdf_buffer.seek(0)
-
     return pdf_buffer
