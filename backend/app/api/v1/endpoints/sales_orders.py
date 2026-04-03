@@ -847,6 +847,21 @@ async def edit_order_lines(
     return build_sales_order_response(order, db)
 
 
+@router.get("/{order_id}/close-short-preview")
+async def close_short_preview(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Preview close-short: shows per-line achievable quantities and PO status.
+
+    Read-only. Returns breakdown for the close-short confirmation modal.
+    Includes unresolved PO warnings so the frontend can disable confirm.
+    """
+    order = sales_order_service.get_sales_order(db, order_id)
+    return sales_order_service._compute_close_short_quantities(db, order)
+
+
 @router.post("/{order_id}/close-short", response_model=SalesOrderResponse)
 async def close_short_order(
     order_id: int,
@@ -855,10 +870,10 @@ async def close_short_order(
     db: Session = Depends(get_db),
 ):
     """
-    Close an order short — accept partial fulfillment and complete.
+    Close an order short — accept partial fulfillment, transition to ready_to_ship.
 
-    Admin only. Adjusts line quantities to actual shipped/produced amounts,
-    recalculates totals, and transitions to completed status.
+    Admin only. Adjusts line quantities to actual produced/shipped amounts,
+    recalculates totals. All linked POs must be complete/cancelled first.
     """
     is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
     if not is_admin:

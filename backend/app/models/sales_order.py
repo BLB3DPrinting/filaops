@@ -204,6 +204,7 @@ class SalesOrderLine(Base):
     allocated_quantity = Column(Numeric(10, 2), nullable=True, default=0)
     shipped_quantity = Column(Numeric(10, 2), nullable=True, default=0)
     original_quantity = Column(Numeric(10, 2), nullable=True)  # Pre-edit quantity (NULL = never edited)
+    fulfillment_status = Column(String(20), nullable=True)  # null | "ready" | "short_closed"
 
     # Notes
     notes = Column(Text, nullable=True)

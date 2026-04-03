@@ -77,6 +77,8 @@ export default function OrderDetail() {
   const [showCloseShortModal, setShowCloseShortModal] = useState(false);
   const [closeShortReason, setCloseShortReason] = useState("");
   const [closingShort, setClosingShort] = useState(false);
+  const [closeShortPreview, setCloseShortPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
@@ -390,6 +392,19 @@ export default function OrderDetail() {
     return order && ["confirmed", "in_production", "ready_to_ship", "on_hold"].includes(order.status);
   };
 
+  const openCloseShortModal = async () => {
+    setShowCloseShortModal(true);
+    setLoadingPreview(true);
+    try {
+      const preview = await api.get(`/api/v1/sales-orders/${orderId}/close-short-preview`);
+      setCloseShortPreview(preview);
+    } catch (err) {
+      toast.error(err.message || "Failed to load close-short preview");
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   const handleCloseShort = async () => {
     if (!closeShortReason.trim()) return;
     setClosingShort(true);
@@ -397,10 +412,12 @@ export default function OrderDetail() {
       await api.post(`/api/v1/sales-orders/${orderId}/close-short`, {
         reason: closeShortReason,
       });
-      toast.success(`Order ${order.order_number} closed short`);
+      toast.success(`Order ${order.order_number} closed short → Ready to Ship`);
       setShowCloseShortModal(false);
       setCloseShortReason("");
+      setCloseShortPreview(null);
       fetchOrder();
+      fetchProductionOrders();
       refetchFulfillment();
     } catch (err) {
       toast.error(err.message || "Failed to close order short");
@@ -656,7 +673,7 @@ export default function OrderDetail() {
           )}
           {canCloseShort() && (
             <button
-              onClick={() => setShowCloseShortModal(true)}
+              onClick={openCloseShortModal}
               className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
             >
               Close Short
@@ -1112,56 +1129,72 @@ export default function OrderDetail() {
 
       {/* Close Short Modal */}
       {showCloseShortModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowCloseShortModal(false)}>
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setShowCloseShortModal(false); setCloseShortPreview(null); }}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">
               Close Order Short
             </h3>
             <p className="text-gray-400 text-sm mb-4">
-              This will adjust line quantities to match actual shipped/produced amounts and mark the order as completed.
+              This will adjust line quantities to match actual produced amounts and set the order to Ready to Ship.
             </p>
 
-            {order.lines && order.lines.length > 0 && (
+            {/* Unresolved PO warning */}
+            {closeShortPreview && !closeShortPreview.all_pos_resolved && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
+                <p className="text-red-400 text-sm font-medium mb-1">Production orders still unresolved</p>
+                <p className="text-red-400/80 text-xs">
+                  Accept short on these POs first: {closeShortPreview.unresolved_pos.join(", ")}
+                </p>
+              </div>
+            )}
+
+            {/* Preview table from backend */}
+            {loadingPreview ? (
+              <div className="bg-gray-800 rounded-lg p-4 mb-4 text-center text-gray-400 text-sm">Loading preview...</div>
+            ) : closeShortPreview?.lines ? (
               <div className="bg-gray-800 rounded-lg p-3 mb-4">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-gray-400 text-xs">
                       <th className="text-left py-1">Product</th>
                       <th className="text-right py-1">Ordered</th>
-                      <th className="text-right py-1">Produced</th>
-                      <th className="text-right py-1">Shipped</th>
+                      <th className="text-right py-1">Adjusted</th>
+                      <th className="text-left py-1 pl-3">Reason</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-700">
-                    {order.lines.map((line) => {
-                      const shipped = parseFloat(line.shipped_quantity || 0);
-                      // Match POs to lines: prefer sales_order_line_id, fall back to product_id (1:1 match only)
-                      const directPOs = productionOrders.filter((po) => po.sales_order_line_id === line.id);
-                      const legacyPO = directPOs.length === 0
-                        ? productionOrders.find((po) => !po.sales_order_line_id && po.product_id === line.product_id)
-                        : null;
-                      const produced = directPOs.length > 0
-                        ? directPOs.reduce((sum, po) => sum + parseFloat(po.quantity_completed || 0), 0)
-                        : parseFloat(legacyPO?.quantity_completed || 0);
-                      const actual = Math.max(shipped, produced);
-                      const isShort = actual < parseFloat(line.quantity);
-                      return (
-                        <tr key={line.id}>
-                          <td className="py-1 text-white text-xs">{line.product_name || line.material_name || "N/A"}</td>
-                          <td className="py-1 text-right text-white">{line.quantity}</td>
-                          <td className={`py-1 text-right ${isShort ? "text-amber-400" : "text-green-400"}`}>{produced || "\u2014"}</td>
-                          <td className="py-1 text-right text-gray-400">{shipped || "\u2014"}</td>
-                        </tr>
-                      );
-                    })}
+                    {closeShortPreview.lines.map((line) => (
+                      <tr key={line.line_id}>
+                        <td className="py-1.5 text-white text-xs">{line.product_name || line.product_sku || "N/A"}</td>
+                        <td className="py-1.5 text-right text-white">{line.ordered_qty}</td>
+                        <td className={`py-1.5 text-right font-medium ${line.will_adjust ? "text-amber-400" : "text-green-400"}`}>
+                          {line.achievable_qty}
+                        </td>
+                        <td className="py-1.5 text-left pl-3 text-gray-400 text-xs max-w-[200px] truncate">{line.reason}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+
+                {/* PO summary */}
+                {closeShortPreview.lines.some(l => l.linked_po_summary?.length > 0) && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <p className="text-xs text-gray-500 mb-1">Linked Production Orders:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[...new Map(closeShortPreview.lines.flatMap(l => l.linked_po_summary || []).map(po => [po.po_number, po])).values()].map(po => (
+                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${po.status === "complete" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
+                          {po.po_number}: {po.completed}/{po.ordered} ({po.status})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            ) : null}
 
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4">
               <p className="text-amber-400 text-sm">
-                This action cannot be undone. The order will be completed with adjusted totals.
+                This will adjust quantities and set the order to Ready to Ship. Ship through the normal flow after.
               </p>
             </div>
 
@@ -1174,14 +1207,14 @@ export default function OrderDetail() {
             />
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => { setShowCloseShortModal(false); setCloseShortReason(""); }}
+                onClick={() => { setShowCloseShortModal(false); setCloseShortReason(""); setCloseShortPreview(null); }}
                 className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCloseShort}
-                disabled={!closeShortReason.trim() || closingShort}
+                disabled={!closeShortReason.trim() || closingShort || (closeShortPreview && !closeShortPreview.all_pos_resolved)}
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {closingShort ? "Closing..." : "Close Order Short"}

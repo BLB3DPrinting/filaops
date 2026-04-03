@@ -172,6 +172,10 @@ def setup_database():
             "ALTER TABLE sales_order_lines "
             "ADD COLUMN IF NOT EXISTS original_quantity NUMERIC(10,2)"
         ))
+        conn.execute(text(
+            "ALTER TABLE sales_order_lines "
+            "ADD COLUMN IF NOT EXISTS fulfillment_status VARCHAR(20)"
+        ))
         conn.commit()
 
     # Seed required data

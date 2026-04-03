@@ -1361,28 +1361,162 @@ def edit_sales_order_lines(
     return order
 
 
+def _compute_close_short_quantities(
+    db: Session,
+    sales_order: SalesOrder,
+    location_id: int = None,
+) -> dict:
+    """Compute achievable quantities for each SO line for close-short.
+
+    Per-line logic:
+      1. If line has linked POs: achievable = sum of linked PO quantity_completed
+      2. Fallback: achievable = product's available FG inventory
+      3. Cap at ordered_qty (no upward adjustment)
+      4. Floor at shipped_qty (never reduce below what's already shipped)
+
+    Does NOT walk BOM children — by the time close-short runs, assembly POs
+    have already consumed components and receipted FG. Checking component
+    inventory would give 0 (consumed). BOM breakdown in the UI is
+    informational only, sourced from PO history.
+
+    Returns dict with per-line breakdown for the preview modal.
+    """
+    from app.models.inventory import Inventory
+
+    if location_id is None:
+        from app.services.inventory_service import get_or_create_default_location
+        location_id = get_or_create_default_location(db).id
+
+    lines = db.query(SalesOrderLine).filter(
+        SalesOrderLine.sales_order_id == sales_order.id
+    ).all()
+
+    # Get all linked POs for this SO
+    linked_pos = db.query(ProductionOrder).filter(
+        ProductionOrder.sales_order_id == sales_order.id
+    ).all()
+
+    # Check for unresolved POs
+    unresolved = [po for po in linked_pos if po.status not in ("complete", "cancelled")]
+
+    # Build PO completion maps
+    po_completed_by_line = {}
+    po_completed_by_product = {}
+    po_summary_by_line = {}
+    po_summary_by_product = {}
+    for po in linked_pos:
+        completed = Decimal(str(getattr(po, "quantity_completed", None) or 0))
+        ordered = Decimal(str(po.quantity_ordered or 0))
+        summary = {
+            "po_number": po.code,
+            "ordered": str(ordered),
+            "completed": str(completed),
+            "status": po.status,
+        }
+        line_id = getattr(po, "sales_order_line_id", None)
+        if line_id:
+            po_completed_by_line[line_id] = (
+                po_completed_by_line.get(line_id, Decimal("0")) + completed
+            )
+            po_summary_by_line.setdefault(line_id, []).append(summary)
+        if po.product_id:
+            po_completed_by_product[po.product_id] = (
+                po_completed_by_product.get(po.product_id, Decimal("0")) + completed
+            )
+            po_summary_by_product.setdefault(po.product_id, []).append(summary)
+
+    # Look up product names for display
+    product_ids = {line.product_id for line in lines if line.product_id}
+    products_by_id = {}
+    if product_ids:
+        products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+        products_by_id = {p.id: p for p in products}
+
+    line_results = []
+    for line in lines:
+        ordered_qty = Decimal(str(line.quantity or 0))
+        shipped_qty = Decimal(str(line.shipped_quantity or 0))
+        product = products_by_id.get(line.product_id)
+
+        # 1. Try linked PO completion (by line_id, then product_id fallback)
+        produced = po_completed_by_line.get(line.id, Decimal("0"))
+        po_summaries = po_summary_by_line.get(line.id, [])
+        if produced == 0 and line.product_id:
+            produced = po_completed_by_product.get(line.product_id, Decimal("0"))
+            po_summaries = po_summary_by_product.get(line.product_id, [])
+
+        # 2. Fallback: check FG inventory if no POs linked
+        if produced == 0 and not po_summaries and line.product_id:
+            inv = db.query(Inventory).filter(
+                Inventory.product_id == line.product_id,
+                Inventory.location_id == location_id,
+            ).first()
+            if inv:
+                produced = Decimal(str(inv.available_quantity or 0))
+
+        # 3. Cap at ordered (no upward), floor at shipped (never reduce below shipped)
+        achievable = min(produced, ordered_qty)
+        achievable = max(achievable, shipped_qty)
+
+        # Determine reason
+        if achievable == ordered_qty:
+            reason = "Fully produced"
+        elif po_summaries:
+            short_pos = [p for p in po_summaries if Decimal(p["completed"]) < Decimal(p["ordered"])]
+            if short_pos:
+                po = short_pos[0]
+                reason = f"Limited by PO {po['po_number']}: produced {po['completed']} of {po['ordered']}"
+            else:
+                reason = f"Produced {produced} of {ordered_qty}"
+        else:
+            reason = f"Available inventory: {produced}"
+
+        line_results.append({
+            "line_id": line.id,
+            "product_id": line.product_id,
+            "product_sku": product.sku if product else None,
+            "product_name": product.name if product else None,
+            "ordered_qty": str(ordered_qty),
+            "shipped_qty": str(shipped_qty),
+            "achievable_qty": str(achievable),
+            "will_adjust": achievable != ordered_qty,
+            "reason": reason,
+            "linked_po_summary": po_summaries,
+        })
+
+    return {
+        "sales_order_id": sales_order.id,
+        "order_number": sales_order.order_number,
+        "lines": line_results,
+        "all_pos_resolved": len(unresolved) == 0,
+        "unresolved_pos": [po.code for po in unresolved],
+        "hold_id": None,  # Future: concurrency lock identifier
+    }
+
+
 def close_short_sales_order(
     db: Session,
     order_id: int,
     user_id: int,
     reason: str,
 ) -> SalesOrder:
-    """Close an order short — accept partial fulfillment and complete.
+    """Close an order short — accept partial fulfillment.
 
-    Adjusts each line's quantity to the actual shipped/produced amount,
-    recalculates totals, and transitions the order to 'completed'.
+    Adjusts each line's quantity to the actual produced/shipped amount,
+    recalculates totals, and transitions to 'ready_to_ship' so the admin
+    can ship through the normal flow. COGS entries happen at shipment.
 
-    Args:
-        order_id: Order to close short
-        user_id: Admin user performing the action
-        reason: Reason for closing short
+    Guards:
+    - All linked POs must be complete or cancelled (accept-short first)
+    - Order must be in an allowed status
+
+    Writes a CloseShortRecord for audit traceability.
 
     Returns:
-        Updated SalesOrder (status = completed, closed_short = True)
-
-    Raises:
-        HTTPException: If order status doesn't allow close-short
+        Updated SalesOrder (status = ready_to_ship, closed_short = True)
     """
+    from app.models.close_short_record import CloseShortRecord
+
     order = get_sales_order(db, order_id)
 
     if order.status not in CLOSE_SHORT_STATUSES:
@@ -1392,73 +1526,106 @@ def close_short_sales_order(
                    f"Allowed statuses: {', '.join(sorted(CLOSE_SHORT_STATUSES))}"
         )
 
+    # PO completion guard: all linked POs must be resolved first
+    unresolved_pos = db.query(ProductionOrder).filter(
+        ProductionOrder.sales_order_id == order_id,
+        ProductionOrder.status.notin_(["complete", "cancelled"]),
+    ).all()
+    if unresolved_pos:
+        po_numbers = [po.code for po in unresolved_pos]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot close short: production orders still unresolved: "
+                   f"{', '.join(po_numbers)}. Accept short on all production "
+                   f"orders first."
+        )
+
+    # Compute achievable quantities using the helper
+    preview = _compute_close_short_quantities(db, order)
+
     lines = db.query(SalesOrderLine).filter(
         SalesOrderLine.sales_order_id == order_id
     ).all()
-
-    # Determine actual quantities from production orders
-    linked_pos = db.query(ProductionOrder).filter(
-        ProductionOrder.sales_order_id == order_id
-    ).all()
-
-    # Build two maps for PO completed quantities:
-    # 1. By sales_order_line_id (preferred, direct linkage)
-    # 2. By product_id (fallback for legacy POs without line linkage)
-    po_completed_by_line = {}
-    po_completed_by_product = {}
-    for po in linked_pos:
-        completed = getattr(po, "quantity_completed", None) or Decimal("0")
-        line_id = getattr(po, "sales_order_line_id", None)
-        if line_id:
-            po_completed_by_line[line_id] = (
-                po_completed_by_line.get(line_id, Decimal("0")) + completed
-            )
-        if po.product_id:
-            po_completed_by_product[po.product_id] = (
-                po_completed_by_product.get(po.product_id, Decimal("0")) + completed
-            )
+    lines_by_id = {line.id: line for line in lines}
 
     original_total = order.grand_total
     adjustments = []
+    line_audit = []
 
-    for line in lines:
+    for line_data in preview["lines"]:
+        line = lines_by_id.get(line_data["line_id"])
+        if not line:
+            continue
+
         old_qty = line.quantity
-        shipped = line.shipped_quantity or Decimal("0")
-        # Try direct line linkage first, fall back to product_id match
-        produced = po_completed_by_line.get(line.id, Decimal("0"))
-        if produced == 0 and line.product_id:
-            produced = po_completed_by_product.get(
-                line.product_id, Decimal("0")
-            )
+        achievable = Decimal(line_data["achievable_qty"])
 
-        # Use the greater of shipped or produced as actual quantity
-        actual_qty = max(shipped, produced)
-
-        # If nothing shipped/produced, keep original (close-short still allowed
-        # for partial orders where some lines are fully done and others aren't)
-        if actual_qty <= 0:
-            actual_qty = old_qty
-
-        if actual_qty != old_qty:
+        if achievable != old_qty:
             if line.original_quantity is None:
                 line.original_quantity = old_qty
-            line.quantity = actual_qty
+            line.quantity = achievable
             discount = line.discount or Decimal("0")
-            line.total = (actual_qty * line.unit_price - discount).quantize(Decimal("0.01"))
-            adjustments.append(f"{old_qty} → {actual_qty}")
+            line.total = (achievable * line.unit_price - discount).quantize(Decimal("0.01"))
+            line.fulfillment_status = "short_closed"
+            adjustments.append(f"{old_qty} → {achievable}")
         else:
+            line.fulfillment_status = "ready"
             adjustments.append(f"{old_qty} (unchanged)")
+
+        line_audit.append({
+            "line_id": line.id,
+            "before_qty": str(old_qty),
+            "after_qty": str(achievable),
+            "reason": line_data["reason"],
+        })
 
     _recalculate_order_totals(db, order)
 
     old_status = order.status
-    order.status = "completed"
-    order.actual_completion_date = datetime.now(timezone.utc)
+    order.status = "ready_to_ship"
     order.closed_short = True
     order.closed_short_at = datetime.now(timezone.utc)
     order.close_short_reason = reason
 
     adjusted_total = order.grand_total
+
+    # Write CloseShortRecord audit trail
+    # Capture inventory snapshot for audit
+    from app.models.inventory import Inventory
+    inv_snapshot = []
+    product_ids = {line.product_id for line in lines if line.product_id}
+    for pid in product_ids:
+        invs = db.query(Inventory).filter(Inventory.product_id == pid).all()
+        for inv in invs:
+            inv_snapshot.append({
+                "product_id": pid,
+                "location_id": inv.location_id,
+                "on_hand": str(inv.on_hand_quantity or 0),
+                "allocated": str(inv.allocated_quantity or 0),
+                "available": str(inv.available_quantity or 0),
+            })
+
+    audit_record = CloseShortRecord(
+        entity_type="sales_order",
+        entity_id=order_id,
+        performed_by=user_id,
+        reason=reason,
+        line_adjustments=line_audit,
+        linked_po_states=[
+            {
+                "po_id": po.id,
+                "po_number": po.code,
+                "status": po.status,
+                "ordered": str(po.quantity_ordered),
+                "completed": str(po.quantity_completed or 0),
+            }
+            for po in db.query(ProductionOrder).filter(
+                ProductionOrder.sales_order_id == order_id
+            ).all()
+        ],
+        inventory_snapshot=inv_snapshot,
+    )
+    db.add(audit_record)
 
     record_order_event(
         db=db,
@@ -1472,12 +1639,12 @@ def close_short_sales_order(
             f"Reason: {reason}"
         ),
         old_value=old_status,
-        new_value="completed",
+        new_value="ready_to_ship",
         user_id=user_id,
     )
 
     logger.info(
-        "SO %s closed short: $%s → $%s (reason: %s)",
+        "SO %s closed short: $%s → $%s → ready_to_ship (reason: %s)",
         order.order_number, original_total, adjusted_total, reason,
     )
 
