@@ -612,6 +612,11 @@ class ProductionOrderCompleteRequest(BaseModel):
         }
 
 
+class AcceptShortRequest(BaseModel):
+    """Request body for accepting a production order short."""
+    notes: Optional[str] = Field(None, max_length=2000, description="Reason for accepting short")
+
+
 # ============================================================================
 # Operation-Level Scrap Schemas
 # ============================================================================

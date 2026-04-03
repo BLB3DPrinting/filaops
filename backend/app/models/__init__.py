@@ -41,6 +41,9 @@ from app.models.invoice import Invoice, InvoiceLine
 # Notifications
 from app.models.notification import Notification
 
+# Close Short Audit
+from app.models.close_short_record import CloseShortRecord
+
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
@@ -131,4 +134,6 @@ __all__ = [
     "InvoiceLine",
     # Notifications
     "Notification",
+    # Close Short Audit
+    "CloseShortRecord",
 ]

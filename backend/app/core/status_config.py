@@ -20,6 +20,7 @@ class ProductionOrderStatus(str, Enum):
     RELEASED = "released"
     IN_PROGRESS = "in_progress"
     ON_HOLD = "on_hold"
+    SHORT = "short"  # Produced less than ordered, awaiting accept-short decision
     COMPLETE = "complete"
     CANCELLED = "cancelled"
     SPLIT = "split"  # Order was split into child orders
@@ -40,12 +41,17 @@ PRODUCTION_ORDER_TRANSITIONS: Dict[str, Set[str]] = {
     ProductionOrderStatus.IN_PROGRESS: {
         ProductionOrderStatus.ON_HOLD,
         ProductionOrderStatus.COMPLETE,
+        ProductionOrderStatus.SHORT,
         ProductionOrderStatus.CANCELLED,
         ProductionOrderStatus.SPLIT,
     },
     ProductionOrderStatus.ON_HOLD: {
         ProductionOrderStatus.RELEASED,
         ProductionOrderStatus.IN_PROGRESS,
+        ProductionOrderStatus.CANCELLED,
+    },
+    ProductionOrderStatus.SHORT: {
+        ProductionOrderStatus.COMPLETE,  # Accept short → complete
         ProductionOrderStatus.CANCELLED,
     },
     ProductionOrderStatus.COMPLETE: set(),  # Terminal state - no transitions allowed

@@ -49,6 +49,7 @@ from app.schemas.production_order import (
     CostBreakdownResponse,
     SpoolListItem,
     SpoolAssignmentResponse,
+    AcceptShortRequest,
 )
 from app.core.status_config import (
     ProductionOrderStatus,
@@ -623,6 +624,28 @@ async def complete_production_order(
         quantity_scrapped=int(request.quantity_scrapped or 0),
         force_close_short=request.force_close_short,
         notes=request.notes,
+    )
+
+    db.commit()
+    db.refresh(order)
+
+    return build_production_order_response(order, db)
+
+
+@router.post("/{order_id}/accept-short", response_model=ProductionOrderResponse)
+async def accept_short(
+    order_id: int,
+    request: Optional[AcceptShortRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProductionOrderResponse:
+    """Accept a production order short — complete it with the quantity already produced."""
+    order = production_order_service.accept_short_production_order(
+        db,
+        order_id,
+        user_email=current_user.email,
+        user_id=current_user.id,
+        notes=request.notes if request else None,
     )
 
     db.commit()

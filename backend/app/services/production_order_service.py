@@ -431,7 +431,7 @@ def complete_production_order(
     if order.status == "complete":
         return order
 
-    if order.status not in ["in_progress", "released"]:
+    if order.status not in ["in_progress", "released", "short"]:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot complete order in {order.status} status"
@@ -489,6 +489,144 @@ def complete_production_order(
             order.notes = f"{order.notes}\n[{datetime.now(timezone.utc).isoformat()}] {notes}"
         else:
             order.notes = f"[{datetime.now(timezone.utc).isoformat()}] {notes}"
+
+    return order
+
+
+def accept_short_production_order(
+    db: Session,
+    order_id: int,
+    user_email: str,
+    user_id: int,
+    notes: Optional[str] = None,
+) -> ProductionOrder:
+    """Accept a production order short — complete it with the quantity already produced.
+
+    When all operations finish but quantity_completed < quantity_ordered, the PO
+    enters "short" status. No inventory transactions have happened yet at that point.
+    Accept-short processes inventory for the actual completed quantity and sets
+    the PO to "complete", unblocking downstream SO close-short.
+
+    Inventory actions:
+    - Releases all material reservations (allocated_quantity freed)
+    - Consumes materials for quantity_completed (BOM-proportional)
+    - Receipts quantity_completed as finished goods (not quantity_ordered)
+    - GL entries: DR 1220 Finished Goods / CR 1210 WIP
+    """
+    from app.services.inventory_service import (
+        consume_production_materials,
+        get_or_create_default_location,
+        create_inventory_transaction,
+        get_effective_cost_per_inventory_unit,
+    )
+    from app.models.close_short_record import CloseShortRecord
+
+    order = get_production_order(db, order_id)
+
+    # Guard: must be in a completable state
+    if order.status not in ["short", "in_progress"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot accept short on order in '{order.status}' status. "
+                   f"Order must be 'short' or 'in_progress'."
+        )
+
+    # Guard: must have produced something but less than ordered
+    qty_completed = int(order.quantity_completed or 0)
+    if qty_completed <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot accept short: no units have been completed."
+        )
+    if qty_completed >= order.quantity_ordered:
+        raise HTTPException(
+            status_code=400,
+            detail="Order is already fully completed — use the complete action instead."
+        )
+
+    # NOTE: Between accepting short on a component PO and its parent assembly PO,
+    # component available_quantity may be temporarily negative. This is expected —
+    # the assembly PO still holds reservations based on original ordered qty.
+    # The negative window resolves when the assembly PO is accepted-short.
+    # If this becomes a product feature, consider batch accept-short that resolves
+    # the full PO chain in a single transaction.
+
+    # Capture pre-action inventory state for audit record
+    product_inv = db.query(Inventory).filter(
+        Inventory.product_id == order.product_id
+    ).first()
+    inv_snapshot = []
+    if product_inv:
+        inv_snapshot.append({
+            "product_id": order.product_id,
+            "on_hand": float(product_inv.on_hand_quantity or 0),
+            "allocated": float(product_inv.allocated_quantity or 0),
+            "available": float(product_inv.available_quantity or 0),
+        })
+
+    # Process inventory for the actual completed quantity:
+    # 1. Release reservations and consume materials for qty_completed
+    consume_production_materials(
+        db=db,
+        production_order=order,
+        quantity_completed=Decimal(str(qty_completed)),
+        created_by=user_email,
+        release_reservations=True,
+    )
+
+    # 2. Receipt finished goods for qty_completed (NOT quantity_ordered)
+    #    We call create_inventory_transaction directly instead of receive_finished_goods
+    #    because receive_finished_goods always receipts quantity_ordered.
+    product = db.query(Product).filter(Product.id == order.product_id).first()
+    location = get_or_create_default_location(db)
+    if product:
+        create_inventory_transaction(
+            db=db,
+            product_id=order.product_id,
+            location_id=location.id,
+            transaction_type="receipt",
+            quantity=Decimal(str(qty_completed)),
+            reference_type="production_order",
+            reference_id=order.id,
+            notes=f"Accept short PO#{order.code}: {qty_completed} of {order.quantity_ordered} produced",
+            cost_per_unit=get_effective_cost_per_inventory_unit(product),
+            created_by=user_email,
+        )
+
+    # 3. Transition to complete
+    order.status = "complete"
+    order.completed_at = datetime.now(timezone.utc)
+    order.actual_end = datetime.now(timezone.utc)
+
+    # Complete any remaining operations
+    for op in order.operations:
+        if op.status != "complete":
+            op.status = "complete"
+            if not op.actual_end:
+                op.actual_end = datetime.now(timezone.utc)
+
+    # Append notes
+    if notes:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        if order.notes:
+            order.notes = f"{order.notes}\n[{timestamp}] Accepted short: {notes}"
+        else:
+            order.notes = f"[{timestamp}] Accepted short: {notes}"
+
+    # Write audit record
+    audit_record = CloseShortRecord(
+        entity_type="production_order",
+        entity_id=order_id,
+        performed_by=user_id,
+        reason=notes,
+        line_adjustments=[{
+            "before_qty": float(order.quantity_ordered),
+            "after_qty": float(qty_completed),
+            "reason": f"Accepted short: {qty_completed} of {order.quantity_ordered} produced",
+        }],
+        inventory_snapshot=inv_snapshot,
+    )
+    db.add(audit_record)
 
     return order
 

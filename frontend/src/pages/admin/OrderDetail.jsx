@@ -445,6 +445,17 @@ export default function OrderDetail() {
     }
   };
 
+  const handleAcceptShortPO = async (po) => {
+    if (!confirm(`Accept short on ${po.code || `WO-${po.id}`}? This will complete it with ${po.quantity_completed}/${po.quantity_ordered} units.`)) return;
+    try {
+      await api.post(`/api/v1/production-orders/${po.id}/accept-short`);
+      toast.success(`${po.code || `WO-${po.id}`} accepted short (${po.quantity_completed}/${po.quantity_ordered})`);
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to accept short");
+    }
+  };
+
   const [rejectingOrder, setRejectingOrder] = useState(false);
 
   const handleRejectOrder = async () => {
@@ -1025,6 +1036,7 @@ export default function OrderDetail() {
                   onViewInProduction={() =>
                     navigate(`/admin/production?search=${encodeURIComponent(po.code || `WO-${po.id}`)}`)
                   }
+                  onAcceptShort={handleAcceptShortPO}
                 />
               ))}
             </div>
