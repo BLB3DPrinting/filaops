@@ -208,8 +208,8 @@ class TestAcceptShortSuccess:
         )
         assert "Material shortage" in (result.notes or "")
 
-    def test_in_progress_with_partial_completion(self, db, make_product, make_production_order):
-        """Accept short also works from 'in_progress' status (not just 'short')."""
+    def test_rejects_in_progress_status(self, db, make_product, make_production_order):
+        """Accept short requires 'short' status — 'in_progress' must use /complete."""
         product = make_product(
             item_type="finished_good", unit="EA",
             cost_method="standard", standard_cost=Decimal("5.00"),
@@ -220,7 +220,9 @@ class TestAcceptShortSuccess:
         )
         db.flush()
 
-        result = svc.accept_short_production_order(
-            db, po.id, "test@filaops.dev", user_id=1,
-        )
-        assert result.status == "complete"
+        with pytest.raises(HTTPException) as exc_info:
+            svc.accept_short_production_order(
+                db, po.id, "test@filaops.dev", user_id=1,
+            )
+        assert exc_info.value.status_code == 400
+        assert "short" in str(exc_info.value.detail).lower()

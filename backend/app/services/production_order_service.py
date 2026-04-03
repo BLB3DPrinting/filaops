@@ -431,7 +431,12 @@ def complete_production_order(
     if order.status == "complete":
         return order
 
-    if order.status not in ["in_progress", "released", "short"]:
+    if order.status == "short":
+        raise HTTPException(
+            status_code=400,
+            detail="Order is in short status. Use the accept-short action to complete it."
+        )
+    if order.status not in ["in_progress", "released"]:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot complete order in {order.status} status"
@@ -522,12 +527,12 @@ def accept_short_production_order(
 
     order = get_production_order(db, order_id)
 
-    # Guard: must be in a completable state
-    if order.status not in ["short", "in_progress"]:
+    # Guard: must be in "short" status (all operations finished, qty < ordered)
+    if order.status != "short":
         raise HTTPException(
             status_code=400,
             detail=f"Cannot accept short on order in '{order.status}' status. "
-                   f"Order must be 'short' or 'in_progress'."
+                   f"Order must be in 'short' status."
         )
 
     # Guard: must have produced something but less than ordered
