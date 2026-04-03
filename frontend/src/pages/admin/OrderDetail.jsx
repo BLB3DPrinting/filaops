@@ -451,6 +451,7 @@ export default function OrderDetail() {
       await api.post(`/api/v1/production-orders/${po.id}/accept-short`);
       toast.success(`${po.code || `WO-${po.id}`} accepted short (${po.quantity_completed}/${po.quantity_ordered})`);
       fetchOrder();
+      fetchProductionOrders();
     } catch (err) {
       toast.error(err.message || "Failed to accept short");
     }

@@ -509,9 +509,8 @@ def accept_short_production_order(
 
     Inventory actions:
     - Releases all material reservations (allocated_quantity freed)
-    - Consumes materials for quantity_completed (BOM-proportional)
+    - Consumes materials for quantity_completed (BOM-proportional, may create GL via consume path)
     - Receipts quantity_completed as finished goods (not quantity_ordered)
-    - GL entries: DR 1220 Finished Goods / CR 1210 WIP
     """
     from app.services.inventory_service import (
         consume_production_materials,
@@ -532,13 +531,14 @@ def accept_short_production_order(
         )
 
     # Guard: must have produced something but less than ordered
-    qty_completed = int(order.quantity_completed or 0)
+    qty_completed = Decimal(str(order.quantity_completed or 0))
+    qty_ordered = Decimal(str(order.quantity_ordered))
     if qty_completed <= 0:
         raise HTTPException(
             status_code=400,
             detail="Cannot accept short: no units have been completed."
         )
-    if qty_completed >= order.quantity_ordered:
+    if qty_completed >= qty_ordered:
         raise HTTPException(
             status_code=400,
             detail="Order is already fully completed — use the complete action instead."
@@ -551,25 +551,27 @@ def accept_short_production_order(
     # If this becomes a product feature, consider batch accept-short that resolves
     # the full PO chain in a single transaction.
 
-    # Capture pre-action inventory state for audit record
-    product_inv = db.query(Inventory).filter(
+    # Capture pre-action inventory state for audit record (all locations)
+    product_invs = db.query(Inventory).filter(
         Inventory.product_id == order.product_id
-    ).first()
-    inv_snapshot = []
-    if product_inv:
-        inv_snapshot.append({
+    ).all()
+    inv_snapshot = [
+        {
             "product_id": order.product_id,
-            "on_hand": float(product_inv.on_hand_quantity or 0),
-            "allocated": float(product_inv.allocated_quantity or 0),
-            "available": float(product_inv.available_quantity or 0),
-        })
+            "location_id": inv.location_id,
+            "on_hand": float(inv.on_hand_quantity or 0),
+            "allocated": float(inv.allocated_quantity or 0),
+            "available": float(inv.available_quantity or 0),
+        }
+        for inv in product_invs
+    ]
 
     # Process inventory for the actual completed quantity:
     # 1. Release reservations and consume materials for qty_completed
     consume_production_materials(
         db=db,
         production_order=order,
-        quantity_completed=Decimal(str(qty_completed)),
+        quantity_completed=qty_completed,
         created_by=user_email,
         release_reservations=True,
     )
@@ -578,20 +580,24 @@ def accept_short_production_order(
     #    We call create_inventory_transaction directly instead of receive_finished_goods
     #    because receive_finished_goods always receipts quantity_ordered.
     product = db.query(Product).filter(Product.id == order.product_id).first()
-    location = get_or_create_default_location(db)
-    if product:
-        create_inventory_transaction(
-            db=db,
-            product_id=order.product_id,
-            location_id=location.id,
-            transaction_type="receipt",
-            quantity=Decimal(str(qty_completed)),
-            reference_type="production_order",
-            reference_id=order.id,
-            notes=f"Accept short PO#{order.code}: {qty_completed} of {order.quantity_ordered} produced",
-            cost_per_unit=get_effective_cost_per_inventory_unit(product),
-            created_by=user_email,
+    if not product:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Product {order.product_id} not found for production order {order.code}"
         )
+    location = get_or_create_default_location(db)
+    create_inventory_transaction(
+        db=db,
+        product_id=order.product_id,
+        location_id=location.id,
+        transaction_type="receipt",
+        quantity=qty_completed,
+        reference_type="production_order",
+        reference_id=order.id,
+        notes=f"Accept short PO#{order.code}: {qty_completed} of {qty_ordered} produced",
+        cost_per_unit=get_effective_cost_per_inventory_unit(product),
+        created_by=user_email,
+    )
 
     # 3. Transition to complete
     order.status = "complete"
@@ -620,9 +626,9 @@ def accept_short_production_order(
         performed_by=user_id,
         reason=notes,
         line_adjustments=[{
-            "before_qty": float(order.quantity_ordered),
+            "before_qty": float(qty_ordered),
             "after_qty": float(qty_completed),
-            "reason": f"Accepted short: {qty_completed} of {order.quantity_ordered} produced",
+            "reason": f"Accepted short: {qty_completed} of {qty_ordered} produced",
         }],
         inventory_snapshot=inv_snapshot,
     )

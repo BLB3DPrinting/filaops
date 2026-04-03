@@ -136,7 +136,7 @@ class TestAcceptShortSuccess:
             InventoryTransaction.transaction_type == "receipt",
         ).first()
         assert receipt_txn is not None
-        assert float(receipt_txn.quantity) == 12.0  # completed qty, NOT ordered qty (15)
+        assert receipt_txn.quantity == Decimal("12")  # completed qty, NOT ordered qty (15)
 
     def test_releases_reservations_without_error(self, db, make_product, make_production_order):
         """Accept short succeeds even when no reservations exist to release."""
