@@ -893,7 +893,6 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     # -- Brand colors --
     BRAND_DARK = colors.HexColor('#0f172a')    # slate-900
     BRAND_ACCENT = colors.HexColor('#2563eb')  # blue-600
-    BRAND_LIGHT = colors.HexColor('#f8fafc')   # slate-50
     BRAND_BORDER = colors.HexColor('#e2e8f0')  # slate-200
     BRAND_MUTED = colors.HexColor('#64748b')   # slate-500
     ROW_STRIPE = colors.HexColor('#f1f5f9')    # slate-100
@@ -905,7 +904,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         topMargin=0.4 * inch, bottomMargin=0.5 * inch,
         leftMargin=0.6 * inch, rightMargin=0.6 * inch,
     )
-    page_width = letter[0] - 1.2 * inch  # usable width
+    page_width = doc.width  # usable width (tracks margin config above)
 
     # -- Styles --
     styles = getSampleStyleSheet()
@@ -916,15 +915,10 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         fontSize=28, fontName='Helvetica-Bold',
         textColor=BRAND_DARK, spaceAfter=2,
     )
-    s_quote_number = ParagraphStyle(
-        'QuoteNumber', parent=s_normal,
-        fontSize=11, textColor=BRAND_MUTED,
-    )
     s_section = ParagraphStyle(
         'Section', parent=s_normal,
         fontSize=8, fontName='Helvetica-Bold',
         textColor=BRAND_MUTED, spaceBefore=4, spaceAfter=4,
-        tracking=1.5,
     )
     s_company_name = ParagraphStyle(
         'CompanyName', parent=s_normal,
@@ -962,12 +956,12 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         'Validity', parent=s_normal,
         fontSize=9, fontName='Helvetica-Bold', textColor=BRAND_DARK,
         backColor=colors.HexColor('#eff6ff'),  # blue-50
-        borderPadding=(8, 12, 8, 12),
+        borderPadding=10,
     )
     s_notes = ParagraphStyle(
         'Notes', parent=s_normal,
         fontSize=9, textColor=BRAND_DARK, leading=13,
-        borderPadding=(8, 10, 8, 10),
+        borderPadding=9,
         backColor=ROW_STRIPE,
     )
 
@@ -1225,7 +1219,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     # Build table style — light header, alternating stripes
     ts = [
         # Header row — light background, muted text (not dark/white)
-        ('BACKGROUND', (0, 0), (-1, 0), BRAND_LIGHT),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8fafc')),  # slate-50
         ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BORDER),
         ('TOPPADDING', (0, 0), (-1, 0), 8),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
