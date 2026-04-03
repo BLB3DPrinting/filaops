@@ -452,6 +452,7 @@ export default function OrderDetail() {
       toast.success(`${po.code || `WO-${po.id}`} accepted short (${po.quantity_completed}/${po.quantity_ordered})`);
       fetchOrder();
       fetchProductionOrders();
+      refetchFulfillment();
     } catch (err) {
       toast.error(err.message || "Failed to accept short");
     }

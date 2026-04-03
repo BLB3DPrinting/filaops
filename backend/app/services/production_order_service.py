@@ -579,6 +579,19 @@ def accept_short_production_order(
         for inv in product_invs
     ]
 
+    # Idempotency guard: reject if inventory was already processed for this PO
+    from app.models.inventory import InventoryTransaction
+    existing_receipt = db.query(InventoryTransaction).filter(
+        InventoryTransaction.reference_type == "production_order",
+        InventoryTransaction.reference_id == order.id,
+        InventoryTransaction.transaction_type == "receipt",
+    ).first()
+    if existing_receipt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Inventory already processed for {order.code}. Cannot accept short again."
+        )
+
     # Process inventory for the actual completed quantity:
     # 1. Release reservations and consume materials for qty_completed
     consume_production_materials(

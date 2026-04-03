@@ -36,7 +36,13 @@ def upgrade() -> None:
         sa.Column("linked_po_states", sa.JSON, nullable=True),
         sa.Column("inventory_snapshot", sa.JSON, nullable=True),
     )
+    op.create_index(
+        "ix_close_short_records_entity_type_entity_id",
+        "close_short_records",
+        ["entity_type", "entity_id"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_close_short_records_entity_type_entity_id")
     op.drop_table("close_short_records")

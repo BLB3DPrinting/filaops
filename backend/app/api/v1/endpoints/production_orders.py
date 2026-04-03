@@ -84,8 +84,14 @@ def build_production_order_response(order: ProductionOrder, db: Session) -> Prod
 
     qty_ordered = float(order.quantity_ordered or 0)
     qty_completed = float(order.quantity_completed or 0)
-    qty_remaining = max(0, qty_ordered - qty_completed)
-    completion_pct = (qty_completed / qty_ordered * 100) if qty_ordered > 0 else 0
+    # When a PO is complete (including accept-short), remaining is 0 and
+    # completion is 100% even if qty_completed < qty_ordered
+    if order.status == "complete":
+        qty_remaining = 0
+        completion_pct = 100.0
+    else:
+        qty_remaining = max(0, qty_ordered - qty_completed)
+        completion_pct = (qty_completed / qty_ordered * 100) if qty_ordered > 0 else 0
 
     # Build operations list
     operations_response = []
@@ -232,8 +238,14 @@ def build_list_response(order: ProductionOrder, db: Session) -> ProductionOrderL
 
     qty_ordered = float(order.quantity_ordered or 0)
     qty_completed = float(order.quantity_completed or 0)
-    qty_remaining = max(0, qty_ordered - qty_completed)
-    completion_pct = (qty_completed / qty_ordered * 100) if qty_ordered > 0 else 0
+    # When a PO is complete (including accept-short), remaining is 0 and
+    # completion is 100% even if qty_completed < qty_ordered
+    if order.status == "complete":
+        qty_remaining = 0
+        completion_pct = 100.0
+    else:
+        qty_remaining = max(0, qty_ordered - qty_completed)
+        completion_pct = (qty_completed / qty_ordered * 100) if qty_ordered > 0 else 0
 
     return ProductionOrderListResponse(
         id=order.id,

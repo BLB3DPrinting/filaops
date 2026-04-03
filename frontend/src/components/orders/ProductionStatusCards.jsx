@@ -8,6 +8,7 @@
 export function ProductionProgressSummary({ orders }) {
   const completed = orders.filter(o => o.status === "complete").length;
   const inProgress = orders.filter(o => o.status === "in_progress").length;
+  const short = orders.filter(o => o.status === "short").length;
   const scrapped = orders.filter(o => o.status === "scrapped").length;
   const total = orders.length;
   const completionPercent = total > 0 ? (completed / total) * 100 : 0;
@@ -30,6 +31,9 @@ export function ProductionProgressSummary({ orders }) {
         )}
         {completed > 0 && (
           <span className="text-green-400">{completed} Complete</span>
+        )}
+        {short > 0 && (
+          <span className="text-amber-400">{short} Short</span>
         )}
         {scrapped > 0 && (
           <span className="text-red-400">{scrapped} Scrapped</span>
