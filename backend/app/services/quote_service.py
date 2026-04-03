@@ -1019,11 +1019,16 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     else:
         left_header.extend(company_lines)
 
-    # Right side: QUOTE label + number + date
+    # Right side: QUOTE label, number, then dates
+    s_quote_number_right = ParagraphStyle(
+        'QuoteNumberRight', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
     right_header = [
         Paragraph("QUOTE", s_quote_label),
-        Paragraph(esc(quote.quote_number), s_quote_number),
-        Spacer(1, 4),
+        Paragraph(esc(quote.quote_number), s_quote_number_right),
+        Spacer(1, 6),
         Paragraph(f"Date: {quote.created_at.strftime('%B %d, %Y')}", s_detail_right),
     ]
     if quote.expires_at:
@@ -1096,39 +1101,61 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         if quote.material_type or quote.color:
             show_material = True
 
-    # Table header style
-    th = ParagraphStyle('TH', parent=s_normal, fontSize=8, fontName='Helvetica-Bold', textColor=BRAND_MUTED)
+    # Table cell styles — light header text, clear data hierarchy
+    th = ParagraphStyle('TH', parent=s_normal, fontSize=7, fontName='Helvetica', textColor=BRAND_MUTED)
     th_right = ParagraphStyle('THRight', parent=th, alignment=TA_RIGHT)
     td = ParagraphStyle('TD', parent=s_normal, fontSize=9, textColor=BRAND_DARK)
     td_right = ParagraphStyle('TDRight', parent=td, alignment=TA_RIGHT)
     td_bold = ParagraphStyle('TDBold', parent=td, fontName='Helvetica-Bold')
     td_bold_right = ParagraphStyle('TDBoldRight', parent=td_bold, alignment=TA_RIGHT)
-    td_accent = ParagraphStyle('TDAccent', parent=td_bold_right, textColor=BRAND_ACCENT)
     td_muted = ParagraphStyle('TDMuted', parent=td, textColor=BRAND_MUTED, fontSize=8)
     td_muted_right = ParagraphStyle('TDMutedRight', parent=td_muted, alignment=TA_RIGHT)
+    td_strike = ParagraphStyle('TDStrike', parent=td_muted_right, fontSize=8)  # for list price
+    td_discount = ParagraphStyle('TDDiscount', parent=s_normal, fontSize=8, textColor=colors.HexColor('#16a34a'), alignment=TA_RIGHT)  # green
 
+    # Determine if discount columns should show
+    has_discount = False
+    if quote.discount_percent and float(quote.discount_percent) > 0:
+        has_discount = True
+    if has_lines:
+        for ql in quote.lines:
+            if ql.discount_percent and float(ql.discount_percent) > 0:
+                has_discount = True
+                break
+
+    # Build headers based on what columns are needed
+    headers = [Paragraph('#', th), Paragraph('ITEM', th)]
     if show_material:
-        headers = [
-            Paragraph('#', th),
-            Paragraph('ITEM', th),
-            Paragraph('MATERIAL', th),
-            Paragraph('QTY', th_right),
-            Paragraph('UNIT PRICE', th_right),
-            Paragraph('AMOUNT', th_right),
-        ]
+        headers.append(Paragraph('MATERIAL', th))
+    headers.append(Paragraph('QTY', th_right))
+    if has_discount:
+        headers.extend([
+            Paragraph('LIST PRICE', th_right),
+            Paragraph('DISCOUNT', th_right),
+        ])
+    headers.extend([
+        Paragraph('UNIT PRICE', th_right),
+        Paragraph('AMOUNT', th_right),
+    ])
+
+    # Column widths — adaptive based on which columns are shown
+    if show_material and has_discount:
+        col_widths = [0.25 * inch, 1.5 * inch, 0.9 * inch, 0.4 * inch, 0.8 * inch, 0.7 * inch, 0.8 * inch, 0.8 * inch]
+    elif has_discount:
+        col_widths = [0.25 * inch, 2.2 * inch, 0.45 * inch, 0.85 * inch, 0.75 * inch, 0.9 * inch, 0.9 * inch]
+    elif show_material:
         col_widths = [0.3 * inch, 2.3 * inch, 1.3 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch]
     else:
-        headers = [
-            Paragraph('#', th),
-            Paragraph('ITEM', th),
-            Paragraph('QTY', th_right),
-            Paragraph('UNIT PRICE', th_right),
-            Paragraph('AMOUNT', th_right),
-        ]
         col_widths = [0.3 * inch, 3.4 * inch, 0.6 * inch, 1.1 * inch, 1.1 * inch]
 
     table_data = [headers]
     line_num = 0
+
+    # Helper to compute list price from discounted price + discount percent
+    def _list_price(discounted_price: float, discount_pct: float) -> float:
+        if discount_pct and discount_pct > 0 and discount_pct < 100:
+            return discounted_price / (1.0 - discount_pct / 100.0)
+        return discounted_price
 
     if has_lines:
         subtotal = Decimal("0")
@@ -1139,15 +1166,26 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
                 mat_desc += f" {esc(ql.color)}" if mat_desc else esc(ql.color)
             line_total = float(ql.total)
             subtotal += ql.total
+
+            disc_pct = float(ql.discount_percent or quote.discount_percent or 0)
+            unit_price_f = float(ql.unit_price)
+            list_price_f = _list_price(unit_price_f, disc_pct)
+
             row = [
                 Paragraph(str(line_num), td_muted),
                 Paragraph(esc(ql.product_name or 'Item'), td),
             ]
             if show_material:
                 row.append(Paragraph(mat_desc or '\u2014', td_muted))
+            row.append(Paragraph(str(ql.quantity), td_right))
+            if has_discount:
+                row.append(Paragraph(_fmt(list_price_f), td_strike))
+                if disc_pct > 0:
+                    row.append(Paragraph(f'\u2212{disc_pct:.0f}%', td_discount))
+                else:
+                    row.append(Paragraph('\u2014', td_muted_right))
             row.extend([
-                Paragraph(str(ql.quantity), td_right),
-                Paragraph(_fmt(float(ql.unit_price)), td_right),
+                Paragraph(_fmt(unit_price_f), td_right),
                 Paragraph(_fmt(line_total), td_bold_right),
             ])
             table_data.append(row)
@@ -1158,36 +1196,44 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
         if quote.color:
             material_desc += f" {esc(quote.color)}"
         subtotal = float(quote.subtotal) if quote.subtotal else float(quote.unit_price or 0) * quote.quantity
+
+        disc_pct = float(quote.discount_percent or 0)
+        unit_price_f = float(quote.unit_price or 0)
+        list_price_f = _list_price(unit_price_f, disc_pct)
+
         row = [
             Paragraph('1', td_muted),
             Paragraph(esc(quote.product_name or 'Custom Item'), td),
         ]
         if show_material:
             row.append(Paragraph(material_desc or '\u2014', td_muted))
+        row.append(Paragraph(str(quote.quantity), td_right))
+        if has_discount:
+            row.append(Paragraph(_fmt(list_price_f), td_strike))
+            if disc_pct > 0:
+                row.append(Paragraph(f'\u2212{disc_pct:.0f}%', td_discount))
+            else:
+                row.append(Paragraph('\u2014', td_muted_right))
         row.extend([
-            Paragraph(str(quote.quantity), td_right),
-            Paragraph(_fmt(float(quote.unit_price or 0)), td_right),
+            Paragraph(_fmt(unit_price_f), td_right),
             Paragraph(_fmt(subtotal), td_bold_right),
         ])
         table_data.append(row)
 
-    num_cols = len(headers)
     items_table = Table(table_data, colWidths=col_widths)
 
-    # Build table style
+    # Build table style — light header, alternating stripes
     ts = [
-        # Header row
-        ('BACKGROUND', (0, 0), (-1, 0), BRAND_DARK),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        # Header row — light background, muted text (not dark/white)
+        ('BACKGROUND', (0, 0), (-1, 0), BRAND_LIGHT),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BORDER),
         ('TOPPADDING', (0, 0), (-1, 0), 8),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
         # Data rows
         ('TOPPADDING', (0, 1), (-1, -1), 6),
         ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-        # Subtle grid
-        ('LINEBELOW', (0, 0), (-1, -2), 0.5, BRAND_BORDER),
-        ('LINEBELOW', (0, -1), (-1, -1), 0.5, BRAND_BORDER),
+        # Subtle row separators
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, BRAND_BORDER),
         # Alignment
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]
