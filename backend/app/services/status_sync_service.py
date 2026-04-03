@@ -145,7 +145,7 @@ def check_sales_order_production_status(db: Session, sales_order_id: int) -> dic
 
     # Note: production orders use "complete" (not "completed")
     completed = sum(1 for po in production_orders if po.status in ("complete", "completed", "closed"))
-    in_progress = sum(1 for po in production_orders if po.status == "in_progress")
+    in_progress = sum(1 for po in production_orders if po.status in ("in_progress", "short"))
     pending = sum(1 for po in production_orders if po.status in ("pending", "scheduled", "draft", "released"))
 
     return {

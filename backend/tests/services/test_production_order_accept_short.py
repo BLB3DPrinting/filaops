@@ -77,6 +77,21 @@ class TestAcceptShortGuards:
         assert exc_info.value.status_code == 400
         assert "fully completed" in str(exc_info.value.detail).lower()
 
+    def test_rejects_cancelled_status(self, db, make_product, make_production_order):
+        """Cannot accept short on a cancelled PO."""
+        product = make_product(item_type="finished_good", unit="EA")
+        po = make_production_order(
+            product_id=product.id, status="cancelled", quantity=10,
+            quantity_completed=5,
+        )
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc_info:
+            svc.accept_short_production_order(
+                db, po.id, "test@filaops.dev", user_id=1,
+            )
+        assert exc_info.value.status_code == 400
+
     def test_rejects_nonexistent_order(self, db):
         """Returns 404 for nonexistent PO."""
         with pytest.raises(HTTPException) as exc_info:
