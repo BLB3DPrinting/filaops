@@ -180,8 +180,8 @@ class TestAcceptShortSuccess:
         assert record.reason == "Printer jammed, accepting 12 of 15"
         assert record.line_adjustments is not None
         assert len(record.line_adjustments) == 1
-        assert record.line_adjustments[0]["before_qty"] == 15.0
-        assert record.line_adjustments[0]["after_qty"] == 12.0
+        assert record.line_adjustments[0]["before_qty"] == "15"
+        assert record.line_adjustments[0]["after_qty"] == "12"
 
     def test_preserves_quantity_completed(self, db, make_product, make_production_order):
         """quantity_completed stays at 12, not doubled to 24."""
@@ -196,7 +196,7 @@ class TestAcceptShortSuccess:
 
         db.expire_all()
         refreshed = db.query(ProductionOrder).filter(ProductionOrder.id == po.id).first()
-        assert int(refreshed.quantity_completed) == 12  # NOT 24
+        assert refreshed.quantity_completed == Decimal("12")  # NOT 24
 
     def test_accepts_notes(self, db, make_product, make_production_order):
         """Optional notes are appended to the PO."""

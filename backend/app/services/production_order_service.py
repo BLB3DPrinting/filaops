@@ -525,7 +525,15 @@ def accept_short_production_order(
     )
     from app.models.close_short_record import CloseShortRecord
 
-    order = get_production_order(db, order_id)
+    # Lock the row to prevent concurrent accept-short from double-applying inventory
+    order = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Production order not found")
 
     # Guard: must be in "short" status (all operations finished, qty < ordered)
     if order.status != "short":
@@ -564,9 +572,9 @@ def accept_short_production_order(
         {
             "product_id": order.product_id,
             "location_id": inv.location_id,
-            "on_hand": float(inv.on_hand_quantity or 0),
-            "allocated": float(inv.allocated_quantity or 0),
-            "available": float(inv.available_quantity or 0),
+            "on_hand": str(inv.on_hand_quantity or 0),
+            "allocated": str(inv.allocated_quantity or 0),
+            "available": str(inv.available_quantity or 0),
         }
         for inv in product_invs
     ]
@@ -631,8 +639,8 @@ def accept_short_production_order(
         performed_by=user_id,
         reason=notes,
         line_adjustments=[{
-            "before_qty": float(qty_ordered),
-            "after_qty": float(qty_completed),
+            "before_qty": str(qty_ordered),
+            "after_qty": str(qty_completed),
             "reason": f"Accepted short: {qty_completed} of {qty_ordered} produced",
         }],
         inventory_snapshot=inv_snapshot,
