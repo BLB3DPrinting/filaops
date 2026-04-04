@@ -1399,8 +1399,9 @@ def _compute_close_short_quantities(
         ProductionOrder.sales_order_id == sales_order.id
     ).all()
 
-    # Check for unresolved POs
-    unresolved = [po for po in linked_pos if po.status not in ("complete", "cancelled")]
+    # Check for unresolved POs (include legacy terminal statuses)
+    RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled"}
+    unresolved = [po for po in linked_pos if po.status not in RESOLVED_PO_STATUSES]
 
     # Build PO completion maps
     po_completed_by_line = {}
@@ -1441,15 +1442,31 @@ def _compute_close_short_quantities(
         shipped_qty = Decimal(str(line.shipped_quantity or 0))
         product = products_by_id.get(line.product_id)
 
+        # Material-only lines (no product_id) — keep original quantity
+        if not line.product_id:
+            line_results.append({
+                "line_id": line.id,
+                "product_id": None,
+                "product_sku": None,
+                "product_name": "Material line",
+                "ordered_qty": str(ordered_qty),
+                "shipped_qty": str(shipped_qty),
+                "achievable_qty": str(ordered_qty),
+                "will_adjust": False,
+                "reason": "Material line — no adjustment",
+                "linked_po_summary": [],
+            })
+            continue
+
         # 1. Try linked PO completion (by line_id, then product_id fallback)
         produced = po_completed_by_line.get(line.id, Decimal("0"))
         po_summaries = po_summary_by_line.get(line.id, [])
-        if produced == 0 and line.product_id:
+        if produced == 0:
             produced = po_completed_by_product.get(line.product_id, Decimal("0"))
             po_summaries = po_summary_by_product.get(line.product_id, [])
 
         # 2. Fallback: check FG inventory if no POs linked
-        if produced == 0 and not po_summaries and line.product_id:
+        if produced == 0 and not po_summaries:
             inv = db.query(Inventory).filter(
                 Inventory.product_id == line.product_id,
                 Inventory.location_id == location_id,
@@ -1538,9 +1555,11 @@ def close_short_sales_order(
         )
 
     # PO completion guard: all linked POs must be resolved first
+    # Include legacy terminal statuses ("completed", "closed")
+    RESOLVED_PO_STATUSES = ["complete", "completed", "closed", "cancelled"]
     unresolved_pos = db.query(ProductionOrder).filter(
         ProductionOrder.sales_order_id == order_id,
-        ProductionOrder.status.notin_(["complete", "cancelled"]),
+        ProductionOrder.status.notin_(RESOLVED_PO_STATUSES),
     ).all()
     if unresolved_pos:
         po_numbers = [po.code for po in unresolved_pos]
@@ -1575,12 +1594,8 @@ def close_short_sales_order(
             if line.original_quantity is None:
                 line.original_quantity = old_qty
             line.quantity = achievable
-            # discount field stores a percentage (e.g., 10 for 10%), not currency
-            discount_pct = Decimal(str(line.discount or 0))
-            subtotal = achievable * line.unit_price
-            if discount_pct > 0:
-                subtotal = subtotal * (Decimal("1") - discount_pct / Decimal("100"))
-            line.total = subtotal.quantize(Decimal("0.01"))
+            # unit_price already has customer discount baked in (applied at order creation)
+            line.total = (achievable * line.unit_price).quantize(Decimal("0.01"))
             line.fulfillment_status = "short_closed"
             adjustments.append(f"{old_qty} → {achievable}")
         else:
