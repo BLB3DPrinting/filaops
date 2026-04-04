@@ -37,7 +37,7 @@ class OrderStatusService:
         "draft": ["pending_payment", "cancelled"],
         "pending_payment": ["confirmed", "payment_failed", "cancelled"],
         "payment_failed": ["pending_payment", "cancelled"],  # Allow retry
-        "confirmed": ["in_production", "on_hold", "cancelled"],
+        "confirmed": ["in_production", "ready_to_ship", "on_hold", "cancelled"],
         "in_production": ["ready_to_ship", "on_hold", "cancelled"],
         "ready_to_ship": ["shipped", "partially_shipped", "on_hold"],
         "partially_shipped": ["shipped", "on_hold"],

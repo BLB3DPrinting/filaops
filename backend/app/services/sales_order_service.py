@@ -1384,8 +1384,11 @@ def _compute_close_short_quantities(
     from app.models.inventory import Inventory
 
     if location_id is None:
-        from app.services.inventory_service import get_or_create_default_location
-        location_id = get_or_create_default_location(db).id
+        from app.models.inventory import InventoryLocation
+        default_loc = db.query(InventoryLocation).filter(
+            InventoryLocation.code == "DEFAULT"
+        ).first()
+        location_id = default_loc.id if default_loc else 1
 
     lines = db.query(SalesOrderLine).filter(
         SalesOrderLine.sales_order_id == sales_order.id
@@ -1457,6 +1460,14 @@ def _compute_close_short_quantities(
         # 3. Cap at ordered (no upward), floor at shipped (never reduce below shipped)
         achievable = min(produced, ordered_qty)
         achievable = max(achievable, shipped_qty)
+
+        # Decrement shared product bucket so next line with same product_id
+        # doesn't double-count (legacy POs without sales_order_line_id)
+        if line.product_id and line.product_id in po_completed_by_product:
+            po_completed_by_product[line.product_id] = max(
+                Decimal("0"),
+                po_completed_by_product[line.product_id] - achievable,
+            )
 
         # Determine reason
         if achievable == ordered_qty:
@@ -1564,8 +1575,12 @@ def close_short_sales_order(
             if line.original_quantity is None:
                 line.original_quantity = old_qty
             line.quantity = achievable
-            discount = line.discount or Decimal("0")
-            line.total = (achievable * line.unit_price - discount).quantize(Decimal("0.01"))
+            # discount field stores a percentage (e.g., 10 for 10%), not currency
+            discount_pct = Decimal(str(line.discount or 0))
+            subtotal = achievable * line.unit_price
+            if discount_pct > 0:
+                subtotal = subtotal * (Decimal("1") - discount_pct / Decimal("100"))
+            line.total = subtotal.quantize(Decimal("0.01"))
             line.fulfillment_status = "short_closed"
             adjustments.append(f"{old_qty} → {achievable}")
         else:
@@ -1583,6 +1598,7 @@ def close_short_sales_order(
 
     old_status = order.status
     order.status = "ready_to_ship"
+    order.fulfillment_status = "ready"
     order.closed_short = True
     order.closed_short_at = datetime.now(timezone.utc)
     order.close_short_reason = reason

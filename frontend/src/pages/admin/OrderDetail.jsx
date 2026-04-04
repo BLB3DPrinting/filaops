@@ -393,11 +393,11 @@ export default function OrderDetail() {
   };
 
   const openCloseShortModal = async () => {
-    setShowCloseShortModal(true);
     setLoadingPreview(true);
     try {
       const preview = await api.get(`/api/v1/sales-orders/${orderId}/close-short-preview`);
       setCloseShortPreview(preview);
+      setShowCloseShortModal(true);
     } catch (err) {
       toast.error(err.message || "Failed to load close-short preview");
     } finally {

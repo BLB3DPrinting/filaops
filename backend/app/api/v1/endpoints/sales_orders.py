@@ -855,9 +855,13 @@ async def close_short_preview(
 ):
     """Preview close-short: shows per-line achievable quantities and PO status.
 
-    Read-only. Returns breakdown for the close-short confirmation modal.
+    Admin only. Read-only. Returns breakdown for the close-short confirmation modal.
     Includes unresolved PO warnings so the frontend can disable confirm.
     """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
     order = sales_order_service.get_sales_order(db, order_id)
     return sales_order_service._compute_close_short_quantities(db, order)
 
