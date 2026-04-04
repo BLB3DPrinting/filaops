@@ -1235,7 +1235,9 @@ def cancel_sales_order(
 # =============================================================================
 
 EDITABLE_STATUSES = {"confirmed", "in_production", "on_hold"}
-CLOSE_SHORT_STATUSES = {"confirmed", "in_production", "ready_to_ship", "on_hold"}
+CLOSE_SHORT_STATUSES = {"confirmed", "in_production", "ready_to_ship"}
+# Terminal PO statuses that allow SO close-short (includes legacy variants)
+RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled"}
 
 
 def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
@@ -1399,8 +1401,7 @@ def _compute_close_short_quantities(
         ProductionOrder.sales_order_id == sales_order.id
     ).all()
 
-    # Check for unresolved POs (include legacy terminal statuses)
-    RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled"}
+    # Check for unresolved POs
     unresolved = [po for po in linked_pos if po.status not in RESOLVED_PO_STATUSES]
 
     # Build PO completion maps
@@ -1555,12 +1556,10 @@ def close_short_sales_order(
         )
 
     # PO completion guard: all linked POs must be resolved first
-    # Include legacy terminal statuses ("completed", "closed")
-    RESOLVED_PO_STATUSES = ["complete", "completed", "closed", "cancelled"]
-    unresolved_pos = db.query(ProductionOrder).filter(
+    all_linked_pos = db.query(ProductionOrder).filter(
         ProductionOrder.sales_order_id == order_id,
-        ProductionOrder.status.notin_(RESOLVED_PO_STATUSES),
     ).all()
+    unresolved_pos = [po for po in all_linked_pos if po.status not in RESOLVED_PO_STATUSES]
     if unresolved_pos:
         po_numbers = [po.code for po in unresolved_pos]
         raise HTTPException(
@@ -1572,6 +1571,13 @@ def close_short_sales_order(
 
     # Compute achievable quantities using the helper
     preview = _compute_close_short_quantities(db, order)
+
+    # Guard: reject orders with no lines (e.g., legacy header-only orders)
+    if not preview["lines"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot close short: order has no line items to adjust."
+        )
 
     lines = db.query(SalesOrderLine).filter(
         SalesOrderLine.sales_order_id == order_id
@@ -1650,9 +1656,7 @@ def close_short_sales_order(
                 "ordered": str(po.quantity_ordered),
                 "completed": str(po.quantity_completed or 0),
             }
-            for po in db.query(ProductionOrder).filter(
-                ProductionOrder.sales_order_id == order_id
-            ).all()
+            for po in all_linked_pos
         ],
         inventory_snapshot=inv_snapshot,
     )
