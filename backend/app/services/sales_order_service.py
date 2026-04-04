@@ -1367,6 +1367,7 @@ def _compute_close_short_quantities(
     db: Session,
     sales_order: SalesOrder,
     location_id: int = None,
+    linked_pos: list = None,
 ) -> dict:
     """Compute achievable quantities for each SO line for close-short.
 
@@ -1390,16 +1391,25 @@ def _compute_close_short_quantities(
         default_loc = db.query(InventoryLocation).filter(
             InventoryLocation.code == "DEFAULT"
         ).first()
-        location_id = default_loc.id if default_loc else 1
+        if default_loc is None:
+            logger.warning(
+                "No DEFAULT inventory location found for SO %s close-short preview; "
+                "FG inventory fallback will be skipped.",
+                sales_order.order_number,
+            )
+            location_id = None
+        else:
+            location_id = default_loc.id
 
     lines = db.query(SalesOrderLine).filter(
         SalesOrderLine.sales_order_id == sales_order.id
     ).all()
 
-    # Get all linked POs for this SO
-    linked_pos = db.query(ProductionOrder).filter(
-        ProductionOrder.sales_order_id == sales_order.id
-    ).all()
+    # Get all linked POs for this SO (accept pre-fetched list to avoid duplicate query)
+    if linked_pos is None:
+        linked_pos = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == sales_order.id
+        ).all()
 
     # Check for unresolved POs
     unresolved = [po for po in linked_pos if po.status not in RESOLVED_PO_STATUSES]
@@ -1467,7 +1477,7 @@ def _compute_close_short_quantities(
             po_summaries = po_summary_by_product.get(line.product_id, [])
 
         # 2. Fallback: check FG inventory if no POs linked
-        if produced == 0 and not po_summaries:
+        if produced == 0 and not po_summaries and location_id is not None:
             inv = db.query(Inventory).filter(
                 Inventory.product_id == line.product_id,
                 Inventory.location_id == location_id,
@@ -1569,8 +1579,8 @@ def close_short_sales_order(
                    f"orders first."
         )
 
-    # Compute achievable quantities using the helper
-    preview = _compute_close_short_quantities(db, order)
+    # Compute achievable quantities — pass pre-fetched PO list to avoid a second query
+    preview = _compute_close_short_quantities(db, order, linked_pos=all_linked_pos)
 
     # Guard: reject orders with no lines (e.g., legacy header-only orders)
     if not preview["lines"]:
