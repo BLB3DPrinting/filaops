@@ -46,7 +46,7 @@ class SalesOrder(Base):
     finish = Column(String(50), nullable=False, default="standard")  # standard, smooth, painted
 
     # Pricing (locked from quote at conversion time)
-    unit_price = Column(Numeric(10, 2), nullable=False)
+    unit_price = Column(Numeric(10, 2), nullable=True)   # NULL for multi-line (line_item) orders
     total_price = Column(Numeric(10, 2), nullable=False)
     tax_amount = Column(Numeric(10, 2), nullable=True, default=0.00)
     tax_rate = Column(Numeric(5, 4), nullable=True)  # Tax rate at time of order (e.g., 0.0825)
