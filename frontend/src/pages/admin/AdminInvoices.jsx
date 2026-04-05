@@ -4,6 +4,7 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 import StatCard from "../../components/StatCard";
+import { API_URL } from "../../config/api";
 
 const STATUS_TABS = [
   { value: "", label: "All" },
@@ -148,7 +149,7 @@ export default function AdminInvoices() {
 
   const handleDownloadPDF = async (invoiceId, invoiceNumber) => {
     try {
-      const response = await fetch(`/api/v1/invoices/${invoiceId}/pdf`, {
+      const response = await fetch(`${API_URL}/api/v1/invoices/${invoiceId}/pdf`, {
         credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to download PDF");

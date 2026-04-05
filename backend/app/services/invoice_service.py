@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models.company_settings import CompanySettings
+from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
@@ -361,24 +362,25 @@ def mark_sent(db: Session, invoice_id: int) -> Invoice:
 # ============================================================================
 
 def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
-    """Generate a professional invoice PDF using ReportLab.
+    """Generate a professional B2B invoice PDF using ReportLab.
 
-    Pattern mirrors generate_packing_slip_pdf() in sales_order_service.py.
-    Includes company header, invoice details, bill-to address, line items
-    table, totals breakdown, and payment instructions.
+    Layout mirrors generate_quote_pdf(): branded header, HR separator,
+    two-column Bill To / Invoice Details block, clean line-items table
+    with alternating rows, totals block, and payment terms footer.
     """
     from xml.sax.saxutils import escape as _xml_escape
 
     def esc(value) -> str:
-        """Escape user-provided text for ReportLab Paragraph XML."""
         return _xml_escape(str(value)) if value else ""
 
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_RIGHT, TA_CENTER
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
+        HRFlowable,
     )
 
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
@@ -387,214 +389,399 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
 
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
+    # Resolve customer phone — not stored in the invoice snapshot, look up live
+    customer_phone = None
+    if invoice.customer_id:
+        cust = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+        if cust:
+            customer_phone = cust.phone
+    if not customer_phone and invoice.sales_order_id:
+        so = db.query(SalesOrder).filter(SalesOrder.id == invoice.sales_order_id).first()
+        if so:
+            customer_phone = so.customer_phone
+
+    # Resolve order number for display
+    order_number = None
+    if invoice.sales_order_id:
+        so = db.query(SalesOrder).filter(SalesOrder.id == invoice.sales_order_id).first()
+        if so:
+            order_number = so.order_number
+
+    # -- Currency formatting --
+    _CURRENCY_SYMBOLS = {
+        "USD": "$", "CAD": "CA$", "AUD": "A$", "NZD": "NZ$",
+        "GBP": "\u00a3", "EUR": "\u20ac", "CHF": "CHF\u00a0",
+        "SEK": "kr\u00a0", "NOK": "kr\u00a0", "DKK": "kr\u00a0",
+        "BRL": "R$", "MXN": "MX$", "INR": "\u20b9",
+        "JPY": "\u00a5", "CNY": "\u00a5", "KRW": "\u20a9",
+        "SGD": "S$", "HKD": "HK$", "ZAR": "R",
+    }
+    _currency = (settings.currency_code if settings and settings.currency_code else "USD")
+    _sym = _CURRENCY_SYMBOLS.get(_currency, f"{_currency}\u00a0")
+
+    def _fmt(amount) -> str:
+        return f"{_sym}{float(amount):,.2f}"
+
+    # -- Brand colors (matches quote PDF) --
+    BRAND_DARK = colors.HexColor('#0f172a')
+    BRAND_ACCENT = colors.HexColor('#2563eb')
+    BRAND_BORDER = colors.HexColor('#e2e8f0')
+    BRAND_MUTED = colors.HexColor('#64748b')
+    ROW_STRIPE = colors.HexColor('#f1f5f9')
+
+    # -- PDF document --
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        pdf_buffer,
-        pagesize=letter,
-        topMargin=0.5 * inch,
-        bottomMargin=0.5 * inch,
+        pdf_buffer, pagesize=letter,
+        topMargin=0.4 * inch, bottomMargin=0.5 * inch,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+    )
+    page_width = doc.width
+
+    # -- Styles --
+    styles = getSampleStyleSheet()
+    s_normal = styles['Normal']
+
+    s_doc_label = ParagraphStyle(
+        'InvLabel', parent=s_normal,
+        fontSize=28, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=2,
+    )
+    s_section = ParagraphStyle(
+        'InvSection', parent=s_normal,
+        fontSize=8, fontName='Helvetica-Bold', textColor=BRAND_MUTED,
+        spaceBefore=4, spaceAfter=4,
+    )
+    s_company_name = ParagraphStyle(
+        'InvCompany', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_detail = ParagraphStyle(
+        'InvDetail', parent=s_normal,
+        fontSize=9, textColor=BRAND_MUTED, leading=13,
+    )
+    s_detail_right = ParagraphStyle(
+        'InvDetailRight', parent=s_detail, alignment=TA_RIGHT,
+    )
+    s_inv_number_right = ParagraphStyle(
+        'InvNumberRight', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
+    s_customer_name = ParagraphStyle(
+        'InvCustName', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_total_label = ParagraphStyle(
+        'InvTotalLabel', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
+    s_total_value = ParagraphStyle(
+        'InvTotalValue', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_ACCENT,
+        alignment=TA_RIGHT,
+    )
+    s_terms_box = ParagraphStyle(
+        'InvTermsBox', parent=s_normal,
+        fontSize=9, textColor=BRAND_DARK, leading=13,
+        backColor=colors.HexColor('#eff6ff'),
+        borderPadding=10,
+    )
+    s_footer = ParagraphStyle(
+        'InvFooter', parent=s_normal,
+        fontSize=8, textColor=BRAND_MUTED, leading=11,
+    )
+    s_footer_center = ParagraphStyle(
+        'InvFooterCenter', parent=s_footer, alignment=TA_CENTER,
     )
 
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "InvoiceTitle", parent=styles["Heading1"],
-        fontSize=24, textColor=colors.HexColor("#2563eb"),
-    )
-    heading_style = ParagraphStyle(
-        "InvoiceHeading", parent=styles["Heading2"],
-        fontSize=12, textColor=colors.gray,
-    )
-    normal_style = styles["Normal"]
+    # Table cell styles
+    th = ParagraphStyle('InvTH', parent=s_normal, fontSize=7, fontName='Helvetica', textColor=BRAND_MUTED)
+    th_right = ParagraphStyle('InvTHRight', parent=th, alignment=TA_RIGHT)
+    td = ParagraphStyle('InvTD', parent=s_normal, fontSize=9, textColor=BRAND_DARK)
+    td_right = ParagraphStyle('InvTDRight', parent=td, alignment=TA_RIGHT)
+    td_bold = ParagraphStyle('InvTDBold', parent=td, fontName='Helvetica-Bold')
+    td_bold_right = ParagraphStyle('InvTDBoldRight', parent=td_bold, alignment=TA_RIGHT)
+    td_muted = ParagraphStyle('InvTDMuted', parent=td, textColor=BRAND_MUTED, fontSize=8)
+    td_muted_right = ParagraphStyle('InvTDMutedRight', parent=td_muted, alignment=TA_RIGHT)
 
     content = []
 
-    # ---- Company Header (same pattern as packing slip) ----
+    # ================================================================
+    # HEADER — Logo + Company (left) | INVOICE + number/dates (right)
+    # ================================================================
+    company_lines = []
+    if settings:
+        if settings.company_name:
+            company_lines.append(Paragraph(esc(settings.company_name), s_company_name))
+        addr_parts = []
+        if settings.company_address_line1:
+            addr_parts.append(esc(settings.company_address_line1))
+        city_state = ""
+        if settings.company_city:
+            city_state = esc(settings.company_city)
+        if settings.company_state:
+            city_state += f", {esc(settings.company_state)}"
+        if settings.company_zip:
+            city_state += f" {esc(settings.company_zip)}"
+        if city_state:
+            addr_parts.append(city_state)
+        if settings.company_phone:
+            addr_parts.append(esc(settings.company_phone))
+        if settings.company_email:
+            addr_parts.append(esc(settings.company_email))
+        if addr_parts:
+            company_lines.append(Paragraph("<br/>".join(addr_parts), s_detail))
+
+    left_header = []
     if settings and settings.logo_data:
         try:
             logo_buffer = io.BytesIO(settings.logo_data)
-            logo_img = Image(logo_buffer, width=1.5 * inch, height=1.5 * inch)
-            logo_img.hAlign = "LEFT"
-            company_info = []
-            if settings.company_name:
-                company_info.append(f"<b>{esc(settings.company_name)}</b>")
-            if settings.company_address_line1:
-                company_info.append(esc(settings.company_address_line1))
-            if settings.company_city or settings.company_state:
-                city_state = (
-                    f"{esc(settings.company_city or '')}, "
-                    f"{esc(settings.company_state or '')} "
-                    f"{esc(settings.company_zip or '')}"
-                ).strip(", ")
-                company_info.append(city_state)
-            if settings.company_phone:
-                company_info.append(esc(settings.company_phone))
-            if settings.company_email:
-                company_info.append(esc(settings.company_email))
-            header_data = [
-                [logo_img, Paragraph("<br/>".join(company_info), normal_style)]
-            ]
-            header_table = Table(header_data, colWidths=[2 * inch, 4.5 * inch])
-            header_table.setStyle(
-                TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
+            logo_img = Image(logo_buffer, width=1.2 * inch, height=1.2 * inch)
+            logo_img.hAlign = 'LEFT'
+            logo_row = Table(
+                [[logo_img, company_lines]],
+                colWidths=[1.4 * inch, 2.4 * inch],
             )
-            content.append(header_table)
-            content.append(Spacer(1, 0.3 * inch))
+            logo_row.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+            left_header.append(logo_row)
         except Exception:
-            # If logo fails, continue without it
-            pass
-    elif settings and settings.company_name:
-        content.append(
-            Paragraph(f"<b>{esc(settings.company_name)}</b>", title_style)
-        )
-        content.append(Spacer(1, 0.2 * inch))
+            left_header.extend(company_lines)
+    else:
+        left_header.extend(company_lines)
 
-    # ---- Title ----
-    content.append(Paragraph("INVOICE", title_style))
-    content.append(Spacer(1, 0.2 * inch))
-
-    # ---- Invoice Info ----
-    content.append(Paragraph("INVOICE DETAILS", heading_style))
-    content.append(Spacer(1, 0.05 * inch))
-
-    info_data = [
-        ["Invoice Number:", esc(invoice.invoice_number)],
-        [
-            "Date:",
-            invoice.created_at.strftime("%B %d, %Y") if invoice.created_at else "N/A",
-        ],
-        [
-            "Due Date:",
-            invoice.due_date.strftime("%B %d, %Y") if invoice.due_date else "N/A",
-        ],
-        ["Terms:", esc(invoice.payment_terms.upper())],
+    right_header = [
+        Paragraph("INVOICE", s_doc_label),
+        Paragraph(esc(invoice.invoice_number), s_inv_number_right),
+        Spacer(1, 6),
+        Paragraph(
+            f"Date: {invoice.created_at.strftime('%B %d, %Y')}" if invoice.created_at else "Date: —",
+            s_detail_right,
+        ),
+        Paragraph(
+            f"Due: {invoice.due_date.strftime('%B %d, %Y')}" if invoice.due_date else "Due: —",
+            s_detail_right,
+        ),
+        Paragraph(f"Terms: {esc(invoice.payment_terms.upper())}", s_detail_right),
     ]
-    if invoice.sales_order_id:
-        order = db.query(SalesOrder).filter(
-            SalesOrder.id == invoice.sales_order_id,
-        ).first()
-        if order:
-            info_data.append(["Order:", esc(order.order_number)])
+    if order_number:
+        right_header.append(Paragraph(f"Order: {esc(order_number)}", s_detail_right))
 
-    info_table = Table(info_data, colWidths=[1.5 * inch, 4 * inch])
-    info_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
+    header_table = Table(
+        [[left_header, right_header]],
+        colWidths=[page_width * 0.55, page_width * 0.45],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
     ]))
-    content.append(info_table)
+    content.append(header_table)
+    content.append(Spacer(1, 0.15 * inch))
+    content.append(HRFlowable(width="100%", thickness=1, color=BRAND_BORDER))
     content.append(Spacer(1, 0.2 * inch))
 
-    # ---- Bill To ----
-    content.append(Paragraph("BILL TO", heading_style))
-    content.append(Spacer(1, 0.05 * inch))
-
-    bill_parts = []
+    # ================================================================
+    # BILL TO | (spacer right column — could add Ship To later)
+    # ================================================================
+    bill_lines = [Paragraph("BILL TO", s_section)]
     if invoice.customer_name:
-        bill_parts.append(f"<b>{esc(invoice.customer_name)}</b>")
+        bill_lines.append(Paragraph(esc(invoice.customer_name), s_customer_name))
     if invoice.customer_company:
-        bill_parts.append(esc(invoice.customer_company))
+        bill_lines.append(Paragraph(esc(invoice.customer_company), s_detail))
     if invoice.bill_to_line1:
-        bill_parts.append(esc(invoice.bill_to_line1))
+        bill_lines.append(Paragraph(esc(invoice.bill_to_line1), s_detail))
     city_state_zip = ""
     if invoice.bill_to_city:
-        city_state_zip += esc(invoice.bill_to_city)
+        city_state_zip = esc(invoice.bill_to_city)
     if invoice.bill_to_state:
         city_state_zip += f", {esc(invoice.bill_to_state)}"
     if invoice.bill_to_zip:
         city_state_zip += f" {esc(invoice.bill_to_zip)}"
     if city_state_zip:
-        bill_parts.append(city_state_zip)
+        bill_lines.append(Paragraph(city_state_zip, s_detail))
+    if customer_phone:
+        bill_lines.append(Paragraph(esc(customer_phone), s_detail))
     if invoice.customer_email:
-        bill_parts.append(esc(invoice.customer_email))
+        bill_lines.append(Paragraph(esc(invoice.customer_email), s_detail))
 
-    content.append(
-        Paragraph("<br/>".join(bill_parts) if bill_parts else "N/A", normal_style)
+    bill_table = Table(
+        [[bill_lines, ""]],
+        colWidths=[page_width * 0.5, page_width * 0.5],
     )
-    content.append(Spacer(1, 0.2 * inch))
+    bill_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    content.append(bill_table)
+    content.append(Spacer(1, 0.25 * inch))
 
-    # ---- Line Items ----
-    content.append(Paragraph("ITEMS", heading_style))
-    content.append(Spacer(1, 0.1 * inch))
+    # ================================================================
+    # LINE ITEMS TABLE
+    # ================================================================
+    lines = db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).all()
 
-    table_data = [["SKU", "Description", "Qty", "Unit Price", "Total"]]
-    lines = (
-        db.query(InvoiceLine)
-        .filter(InvoiceLine.invoice_id == invoice.id)
-        .all()
-    )
-    for line in lines:
-        qty_str = (
-            str(int(line.quantity))
-            if line.quantity == int(line.quantity)
-            else str(line.quantity)
-        )
+    table_data = [[
+        Paragraph('#', th),
+        Paragraph('SKU', th),
+        Paragraph('DESCRIPTION', th),
+        Paragraph('QTY', th_right),
+        Paragraph('UNIT PRICE', th_right),
+        Paragraph('AMOUNT', th_right),
+    ]]
+
+    for i, line in enumerate(lines, 1):
+        qty_val = float(line.quantity)
+        qty_str = str(int(qty_val)) if qty_val == int(qty_val) else f"{qty_val:g}"
         table_data.append([
-            esc(line.sku or ""),
-            esc(line.description),
-            qty_str,
-            f"${line.unit_price:,.2f}",
-            f"${line.line_total:,.2f}",
+            Paragraph(str(i), td_muted),
+            Paragraph(esc(line.sku or "—"), td_muted),
+            Paragraph(esc(line.description), td),
+            Paragraph(qty_str, td_right),
+            Paragraph(_fmt(line.unit_price), td_right),
+            Paragraph(_fmt(line.line_total), td_bold_right),
         ])
 
     items_table = Table(
         table_data,
-        colWidths=[1 * inch, 2.5 * inch, 0.7 * inch, 1.1 * inch, 1.2 * inch],
+        colWidths=[0.25 * inch, 1.1 * inch, 2.75 * inch, 0.5 * inch, 1.0 * inch, 1.0 * inch],
     )
-    items_table.setStyle(TableStyle([
-        # Header row - dark blue background
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        # Right-align numeric columns
-        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-        # Grid
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        # Alternating row backgrounds
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f4f8")]),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    content.append(items_table)
-    content.append(Spacer(1, 0.2 * inch))
-
-    # ---- Totals ----
-    totals_data = [
-        ["Subtotal:", f"${invoice.subtotal:,.2f}"],
+    ts = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8fafc')),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BORDER),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, BRAND_BORDER),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]
-    if invoice.discount_amount and invoice.discount_amount > 0:
-        totals_data.append(["Discount:", f"-${invoice.discount_amount:,.2f}"])
-    if invoice.tax_amount and invoice.tax_amount > 0:
-        tax_pct = (
-            f" ({float(invoice.tax_rate) * 100:.2f}%)" if invoice.tax_rate else ""
-        )
-        totals_data.append([f"Tax{tax_pct}:", f"${invoice.tax_amount:,.2f}"])
-    if invoice.shipping_amount and invoice.shipping_amount > 0:
-        totals_data.append(["Shipping:", f"${invoice.shipping_amount:,.2f}"])
-    totals_data.append(["Total Due:", f"${invoice.total:,.2f}"])
-    if invoice.amount_paid and invoice.amount_paid > 0:
-        balance = invoice.total - invoice.amount_paid
-        totals_data.append(["Amount Paid:", f"${invoice.amount_paid:,.2f}"])
-        totals_data.append(["Balance Due:", f"${balance:,.2f}"])
+    for i in range(1, len(table_data)):
+        if i % 2 == 0:
+            ts.append(('BACKGROUND', (0, i), (-1, i), ROW_STRIPE))
+    items_table.setStyle(TableStyle(ts))
+    content.append(items_table)
+    content.append(Spacer(1, 0.15 * inch))
 
-    totals_table = Table(totals_data, colWidths=[4.5 * inch, 2 * inch])
-    totals_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.black),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-    ]))
+    # ================================================================
+    # TOTALS — right-aligned summary block (same pattern as quote PDF)
+    # ================================================================
+    totals_data = []
+    totals_data.append([
+        Paragraph('Subtotal', td_muted_right),
+        Paragraph(_fmt(invoice.subtotal), td_right),
+    ])
+    if invoice.discount_amount and float(invoice.discount_amount) > 0:
+        totals_data.append([
+            Paragraph('Discount', td_muted_right),
+            Paragraph(f'−{_fmt(invoice.discount_amount)}', td_muted_right),
+        ])
+    if invoice.tax_amount and float(invoice.tax_amount) > 0:
+        tax_label = "Sales Tax"
+        if settings and settings.tax_name:
+            tax_label = esc(settings.tax_name)
+        if invoice.tax_rate and float(invoice.tax_rate) > 0:
+            tax_label += f" ({float(invoice.tax_rate) * 100:.2f}%)"
+        totals_data.append([
+            Paragraph(tax_label, td_muted_right),
+            Paragraph(_fmt(invoice.tax_amount), td_right),
+        ])
+    if invoice.shipping_amount and float(invoice.shipping_amount) > 0:
+        totals_data.append([
+            Paragraph('Shipping', td_muted_right),
+            Paragraph(_fmt(invoice.shipping_amount), td_right),
+        ])
+    totals_data.append([
+        Paragraph('Total Due', s_total_label),
+        Paragraph(_fmt(invoice.total), s_total_value),
+    ])
+    if invoice.amount_paid and float(invoice.amount_paid) > 0:
+        balance = float(invoice.total) - float(invoice.amount_paid)
+        totals_data.append([
+            Paragraph('Amount Paid', td_muted_right),
+            Paragraph(_fmt(invoice.amount_paid), td_right),
+        ])
+        totals_data.append([
+            Paragraph('Balance Due', s_total_label),
+            Paragraph(_fmt(balance), s_total_value),
+        ])
+
+    totals_width = 3.0 * inch
+    spacer_width = page_width - totals_width
+    totals_table = Table(
+        [[Spacer(spacer_width, 1), Table(
+            totals_data,
+            colWidths=[1.6 * inch, 1.4 * inch],
+            style=TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('LINEABOVE', (0, -1), (-1, -1), 1.5, BRAND_DARK),
+                ('TOPPADDING', (0, -1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, -1), (-1, -1), 4),
+            ]),
+        )]],
+        colWidths=[spacer_width, totals_width],
+    )
+    totals_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
     content.append(totals_table)
     content.append(Spacer(1, 0.3 * inch))
 
-    # ---- Payment Instructions / Terms ----
+    # ================================================================
+    # PAYMENT TERMS — generated verbiage + optional company override
+    # ================================================================
+    _TERMS_VERBIAGE = {
+        "cod": (
+            "Payment is due upon delivery. Please ensure payment is prepared "
+            "and ready at the time your order arrives."
+        ),
+        "prepaid": (
+            "Payment is due prior to shipment. Production will begin upon "
+            "confirmation of payment."
+        ),
+        "net_15": (
+            f"Payment is due within 15 days of the invoice date. "
+            f"Please remit payment by "
+            f"{invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else 'the due date shown above'}."
+        ),
+        "net_30": (
+            f"Payment is due within 30 days of the invoice date. "
+            f"Please remit payment by "
+            f"{invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else 'the due date shown above'}."
+        ),
+        "net_60": (
+            f"Payment is due within 60 days of the invoice date. "
+            f"Please remit payment by "
+            f"{invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else 'the due date shown above'}."
+        ),
+    }
+    terms_key = (invoice.payment_terms or "").lower().replace(" ", "_").replace("-", "_")
+    terms_verbiage = _TERMS_VERBIAGE.get(terms_key)
+    if not terms_verbiage:
+        due_str = invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else "the due date shown above"
+        terms_verbiage = f"Payment is due by {due_str}."
+
+    # Append company invoice_terms if set
     if settings and settings.invoice_terms:
-        content.append(Paragraph("PAYMENT INSTRUCTIONS", heading_style))
-        content.append(Spacer(1, 0.05 * inch))
-        content.append(Paragraph(esc(settings.invoice_terms), normal_style))
+        terms_verbiage += f" {esc(settings.invoice_terms)}"
+
+    content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.1 * inch))
+    content.append(Paragraph("PAYMENT TERMS", s_section))
+    content.append(Paragraph(esc(terms_verbiage), s_terms_box))
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ================================================================
+    # FOOTER
+    # ================================================================
+    content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.1 * inch))
+    footer_text = (settings.quote_footer if settings and settings.quote_footer else None)
+    if footer_text:
+        content.append(Paragraph(esc(footer_text), s_footer_center))
+    else:
+        company_name = esc(settings.company_name) if settings and settings.company_name else "us"
+        content.append(Paragraph(
+            f"Thank you for your business with {company_name}. "
+            "Questions? Please contact us and reference your invoice number.",
+            s_footer_center,
+        ))
 
     doc.build(content)
     pdf_buffer.seek(0)
