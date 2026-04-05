@@ -2623,7 +2623,6 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
 
     # -- Brand colors (matches invoice and quote PDFs) --
     BRAND_DARK = colors.HexColor('#0f172a')
-    BRAND_ACCENT = colors.HexColor('#2563eb')
     BRAND_BORDER = colors.HexColor('#e2e8f0')
     BRAND_MUTED = colors.HexColor('#64748b')
     ROW_STRIPE = colors.HexColor('#f1f5f9')
