@@ -148,7 +148,7 @@ class SalesOrderBase(BaseModel):
     quantity: int
     material_type: str
     finish: str
-    unit_price: Decimal
+    unit_price: Optional[Decimal] = None  # NULL for multi-line (line_item) orders
     total_price: Decimal
     tax_amount: Decimal
     shipping_cost: Decimal
@@ -193,7 +193,7 @@ class SalesOrderLineResponse(BaseModel):
     material_sku: Optional[str] = None
     material_name: Optional[str] = None
     quantity: Decimal
-    unit_price: Decimal
+    unit_price: Optional[Decimal] = None
     total: Decimal  # Matches model field name
     discount: Optional[Decimal] = Decimal("0")
     allocated_quantity: Optional[Decimal] = Decimal("0")
