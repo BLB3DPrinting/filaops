@@ -379,7 +379,7 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     from reportlab.lib.enums import TA_RIGHT, TA_CENTER
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
-        HRFlowable,
+        HRFlowable, KeepTogether,
     )
 
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
@@ -759,11 +759,13 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     if settings and settings.invoice_terms:
         terms_verbiage += f" {settings.invoice_terms}"
 
-    content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
-    content.append(Spacer(1, 0.1 * inch))
-    content.append(Paragraph("PAYMENT TERMS", s_section))
-    content.append(Paragraph(esc(terms_verbiage), s_terms_box))
-    content.append(Spacer(1, 0.2 * inch))
+    content.append(KeepTogether([
+        HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER),
+        Spacer(1, 0.1 * inch),
+        Paragraph("PAYMENT TERMS", s_section),
+        Paragraph(esc(terms_verbiage), s_terms_box),
+        Spacer(1, 0.2 * inch),
+    ]))
 
     # ================================================================
     # FOOTER
