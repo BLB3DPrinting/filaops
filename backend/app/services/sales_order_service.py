@@ -855,7 +855,7 @@ def convert_quote_to_sales_order(
         shipping_country=shipping_country,
         customer_notes=customer_notes or quote.customer_notes,
         order_type="quote_based",
-        source="portal",
+        source="quote",
         source_order_id=quote.quote_number,
     )
 

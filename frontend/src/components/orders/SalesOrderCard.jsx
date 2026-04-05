@@ -40,7 +40,11 @@ const SOURCE_LABELS = {
   squarespace: 'Squarespace',
   woocommerce: 'WooCommerce',
   manual: 'Manual',
+  quote: 'Quote',
 };
+
+// Sources that don't need a badge (implied by context)
+const SOURCE_HIDDEN = new Set(['manual', 'quote']);
 
 /**
  * Get progress bar color based on fulfillment percentage
@@ -85,7 +89,7 @@ export default function SalesOrderCard({ order, onViewDetails, onShip }) {
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-green-400">{order.order_number}</h3>
-            {order.source && order.source !== 'manual' && (
+            {order.source && !SOURCE_HIDDEN.has(order.source) && (
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${SOURCE_STYLES[order.source] || 'bg-gray-500/20 text-gray-300 border-gray-500/30'}`}>
                 {SOURCE_LABELS[order.source] || order.source}
               </span>
