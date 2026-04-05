@@ -684,6 +684,27 @@ async def cancel_production_order(
     return build_production_order_response(order, db)
 
 
+@router.post("/{order_id}/refresh-routing", response_model=ProductionOrderResponse)
+async def refresh_production_order_routing(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProductionOrderResponse:
+    """Re-snapshot the product's current active routing onto the production order.
+
+    Useful when a routing is added or updated after the PO was already created.
+    Only allowed while all operations are still pending (nothing started yet).
+    """
+    order = production_order_service.refresh_production_order_routing(
+        db, order_id, current_user.email
+    )
+
+    db.commit()
+    db.refresh(order)
+
+    return build_production_order_response(order, db)
+
+
 @router.post("/{order_id}/hold", response_model=ProductionOrderResponse)
 async def hold_production_order(
     order_id: int,

@@ -72,6 +72,7 @@ export default function OrderDetail() {
   const [editQty, setEditQty] = useState("");
   const [editReason, setEditReason] = useState("");
   const [savingLineEdit, setSavingLineEdit] = useState(false);
+  const [removingLineId, setRemovingLineId] = useState(null);
 
   // Close short state
   const [showCloseShortModal, setShowCloseShortModal] = useState(false);
@@ -442,6 +443,21 @@ export default function OrderDetail() {
       toast.error(err.message || "Failed to update line");
     } finally {
       setSavingLineEdit(false);
+    }
+  };
+
+  const handleRemoveLine = async (line) => {
+    const label = line.product_name || line.material_name || `Line ${line.id}`;
+    if (!window.confirm(`Remove "${label}" from this order? This cannot be undone.`)) return;
+    setRemovingLineId(line.id);
+    try {
+      await api.del(`/api/v1/sales-orders/${orderId}/lines/${line.id}`);
+      toast.success(`${label} removed from order`);
+      fetchOrder();
+    } catch (err) {
+      toast.error(err.message || "Failed to remove line");
+    } finally {
+      setRemovingLineId(null);
     }
   };
 
@@ -915,13 +931,25 @@ export default function OrderDetail() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => { setEditingLineId(line.id); setEditQty(String(line.quantity)); setEditReason(""); }}
-                            className="text-gray-500 hover:text-blue-400 text-xs"
-                            title="Edit quantity"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              onClick={() => { setEditingLineId(line.id); setEditQty(String(line.quantity)); setEditReason(""); }}
+                              className="text-gray-500 hover:text-blue-400 text-xs"
+                              title="Edit quantity"
+                            >
+                              Edit
+                            </button>
+                            {order.lines.length > 1 && parseFloat(line.shipped_quantity || 0) === 0 && (
+                              <button
+                                onClick={() => handleRemoveLine(line)}
+                                disabled={removingLineId === line.id}
+                                className="text-gray-600 hover:text-red-400 disabled:opacity-50 text-xs"
+                                title="Remove line"
+                              >
+                                {removingLineId === line.id ? "…" : "✕"}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     )}

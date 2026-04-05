@@ -847,6 +847,30 @@ async def edit_order_lines(
     return build_sales_order_response(order, db)
 
 
+@router.delete("/{order_id}/lines/{line_id}", response_model=SalesOrderResponse)
+async def remove_order_line(
+    order_id: int,
+    line_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove a line item from a sales order.
+
+    Admin only. Allowed on orders with status: confirmed, in_production, on_hold.
+    The line must not have been shipped and must have no active production orders.
+    Cannot remove the last line — cancel the order instead.
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    order = sales_order_service.remove_sales_order_line(
+        db, order_id=order_id, line_id=line_id, user_id=current_user.id
+    )
+    return build_sales_order_response(order, db)
+
+
 @router.get("/{order_id}/close-short-preview")
 async def close_short_preview(
     order_id: int,

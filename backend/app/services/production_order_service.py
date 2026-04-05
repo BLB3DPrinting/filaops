@@ -700,6 +700,73 @@ def cancel_production_order(
     return order
 
 
+def refresh_production_order_routing(
+    db: Session,
+    order_id: int,
+    user_email: str,
+) -> ProductionOrder:
+    """Replace PO operations with the product's current active routing.
+
+    Allowed when the order is draft, released, or on_hold and has no
+    in-progress or completed operations.  Any pending operations (and their
+    materials) are deleted before the new routing is copied in.
+    """
+    order = get_production_order(db, order_id)
+
+    REFRESHABLE = {"draft", "released", "on_hold"}
+    if order.status not in REFRESHABLE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot refresh routing on a {order.status} order. "
+                   f"Order must be draft, released, or on_hold.",
+        )
+
+    # Block if any operation has already been started
+    active_ops = [
+        op for op in order.operations
+        if op.status not in ("pending", "cancelled")
+    ]
+    if active_ops:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot refresh routing: one or more operations are already in progress or complete.",
+        )
+
+    # Find the active routing for this product
+    routing = (
+        db.query(Routing)
+        .filter(
+            Routing.product_id == order.product_id,
+            Routing.is_active.is_(True),
+            Routing.is_template.is_(False),
+        )
+        .order_by(Routing.id.desc())
+        .first()
+    )
+    if not routing:
+        raise HTTPException(
+            status_code=404,
+            detail="No active routing found for this product. Add a routing to the item first.",
+        )
+
+    # Delete existing pending operations (cascade removes their materials)
+    for op in list(order.operations):
+        if op.status in ("pending", "cancelled"):
+            db.delete(op)
+    db.flush()
+
+    # Snapshot new routing onto the order
+    order.routing_id = routing.id
+    copy_routing_to_operations(db, order, routing.id)
+
+    logger.info(
+        f"Production order {order.code} routing refreshed to routing {routing.id} "
+        f"({routing.code}) by {user_email}"
+    )
+
+    return order
+
+
 def hold_production_order(
     db: Session,
     order_id: int,
