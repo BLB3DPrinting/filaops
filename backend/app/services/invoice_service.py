@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models.company_settings import CompanySettings
-from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
@@ -389,23 +388,14 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
 
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
-    # Resolve customer phone — not stored in the invoice snapshot, look up live
-    customer_phone = None
-    if invoice.customer_id:
-        cust = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
-        if cust:
-            customer_phone = cust.phone
-    if not customer_phone and invoice.sales_order_id:
-        so = db.query(SalesOrder).filter(SalesOrder.id == invoice.sales_order_id).first()
-        if so:
-            customer_phone = so.customer_phone
-
-    # Resolve order number for display
-    order_number = None
+    # Resolve linked sales order once — used for phone and order number.
+    # Note: invoice.customer_id stores order.user_id (a User PK, not Customer PK),
+    # so we look up phone from SalesOrder.customer_phone instead.
+    _linked_so = None
     if invoice.sales_order_id:
-        so = db.query(SalesOrder).filter(SalesOrder.id == invoice.sales_order_id).first()
-        if so:
-            order_number = so.order_number
+        _linked_so = db.query(SalesOrder).filter(SalesOrder.id == invoice.sales_order_id).first()
+    customer_phone = _linked_so.customer_phone if _linked_so else None
+    order_number = _linked_so.order_number if _linked_so else None
 
     # -- Currency formatting --
     _CURRENCY_SYMBOLS = {
@@ -615,7 +605,7 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     # ================================================================
     # LINE ITEMS TABLE
     # ================================================================
-    lines = db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).all()
+    lines = db.query(InvoiceLine).filter(InvoiceLine.invoice_id == invoice.id).order_by(InvoiceLine.id).all()
 
     table_data = [[
         Paragraph('#', th),
@@ -751,15 +741,23 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
             f"{invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else 'the due date shown above'}."
         ),
     }
-    terms_key = (invoice.payment_terms or "").lower().replace(" ", "_").replace("-", "_")
+    # Aliases map legacy codes used by _calculate_due_date() to canonical keys
+    _TERMS_ALIASES = {
+        "prepay": "prepaid",
+        "net15": "net_15",
+        "net30": "net_30",
+        "net60": "net_60",
+    }
+    terms_key = (invoice.payment_terms or "").strip().lower().replace(" ", "_").replace("-", "_")
+    terms_key = _TERMS_ALIASES.get(terms_key, terms_key)
     terms_verbiage = _TERMS_VERBIAGE.get(terms_key)
     if not terms_verbiage:
         due_str = invoice.due_date.strftime('%B %d, %Y') if invoice.due_date else "the due date shown above"
         terms_verbiage = f"Payment is due by {due_str}."
 
-    # Append company invoice_terms if set
+    # Append company invoice_terms — raw (no pre-escape), esc() runs once at render below
     if settings and settings.invoice_terms:
-        terms_verbiage += f" {esc(settings.invoice_terms)}"
+        terms_verbiage += f" {settings.invoice_terms}"
 
     content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
     content.append(Spacer(1, 0.1 * inch))
