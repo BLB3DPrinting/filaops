@@ -1384,8 +1384,6 @@ def _compute_close_short_quantities(
 
     Returns dict with per-line breakdown for the preview modal.
     """
-    from app.models.inventory import Inventory
-
     if location_id is None:
         from app.models.inventory import InventoryLocation
         default_loc = db.query(InventoryLocation).filter(
@@ -1644,7 +1642,6 @@ def close_short_sales_order(
 
     # Write CloseShortRecord audit trail
     # Capture inventory snapshot for audit
-    from app.models.inventory import Inventory
     inv_snapshot = []
     product_ids = {line.product_id for line in lines if line.product_id}
     for pid in product_ids:

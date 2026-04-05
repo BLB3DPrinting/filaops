@@ -389,7 +389,7 @@ export default function OrderDetail() {
   };
 
   const canCloseShort = () => {
-    return order && ["confirmed", "in_production", "ready_to_ship", "on_hold"].includes(order.status);
+    return order && ["confirmed", "in_production", "ready_to_ship"].includes(order.status);
   };
 
   const openCloseShortModal = async () => {
