@@ -782,6 +782,7 @@ def convert_quote_to_sales_order(
     shipping_zip: str,
     shipping_country: str = "USA",
     customer_notes: Optional[str] = None,
+    source: str = "quote",
 ) -> SalesOrder:
     """
     Convert an accepted quote to a sales order.
@@ -855,7 +856,7 @@ def convert_quote_to_sales_order(
         shipping_country=shipping_country,
         customer_notes=customer_notes or quote.customer_notes,
         order_type="quote_based",
-        source="quote",
+        source=source,
         source_order_id=quote.quote_number,
     )
 

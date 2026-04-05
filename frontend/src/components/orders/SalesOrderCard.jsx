@@ -43,7 +43,7 @@ const SOURCE_LABELS = {
   quote: 'Quote',
 };
 
-// Sources that don't need a badge (implied by context)
+// Sources that don't need a badge (implied by context for admin-originated orders)
 const SOURCE_HIDDEN = new Set(['manual', 'quote']);
 
 /**
