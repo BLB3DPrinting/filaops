@@ -149,6 +149,8 @@ class OrderStatusService:
         # Handle status-specific updates
         if new_status == "confirmed":
             so.confirmed_at = datetime.now(timezone.utc)
+        elif new_status == "ready_to_ship":
+            so.fulfillment_status = "ready"
         elif new_status == "shipped":
             so.shipped_at = datetime.now(timezone.utc)
             so.fulfillment_status = "shipped"

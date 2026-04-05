@@ -1129,7 +1129,7 @@ export default function OrderDetail() {
 
       {/* Close Short Modal */}
       {showCloseShortModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setShowCloseShortModal(false); setCloseShortPreview(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setShowCloseShortModal(false); setCloseShortPreview(null); setCloseShortReason(""); }}>
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">
               Close Order Short
@@ -1182,7 +1182,7 @@ export default function OrderDetail() {
                     <p className="text-xs text-gray-500 mb-1">Linked Production Orders:</p>
                     <div className="flex flex-wrap gap-2">
                       {[...new Map(closeShortPreview.lines.flatMap(l => l.linked_po_summary || []).map(po => [po.po_number, po])).values()].map(po => (
-                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${po.status === "complete" ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
+                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${["complete", "completed", "closed"].includes(po.status) ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
                           {po.po_number}: {po.completed}/{po.ordered} ({po.status})
                         </span>
                       ))}

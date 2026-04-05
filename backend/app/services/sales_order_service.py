@@ -1470,11 +1470,17 @@ def _compute_close_short_quantities(
             continue
 
         # 1. Try linked PO completion (by line_id, then product_id fallback)
-        produced = po_completed_by_line.get(line.id, Decimal("0"))
-        po_summaries = po_summary_by_line.get(line.id, [])
-        if produced == 0:
-            produced = po_completed_by_product.get(line.product_id, Decimal("0"))
+        # Check key existence, not produced == 0: a line-level PO with 0 completed
+        # is still a real link and should not fall through to the product-level bucket.
+        if line.id in po_completed_by_line:
+            produced = po_completed_by_line[line.id]
+            po_summaries = po_summary_by_line.get(line.id, [])
+        elif line.product_id in po_completed_by_product:
+            produced = po_completed_by_product[line.product_id]
             po_summaries = po_summary_by_product.get(line.product_id, [])
+        else:
+            produced = Decimal("0")
+            po_summaries = []
 
         # 2. Fallback: check FG inventory if no POs linked
         if produced == 0 and not po_summaries and location_id is not None:

@@ -199,6 +199,7 @@ class SalesOrderLineResponse(BaseModel):
     allocated_quantity: Optional[Decimal] = Decimal("0")
     shipped_quantity: Optional[Decimal] = Decimal("0")
     original_quantity: Optional[Decimal] = None
+    fulfillment_status: Optional[str] = None
     notes: Optional[str] = None
 
     class Config:

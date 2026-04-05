@@ -233,6 +233,7 @@ class TestCloseShortSalesOrder:
         )
 
         assert updated.status == "ready_to_ship"
+        assert updated.fulfillment_status == "ready"
         assert updated.closed_short is True
         assert updated.closed_short_at is not None
         assert updated.close_short_reason == "Customer accepted partial"
@@ -318,7 +319,9 @@ class TestCloseShortSalesOrder:
 
         db.refresh(line)
         assert line.quantity == Decimal("104")
+        assert line.fulfillment_status == "short_closed"
         assert updated.status == "ready_to_ship"
+        assert updated.fulfillment_status == "ready"
 
     def test_falls_back_to_product_id_when_line_id_null(self, db, make_product):
         """POs without sales_order_line_id match to lines by product_id."""
@@ -351,5 +354,7 @@ class TestCloseShortSalesOrder:
         ).first()
         assert line.quantity == Decimal("12")
         assert line.original_quantity == Decimal("15")
+        assert line.fulfillment_status == "short_closed"
         assert updated.status == "ready_to_ship"
+        assert updated.fulfillment_status == "ready"
         assert updated.closed_short is True
