@@ -2685,7 +2685,7 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
     )
 
     # Table cell styles
-    th = ParagraphStyle('PSTH', parent=s_normal, fontSize=7, fontName='Helvetica', textColor=BRAND_MUTED)
+    th = ParagraphStyle('PSTH', parent=s_normal, fontSize=7, fontName='Helvetica-Bold', textColor=colors.white)
     th_right = ParagraphStyle('PSTHRight', parent=th, alignment=TA_RIGHT)
     td = ParagraphStyle('PSTD', parent=s_normal, fontSize=9, textColor=BRAND_DARK)
     td_right = ParagraphStyle('PSTDRight', parent=td, alignment=TA_RIGHT)
@@ -2825,6 +2825,16 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
         .all()
     )
 
+    def format_qty(value) -> str:
+        """Format a quantity value, preserving fractional units and respecting explicit zero."""
+        from decimal import Decimal as _D
+        if value is None:
+            return "0"
+        qty = _D(str(value))
+        if qty == qty.to_integral_value():
+            return str(int(qty))
+        return format(qty.normalize(), "f").rstrip("0").rstrip(".")
+
     col_widths = [
         page_width * 0.18,  # SKU
         page_width * 0.46,  # Description
@@ -2861,10 +2871,10 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
             else:
                 sku = ""
                 description = ""
-            qty_ordered = str(int(line.quantity)) if line.quantity else "0"
+            qty_ordered = format_qty(line.quantity)
             qty_shipped = (
-                str(int(line.shipped_quantity))
-                if line.shipped_quantity
+                format_qty(line.shipped_quantity)
+                if line.shipped_quantity is not None
                 else qty_ordered
             )
             table_data.append([
@@ -2884,7 +2894,7 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
             )
         sku = product.sku if product else ""
         description = order.product_name or (product.name if product else "")
-        qty_ordered = str(order.quantity or 0)
+        qty_ordered = format_qty(order.quantity)
         table_data.append([
             Paragraph(esc(sku), td_muted),
             Paragraph(esc(description), td_bold),
@@ -2894,9 +2904,6 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
 
     items_ts = [
         ('BACKGROUND', (0, 0), (-1, 0), BRAND_DARK),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 7),
         ('TOPPADDING', (0, 0), (-1, 0), 6),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
         ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BORDER),
