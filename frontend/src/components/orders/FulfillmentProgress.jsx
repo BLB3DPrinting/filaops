@@ -72,6 +72,8 @@ function XCircleIcon({ className }) {
  * @param {string|null} props.error - Error message if any
  * @param {Function} props.onRefresh - Callback to refresh data
  * @param {Function} [props.onShip] - Optional callback when Ship button clicked
+ * @param {boolean} [props.closedShort] - When true, non-terminal states render as "Closed Short —
+ *   Ready to Ship" (amber) and short lines show "Short Closed" instead of "Short X"
  */
 export default function FulfillmentProgress({
   fulfillmentStatus,
@@ -130,8 +132,11 @@ export default function FulfillmentProgress({
 
   const { summary, lines } = fulfillmentStatus;
   const rawState = summary?.state || 'blocked';
-  // When an order is closed short, it is intentionally partial — override blocked→short_closed
-  const state = closedShort && rawState === 'blocked' ? 'short_closed' : rawState;
+  // When an order is closed short, it is intentionally partial — show short_closed for any
+  // non-terminal state (blocked, partially_ready, ready_to_ship). Terminal states (shipped,
+  // cancelled) keep their own label since closed_short is just historical context at that point.
+  const TERMINAL_STATES = new Set(['shipped', 'cancelled']);
+  const state = closedShort && !TERMINAL_STATES.has(rawState) ? 'short_closed' : rawState;
   const percent = summary?.fulfillment_percent ?? 0;
 
   return (
