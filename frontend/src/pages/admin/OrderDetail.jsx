@@ -1182,7 +1182,7 @@ export default function OrderDetail() {
                     <p className="text-xs text-gray-500 mb-1">Linked Production Orders:</p>
                     <div className="flex flex-wrap gap-2">
                       {[...new Map(closeShortPreview.lines.flatMap(l => l.linked_po_summary || []).map(po => [po.po_number, po])).values()].map(po => (
-                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${["complete", "completed", "closed"].includes(po.status) ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
+                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${["complete", "completed", "closed", "cancelled"].includes(po.status) ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
                           {po.po_number}: {po.completed}/{po.ordered} ({po.status})
                         </span>
                       ))}

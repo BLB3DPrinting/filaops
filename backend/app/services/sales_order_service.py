@@ -1428,11 +1428,13 @@ def _compute_close_short_quantities(
         }
         line_id = getattr(po, "sales_order_line_id", None)
         if line_id:
+            # Line-linked PO: goes into line bucket only — not the product bucket
             po_completed_by_line[line_id] = (
                 po_completed_by_line.get(line_id, Decimal("0")) + completed
             )
             po_summary_by_line.setdefault(line_id, []).append(summary)
-        if po.product_id:
+        elif po.product_id:
+            # Unlinked PO (legacy): falls back to product-level bucket
             po_completed_by_product[po.product_id] = (
                 po_completed_by_product.get(po.product_id, Decimal("0")) + completed
             )
@@ -1561,6 +1563,12 @@ def close_short_sales_order(
     from app.models.close_short_record import CloseShortRecord
 
     order = get_sales_order(db, order_id)
+
+    if order.closed_short:
+        raise HTTPException(
+            status_code=400,
+            detail="Order has already been closed short."
+        )
 
     if order.status not in CLOSE_SHORT_STATUSES:
         raise HTTPException(
