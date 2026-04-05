@@ -148,9 +148,8 @@ export default function AdminInvoices() {
 
   const handleDownloadPDF = async (invoiceId, invoiceNumber) => {
     try {
-      const token = localStorage.getItem("token");
       const response = await fetch(`/api/v1/invoices/${invoiceId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to download PDF");
       const blob = await response.blob();
