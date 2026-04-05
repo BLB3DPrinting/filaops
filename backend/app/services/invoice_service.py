@@ -60,17 +60,24 @@ def _generate_invoice_number(db: Session) -> str:
 # ============================================================================
 
 def _calculate_due_date(payment_terms: str, from_date: Optional[date] = None) -> date:
-    """Calculate invoice due date from payment terms."""
+    """Calculate invoice due date from payment terms.
+
+    Normalizes term strings before lookup so that "net_30", "net-30", and
+    "Net 30" all resolve identically to the canonical short-form keys.
+    """
     base = from_date or date.today()
+    # Normalize: lowercase, collapse separators, strip whitespace
+    normalized = (payment_terms or "").strip().lower().replace(" ", "").replace("_", "").replace("-", "")
     terms_days = {
         "cod": 0,
         "prepay": 0,
-        "card_on_file": 0,
+        "prepaid": 0,
+        "cardonfile": 0,
         "net15": 15,
         "net30": 30,
         "net60": 60,
     }
-    days = terms_days.get(payment_terms, 0)
+    days = terms_days.get(normalized, 0)
     return base + timedelta(days=days)
 
 

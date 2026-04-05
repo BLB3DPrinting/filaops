@@ -9,8 +9,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, EmailStr, model_validator
 from datetime import datetime
 
-VALID_PAYMENT_TERMS = Literal["cod", "prepay", "net15", "net30", "card_on_file"]
-NET_TERMS = {"net15", "net30"}
+VALID_PAYMENT_TERMS = Literal["cod", "prepay", "net15", "net30", "net60", "card_on_file"]
+NET_TERMS = {"net15", "net30", "net60"}
 
 
 # ============================================================================

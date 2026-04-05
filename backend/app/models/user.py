@@ -55,7 +55,7 @@ class User(Base):
     account_type = Column(String(20), default='customer', nullable=False)  # customer, admin, operator
 
     # Payment Terms (for account_type='customer')
-    payment_terms = Column(String(20), server_default="cod")  # cod, prepay, net15, net30, card_on_file
+    payment_terms = Column(String(20), server_default="cod")  # cod, prepay, net15, net30, net60, card_on_file
     credit_limit = Column(Numeric(12, 2), nullable=True)  # NULL = no limit, 0 = no credit
     approved_for_terms = Column(Boolean, server_default=text("false"))
     approved_for_terms_at = Column(DateTime(timezone=True), nullable=True)
