@@ -770,6 +770,7 @@ export default function OrderDetail() {
         error={fulfillmentError}
         onRefresh={refetchFulfillment}
         onShip={(type) => navigate(`/admin/shipping?orderId=${order.id}&mode=${type}`)}
+        closedShort={order?.closed_short === true}
       />
 
       {/* Blocking Issues Panel */}
@@ -803,12 +804,18 @@ export default function OrderDetail() {
           <div>
             <div className="text-sm text-gray-400">Product</div>
             <div className="text-white font-medium">
-              {order.product_name || "N/A"}
+              {order.lines?.length > 1
+                ? `${order.lines.length} line items`
+                : order.product_name || order.lines?.[0]?.product_name || "N/A"}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Quantity</div>
-            <div className="text-white font-medium">{order.quantity}</div>
+            <div className="text-sm text-gray-400">
+              {order.lines?.length > 1 ? "Lines" : "Quantity"}
+            </div>
+            <div className="text-white font-medium">
+              {order.lines?.length > 1 ? order.lines.length : order.quantity}
+            </div>
           </div>
           <div>
             <div className="text-sm text-gray-400">Status</div>

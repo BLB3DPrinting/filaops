@@ -8,6 +8,7 @@ const STATUS_STYLES = {
   ready_to_ship: 'bg-green-500/20 text-green-400 border-green-500/30',
   partially_ready: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   blocked: 'bg-red-500/20 text-red-400 border-red-500/30',
+  short_closed: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
   shipped: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
   cancelled: 'bg-gray-500/20 text-gray-500 border-gray-500/30',
 };
@@ -17,6 +18,7 @@ const STATUS_LABELS = {
   ready_to_ship: 'Ready to Ship',
   partially_ready: 'Partially Ready',
   blocked: 'Blocked',
+  short_closed: 'Closed Short — Ready to Ship',
   shipped: 'Shipped',
   cancelled: 'Cancelled',
 };
@@ -77,6 +79,7 @@ export default function FulfillmentProgress({
   error,
   onRefresh,
   onShip,
+  closedShort = false,
 }) {
   // Loading state
   if (loading) {
@@ -126,7 +129,9 @@ export default function FulfillmentProgress({
   }
 
   const { summary, lines } = fulfillmentStatus;
-  const state = summary?.state || 'blocked';
+  const rawState = summary?.state || 'blocked';
+  // When an order is closed short, it is intentionally partial — override blocked→short_closed
+  const state = closedShort && rawState === 'blocked' ? 'short_closed' : rawState;
   const percent = summary?.fulfillment_percent ?? 0;
 
   return (
@@ -180,30 +185,50 @@ export default function FulfillmentProgress({
         {/* Line Items */}
         {lines && lines.length > 0 && (
           <div className="space-y-2">
-            {lines.map((line) => (
-              <div
-                key={line.line_id || line.line_number}
-                className={`flex items-center justify-between p-3 rounded-lg ${
-                  line.is_ready ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  {line.is_ready ? (
-                    <CheckCircleIcon className="w-5 h-5 text-green-400" />
-                  ) : (
-                    <XCircleIcon className="w-5 h-5 text-red-400" />
-                  )}
-                  <span className="text-sm text-white">
-                    <span className="font-medium">Line {line.line_number}:</span>{' '}
-                    <span className="text-gray-400">{line.product_sku}</span>{' '}
-                    <span className="text-gray-500">({line.quantity_remaining} units)</span>
-                  </span>
+            {lines.map((line) => {
+              const isShortClosed = closedShort && !line.is_ready;
+              const rowClass = line.is_ready
+                ? 'bg-green-500/10 border border-green-500/20'
+                : isShortClosed
+                  ? 'bg-amber-500/10 border border-amber-500/20'
+                  : 'bg-red-500/10 border border-red-500/20';
+              const iconClass = line.is_ready
+                ? 'w-5 h-5 text-green-400'
+                : isShortClosed
+                  ? 'w-5 h-5 text-amber-400'
+                  : 'w-5 h-5 text-red-400';
+              const labelClass = line.is_ready
+                ? 'text-sm font-medium text-green-400'
+                : isShortClosed
+                  ? 'text-sm font-medium text-amber-400'
+                  : 'text-sm font-medium text-red-400';
+              const label = line.is_ready
+                ? 'Ready'
+                : isShortClosed
+                  ? 'Short Closed'
+                  : `Short ${line.shortage}`;
+
+              return (
+                <div
+                  key={line.line_id || line.line_number}
+                  className={`flex items-center justify-between p-3 rounded-lg ${rowClass}`}
+                >
+                  <div className="flex items-center gap-3">
+                    {line.is_ready ? (
+                      <CheckCircleIcon className={iconClass} />
+                    ) : (
+                      <XCircleIcon className={iconClass} />
+                    )}
+                    <span className="text-sm text-white">
+                      <span className="font-medium">Line {line.line_number}:</span>{' '}
+                      <span className="text-gray-400">{line.product_sku}</span>{' '}
+                      <span className="text-gray-500">({line.quantity_remaining} units)</span>
+                    </span>
+                  </div>
+                  <span className={labelClass}>{label}</span>
                 </div>
-                <span className={`text-sm font-medium ${line.is_ready ? 'text-green-400' : 'text-red-400'}`}>
-                  {line.is_ready ? 'Ready' : `Short ${line.shortage}`}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
