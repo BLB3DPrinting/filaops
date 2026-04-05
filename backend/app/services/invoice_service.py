@@ -68,6 +68,7 @@ def _calculate_due_date(payment_terms: str, from_date: Optional[date] = None) ->
         "card_on_file": 0,
         "net15": 15,
         "net30": 30,
+        "net60": 60,
     }
     days = terms_days.get(payment_terms, 0)
     return base + timedelta(days=days)
@@ -410,7 +411,8 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     _sym = _CURRENCY_SYMBOLS.get(_currency, f"{_currency}\u00a0")
 
     def _fmt(amount) -> str:
-        return f"{_sym}{float(amount):,.2f}"
+        value = Decimal(str(amount or "0")).quantize(Decimal("0.01"))
+        return f"{_sym}{value:,.2f}"
 
     # -- Brand colors (matches quote PDF) --
     BRAND_DARK = colors.HexColor('#0f172a')
@@ -657,22 +659,22 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
         Paragraph('Subtotal', td_muted_right),
         Paragraph(_fmt(invoice.subtotal), td_right),
     ])
-    if invoice.discount_amount and float(invoice.discount_amount) > 0:
+    if invoice.discount_amount and Decimal(str(invoice.discount_amount or "0")) > 0:
         totals_data.append([
             Paragraph('Discount', td_muted_right),
             Paragraph(f'−{_fmt(invoice.discount_amount)}', td_muted_right),
         ])
-    if invoice.tax_amount and float(invoice.tax_amount) > 0:
+    if invoice.tax_amount and Decimal(str(invoice.tax_amount or "0")) > 0:
         tax_label = "Sales Tax"
         if settings and settings.tax_name:
             tax_label = esc(settings.tax_name)
-        if invoice.tax_rate and float(invoice.tax_rate) > 0:
-            tax_label += f" ({float(invoice.tax_rate) * 100:.2f}%)"
+        if invoice.tax_rate and Decimal(str(invoice.tax_rate or "0")) > 0:
+            tax_label += f" ({Decimal(str(invoice.tax_rate)) * 100:.2f}%)"
         totals_data.append([
             Paragraph(tax_label, td_muted_right),
             Paragraph(_fmt(invoice.tax_amount), td_right),
         ])
-    if invoice.shipping_amount and float(invoice.shipping_amount) > 0:
+    if invoice.shipping_amount and Decimal(str(invoice.shipping_amount or "0")) > 0:
         totals_data.append([
             Paragraph('Shipping', td_muted_right),
             Paragraph(_fmt(invoice.shipping_amount), td_right),
@@ -681,8 +683,8 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
         Paragraph('Total Due', s_total_label),
         Paragraph(_fmt(invoice.total), s_total_value),
     ])
-    if invoice.amount_paid and float(invoice.amount_paid) > 0:
-        balance = float(invoice.total) - float(invoice.amount_paid)
+    if invoice.amount_paid and Decimal(str(invoice.amount_paid or "0")) > 0:
+        balance = Decimal(str(invoice.total or "0")) - Decimal(str(invoice.amount_paid or "0"))
         totals_data.append([
             Paragraph('Amount Paid', td_muted_right),
             Paragraph(_fmt(invoice.amount_paid), td_right),
