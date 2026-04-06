@@ -438,6 +438,7 @@ export default function ProductionOrderModal({
 
   // Refresh routing — re-snapshot the product's current active routing
   const handleRefreshRouting = async () => {
+    if (refreshRoutingLoading) return;
     if (!window.confirm('Re-apply the current routing to this production order? Any pending operations will be replaced.')) return;
     setRefreshRoutingLoading(true);
     setError(null);
