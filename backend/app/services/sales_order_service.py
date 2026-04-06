@@ -1419,17 +1419,18 @@ def remove_sales_order_line(
             detail=f"Cannot remove line {line_id}: {line.shipped_quantity} units have already been shipped.",
         )
 
-    # Cannot remove a line that has active production orders
-    ACTIVE_PO_STATUSES = {"draft", "released", "scheduled", "in_progress", "on_hold"}
-    active_pos = db.query(ProductionOrder).filter(
+    # Cannot remove a line that has any non-cancelled production order.
+    # We block on everything except 'cancelled' — completed/qc_hold/closed
+    # still represent real manufacturing work tied to this line.
+    blocking_pos = db.query(ProductionOrder).filter(
         ProductionOrder.sales_order_line_id == line_id,
-        ProductionOrder.status.in_(ACTIVE_PO_STATUSES),
+        ProductionOrder.status != "cancelled",
     ).all()
-    if active_pos:
-        po_codes = ", ".join(po.code for po in active_pos)
+    if blocking_pos:
+        po_codes = ", ".join(po.code for po in blocking_pos)
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot remove line {line_id}: active production order(s) exist: {po_codes}. "
+            detail=f"Cannot remove line {line_id}: production order(s) exist: {po_codes}. "
                    f"Cancel them first.",
         )
 

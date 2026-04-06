@@ -482,6 +482,8 @@ export default function ProductionOrderModal({
 
   if (!productionOrder) return null;
 
+  const canRefreshRouting = ['draft', 'released', 'on_hold'].includes(productionOrder.status);
+
   return (
     <Modal isOpen={true} onClose={onClose} title={`Production Order ${productionOrder.code}`} className="w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
         {/* Header */}
@@ -562,7 +564,7 @@ export default function ProductionOrderModal({
             ) : operations.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-500 mb-3">No operations defined for this order</p>
-                {['draft', 'released', 'on_hold'].includes(productionOrder.status) && (
+                {canRefreshRouting && (
                   <button
                     onClick={handleRefreshRouting}
                     disabled={refreshRoutingLoading}
