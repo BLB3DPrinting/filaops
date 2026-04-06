@@ -667,7 +667,7 @@ export default function ProductionOrderModal({
             >
               Claim for Me
             </button>
-            {['draft', 'released', 'on_hold'].includes(productionOrder.status) && (
+            {canRefreshRouting && (
               <button
                 onClick={handleRefreshRouting}
                 disabled={refreshRoutingLoading}
