@@ -447,8 +447,17 @@ export default function ProductionOrderModal({
         { method: 'POST', credentials: 'include' }
       );
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Failed to refresh routing');
+        const data = await res.json().catch(() => ({}));
+        const detail = data?.detail;
+        const message =
+          typeof detail === 'string'
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((d) => (typeof d === 'string' ? d : d?.msg)).filter(Boolean).join('; ')
+              : detail
+                ? JSON.stringify(detail)
+                : 'Failed to refresh routing';
+        throw new Error(message);
       }
       await fetchOperations();
       onUpdated?.();
