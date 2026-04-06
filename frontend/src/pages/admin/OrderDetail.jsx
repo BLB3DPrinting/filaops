@@ -462,7 +462,7 @@ export default function OrderDetail() {
   };
 
   const canEditLines = () => {
-    return order && ["confirmed", "in_production", "on_hold"].includes(order.status);
+    return order && ["pending", "confirmed", "in_production", "on_hold"].includes(order.status);
   };
 
   const handleConfirmOrder = async () => {

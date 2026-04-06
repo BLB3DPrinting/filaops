@@ -1235,7 +1235,7 @@ def cancel_sales_order(
 # Line Editing & Close Short
 # =============================================================================
 
-EDITABLE_STATUSES = {"confirmed", "in_production", "on_hold"}
+EDITABLE_STATUSES = {"pending", "confirmed", "in_production", "on_hold"}
 CLOSE_SHORT_STATUSES = {"confirmed", "in_production", "ready_to_ship"}
 # Terminal PO statuses that allow SO close-short (includes legacy variants)
 RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled"}
