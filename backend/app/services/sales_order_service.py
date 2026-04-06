@@ -2749,7 +2749,7 @@ def generate_packing_slip_pdf(db: Session, order_id: int) -> io.BytesIO:
 
     s_doc_label = ParagraphStyle(
         'PSLabel', parent=s_normal,
-        fontSize=28, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=2,
+        fontSize=28, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=10,
     )
     s_section = ParagraphStyle(
         'PSSection', parent=s_normal,
