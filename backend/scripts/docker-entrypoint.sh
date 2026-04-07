@@ -58,5 +58,5 @@ fi
 if [ $# -gt 0 ]; then
     exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" "$@"
 else
-    exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" uvicorn app.main:app --host 0.0.0.0 --port 8000
+    exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
 fi

@@ -44,6 +44,9 @@ from app.models.notification import Notification
 # Close Short Audit
 from app.models.close_short_record import CloseShortRecord
 
+# Price Levels (Core manages definitions; PRO manages customer assignment)
+from app.models.price_level import PriceLevel
+
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
@@ -136,4 +139,6 @@ __all__ = [
     "Notification",
     # Close Short Audit
     "CloseShortRecord",
+    # Price Levels
+    "PriceLevel",
 ]

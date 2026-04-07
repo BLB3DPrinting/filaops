@@ -37,6 +37,7 @@ from app.api.v1.endpoints import (
     security,
     invoices,
     notifications,
+    price_levels,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 
@@ -188,6 +189,9 @@ router.include_router(settings.router)
 
 # Tax Rates (multi-rate i18n support)
 router.include_router(tax_rates.router)
+
+# Price Levels (wholesale tiers — Core manages definitions, PRO manages customer assignment)
+router.include_router(price_levels.router)
 
 # Payments
 router.include_router(payments.router)

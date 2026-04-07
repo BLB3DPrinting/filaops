@@ -7,65 +7,22 @@ import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 export default function AdminPriceLevels() {
   const toast = useToast();
   const api = useApi();
-  const { isPro, loading: flagsLoading } = useFeatureFlags();
+  const { isPro } = useFeatureFlags();
 
   const {
     items: priceLevels,
     loading,
     error,
     refresh,
-  } = useCRUD("/api/v1/pro/catalogs/price-levels", {
+  } = useCRUD("/api/v1/price-levels", {
     extractKey: null,
-    immediate: false,
+    immediate: true,
   });
 
   const [showModal, setShowModal] = useState(false);
   const [editingLevel, setEditingLevel] = useState(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assigningLevel, setAssigningLevel] = useState(null);
-
-  // Fetch only when PRO is active
-  useEffect(() => {
-    if (isPro && !flagsLoading) {
-      refresh().catch(() => {});
-    }
-  }, [isPro, flagsLoading, refresh]);
-
-  // -- PRO gate --
-  if (flagsLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
-      </div>
-    );
-  }
-
-  if (!isPro) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Price Levels</h1>
-          <p className="text-gray-400 mt-1">
-            Create wholesale pricing tiers for your B2B customers
-          </p>
-        </div>
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6 text-center">
-          <svg className="w-12 h-12 text-blue-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          <h3 className="text-lg font-semibold text-white mb-2">PRO Feature</h3>
-          <p className="text-gray-400 mb-4">
-            Price levels allow you to offer tiered wholesale pricing to your B2B
-            customers. Create tiers like "Tier A — 25% off" and assign customers
-            to automatically apply discounts.
-          </p>
-          <a href="/pricing" className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors">
-            Upgrade to PRO
-          </a>
-        </div>
-      </div>
-    );
-  }
 
   // -- Loading / Error states --
   if (loading) {
@@ -93,13 +50,10 @@ export default function AdminPriceLevels() {
   const handleSave = async (formData) => {
     try {
       if (editingLevel) {
-        await api.patch(
-          `/api/v1/pro/catalogs/price-levels/${editingLevel.id}`,
-          formData
-        );
+        await api.patch(`/api/v1/price-levels/${editingLevel.id}`, formData);
         toast.success("Price level updated");
       } else {
-        await api.post("/api/v1/pro/catalogs/price-levels", formData);
+        await api.post("/api/v1/price-levels", formData);
         toast.success("Price level created");
       }
       setShowModal(false);
@@ -111,6 +65,7 @@ export default function AdminPriceLevels() {
     }
   };
 
+  // Assignment handlers use PRO routes — PRO manages pro_customer_price_levels
   const handleAssign = async (customerId) => {
     try {
       await api.post(
@@ -119,7 +74,6 @@ export default function AdminPriceLevels() {
       );
       toast.success("Customer assigned to price level");
       const data = await refresh();
-      // Re-resolve assigningLevel from refreshed data so modal shows current customers
       if (assigningLevel && Array.isArray(data)) {
         const fresh = data.find((l) => l.id === assigningLevel.id);
         if (fresh) setAssigningLevel(fresh);
@@ -152,7 +106,7 @@ export default function AdminPriceLevels() {
         <div>
           <h1 className="text-2xl font-bold text-white">Price Levels</h1>
           <p className="text-gray-400 mt-1">
-            Wholesale pricing tiers for B2B portal customers
+            Wholesale pricing tiers for your customers
           </p>
         </div>
         <button
@@ -176,9 +130,10 @@ export default function AdminPriceLevels() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <p className="text-blue-400 text-sm">
-            Price levels define discount tiers for your B2B customers. Assign
-            customers to a level and they'll automatically see discounted prices
-            on the portal. Levels sync to the hosted portal every 15 minutes.
+            Price levels define discount tiers for your customers.
+            {isPro
+              ? " Assign customers to a level and they'll automatically see discounted prices on the B2B portal."
+              : " Customer assignment to price levels is available with FilaOps PRO."}
           </p>
         </div>
       </div>
@@ -186,12 +141,9 @@ export default function AdminPriceLevels() {
       {/* Price Levels Table */}
       <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px]">
+          <table className="w-full min-w-[560px]">
             <thead className="bg-gray-800/50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Code
-                </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Name
                 </th>
@@ -199,20 +151,22 @@ export default function AdminPriceLevels() {
                   Discount
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Customers
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Status
                 </th>
+                {isPro && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Customers
+                  </th>
+                )}
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
-              {priceLevels.length === 0 ? (
+              {!priceLevels || priceLevels.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={isPro ? 5 : 4} className="px-4 py-8 text-center text-gray-500">
                     No price levels yet. Click "Add Price Level" to create your first tier.
                   </td>
                 </tr>
@@ -220,11 +174,8 @@ export default function AdminPriceLevels() {
                 priceLevels.map((level) => (
                   <tr
                     key={level.id}
-                    className={`hover:bg-gray-800/50 ${!level.active ? "opacity-50" : ""}`}
+                    className={`hover:bg-gray-800/50 ${!level.is_active ? "opacity-50" : ""}`}
                   >
-                    <td className="px-4 py-3 text-white font-mono text-sm">
-                      {level.code}
-                    </td>
                     <td className="px-4 py-3 text-white">{level.name}</td>
                     <td className="px-4 py-3">
                       <span className="text-green-400 font-medium">
@@ -232,27 +183,29 @@ export default function AdminPriceLevels() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => {
-                          setAssigningLevel(level);
-                          setShowAssignModal(true);
-                        }}
-                        className="text-blue-400 hover:text-blue-300 text-sm underline"
-                      >
-                        {level.customers?.length || 0} customers
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
                       <span
                         className={`px-2 py-1 rounded text-xs font-medium ${
-                          level.active
+                          level.is_active
                             ? "bg-green-500/20 text-green-400"
                             : "bg-gray-500/20 text-gray-400"
                         }`}
                       >
-                        {level.active ? "Active" : "Inactive"}
+                        {level.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
+                    {isPro && (
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => {
+                            setAssigningLevel(level);
+                            setShowAssignModal(true);
+                          }}
+                          className="text-blue-400 hover:text-blue-300 text-sm underline"
+                        >
+                          {level.customers?.length || 0} customers
+                        </button>
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
@@ -267,18 +220,20 @@ export default function AdminPriceLevels() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
                         </button>
-                        <button
-                          onClick={() => {
-                            setAssigningLevel(level);
-                            setShowAssignModal(true);
-                          }}
-                          className="text-gray-400 hover:text-blue-400 p-1"
-                          title="Manage customers"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </button>
+                        {isPro && (
+                          <button
+                            onClick={() => {
+                              setAssigningLevel(level);
+                              setShowAssignModal(true);
+                            }}
+                            className="text-gray-400 hover:text-blue-400 p-1"
+                            title="Manage customers"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -301,8 +256,8 @@ export default function AdminPriceLevels() {
         />
       )}
 
-      {/* Customer Assignment Modal */}
-      {showAssignModal && assigningLevel && (
+      {/* Customer Assignment Modal (PRO only) */}
+      {isPro && showAssignModal && assigningLevel && (
         <AssignCustomersModal
           level={assigningLevel}
           allLevels={priceLevels || []}
@@ -324,11 +279,10 @@ export default function AdminPriceLevels() {
 function PriceLevelModal({ level, onSave, onClose }) {
   const firstInputRef = useRef(null);
   const [formData, setFormData] = useState({
-    code: level?.code || "",
     name: level?.name || "",
     discount_percent: level?.discount_percent ?? 0,
     description: level?.description || "",
-    active: level?.active ?? true,
+    is_active: level?.is_active ?? true,
   });
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -345,11 +299,10 @@ function PriceLevelModal({ level, onSave, onClose }) {
 
   const validate = () => {
     const newErrors = {};
-    if (!formData.code.trim()) newErrors.code = "Code is required";
     if (!formData.name.trim()) newErrors.name = "Name is required";
     const discount = Number(formData.discount_percent);
     if (formData.discount_percent === "" || !Number.isFinite(discount) || discount < 0 || discount > 100)
-      newErrors.discount_percent = "Must be 0-100";
+      newErrors.discount_percent = "Must be 0–100";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -360,9 +313,10 @@ function PriceLevelModal({ level, onSave, onClose }) {
     setIsSubmitting(true);
     try {
       await onSave({
-        ...formData,
-        code: formData.code.toUpperCase().trim(),
+        name: formData.name.trim(),
         discount_percent: Number(formData.discount_percent),
+        description: formData.description || null,
+        is_active: formData.is_active,
       });
     } catch {
       // handled by parent
@@ -387,29 +341,9 @@ function PriceLevelModal({ level, onSave, onClose }) {
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Code *</label>
-            <input
-              ref={firstInputRef}
-              type="text"
-              value={formData.code}
-              onChange={(e) => {
-                setFormData({ ...formData, code: e.target.value.toUpperCase().replace(/[^A-Z0-9-_]/g, "") });
-                if (errors.code) setErrors({ ...errors, code: undefined });
-              }}
-              className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-white focus:outline-none ${
-                errors.code ? "border-red-500" : "border-gray-700 focus:border-blue-500"
-              }`}
-              placeholder="e.g., TIER-A"
-              maxLength={10}
-              disabled={!!level || isSubmitting}
-            />
-            {errors.code && <p className="text-red-400 text-sm mt-1">{errors.code}</p>}
-            <p className="text-gray-500 text-xs mt-1">Unique identifier (cannot be changed later)</p>
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Name *</label>
             <input
+              ref={firstInputRef}
               type="text"
               value={formData.name}
               onChange={(e) => {
@@ -419,8 +353,8 @@ function PriceLevelModal({ level, onSave, onClose }) {
               className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-white focus:outline-none ${
                 errors.name ? "border-red-500" : "border-gray-700 focus:border-blue-500"
               }`}
-              placeholder="e.g., Tier A — Premium"
-              maxLength={50}
+              placeholder="e.g., Tier A, Wholesale, VIP"
+              maxLength={100}
               disabled={isSubmitting}
             />
             {errors.name && <p className="text-red-400 text-sm mt-1">{errors.name}</p>}
@@ -467,13 +401,13 @@ function PriceLevelModal({ level, onSave, onClose }) {
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="active"
-                checked={formData.active}
-                onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                id="is_active"
+                checked={formData.is_active}
+                onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                 className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500"
                 disabled={isSubmitting}
               />
-              <label htmlFor="active" className="text-sm text-gray-400">Active</label>
+              <label htmlFor="is_active" className="text-sm text-gray-400">Active</label>
             </div>
           )}
 
@@ -501,7 +435,7 @@ function PriceLevelModal({ level, onSave, onClose }) {
 }
 
 
-// -- Customer Assignment Modal --
+// -- Customer Assignment Modal (PRO feature) --
 
 function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onClose }) {
   const api = useApi();
@@ -515,7 +449,7 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
         const data = await api.get("/api/v1/pro/catalogs/available-customers");
         setAvailableCustomers(Array.isArray(data) ? data : data.customers || []);
       } catch {
-        // Silently fail — we still show assigned customers
+        // Silently fail — still show assigned customers
       } finally {
         setLoadingCustomers(false);
       }
@@ -529,7 +463,6 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
-  // Build map: customer_id → { levelName, levelId } for ALL tiers
   const customerTierMap = useMemo(() => {
     const map = new Map();
     for (const lvl of allLevels) {
@@ -540,9 +473,7 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
     return map;
   }, [allLevels]);
 
-  const assignedIds = new Set(
-    (level.customers || []).map((c) => c.customer_id)
-  );
+  const assignedIds = new Set((level.customers || []).map((c) => c.customer_id));
 
   const matchesSearch = (c) => {
     if (!search) return true;
@@ -554,7 +485,6 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
     );
   };
 
-  // Unassigned from THIS level, matching search
   const unassigned = availableCustomers.filter(
     (c) => !assignedIds.has(c.id) && matchesSearch(c)
   );
@@ -572,9 +502,7 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-white">
-              {level.name}
-            </h2>
+            <h2 className="text-xl font-bold text-white">{level.name}</h2>
             <p className="text-gray-400 text-sm">{level.discount_percent}% discount</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-white p-1">
@@ -584,7 +512,6 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
           </button>
         </div>
 
-        {/* Assigned customers */}
         {level.customers?.length > 0 && (
           <div className="mb-4">
             <h3 className="text-sm font-medium text-gray-400 mb-2">
@@ -592,15 +519,10 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
             </h3>
             <div className="space-y-1 max-h-32 overflow-y-auto">
               {level.customers.map((c) => (
-                <div
-                  key={c.customer_id}
-                  className="flex items-center justify-between bg-gray-800 rounded px-3 py-2"
-                >
+                <div key={c.customer_id} className="flex items-center justify-between bg-gray-800 rounded px-3 py-2">
                   <div>
                     <span className="text-white text-sm">{c.customer_name || c.company_name}</span>
-                    {c.email && (
-                      <span className="text-gray-500 text-xs ml-2">{c.email}</span>
-                    )}
+                    {c.email && <span className="text-gray-500 text-xs ml-2">{c.email}</span>}
                   </div>
                   <button
                     onClick={() => onUnassign(level.id, c.customer_id)}
@@ -617,11 +539,8 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
           </div>
         )}
 
-        {/* Search + available customers */}
         <div className="flex-1 min-h-0">
-          <h3 className="text-sm font-medium text-gray-400 mb-2">
-            Add Customer
-          </h3>
+          <h3 className="text-sm font-medium text-gray-400 mb-2">Add Customer</h3>
           <input
             type="text"
             value={search}
@@ -629,7 +548,6 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
             placeholder="Search customers..."
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 mb-2"
           />
-
           {loadingCustomers ? (
             <div className="text-center py-4">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mx-auto" />
@@ -657,9 +575,7 @@ function AssignCustomersModal({ level, allLevels = [], onAssign, onUnassign, onC
                           <span className="text-gray-500 text-xs ml-2">{c.email}</span>
                         )}
                         {currentTier && (
-                          <span className="text-amber-400/80 text-xs ml-2">
-                            — {currentTier.levelName}
-                          </span>
+                          <span className="text-amber-400/80 text-xs ml-2">— {currentTier.levelName}</span>
                         )}
                       </div>
                       <span className="text-gray-500 text-xs whitespace-nowrap ml-2">

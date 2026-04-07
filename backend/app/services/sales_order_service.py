@@ -2305,6 +2305,45 @@ def get_material_requirements(
 # Shipping
 # =============================================================================
 
+def _create_shipment_gl_entry(db: Session, order: "SalesOrder", user_id: int) -> None:
+    """
+    Create GL journal entry for a sales order shipment.
+
+    DR COGS (5000), CR FG Inventory (1220) for each shipped product line.
+    Uses standard_cost → average_cost → last_cost as the cost basis.
+    Skips lines with no cost set — no entry is created if total is zero.
+
+    Called from ship_order() AFTER process_shipment() handles inventory
+    transactions, so this only creates the accounting entry (no double-count).
+    """
+    from app.services.transaction_service import TransactionService
+
+    total_cost = Decimal("0")
+    for line in (order.lines or []):
+        if not line.product_id or not line.product:
+            continue
+        product = line.product
+        cost = product.standard_cost or product.average_cost or product.last_cost
+        if not cost or cost <= 0:
+            continue
+        total_cost += Decimal(str(line.quantity)) * Decimal(str(cost))
+
+    if total_cost <= 0:
+        return  # No costed items — skip GL entry
+
+    ts = TransactionService(db)
+    ts._create_journal_entry(
+        description=f"Shipment for SO#{order.order_number}",
+        lines=[
+            ("5000", total_cost, "DR"),   # Cost of Goods Sold
+            ("1220", total_cost, "CR"),   # Finished Goods Inventory
+        ],
+        source_type="sales_order",
+        source_id=order.id,
+        user_id=user_id,
+    )
+
+
 def ship_order(
     db: Session,
     order_id: int,
@@ -2362,6 +2401,9 @@ def ship_order(
         sales_order=order,
         created_by=user_email,
     )
+
+    # Create GL journal entry for COGS and FG inventory relief
+    _create_shipment_gl_entry(db, order, user_id)
 
     # Record order event
     record_order_event(

@@ -130,6 +130,13 @@ def create_initial_admin(
     db.commit()
     db.refresh(admin)
 
+    # Save company name to company settings so the UI shows it immediately
+    if admin_data.company_name:
+        from app.services.settings_service import get_or_create_settings
+        company_settings = get_or_create_settings(db)
+        company_settings.company_name = admin_data.company_name
+        db.commit()
+
     # Generate access token so they're logged in immediately
     access_token = create_access_token(user_id=admin.id)
 
