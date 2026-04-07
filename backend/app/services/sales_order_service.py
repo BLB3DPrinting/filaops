@@ -2372,7 +2372,7 @@ def ship_order(
     from app.services.inventory_service import process_shipment
     from app.services.event_service import record_shipping_event
 
-    order = get_sales_order(db, order_id)
+    order = get_sales_order_with_lines(db, order_id)
 
     # Validate shipping address
     if not order.shipping_address_line1 or not order.shipping_city:

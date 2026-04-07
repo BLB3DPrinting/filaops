@@ -29,9 +29,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
-    op.create_index("ix_price_levels_id", "price_levels", ["id"], unique=False)
+    # Drop the redundant ix_price_levels_id if it was created by a previous version
+    # of this migration. Primary keys are already indexed by PostgreSQL.
+    try:
+        op.drop_index("ix_price_levels_id", table_name="price_levels")
+    except Exception:
+        pass  # Index didn't exist — fresh install, nothing to clean up
 
 
 def downgrade() -> None:
-    op.drop_index("ix_price_levels_id", table_name="price_levels")
     op.drop_table("price_levels")

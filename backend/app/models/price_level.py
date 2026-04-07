@@ -20,7 +20,7 @@ class PriceLevel(Base):
     """
     __tablename__ = "price_levels"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)       # e.g., "Tier A", "Wholesale"
     discount_percent = Column(Numeric(5, 2), nullable=False)      # 0.00–100.00
     description = Column(Text, nullable=True)
