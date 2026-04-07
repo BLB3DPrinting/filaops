@@ -535,6 +535,9 @@ def receive_purchase_order(
         quantity_received_decimal = Decimal(str(qty_received))
         quantity_for_inventory = quantity_received_decimal
         cost_per_unit_for_inventory = line.unit_cost
+        # Track whether we fell back to purchase_unit due to incompatible product unit.
+        # Used below so the inventory transaction is labeled with the correct unit.
+        effective_unit = product_unit
 
         if purchase_unit != product_unit:
             logger.info(
@@ -547,26 +550,40 @@ def receive_purchase_order(
             )
 
             if not conversion_success:
-                logger.error(
-                    f"UOM conversion FAILED for PO {po.po_number} line {line.line_number}. "
-                    f"Purchase unit: '{purchase_unit}', Product unit: '{product_unit}', "
-                    f"Quantity received: {quantity_received_decimal}. "
-                    f"Cannot convert incompatible units - this will cause incorrect inventory!"
+                if is_mat:
+                    # Materials MUST convert — mass-based cost math requires it.
+                    logger.error(
+                        f"UOM conversion FAILED for PO {po.po_number} line {line.line_number}. "
+                        f"Purchase unit: '{purchase_unit}', Product unit: '{product_unit}', "
+                        f"Quantity received: {quantity_received_decimal}. "
+                        f"Cannot convert incompatible units - this will cause incorrect inventory!"
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Cannot convert {quantity_received_decimal} {purchase_unit} to {product_unit} "
+                            f"for product {product.sku}. "
+                            f"Units are incompatible. Supported conversions: G↔KG, LB↔KG, OZ↔KG, etc."
+                        ),
+                    )
+                else:
+                    # Non-material items (supplies, maintenance parts, etc.): receive as-is
+                    # in the purchase unit. No cost normalisation needed — cost is already
+                    # per-purchase-unit (e.g. $/M of PTFE tubing purchased in metres).
+                    logger.warning(
+                        f"UOM conversion not available for PO {po.po_number} line {line.line_number}: "
+                        f"'{purchase_unit}' → '{product_unit}' (product: {product.sku}). "
+                        f"Non-material item — receiving quantity as-is in {purchase_unit}."
+                    )
+                    effective_unit = purchase_unit  # record inventory in purchase unit
+                    # Skip quantity_for_inventory update — keep original quantity as-is.
+                    # Skip to cost section; no cost conversion needed either.
+            else:
+                quantity_for_inventory = converted_qty
+                logger.info(
+                    f"Conversion successful: {quantity_received_decimal} {purchase_unit} "
+                    f"= {quantity_for_inventory} {product_unit}"
                 )
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Cannot convert {quantity_received_decimal} {purchase_unit} to {product_unit} "
-                        f"for product {product.sku}. "
-                        f"Units are incompatible. Supported conversions: G↔KG, LB↔KG, OZ↔KG, etc."
-                    ),
-                )
-
-            quantity_for_inventory = converted_qty
-            logger.info(
-                f"Conversion successful: {quantity_received_decimal} {purchase_unit} "
-                f"= {quantity_for_inventory} {product_unit}"
-            )
 
             # Convert cost_per_unit
             if is_mat:
@@ -640,8 +657,8 @@ def receive_purchase_order(
             logger.info(
                 f"UOM conversion for PO {po.po_number} line {line.line_number}: "
                 f"{qty_received} {purchase_unit} @ ${line.unit_cost}/{purchase_unit} -> "
-                f"{quantity_for_inventory} {product_unit} @ ${cost_per_unit_for_inventory}/"
-                f"{'G' if is_mat else product_unit} (material: {is_mat})"
+                f"{quantity_for_inventory} {effective_unit} @ ${cost_per_unit_for_inventory}/"
+                f"{'G' if is_mat else effective_unit} (material: {is_mat})"
             )
 
         # Convert to transaction unit (GRAMS for materials, native for others)
@@ -697,7 +714,7 @@ def receive_purchase_order(
                     )
 
         # Collect for TransactionService
-        transaction_unit = "G" if is_mat else product_unit
+        transaction_unit = "G" if is_mat else effective_unit
         receipt_items_for_service.append(
             ReceiptItem(
                 product_id=line.product_id,
