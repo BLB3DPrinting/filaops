@@ -44,7 +44,7 @@ from app.services.purchase_order_service import (
 )
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.product import Product
-from app.models.inventory import Inventory, InventoryLocation
+from app.models.inventory import Inventory, InventoryLocation, InventoryTransaction
 
 
 # =============================================================================
@@ -1708,8 +1708,23 @@ class TestReceivePurchaseOrder:
         assert result["total_quantity"] == Decimal("5")
         assert result["inventory_updated"] is True
 
+        # Full receipt of only line → PO moves to received
+        db.refresh(po)
+        assert po.status == "received"
+
         db.refresh(line)
         assert line.quantity_received == Decimal("5")
+
+        # Inventory transaction must be labeled in purchase unit (M) with original cost ($/M)
+        txn_id = result["transactions_created"][0]
+        txn = db.query(InventoryTransaction).filter(InventoryTransaction.id == txn_id).one()
+        assert txn.unit == "M"
+        assert txn.cost_per_unit == Decimal("2.50")
+
+        # Product costs must NOT be updated — $/M is meaningless on an EA product
+        db.refresh(product)
+        assert product.average_cost is None or product.average_cost == 0
+        assert product.last_cost is None or product.last_cost == 0
 
     def test_material_incompatible_units_still_raises(
         self, db, make_vendor, make_purchase_order, make_product

@@ -729,7 +729,11 @@ def receive_purchase_order(
         # When the same product appears on multiple lines in one receipt, the DB
         # on_hand_quantity doesn't reflect earlier lines yet (no commit between lines).
         # Use product_receipt_accum to track cumulative receipt within this batch.
-        if product:
+        #
+        # Skip if units are incompatible and we fell back to purchase_unit — the
+        # cost is in the purchase unit (e.g. $/M), not in the product unit (e.g.
+        # per-EA), so writing it to average_cost/last_cost would corrupt costing.
+        if product and effective_unit == product_unit:
             pid = product.id
 
             if pid not in product_receipt_accum:
