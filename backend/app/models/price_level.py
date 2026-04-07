@@ -5,7 +5,7 @@ Stores wholesale pricing tiers for B2B customers.
 Price level management (CRUD) is a Core feature.
 Customer assignment to price levels is a PRO feature (pro_customer_price_levels table).
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Numeric
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Numeric, CheckConstraint
 from datetime import datetime, timezone
 
 from app.db.base import Base
@@ -19,6 +19,12 @@ class PriceLevel(Base):
     PRO manages which customers are assigned to each level.
     """
     __tablename__ = "price_levels"
+    __table_args__ = (
+        CheckConstraint(
+            "discount_percent >= 0 AND discount_percent <= 100",
+            name="ck_price_levels_discount_percent_range",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)       # e.g., "Tier A", "Wholesale"

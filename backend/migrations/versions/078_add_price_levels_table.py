@@ -26,14 +26,16 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
+        sa.CheckConstraint(
+            "discount_percent >= 0 AND discount_percent <= 100",
+            name="ck_price_levels_discount_percent_range",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
     # Drop the redundant ix_price_levels_id if it was created by a previous version
     # of this migration. Primary keys are already indexed by PostgreSQL.
-    # IF EXISTS keeps the transaction healthy on fresh installs where the index
-    # was never created (try/except doesn't work — Postgres aborts the transaction).
-    op.execute("DROP INDEX IF EXISTS ix_price_levels_id")
+    op.drop_index("ix_price_levels_id", table_name="price_levels", if_exists=True)
 
 
 def downgrade() -> None:
