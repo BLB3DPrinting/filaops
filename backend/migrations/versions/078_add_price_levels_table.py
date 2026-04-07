@@ -31,10 +31,9 @@ def upgrade() -> None:
     )
     # Drop the redundant ix_price_levels_id if it was created by a previous version
     # of this migration. Primary keys are already indexed by PostgreSQL.
-    try:
-        op.drop_index("ix_price_levels_id", table_name="price_levels")
-    except Exception:
-        pass  # Index didn't exist — fresh install, nothing to clean up
+    # IF EXISTS keeps the transaction healthy on fresh installs where the index
+    # was never created (try/except doesn't work — Postgres aborts the transaction).
+    op.execute("DROP INDEX IF EXISTS ix_price_levels_id")
 
 
 def downgrade() -> None:
