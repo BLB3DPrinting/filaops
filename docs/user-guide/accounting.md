@@ -238,7 +238,7 @@ Click **Export CSV** to download as `tax-summary-{period}.csv`. Hand this file t
 - **COGS depends on BOMs** — Cost of goods sold is calculated from your Bills of Materials. If COGS looks wrong, check that your product BOMs have accurate material quantities and costs.
 
 !!! info "Looking for more?"
-    [FilaOps PRO](https://blb3dprinting.com) adds double-entry general ledger, accounting periods, journal entries, Schedule C tax preparation, and a full chart of accounts.
+    [FilaOps PRO](https://blb3dprinting.com) adds accounting periods, Schedule C tax preparation, advanced multi-jurisdiction tax, and a full chart of accounts. Core already records automatic double-entry journal entries on shipment (DR COGS / CR FG Inventory) — these feed the COGS and P&L views above.
 
 ## What's Next?
 

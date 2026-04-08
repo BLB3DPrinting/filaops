@@ -9,8 +9,8 @@
 
 | Tier | Features | Status |
 | ------ | ---------- | -------- |
-| **Core (Open Source)** | 50 | Released |
-| **Total** | 50 | - |
+| **Core (Open Source)** | 51 | Released |
+| **Total** | 51 | - |
 
 ---
 
@@ -122,6 +122,12 @@
 | 49 | Quote PDF Redesign | Professional B2B quote layout with brand colors, itemized lines, and terms | ✅ Complete |
 | 50 | Invoice PDF Redesign | Professional invoice layout with full customer info, payment terms, and due date | ✅ Complete |
 
+### Pricing & Catalog (v3.7.1)
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 51 | Price Levels | Wholesale pricing tiers with configurable discount percentages; CRUD managed in Core Admin (`/api/v1/price-levels`); customer assignment is a PRO feature | ✅ Complete |
+
 ---
 
 ## Hidden Features (Backend Only)
@@ -230,5 +236,5 @@ MRP
 
 ---
 
-*Last updated: 2026-04-06*  
-*Generated for FilaOps Core v3.7.0*
+*Last updated: 2026-04-08*  
+*Generated for FilaOps Core v3.7.1*

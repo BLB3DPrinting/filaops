@@ -211,6 +211,9 @@ frontend:
 
 Update `ALLOWED_ORIGINS` and `FRONTEND_URL` to use `https://`.
 
+!!! tip "Proxy headers (v3.7.1+)"
+    FilaOps passes `--proxy-headers --forwarded-allow-ips '*'` to uvicorn automatically. This means redirect responses (e.g. trailing-slash redirects) will correctly use `https://` when the backend is behind nginx or Traefik. No additional configuration is required — just ensure your reverse proxy sets `X-Forwarded-Proto: https`.
+
 ## 7. Health Checks
 
 ### Backend `/health` Endpoint

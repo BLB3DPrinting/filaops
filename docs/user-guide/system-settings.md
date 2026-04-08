@@ -211,6 +211,41 @@ The table shows each reason with its **Order** (sort sequence), **Code**, **Name
 
 ---
 
+## Price Levels
+
+Navigate to **Admin > Price Levels** in the sidebar to define wholesale pricing tiers for your business.
+
+<!-- TODO: screenshot of price levels page -->
+
+### What Are Price Levels?
+
+Price levels let you offer different discount percentages to different customer groups — for example, "Tier A — 25% off" for high-volume buyers or "Reseller — 15% off" for distribution partners. You define the tiers here in Core; assigning specific customers to a price level is a [FilaOps PRO](https://blb3dprinting.com) feature.
+
+### Viewing Price Levels
+
+The table shows each level with its **Name**, **Discount %**, **Description**, and **Status** (Active or Inactive).
+
+### Creating a Price Level
+
+**Step 1.** Click **+ Add Price Level**.
+
+**Step 2.** Fill in the fields:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| **Name** | Yes | Unique display name (e.g., "Tier A", "Wholesale") |
+| **Discount %** | Yes | Percentage off list price — 0 to 100 |
+| **Description** | No | Notes about who qualifies for this tier |
+
+**Step 3.** Click **Save**.
+
+### Editing and Managing Price Levels
+
+- Click the **Edit** (pencil) button to update a level's name, discount, or description.
+- Click the **Delete** button to deactivate a level. Deactivated levels are hidden from the active list but preserved for historical records.
+
+---
+
 ## Tips and Best Practices
 
 - **Complete your company info first** — This information appears on quotes and invoices. Fill it in during initial setup before sending your first quote.
@@ -241,3 +276,5 @@ The table shows each reason with its **Order** (sort sequence), **Code**, **Name
 | Add a storage location | **Settings** > **Locations** > **+ Add Location** |
 | Configure scrap reasons | **Settings** > **Scrap Reasons** |
 | Add a scrap reason | **Settings** > **Scrap Reasons** > **+ Add Scrap Reason** |
+| Manage price levels | **Admin** > **Price Levels** |
+| Add a price level | **Admin** > **Price Levels** > **+ Add Price Level** |
