@@ -318,7 +318,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI Invoice Parser (PRO)
 - License management (PRO)
 
-[Unreleased]: https://github.com/Blb3D/filaops/compare/v3.7.0...HEAD
+[Unreleased]: https://github.com/Blb3D/filaops/compare/v3.7.1...HEAD
+[3.7.1]: https://github.com/Blb3D/filaops/compare/v3.7.0...v3.7.1
 [3.7.0]: https://github.com/Blb3D/filaops/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/Blb3D/filaops/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/Blb3D/filaops/compare/v3.4.0...v3.5.0
