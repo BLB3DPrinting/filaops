@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.1] - 2026-04-07
+
+### Fixed
+
+- **Self-hosted deployment** — proxy headers (`--proxy-headers --forwarded-allow-ips`) added to uvicorn so mixed-content redirects no longer error behind nginx/Traefik (#510)
+- **Onboarding company name** — company name now saved to CompanySettings during initial setup so sidebar header is populated after onboarding (#510)
+- **GL entries for SO shipment** — shipping an order now creates a balanced journal entry (DR COGS 5000 / CR FG Inventory 1220); entries were previously missing (#468)
+- **Price Levels on Core** — price level CRUD moved to Core API (`/api/v1/price-levels`); was previously only accessible with PRO installed (#476)
+- **PO receiving for non-material items** — maintenance/supply items purchased in a different unit class (e.g. PTFE tubing in metres, product unit EA) can now be received without a 400 error (#514)
+
 ## [3.7.0] - 2026-04-06
 
 ### Added
