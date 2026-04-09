@@ -3,10 +3,29 @@
  *
  * Auth: Uses httpOnly cookies (credentials: 'include'). No manual token handling.
  * Usage: const api = createApiClient({ baseUrl: API_URL });
+ *
+ * Token refresh: on 401, attempts a silent /auth/refresh before giving up.
+ * Single-flight guard prevents duplicate refresh requests when multiple calls
+ * fail simultaneously.
  */
 import { emit } from "./events";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Shared refresh state — module-level so all client instances share it
+let _refreshPromise = null;
+
+async function attemptTokenRefresh(baseUrl) {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = fetch(`${baseUrl}/api/v1/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
+  })
+    .then((res) => res.ok)
+    .catch(() => false)
+    .finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
+}
 
 export class ApiError extends Error {
   /** @param {number} status @param {any} payload */
@@ -57,9 +76,16 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
         text: async () => String(e?.message || "Network error"),
       }));
 
-      // 401: clear auth state and redirect to login
-      if (res.status === 401 && cfg.onUnauthorized) {
-        await cfg.onUnauthorized();
+      // 401: try a silent token refresh first, then retry the original request.
+      // Only attempt refresh once per request (don't refresh if refresh itself 401s).
+      if (res.status === 401 && !init._refreshed) {
+        const refreshed = await attemptTokenRefresh(base);
+        if (refreshed) {
+          // Token renewed — retry the original request exactly once
+          return doFetch(path, { ...init, _refreshed: true });
+        }
+        // Refresh failed — session is genuinely expired
+        if (cfg.onUnauthorized) await cfg.onUnauthorized();
       }
 
       if (res.ok) {
