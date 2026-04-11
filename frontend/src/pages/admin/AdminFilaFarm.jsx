@@ -210,6 +210,7 @@ export default function AdminFilaFarm() {
         command,
       });
       toast.success(`Sent "${command}" to printer`);
+      if (commandTimeoutRef.current) clearTimeout(commandTimeoutRef.current);
       commandTimeoutRef.current = setTimeout(fetchData, 1000);
     } catch (err) {
       toast.error(err.message);
@@ -243,7 +244,7 @@ export default function AdminFilaFarm() {
           </svg>
           <h2 className="text-lg font-medium text-white mb-2">PRO Feature</h2>
           <p className="text-gray-400 text-sm">
-            FilaFarm printer automation requires a PRO license.
+            FilaFarm printer automation requires a PRO license with the FilaFarm feature enabled.
           </p>
         </div>
       </div>
