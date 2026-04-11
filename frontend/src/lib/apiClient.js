@@ -78,14 +78,17 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
 
       // 401: try a silent token refresh first, then retry the original request.
       // Only attempt refresh once per request (don't refresh if refresh itself 401s).
-      if (res.status === 401 && !init._refreshed) {
-        const refreshed = await attemptTokenRefresh(base);
-        if (refreshed) {
-          // Token renewed — retry the original request exactly once
-          return doFetch(path, { ...init, _refreshed: true });
+      if (res.status === 401) {
+        if (!init._refreshed) {
+          const refreshed = await attemptTokenRefresh(base);
+          if (refreshed) {
+            // Token renewed — retry the original request exactly once
+            return doFetch(path, { ...init, _refreshed: true });
+          }
         }
-        // Refresh failed — session is genuinely expired
+        // Refresh failed (or already retried) — session is genuinely expired
         if (cfg.onUnauthorized) await cfg.onUnauthorized();
+        return;
       }
 
       if (res.ok) {
