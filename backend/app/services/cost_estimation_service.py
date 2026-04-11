@@ -13,14 +13,11 @@ Uses get_effective_cost_per_inventory_unit() for material pricing (single source
 Uses work center rates (machine + labor + overhead) for labor/machine pricing.
 """
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models import ProductionOrder, Product
-from app.models.manufacturing import RoutingOperation
-from app.models.production_order import ProductionOrderOperationMaterial
 from app.services.inventory_service import get_effective_cost_per_inventory_unit
 
 logger = get_logger(__name__)
