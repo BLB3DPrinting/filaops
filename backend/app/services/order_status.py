@@ -257,6 +257,12 @@ class OrderStatusService:
                 pass  # Auto-closable
             else:
                 wo.qc_status = "pending"
+            # Recalculate actual costs from consumed quantities and actual times
+            try:
+                from app.services.cost_estimation_service import recalculate_actual_cost
+                recalculate_actual_cost(db, wo)
+            except Exception as e:
+                logger.warning("Actual cost recalculation failed for %s: %s", wo.code, e)
         elif new_status == "closed":
             wo.completed_at = datetime.now(timezone.utc)
         elif new_status == "scrapped":

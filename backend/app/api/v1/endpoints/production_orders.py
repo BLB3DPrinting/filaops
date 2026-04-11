@@ -1031,6 +1031,29 @@ async def get_cost_breakdown(
     return production_order_service.get_cost_breakdown(db, order_id)
 
 
+@router.post("/{order_id}/estimate-cost", response_model=CostBreakdownResponse)
+async def estimate_cost(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CostBreakdownResponse:
+    """Re-estimate costs for a production order from its routing and BOM.
+
+    Updates estimated_material_cost, estimated_labor_cost, and estimated_total_cost
+    on the production order using current work center rates and material prices.
+    """
+    from app.services.cost_estimation_service import estimate_production_order_cost
+
+    order = production_order_service.get_production_order(db, order_id)
+    if not order.operations:
+        raise HTTPException(status_code=400, detail="No operations to estimate — assign a routing first")
+
+    estimate_production_order_cost(db, order)
+    db.commit()
+
+    return production_order_service.get_cost_breakdown(db, order_id)
+
+
 # =============================================================================
 # Spool Management
 # =============================================================================

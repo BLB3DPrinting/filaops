@@ -1761,7 +1761,14 @@ class TestGetCostBreakdown:
         assert len(result["material_costs"]) == 1
 
     def test_cost_breakdown_labor_costs(self, db, finished_good):
-        """Should calculate labor costs from operation planned run minutes."""
+        """Should calculate labor costs from work center rates × operation time."""
+        # Set up work center with known rates
+        wc = db.query(WorkCenter).filter(WorkCenter.id == 1).first()
+        wc.labor_rate_per_hour = Decimal("25")
+        wc.machine_rate_per_hour = Decimal("0")
+        wc.overhead_rate_per_hour = Decimal("0")
+        db.flush()
+
         order = _make_production_order(db, finished_good, quantity=10)
         op = ProductionOrderOperation(
             production_order_id=order.id,
@@ -1782,6 +1789,13 @@ class TestGetCostBreakdown:
 
     def test_cost_breakdown_unit_cost(self, db, finished_good):
         """Should calculate per-unit cost."""
+        # Set up work center with known rates
+        wc = db.query(WorkCenter).filter(WorkCenter.id == 1).first()
+        wc.labor_rate_per_hour = Decimal("25")
+        wc.machine_rate_per_hour = Decimal("0")
+        wc.overhead_rate_per_hour = Decimal("0")
+        db.flush()
+
         order = _make_production_order(db, finished_good, quantity=10)
         op = ProductionOrderOperation(
             production_order_id=order.id,
@@ -1824,6 +1838,13 @@ class TestGetCostBreakdown:
 
     def test_cost_breakdown_uses_actual_run_minutes_when_available(self, db, finished_good):
         """Should use actual_run_minutes over planned when actual is set."""
+        # Set up work center with known rates
+        wc = db.query(WorkCenter).filter(WorkCenter.id == 1).first()
+        wc.labor_rate_per_hour = Decimal("25")
+        wc.machine_rate_per_hour = Decimal("0")
+        wc.overhead_rate_per_hour = Decimal("0")
+        db.flush()
+
         order = _make_production_order(db, finished_good, quantity=10)
         op = ProductionOrderOperation(
             production_order_id=order.id,
