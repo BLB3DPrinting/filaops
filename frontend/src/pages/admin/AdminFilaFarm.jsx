@@ -171,8 +171,12 @@ export default function AdminFilaFarm() {
         api.get("/api/v1/pro/filafarm/stats/today"),
       ]);
 
-      setPrinters(printersRes.status === "fulfilled" ? (printersRes.value || []) : []);
-      setJobs(jobsRes.status === "fulfilled" ? (jobsRes.value || []) : []);
+      setPrinters(
+        printersRes.status === "fulfilled"
+          ? printersRes.value?.printers || []
+          : [],
+      );
+      setJobs(jobsRes.status === "fulfilled" ? jobsRes.value?.jobs || [] : []);
       setStats(statsRes.status === "fulfilled" ? statsRes.value : null);
 
       const anyFailed =
