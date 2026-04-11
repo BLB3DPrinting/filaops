@@ -596,7 +596,12 @@ export default function AdminLayout() {
   // Persist sidebar state in localStorage
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
-    return saved !== null ? JSON.parse(saved) : true;
+    if (saved === null) return true;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return true;
+    }
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
