@@ -684,7 +684,12 @@ export default function AdminLayout() {
   const { isPro, hasFeature } = useFeatureFlags();
 
   const filteredNavGroups = navGroups
-    .filter((group) => !group.adminOnly || isAdmin)
+    .filter((group) => {
+      if (group.adminOnly && !isAdmin) return false;
+      if (group.proOnly && !isPro) return false;
+      if (group.feature && !hasFeature(group.feature)) return false;
+      return true;
+    })
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
