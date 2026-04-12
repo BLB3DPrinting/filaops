@@ -261,8 +261,8 @@ def create_production_order(
         from app.services.cost_estimation_service import estimate_production_order_cost
         try:
             estimate_production_order_cost(db, order)
-        except Exception as e:
-            logger.warning("Cost estimation failed for %s: %s", order.code, e)
+        except Exception:
+            logger.exception("Cost estimation failed for production order id=%s code=%s", order.id, order.code)
 
     return order
 
@@ -1555,16 +1555,15 @@ def get_cost_breakdown(db: Session, order_id: int) -> dict:
 
     for op in order.operations:
         for mat in op.materials:
-            component = db.query(Product).filter(Product.id == mat.component_id).first()
-            if component:
-                unit_cost = get_effective_cost_per_inventory_unit(component) or Decimal("0")
-                qty = mat.quantity_consumed if mat.quantity_consumed else mat.quantity_required
+            if mat.component:
+                unit_cost = get_effective_cost_per_inventory_unit(mat.component) or Decimal("0")
+                qty = mat.quantity_consumed if mat.status == "consumed" else mat.quantity_required
                 line_cost = unit_cost * Decimal(str(qty))
                 total_material_cost += line_cost
 
                 material_costs.append({
-                    "component_sku": component.sku,
-                    "component_name": component.name,
+                    "component_sku": mat.component.sku,
+                    "component_name": mat.component.name,
                     "quantity": float(qty),
                     "unit_cost": float(unit_cost),
                     "total_cost": float(line_cost),

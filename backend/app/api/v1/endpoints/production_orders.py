@@ -1040,7 +1040,13 @@ async def estimate_cost(
     """Re-estimate costs for a production order from its routing and BOM.
 
     Updates estimated_material_cost, estimated_labor_cost, and estimated_total_cost
-    on the production order using current work center rates and material prices.
+    on the production order using current work center rates and material prices
+    (always from planned/required quantities).
+
+    Returns:
+        Full cost breakdown using best-available data: consumed quantities for
+        materials with status 'consumed', required quantities otherwise; actual
+        times where recorded, planned times otherwise.
     """
     from app.services.cost_estimation_service import estimate_production_order_cost
 
@@ -1052,7 +1058,6 @@ async def estimate_cost(
     db.commit()
     db.refresh(order)
 
-    # Return the full cost breakdown which now reflects the freshly saved estimates
     return production_order_service.get_cost_breakdown(db, order_id)
 
 

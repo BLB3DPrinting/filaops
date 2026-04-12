@@ -17,7 +17,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
-from app.models import ProductionOrder, Product
+from app.models import ProductionOrder
 from app.services.inventory_service import get_effective_cost_per_inventory_unit
 
 logger = get_logger(__name__)
@@ -28,8 +28,8 @@ def estimate_material_cost(db: Session, order: ProductionOrder) -> Decimal:
     Calculate estimated material cost for a production order.
 
     Walks all operation materials and prices them using the product's
-    effective cost per inventory unit (respects cost method hierarchy:
-    average → last → standard with proper UOM conversion).
+    effective cost per inventory unit (respects the product's configured
+    cost method with proper UOM conversion).
 
     Returns:
         Total estimated material cost as Decimal.
@@ -38,11 +38,10 @@ def estimate_material_cost(db: Session, order: ProductionOrder) -> Decimal:
 
     for op in order.operations:
         for mat in op.materials:
-            component = db.query(Product).filter(Product.id == mat.component_id).first()
-            if not component:
+            if not mat.component:
                 continue
 
-            cost_per_unit = get_effective_cost_per_inventory_unit(component)
+            cost_per_unit = get_effective_cost_per_inventory_unit(mat.component)
             if cost_per_unit is None:
                 cost_per_unit = Decimal("0")
 
@@ -138,16 +137,15 @@ def recalculate_actual_cost(db: Session, order: ProductionOrder) -> dict:
     material_cost = Decimal("0")
     for op in order.operations:
         for mat in op.materials:
-            component = db.query(Product).filter(Product.id == mat.component_id).first()
-            if not component:
+            if not mat.component:
                 continue
 
-            cost_per_unit = get_effective_cost_per_inventory_unit(component)
+            cost_per_unit = get_effective_cost_per_inventory_unit(mat.component)
             if cost_per_unit is None:
                 cost_per_unit = Decimal("0")
 
-            # Prefer consumed qty, fall back to required (qty_consumed is initialized as 0, not None)
-            qty = mat.quantity_consumed if mat.quantity_consumed else mat.quantity_required
+            # Use status field to determine if material was consumed
+            qty = mat.quantity_consumed if mat.status == "consumed" else mat.quantity_required
             qty = Decimal(str(qty or 0))
             material_cost += qty * cost_per_unit
 
