@@ -50,6 +50,9 @@ from app.schemas.production_order import (
     SpoolListItem,
     SpoolAssignmentResponse,
     AcceptShortRequest,
+    CompatibilityIssueResponse,
+    OperationCompatibilityResponse,
+    OrderCompatibilityResponse,
 )
 from app.core.status_config import (
     ProductionOrderStatus,
@@ -1059,6 +1062,89 @@ async def estimate_cost(
     db.refresh(order)
 
     return production_order_service.get_cost_breakdown(db, order_id)
+
+
+# =============================================================================
+# Material-Printer Compatibility
+# =============================================================================
+
+@router.get("/{order_id}/compatibility", response_model=OrderCompatibilityResponse)
+async def check_compatibility(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OrderCompatibilityResponse:
+    """Check material-printer compatibility for all operations in a production order.
+
+    Validates enclosure requirements, temperature ranges, and filament diameter
+    for every operation that has a printer or resource assigned.
+    """
+    from app.services.compatibility_service import check_order_compatibility
+
+    order = production_order_service.get_production_order(db, order_id)
+    result = check_order_compatibility(db, order)
+    return OrderCompatibilityResponse(
+        production_order_id=result.production_order_id,
+        production_order_code=result.production_order_code,
+        compatible=result.compatible,
+        total_issues=result.total_issues,
+        operations=[
+            OperationCompatibilityResponse(
+                operation_id=op.operation_id,
+                operation_name=op.operation_name,
+                printer_name=op.printer_name,
+                compatible=op.compatible,
+                issues=[
+                    CompatibilityIssueResponse(
+                        severity=i.severity,
+                        check=i.check,
+                        message=i.message,
+                        material_name=i.material_name,
+                        printer_name=i.printer_name,
+                    )
+                    for i in op.issues
+                ],
+            )
+            for op in result.operations
+        ],
+    )
+
+
+@router.get(
+    "/{order_id}/operations/{operation_id}/compatibility",
+    response_model=OperationCompatibilityResponse,
+)
+async def check_operation_compat(
+    order_id: int,
+    operation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OperationCompatibilityResponse:
+    """Check material-printer compatibility for a single operation."""
+    from app.services.compatibility_service import check_operation_compatibility
+
+    order = production_order_service.get_production_order(db, order_id)
+    operation = next((op for op in order.operations if op.id == operation_id), None)
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Operation not found")
+
+    result = check_operation_compatibility(db, operation)
+    return OperationCompatibilityResponse(
+        operation_id=result.operation_id,
+        operation_name=result.operation_name,
+        printer_name=result.printer_name,
+        compatible=result.compatible,
+        issues=[
+            CompatibilityIssueResponse(
+                severity=i.severity,
+                check=i.check,
+                message=i.message,
+                material_name=i.material_name,
+                printer_name=i.printer_name,
+            )
+            for i in result.issues
+        ],
+    )
 
 
 # =============================================================================

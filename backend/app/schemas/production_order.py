@@ -914,3 +914,34 @@ class SpoolAssignmentResponse(BaseModel):
     spool_id: int
     spool_code: Optional[str] = None
     assigned: bool
+
+
+# ============================================================================
+# Material-Printer Compatibility Schemas
+# ============================================================================
+
+class CompatibilityIssueResponse(BaseModel):
+    """A single material-printer compatibility finding."""
+    severity: str = Field(description="'error' or 'warning'")
+    check: str = Field(description="'enclosure', 'nozzle_temp', 'bed_temp', or 'diameter'")
+    message: str
+    material_name: str
+    printer_name: str
+
+
+class OperationCompatibilityResponse(BaseModel):
+    """Compatibility result for one operation."""
+    operation_id: int
+    operation_name: Optional[str] = None
+    printer_name: Optional[str] = None
+    compatible: bool
+    issues: List[CompatibilityIssueResponse] = Field(default_factory=list)
+
+
+class OrderCompatibilityResponse(BaseModel):
+    """Compatibility result for an entire production order."""
+    production_order_id: int
+    production_order_code: str
+    compatible: bool
+    total_issues: int
+    operations: List[OperationCompatibilityResponse] = Field(default_factory=list)
