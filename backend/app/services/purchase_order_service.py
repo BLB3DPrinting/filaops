@@ -7,6 +7,7 @@ import io
 import os
 from datetime import datetime, timezone, date
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import desc, extract
@@ -1116,12 +1117,19 @@ def add_po_event(
 # PDF Generation
 # ---------------------------------------------------------------------------
 
-def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
+def generate_po_pdf(
+    db: Session,
+    po_id: int,
+    po: Optional[PurchaseOrder] = None,
+) -> io.BytesIO:
     """Generate a professional Purchase Order PDF using ReportLab.
 
     Layout mirrors generate_invoice_pdf(): branded header, HR separator,
     two-column Vendor / PO Details block, line-items table with alternating
     rows, totals block, and notes footer.
+
+    Callers that already hold the PurchaseOrder can pass it in via `po=`
+    to avoid a redundant fetch.
     """
     from xml.sax.saxutils import escape as _xml_escape
 
@@ -1138,7 +1146,8 @@ def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
         HRFlowable, KeepTogether,
     )
 
-    po = get_purchase_order(db, po_id)
+    if po is None:
+        po = get_purchase_order(db, po_id)
 
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 

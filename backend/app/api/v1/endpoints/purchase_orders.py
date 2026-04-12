@@ -463,9 +463,8 @@ async def download_po_pdf(
     db: Session = Depends(get_db),
 ):
     """Generate and download a PDF for a purchase order."""
-    pdf_buffer = purchase_order_service.generate_po_pdf(db, po_id)
-
     po = purchase_order_service.get_purchase_order(db, po_id)
+    pdf_buffer = purchase_order_service.generate_po_pdf(db, po_id, po=po)
 
     return StreamingResponse(
         pdf_buffer,
