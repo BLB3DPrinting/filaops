@@ -1138,14 +1138,7 @@ def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
         HRFlowable, KeepTogether,
     )
 
-    po = (
-        db.query(PurchaseOrder)
-        .options(joinedload(PurchaseOrder.vendor), selectinload(PurchaseOrder.lines).joinedload(PurchaseOrderLine.product))
-        .filter(PurchaseOrder.id == po_id)
-        .first()
-    )
-    if not po:
-        raise HTTPException(status_code=404, detail="Purchase order not found")
+    po = get_purchase_order(db, po_id)
 
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
@@ -1376,6 +1369,7 @@ def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
         Paragraph('SKU', th),
         Paragraph('QTY ORDERED', th_right),
         Paragraph('QTY RECEIVED', th_right),
+        Paragraph('UNIT', th),
         Paragraph('UNIT COST', th_right),
         Paragraph('TOTAL', th_right),
     ]]
@@ -1385,9 +1379,7 @@ def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
         qty_ord_str = str(int(qty_ord)) if qty_ord == int(qty_ord) else f"{qty_ord:g}"
         qty_rec = float(line.quantity_received or 0)
         qty_rec_str = str(int(qty_rec)) if qty_rec == int(qty_rec) else f"{qty_rec:g}"
-        if line.purchase_unit:
-            qty_ord_str += f" {esc(line.purchase_unit)}"
-            qty_rec_str += f" {esc(line.purchase_unit)}"
+        unit_str = esc(line.purchase_unit) if line.purchase_unit else "ea"
         product_name = line.product.name if line.product else "—"
         product_sku = line.product.sku if line.product else "—"
         table_data.append([
@@ -1396,11 +1388,12 @@ def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
             Paragraph(esc(product_sku), td_muted),
             Paragraph(qty_ord_str, td_right),
             Paragraph(qty_rec_str, td_right),
+            Paragraph(unit_str, td_muted),
             Paragraph(_fmt(line.unit_cost), td_right),
             Paragraph(_fmt(line.line_total), td_bold_right),
         ])
 
-    col_widths = [0.3 * inch, 1.8 * inch, 0.9 * inch, 0.85 * inch, 0.85 * inch, 0.85 * inch, 0.85 * inch]
+    col_widths = [0.3 * inch, 1.6 * inch, 0.8 * inch, 0.75 * inch, 0.75 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch]
     items_table = Table(table_data, colWidths=col_widths)
     ts = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8fafc')),
