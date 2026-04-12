@@ -2,12 +2,14 @@
 Resource scheduling service with conflict detection.
 
 Handles scheduling operations on resources and detecting time conflicts.
+Enforces operation sequencing and material/printer compatibility.
 """
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.production_order import ProductionOrderOperation
+from app.models.manufacturing import RoutingOperation
 
 # Terminal statuses don't block scheduling
 TERMINAL_STATUSES = ['complete', 'skipped', 'cancelled']
@@ -239,6 +241,73 @@ def find_next_available_slot(
     return after + timedelta(hours=1)
 
 
+def check_predecessor_scheduling(
+    db: Session,
+    operation: ProductionOrderOperation,
+    scheduled_start: datetime,
+) -> Optional[str]:
+    """
+    Check that predecessor operations are scheduled/complete before this one.
+
+    Rules:
+    - All lower-sequence operations on the same PO must be either:
+      a) In a terminal status (complete, skipped, cancelled), OR
+      b) Scheduled to end before this operation's start time
+    - If the routing_operation has can_overlap=True, the predecessor's
+      scheduled_end may overlap with this operation's scheduled_start.
+
+    Returns:
+        None if OK, or an error message string describing the violation.
+    """
+    # Get all sibling operations on the same PO with lower sequence
+    predecessors = db.query(ProductionOrderOperation).filter(
+        ProductionOrderOperation.production_order_id == operation.production_order_id,
+        ProductionOrderOperation.sequence < operation.sequence,
+        ProductionOrderOperation.id != operation.id,
+    ).order_by(ProductionOrderOperation.sequence).all()
+
+    if not predecessors:
+        return None
+
+    # Check if this operation allows overlap via routing
+    can_overlap = False
+    if operation.routing_operation_id:
+        routing_op = db.get(RoutingOperation, operation.routing_operation_id)
+        if routing_op and routing_op.can_overlap:
+            can_overlap = True
+
+    for pred in predecessors:
+        # Terminal statuses are fine - predecessor is done
+        if pred.status in TERMINAL_STATUSES:
+            continue
+
+        # Predecessor must be scheduled
+        if not pred.scheduled_end:
+            return (
+                f"Operation {pred.sequence} ({pred.operation_name or pred.operation_code}) "
+                f"must be scheduled before operation {operation.sequence}"
+            )
+
+        # Predecessor must end before this operation starts (unless overlap allowed)
+        if not can_overlap:
+            # Normalize timezone for comparison
+            pred_end = pred.scheduled_end
+            start = scheduled_start
+            if pred_end.tzinfo is None and start.tzinfo is not None:
+                pred_end = pred_end.replace(tzinfo=timezone.utc)
+            elif pred_end.tzinfo is not None and start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+
+            if pred_end > start:
+                return (
+                    f"Operation {pred.sequence} ({pred.operation_name or pred.operation_code}) "
+                    f"is scheduled until {pred_end.isoformat()}, "
+                    f"which is after the requested start time {start.isoformat()}"
+                )
+
+    return None
+
+
 def schedule_operation(
     db: Session,
     operation: ProductionOrderOperation,
@@ -248,7 +317,11 @@ def schedule_operation(
     is_printer: bool = False
 ) -> Tuple[bool, List[ProductionOrderOperation]]:
     """
-    Schedule an operation on a resource with conflict validation.
+    Schedule an operation on a resource with conflict and sequence validation.
+
+    Validates:
+    1. No time conflicts with other operations on the same resource
+    2. Predecessor operations are scheduled/complete first
 
     Args:
         db: Database session
@@ -259,7 +332,7 @@ def schedule_operation(
         is_printer: True if resource_id refers to a printer
 
     Returns:
-        Tuple of (success, conflicts)
+        Tuple of (success, conflicts_or_errors)
         - If success=True, operation was scheduled
         - If success=False, conflicts contains blocking operations
     """
@@ -276,6 +349,13 @@ def schedule_operation(
     if conflicts:
         return False, conflicts
 
+    # Check predecessor sequencing
+    seq_error = check_predecessor_scheduling(db, operation, scheduled_start)
+    if seq_error:
+        # Return as a special "sequence_error" — caller should handle differently
+        # We store the error message on a fake operation-like object for the API layer
+        raise SequenceError(seq_error)
+
     # Schedule the operation - use proper foreign key columns
     if is_printer:
         operation.printer_id = resource_id
@@ -291,3 +371,8 @@ def schedule_operation(
     db.flush()
 
     return True, []
+
+
+class SequenceError(Exception):
+    """Raised when operation scheduling violates sequence constraints."""
+    pass

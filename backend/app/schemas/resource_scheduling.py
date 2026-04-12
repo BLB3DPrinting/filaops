@@ -62,6 +62,8 @@ class ScheduleOperationResponse(BaseModel):
     message: Optional[str] = None
     operation_id: Optional[int] = None
     conflicts: List[ConflictInfo] = []
+    next_available_start: Optional[datetime] = None
+    next_available_end: Optional[datetime] = None
 
 
 class NextAvailableSlotRequest(BaseModel):

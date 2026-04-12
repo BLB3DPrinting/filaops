@@ -10,9 +10,9 @@ import { formatDuration, formatTime } from '../../utils/formatting';
 import Modal from '../Modal';
 
 /**
- * Conflict alert banner
+ * Conflict alert banner with next-available slot suggestion
  */
-function ConflictAlert({ conflicts }) {
+function ConflictAlert({ conflicts, nextAvailableStart, nextAvailableEnd, onUseSlot }) {
   if (!conflicts || conflicts.length === 0) return null;
 
   return (
@@ -38,9 +38,45 @@ function ConflictAlert({ conflicts }) {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-red-400/50 mt-2">
-            Adjust the start time or select a different resource.
-          </p>
+          {nextAvailableStart ? (
+            <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+              <p className="text-sm text-blue-300">
+                Next available slot: {formatTime(nextAvailableStart)} - {formatTime(nextAvailableEnd)}
+              </p>
+              <button
+                type="button"
+                onClick={() => onUseSlot(nextAvailableStart, nextAvailableEnd)}
+                className="mt-1 text-sm text-blue-400 hover:text-blue-300 underline"
+              >
+                Use suggested time
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-red-400/50 mt-2">
+              Adjust the start time or select a different resource.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compatibility warning banner
+ */
+function CompatibilityWarning({ reason }) {
+  if (!reason) return null;
+
+  return (
+    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+      <div className="flex items-start gap-2">
+        <svg className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div>
+          <h4 className="text-yellow-400 font-medium text-sm">Incompatible Resource</h4>
+          <p className="text-sm text-yellow-400/70 mt-1">{reason}</p>
         </div>
       </div>
     </div>
@@ -62,6 +98,10 @@ export default function OperationSchedulerModal({
   const [endTime, setEndTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [compatWarning, setCompatWarning] = useState(null);
+  const [nextAvailableStart, setNextAvailableStart] = useState(null);
+  const [nextAvailableEnd, setNextAvailableEnd] = useState(null);
+  const [serverConflicts, setServerConflicts] = useState([]);
 
   // Get available resources for the operation's work center
   const { resources, loading: loadingResources } = useResources(operation?.work_center_id);
@@ -106,6 +146,38 @@ export default function OperationSchedulerModal({
     }
   }, [isOpen, operation]);
 
+  // Check compatibility when resource changes
+  useEffect(() => {
+    setCompatWarning(null);
+    if (!resourceId || !productionOrder?.id) return;
+
+    const selectedRes = resources.find(r => String(r.id) === resourceId);
+    if (!selectedRes) return;
+
+    const checkCompat = async () => {
+      try {
+        const params = new URLSearchParams({
+          resource_id: resourceId,
+          is_printer: selectedRes.is_printer ? 'true' : 'false',
+        });
+        const res = await fetch(
+          `${API_URL}/api/v1/production-orders/${productionOrder.id}/check-resource-compatibility?${params}`,
+          { credentials: 'include' }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.compatible) {
+            setCompatWarning(data.reason);
+          }
+        }
+      } catch {
+        // Silently ignore - backend will still reject on submit
+      }
+    };
+
+    checkCompat();
+  }, [resourceId, productionOrder?.id, resources]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -119,8 +191,16 @@ export default function OperationSchedulerModal({
       return;
     }
 
+    if (compatWarning) {
+      setError(`Cannot schedule: ${compatWarning}`);
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    setServerConflicts([]);
+    setNextAvailableStart(null);
+    setNextAvailableEnd(null);
 
     try {
       const res = await fetch(
@@ -140,9 +220,22 @@ export default function OperationSchedulerModal({
         }
       );
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json();
+        // 422 = sequence error or compatibility error
         throw new Error(data.detail || 'Failed to schedule operation');
+      }
+
+      if (data.success === false) {
+        // Conflict response with next-available suggestion
+        setServerConflicts(data.conflicts || []);
+        if (data.next_available_start) {
+          setNextAvailableStart(data.next_available_start);
+          setNextAvailableEnd(data.next_available_end);
+        }
+        setError(data.message || 'Scheduling conflict');
+        return;
       }
 
       onScheduled?.();
@@ -154,11 +247,27 @@ export default function OperationSchedulerModal({
     }
   };
 
+  const handleUseSuggestedSlot = (suggestedStart, suggestedEnd) => {
+    // Convert ISO strings to datetime-local format
+    const start = new Date(suggestedStart);
+    const end = new Date(suggestedEnd);
+    setStartTime(start.toISOString().slice(0, 16));
+    setEndTime(end.toISOString().slice(0, 16));
+    setServerConflicts([]);
+    setNextAvailableStart(null);
+    setNextAvailableEnd(null);
+    setError(null);
+  };
+
   const handleClose = () => {
     setResourceId('');
     setStartTime('');
     setEndTime('');
     setError(null);
+    setCompatWarning(null);
+    setServerConflicts([]);
+    setNextAvailableStart(null);
+    setNextAvailableEnd(null);
     onClose();
   };
 
@@ -254,14 +363,22 @@ export default function OperationSchedulerModal({
             />
           </div>
 
-          {/* Conflict alert */}
+          {/* Compatibility warning */}
+          <CompatibilityWarning reason={compatWarning} />
+
+          {/* Conflict alert (live check) */}
           {checking ? (
             <div className="text-sm text-gray-500 flex items-center gap-2">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
               Checking for conflicts...
             </div>
           ) : (
-            <ConflictAlert conflicts={conflicts} />
+            <ConflictAlert
+              conflicts={conflicts?.length > 0 ? conflicts : serverConflicts}
+              nextAvailableStart={nextAvailableStart}
+              nextAvailableEnd={nextAvailableEnd}
+              onUseSlot={handleUseSuggestedSlot}
+            />
           )}
 
           {/* Error message */}
@@ -284,7 +401,7 @@ export default function OperationSchedulerModal({
             </button>
             <button
               type="submit"
-              disabled={submitting || hasConflicts || !resourceId || !startTime}
+              disabled={submitting || hasConflicts || !!compatWarning || !resourceId || !startTime}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Scheduling...' : 'Schedule'}
