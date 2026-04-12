@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect } from "vitest";
-import Breadcrumbs, { buildBreadcrumbs, ROUTE_LABELS } from "../Breadcrumbs";
+import Breadcrumbs, { buildBreadcrumbs, ROUTE_LABELS, NON_NAVIGABLE_PATHS } from "../Breadcrumbs";
 
 function renderAtPath(path) {
   return render(
@@ -79,12 +79,13 @@ describe("Breadcrumbs component", () => {
     expect(nav).toBeInTheDocument();
   });
 
-  it("renders dashboard as a link and current page as text", () => {
+  it("renders dashboard as a link with aria-label and current page as text", () => {
     renderAtPath("/admin/quotes");
-    // Dashboard is a link (home icon)
+    // Dashboard is a link (home icon) with accessible name
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute("href", "/admin");
+    expect(links[0]).toHaveAttribute("aria-label", "Dashboard");
     // Current page not a link
     expect(screen.getByText("Quotes")).toBeInTheDocument();
     expect(screen.getByText("Quotes").closest("a")).toBeNull();
@@ -96,13 +97,22 @@ describe("Breadcrumbs component", () => {
     expect(current).toHaveAttribute("aria-current", "page");
   });
 
-  it("renders nested breadcrumbs with intermediate links", () => {
+  it("renders non-navigable intermediate crumbs as plain text", () => {
     renderAtPath("/admin/inventory/cycle-count");
-    // Dashboard link + Inventory link + Cycle Count (text)
+    // Dashboard link + Cycle Count (text), but Inventory is non-navigable (plain text)
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1); // Only Dashboard link
+    expect(screen.getByText("Inventory")).toBeInTheDocument();
+    expect(screen.getByText("Inventory").closest("a")).toBeNull();
+    expect(screen.getByText("Cycle Count")).toBeInTheDocument();
+  });
+
+  it("renders navigable intermediate crumbs as links", () => {
+    renderAtPath("/admin/orders/42");
+    // Dashboard link + Orders link + #42 (text)
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(2);
-    expect(links[1]).toHaveAttribute("href", "/admin/inventory");
-    expect(screen.getByText("Cycle Count")).toBeInTheDocument();
+    expect(links[1]).toHaveAttribute("href", "/admin/orders");
   });
 
   it("renders dynamic segment as #ID", () => {
@@ -112,24 +122,54 @@ describe("Breadcrumbs component", () => {
 });
 
 describe("ROUTE_LABELS coverage", () => {
-  it("has labels for all main nav routes", () => {
+  it("has labels for all sidebar nav routes", () => {
     const expectedPaths = [
+      // Sales
       "/admin/orders",
       "/admin/quotes",
       "/admin/payments",
       "/admin/invoices",
       "/admin/customers",
+      "/admin/messages",
+      // Inventory
       "/admin/items",
       "/admin/bom",
-      "/admin/purchasing",
-      "/admin/manufacturing",
+      "/admin/materials",
+      "/admin/locations",
+      "/admin/inventory",
+      "/admin/inventory/transactions",
+      "/admin/inventory/cycle-count",
+      "/admin/spools",
+      // Operations
       "/admin/production",
-      "/admin/shipping",
-      "/admin/settings",
-      "/admin/accounting",
+      "/admin/manufacturing",
       "/admin/printers",
+      "/admin/filafarm",
+      "/admin/purchasing",
+      "/admin/shipping",
+      // Quality
+      "/admin/quality",
+      "/admin/quality/traceability",
+      // B2B Portal
+      "/admin/access-requests",
+      "/admin/catalogs",
+      "/admin/price-levels",
+      // Admin
+      "/admin/accounting",
+      "/admin/users",
+      "/admin/scrap-reasons",
+      "/admin/analytics",
+      "/admin/settings",
+      "/admin/security",
+      "/admin/command-center",
     ];
     for (const path of expectedPaths) {
+      expect(ROUTE_LABELS[path]).toBeDefined();
+    }
+  });
+
+  it("non-navigable paths are a subset of ROUTE_LABELS", () => {
+    for (const path of NON_NAVIGABLE_PATHS) {
       expect(ROUTE_LABELS[path]).toBeDefined();
     }
   });

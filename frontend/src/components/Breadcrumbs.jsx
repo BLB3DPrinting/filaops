@@ -1,6 +1,15 @@
 import { Link, useLocation } from "react-router-dom";
 
 /**
+ * Paths that appear in breadcrumb trails but don't map to real pages.
+ * These are rendered as plain text instead of links to avoid 404s.
+ */
+const NON_NAVIGABLE_PATHS = new Set([
+  "/admin/inventory",
+  "/admin/quality",
+]);
+
+/**
  * Route path → human-readable label map.
  * Intermediate paths (e.g. /admin/inventory) that aren't real pages
  * are included so the breadcrumb trail remains complete.
@@ -55,6 +64,7 @@ const HomeIcon = () => (
     fill="none"
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       strokeLinecap="round"
@@ -72,6 +82,7 @@ const ChevronIcon = () => (
     stroke="currentColor"
     viewBox="0 0 24 24"
     style={{ color: "var(--text-muted)" }}
+    aria-hidden="true"
   >
     <path
       strokeLinecap="round"
@@ -154,11 +165,18 @@ export default function Breadcrumbs() {
                 {index === 0 && <HomeIcon />}
                 {index === 0 ? null : crumb.label}
               </span>
+            ) : NON_NAVIGABLE_PATHS.has(crumb.path) ? (
+              <span
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {crumb.label}
+              </span>
             ) : (
               <Link
                 to={crumb.path}
                 className="transition-colors hover:underline"
                 style={{ color: "var(--text-secondary)" }}
+                {...(index === 0 ? { "aria-label": "Dashboard" } : {})}
               >
                 {index === 0 ? (
                   <HomeIcon />
@@ -175,4 +193,4 @@ export default function Breadcrumbs() {
 }
 
 // Exported for testing
-export { buildBreadcrumbs, ROUTE_LABELS };
+export { buildBreadcrumbs, ROUTE_LABELS, NON_NAVIGABLE_PATHS };
