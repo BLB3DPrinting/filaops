@@ -1,5 +1,6 @@
 import { Outlet, Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import Breadcrumbs from "./Breadcrumbs";
 import SecurityBadge from "./SecurityBadge";
 import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
 import {
@@ -1070,6 +1071,7 @@ export default function AdminLayout() {
             className="flex-1 p-6 overflow-auto grid-pattern"
             tabIndex="-1"
           >
+            <Breadcrumbs />
             <Outlet />
           </main>
         </div>
