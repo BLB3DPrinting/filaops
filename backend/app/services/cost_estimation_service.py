@@ -146,16 +146,16 @@ def recalculate_actual_cost(db: Session, order: ProductionOrder) -> dict:
             if cost_per_unit is None:
                 cost_per_unit = Decimal("0")
 
-            # Prefer consumed qty, fall back to required
-            qty = mat.quantity_consumed if mat.quantity_consumed and mat.quantity_consumed > 0 else mat.quantity_required
+            # Prefer consumed qty, fall back to required (qty_consumed is initialized as 0, not None)
+            qty = mat.quantity_consumed if mat.quantity_consumed else mat.quantity_required
             qty = Decimal(str(qty or 0))
             material_cost += qty * cost_per_unit
 
     # Actual labor cost — use actual run times
     labor_cost = Decimal("0")
     for op in order.operations:
-        actual_minutes = op.actual_run_minutes or op.planned_run_minutes or 0
-        setup_minutes = op.actual_setup_minutes if hasattr(op, 'actual_setup_minutes') and op.actual_setup_minutes else (op.planned_setup_minutes or 0)
+        actual_minutes = op.actual_run_minutes if op.actual_run_minutes is not None else (op.planned_run_minutes or 0)
+        setup_minutes = op.actual_setup_minutes if op.actual_setup_minutes is not None else (op.planned_setup_minutes or 0)
         minutes = Decimal(str(actual_minutes)) + Decimal(str(setup_minutes))
         hours = minutes / Decimal("60")
 

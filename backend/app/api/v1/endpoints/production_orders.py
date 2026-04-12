@@ -1050,7 +1050,9 @@ async def estimate_cost(
 
     estimate_production_order_cost(db, order)
     db.commit()
+    db.refresh(order)
 
+    # Return the full cost breakdown which now reflects the freshly saved estimates
     return production_order_service.get_cost_breakdown(db, order_id)
 
 

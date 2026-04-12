@@ -497,6 +497,13 @@ def complete_production_order(
                 if not op.actual_end:
                     op.actual_end = datetime.now(timezone.utc)
 
+        # Recalculate actual costs from consumed quantities and actual times
+        try:
+            from app.services.cost_estimation_service import recalculate_actual_cost
+            recalculate_actual_cost(db, order)
+        except Exception as e:
+            logger.warning("Actual cost recalculation failed for %s: %s", order.code, e)
+
     if notes:
         if order.notes:
             order.notes = f"{order.notes}\n[{datetime.now(timezone.utc).isoformat()}] {notes}"
@@ -1551,7 +1558,7 @@ def get_cost_breakdown(db: Session, order_id: int) -> dict:
             component = db.query(Product).filter(Product.id == mat.component_id).first()
             if component:
                 unit_cost = get_effective_cost_per_inventory_unit(component) or Decimal("0")
-                qty = mat.quantity_consumed or mat.quantity_required
+                qty = mat.quantity_consumed if mat.quantity_consumed else mat.quantity_required
                 line_cost = unit_cost * Decimal(str(qty))
                 total_material_cost += line_cost
 
@@ -1568,8 +1575,8 @@ def get_cost_breakdown(db: Session, order_id: int) -> dict:
     total_labor_cost = Decimal("0")
 
     for op in order.operations:
-        minutes = op.actual_run_minutes or op.planned_run_minutes or 0
-        setup = op.actual_setup_minutes if hasattr(op, 'actual_setup_minutes') and op.actual_setup_minutes else (op.planned_setup_minutes or 0)
+        minutes = op.actual_run_minutes if op.actual_run_minutes is not None else (op.planned_run_minutes or 0)
+        setup = op.actual_setup_minutes if op.actual_setup_minutes is not None else (op.planned_setup_minutes or 0)
         total_minutes = Decimal(str(minutes)) + Decimal(str(setup))
         hours = total_minutes / Decimal("60")
 
