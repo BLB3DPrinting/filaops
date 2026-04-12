@@ -107,14 +107,30 @@ def check_material_printer(
     mat_name = material_type.name
 
     # --- Enclosure ---
-    if material_type.requires_enclosure and not caps.get("enclosure", False):
-        issues.append(CompatibilityIssue(
-            severity="error",
-            check="enclosure",
-            message=f"{mat_name} requires an enclosure but {printer_name} is open-frame",
-            material_name=mat_name,
-            printer_name=printer_name,
-        ))
+    # If enclosure capability is unknown (missing from caps), downgrade to a
+    # warning rather than a hard error — we don't want to block scheduling
+    # when the printer simply hasn't had its enclosure capability configured.
+    if material_type.requires_enclosure:
+        enclosure_cap = caps.get("enclosure")
+        if enclosure_cap is False:
+            issues.append(CompatibilityIssue(
+                severity="error",
+                check="enclosure",
+                message=f"{mat_name} requires an enclosure but {printer_name} is open-frame",
+                material_name=mat_name,
+                printer_name=printer_name,
+            ))
+        elif enclosure_cap is None:
+            issues.append(CompatibilityIssue(
+                severity="warning",
+                check="enclosure",
+                message=(
+                    f"{mat_name} requires an enclosure but enclosure capability "
+                    f"for {printer_name} is unknown"
+                ),
+                material_name=mat_name,
+                printer_name=printer_name,
+            ))
 
     # --- Nozzle temperature ---
     max_hotend = caps.get("max_temp_hotend")
@@ -147,10 +163,13 @@ def check_material_printer(
             ))
 
     # --- Filament diameter ---
+    # Compare with a small tolerance to avoid float round-trip bugs
+    # (e.g. Decimal("2.85") → float comparisons can drift at the LSB).
     supported_diameters = caps.get("filament_diameters")
     if supported_diameters and material_type.filament_diameter is not None:
         mat_dia = float(material_type.filament_diameter)
-        if mat_dia not in [float(d) for d in supported_diameters]:
+        supported_floats = [float(d) for d in supported_diameters]
+        if not any(abs(mat_dia - d) < 0.01 for d in supported_floats):
             issues.append(CompatibilityIssue(
                 severity="error",
                 check="diameter",

@@ -130,6 +130,21 @@ class TestCheckMaterialPrinter:
         # No enclosure issue
         assert not any(i.check == "enclosure" for i in issues)
 
+    def test_enclosure_required_but_unknown_is_warning(self, db):
+        """When enclosure capability is absent from caps, downgrade to warning
+        so unconfigured printers don't hard-block scheduling."""
+        mt = _make_material_type(
+            db,
+            base_material="ABS",
+            requires_enclosure=True,
+        )
+        caps = {}  # no enclosure key at all
+        issues = check_material_printer(mt, "UnknownPrinter", caps)
+        enclosure_issues = [i for i in issues if i.check == "enclosure"]
+        assert len(enclosure_issues) == 1
+        assert enclosure_issues[0].severity == "warning"
+        assert "unknown" in enclosure_issues[0].message.lower()
+
     def test_nozzle_temp_too_high(self, db):
         mt = _make_material_type(
             db,
