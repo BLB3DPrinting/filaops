@@ -1080,8 +1080,24 @@ async def check_compatibility(
     for every operation that has a printer or resource assigned.
     """
     from app.services.compatibility_service import check_order_compatibility
+    from sqlalchemy.orm import selectinload, joinedload
+    from app.models.production_order import ProductionOrderOperationMaterial
+    from app.models.product import Product
+    from app.models.material import MaterialType
 
-    order = production_order_service.get_production_order(db, order_id)
+    order = (
+        db.query(ProductionOrder)
+        .options(
+            selectinload(ProductionOrder.operations)
+            .selectinload(ProductionOrderOperation.materials)
+            .joinedload(ProductionOrderOperationMaterial.component)
+            .joinedload(Product.material_type),
+        )
+        .filter(ProductionOrder.id == order_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Production order not found")
     result = check_order_compatibility(db, order)
     return OrderCompatibilityResponse(
         production_order_id=result.production_order_id,
@@ -1122,9 +1138,23 @@ async def check_operation_compat(
 ) -> OperationCompatibilityResponse:
     """Check material-printer compatibility for a single operation."""
     from app.services.compatibility_service import check_operation_compatibility
+    from sqlalchemy.orm import selectinload, joinedload
+    from app.models.production_order import ProductionOrderOperationMaterial
+    from app.models.product import Product
 
-    order = production_order_service.get_production_order(db, order_id)
-    operation = next((op for op in order.operations if op.id == operation_id), None)
+    operation = (
+        db.query(ProductionOrderOperation)
+        .options(
+            selectinload(ProductionOrderOperation.materials)
+            .joinedload(ProductionOrderOperationMaterial.component)
+            .joinedload(Product.material_type),
+        )
+        .filter(
+            ProductionOrderOperation.id == operation_id,
+            ProductionOrderOperation.production_order_id == order_id,
+        )
+        .first()
+    )
     if operation is None:
         raise HTTPException(status_code=404, detail="Operation not found")
 

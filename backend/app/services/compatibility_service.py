@@ -48,7 +48,7 @@ class OperationCompatibility:
 
     @property
     def compatible(self) -> bool:
-        return len(self.issues) == 0
+        return not any(i.severity == "error" for i in self.issues)
 
 
 @dataclass
@@ -94,7 +94,7 @@ def _resolve_material_type(product: Product, db: Session) -> Optional[MaterialTy
         return None
     if product.material_type is not None:
         return product.material_type
-    return db.query(MaterialType).get(product.material_type_id)
+    return db.get(MaterialType, product.material_type_id)
 
 
 def check_material_printer(

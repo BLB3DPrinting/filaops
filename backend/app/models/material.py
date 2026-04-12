@@ -45,7 +45,7 @@ class MaterialType(Base):
     bed_temp_min = Column(Integer, nullable=True)  # °C
     bed_temp_max = Column(Integer, nullable=True)  # °C
     requires_enclosure = Column(Boolean, default=False)  # ABS/ASA need enclosure
-    filament_diameter = Column(Numeric(4, 2), nullable=True, default=1.75)  # mm (1.75 or 2.85)
+    filament_diameter = Column(Numeric(4, 2), nullable=False, default=1.75, server_default="1.75")  # mm (1.75 or 2.85)
     
     # Pricing
     base_price_per_kg = Column(Numeric(10, 2), nullable=False)  # Base cost from supplier

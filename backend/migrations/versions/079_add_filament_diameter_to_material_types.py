@@ -23,12 +23,14 @@ def upgrade() -> None:
             "filament_diameter",
             sa.Numeric(4, 2),
             nullable=True,
-            server_default="1.75",
+            server_default=sa.text("1.75"),
             comment="Filament diameter in mm (1.75 or 2.85)",
         ),
     )
     # Backfill existing rows
     op.execute("UPDATE material_types SET filament_diameter = 1.75 WHERE filament_diameter IS NULL")
+    # Now enforce NOT NULL
+    op.alter_column("material_types", "filament_diameter", existing_type=sa.Numeric(4, 2), nullable=False)
 
 
 def downgrade() -> None:

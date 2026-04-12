@@ -158,6 +158,20 @@ class TestCheckMaterialPrinter:
         assert issues[0].severity == "warning"
         assert "120°C" in issues[0].message
 
+    def test_warnings_only_still_compatible(self, db):
+        """Warnings (e.g. bed temp) should not mark an operation incompatible."""
+        from app.services.compatibility_service import OperationCompatibility, CompatibilityIssue
+        op_compat = OperationCompatibility(
+            operation_id=1,
+            operation_name="Print",
+            printer_name="TestPrinter",
+            issues=[CompatibilityIssue(
+                severity="warning", check="bed_temp",
+                message="bed temp warning", material_name="PLA", printer_name="TestPrinter",
+            )],
+        )
+        assert op_compat.compatible is True
+
     def test_bed_temp_within_range(self, db):
         mt = _make_material_type(db, bed_temp_max=80)
         caps = {"max_temp_bed": 110}
