@@ -3,6 +3,7 @@ Purchase Order Service — CRUD, status management, receiving, and events.
 
 Extracted from purchase_orders.py (ARCHITECT-003).
 """
+import io
 import os
 from datetime import datetime, timezone, date
 from decimal import Decimal
@@ -17,6 +18,7 @@ from app.core.utils import get_or_404
 from app.models.vendor import Vendor
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.models.product import Product
+from app.models.company_settings import CompanySettings
 from app.models.inventory import Inventory, InventoryLocation
 from app.models.material_spool import MaterialSpool
 from app.models.traceability import MaterialLot
@@ -1108,3 +1110,386 @@ def add_po_event(
 
     logger.info(f"Added event '{event_type}' to PO {po_id}")
     return event
+
+
+# ---------------------------------------------------------------------------
+# PDF Generation
+# ---------------------------------------------------------------------------
+
+def generate_po_pdf(db: Session, po_id: int) -> io.BytesIO:
+    """Generate a professional Purchase Order PDF using ReportLab.
+
+    Layout mirrors generate_invoice_pdf(): branded header, HR separator,
+    two-column Vendor / PO Details block, line-items table with alternating
+    rows, totals block, and notes footer.
+    """
+    from xml.sax.saxutils import escape as _xml_escape
+
+    def esc(value) -> str:
+        return _xml_escape(str(value)) if value else ""
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
+        HRFlowable, KeepTogether,
+    )
+
+    po = (
+        db.query(PurchaseOrder)
+        .options(joinedload(PurchaseOrder.vendor), selectinload(PurchaseOrder.lines).joinedload(PurchaseOrderLine.product))
+        .filter(PurchaseOrder.id == po_id)
+        .first()
+    )
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+
+    # -- Currency formatting --
+    _CURRENCY_SYMBOLS = {
+        "USD": "$", "CAD": "CA$", "AUD": "A$", "NZD": "NZ$",
+        "GBP": "\u00a3", "EUR": "\u20ac", "CHF": "CHF\u00a0",
+        "SEK": "kr\u00a0", "NOK": "kr\u00a0", "DKK": "kr\u00a0",
+        "BRL": "R$", "MXN": "MX$", "INR": "\u20b9",
+        "JPY": "\u00a5", "CNY": "\u00a5", "KRW": "\u20a9",
+        "SGD": "S$", "HKD": "HK$", "ZAR": "R",
+    }
+    _currency = (settings.currency_code if settings and settings.currency_code else "USD")
+    _sym = _CURRENCY_SYMBOLS.get(_currency, f"{_currency}\u00a0")
+
+    def _fmt(amount) -> str:
+        value = Decimal(str(amount or "0")).quantize(Decimal("0.01"))
+        return f"{_sym}{value:,.2f}"
+
+    # -- Brand colors (matches quote/invoice PDF) --
+    BRAND_DARK = colors.HexColor('#0f172a')
+    BRAND_ACCENT = colors.HexColor('#2563eb')
+    BRAND_BORDER = colors.HexColor('#e2e8f0')
+    BRAND_MUTED = colors.HexColor('#64748b')
+    ROW_STRIPE = colors.HexColor('#f1f5f9')
+
+    # -- PDF document --
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer, pagesize=letter,
+        topMargin=0.4 * inch, bottomMargin=0.5 * inch,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+    )
+    page_width = doc.width
+
+    # -- Styles --
+    styles = getSampleStyleSheet()
+    s_normal = styles['Normal']
+
+    s_doc_label = ParagraphStyle(
+        'POLabel', parent=s_normal,
+        fontSize=28, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=2,
+    )
+    s_section = ParagraphStyle(
+        'POSection', parent=s_normal,
+        fontSize=8, fontName='Helvetica-Bold', textColor=BRAND_MUTED,
+        spaceBefore=4, spaceAfter=4,
+    )
+    s_company_name = ParagraphStyle(
+        'POCompany', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_detail = ParagraphStyle(
+        'PODetail', parent=s_normal,
+        fontSize=9, textColor=BRAND_MUTED, leading=13,
+    )
+    s_detail_right = ParagraphStyle(
+        'PODetailRight', parent=s_detail, alignment=TA_RIGHT,
+    )
+    s_po_number_right = ParagraphStyle(
+        'PONumberRight', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
+    s_vendor_name = ParagraphStyle(
+        'POVendorName', parent=s_normal,
+        fontSize=11, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+    )
+    s_total_label = ParagraphStyle(
+        'POTotalLabel', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_DARK,
+        alignment=TA_RIGHT,
+    )
+    s_total_value = ParagraphStyle(
+        'POTotalValue', parent=s_normal,
+        fontSize=14, fontName='Helvetica-Bold', textColor=BRAND_ACCENT,
+        alignment=TA_RIGHT,
+    )
+    s_notes_box = ParagraphStyle(
+        'PONotesBox', parent=s_normal,
+        fontSize=9, textColor=BRAND_DARK, leading=13,
+        backColor=colors.HexColor('#eff6ff'),
+        borderPadding=10,
+    )
+    s_footer = ParagraphStyle(
+        'POFooter', parent=s_normal,
+        fontSize=8, textColor=BRAND_MUTED, leading=11,
+    )
+    s_footer_center = ParagraphStyle(
+        'POFooterCenter', parent=s_footer, alignment=TA_CENTER,
+    )
+
+    # Table cell styles
+    th = ParagraphStyle('POTH', parent=s_normal, fontSize=7, fontName='Helvetica', textColor=BRAND_MUTED)
+    th_right = ParagraphStyle('POTHRight', parent=th, alignment=TA_RIGHT)
+    td = ParagraphStyle('POTD', parent=s_normal, fontSize=9, textColor=BRAND_DARK)
+    td_right = ParagraphStyle('POTDRight', parent=td, alignment=TA_RIGHT)
+    td_bold = ParagraphStyle('POTDBold', parent=td, fontName='Helvetica-Bold')
+    td_bold_right = ParagraphStyle('POTDBoldRight', parent=td_bold, alignment=TA_RIGHT)
+    td_muted = ParagraphStyle('POTDMuted', parent=td, textColor=BRAND_MUTED, fontSize=8)
+    td_muted_right = ParagraphStyle('POTDMutedRight', parent=td_muted, alignment=TA_RIGHT)
+
+    content = []
+
+    # ================================================================
+    # HEADER — Logo + Company (left) | PURCHASE ORDER + number/dates (right)
+    # ================================================================
+    company_lines = []
+    if settings:
+        if settings.company_name:
+            company_lines.append(Paragraph(esc(settings.company_name), s_company_name))
+        addr_parts = []
+        if settings.company_address_line1:
+            addr_parts.append(esc(settings.company_address_line1))
+        city_state = ""
+        if settings.company_city:
+            city_state = esc(settings.company_city)
+        if settings.company_state:
+            city_state += f", {esc(settings.company_state)}"
+        if settings.company_zip:
+            city_state += f" {esc(settings.company_zip)}"
+        if city_state:
+            addr_parts.append(city_state)
+        if settings.company_phone:
+            addr_parts.append(esc(settings.company_phone))
+        if settings.company_email:
+            addr_parts.append(esc(settings.company_email))
+        if addr_parts:
+            company_lines.append(Paragraph("<br/>".join(addr_parts), s_detail))
+
+    left_header = []
+    if settings and settings.logo_data:
+        try:
+            logo_buffer = io.BytesIO(settings.logo_data)
+            logo_img = Image(logo_buffer, width=1.2 * inch, height=1.2 * inch)
+            logo_img.hAlign = 'LEFT'
+            logo_row = Table(
+                [[logo_img, company_lines]],
+                colWidths=[1.4 * inch, 2.4 * inch],
+            )
+            logo_row.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+            left_header.append(logo_row)
+        except Exception:
+            left_header.extend(company_lines)
+    else:
+        left_header.extend(company_lines)
+
+    right_header = [
+        Paragraph("PURCHASE ORDER", s_doc_label),
+        Paragraph(esc(po.po_number), s_po_number_right),
+        Spacer(1, 6),
+        Paragraph(
+            f"Order Date: {po.order_date.strftime('%B %d, %Y')}" if po.order_date else "Order Date: —",
+            s_detail_right,
+        ),
+        Paragraph(
+            f"Expected: {po.expected_date.strftime('%B %d, %Y')}" if po.expected_date else "Expected: —",
+            s_detail_right,
+        ),
+        Paragraph(f"Status: {esc((po.status or '').replace('_', ' ').title())}", s_detail_right),
+    ]
+
+    header_table = Table(
+        [[left_header, right_header]],
+        colWidths=[page_width * 0.55, page_width * 0.45],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+    ]))
+    content.append(header_table)
+    content.append(Spacer(1, 0.15 * inch))
+    content.append(HRFlowable(width="100%", thickness=1, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.2 * inch))
+
+    # ================================================================
+    # VENDOR — left column
+    # ================================================================
+    vendor = po.vendor
+    vendor_lines = [Paragraph("VENDOR", s_section)]
+    if vendor:
+        vendor_lines.append(Paragraph(esc(vendor.name), s_vendor_name))
+        if vendor.contact_name:
+            vendor_lines.append(Paragraph(f"Attn: {esc(vendor.contact_name)}", s_detail))
+        if vendor.address_line1:
+            vendor_lines.append(Paragraph(esc(vendor.address_line1), s_detail))
+        v_city_state = ""
+        if vendor.city:
+            v_city_state = esc(vendor.city)
+        if vendor.state:
+            v_city_state += f", {esc(vendor.state)}"
+        if vendor.postal_code:
+            v_city_state += f" {esc(vendor.postal_code)}"
+        if v_city_state:
+            vendor_lines.append(Paragraph(v_city_state, s_detail))
+        if vendor.phone:
+            vendor_lines.append(Paragraph(esc(vendor.phone), s_detail))
+        if vendor.email:
+            vendor_lines.append(Paragraph(esc(vendor.email), s_detail))
+
+    # Right column — payment / shipping info
+    po_details = [Paragraph("ORDER DETAILS", s_section)]
+    if po.payment_method:
+        po_details.append(Paragraph(f"Payment: {esc(po.payment_method)}", s_detail))
+    if po.payment_reference:
+        po_details.append(Paragraph(f"Reference: {esc(po.payment_reference)}", s_detail))
+    if po.tracking_number:
+        po_details.append(Paragraph(f"Tracking: {esc(po.tracking_number)}", s_detail))
+    if po.carrier:
+        po_details.append(Paragraph(f"Carrier: {esc(po.carrier)}", s_detail))
+
+    vendor_table = Table(
+        [[vendor_lines, po_details]],
+        colWidths=[page_width * 0.5, page_width * 0.5],
+    )
+    vendor_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    content.append(vendor_table)
+    content.append(Spacer(1, 0.25 * inch))
+
+    # ================================================================
+    # LINE ITEMS TABLE
+    # ================================================================
+    lines = sorted(po.lines, key=lambda ln: ln.line_number)
+
+    table_data = [[
+        Paragraph('#', th),
+        Paragraph('PRODUCT', th),
+        Paragraph('SKU', th),
+        Paragraph('QTY ORDERED', th_right),
+        Paragraph('QTY RECEIVED', th_right),
+        Paragraph('UNIT COST', th_right),
+        Paragraph('TOTAL', th_right),
+    ]]
+
+    for line in lines:
+        qty_ord = float(line.quantity_ordered or 0)
+        qty_ord_str = str(int(qty_ord)) if qty_ord == int(qty_ord) else f"{qty_ord:g}"
+        qty_rec = float(line.quantity_received or 0)
+        qty_rec_str = str(int(qty_rec)) if qty_rec == int(qty_rec) else f"{qty_rec:g}"
+        if line.purchase_unit:
+            qty_ord_str += f" {esc(line.purchase_unit)}"
+            qty_rec_str += f" {esc(line.purchase_unit)}"
+        product_name = line.product.name if line.product else "—"
+        product_sku = line.product.sku if line.product else "—"
+        table_data.append([
+            Paragraph(str(line.line_number), td_muted),
+            Paragraph(esc(product_name), td),
+            Paragraph(esc(product_sku), td_muted),
+            Paragraph(qty_ord_str, td_right),
+            Paragraph(qty_rec_str, td_right),
+            Paragraph(_fmt(line.unit_cost), td_right),
+            Paragraph(_fmt(line.line_total), td_bold_right),
+        ])
+
+    col_widths = [0.3 * inch, 1.8 * inch, 0.9 * inch, 0.85 * inch, 0.85 * inch, 0.85 * inch, 0.85 * inch]
+    items_table = Table(table_data, colWidths=col_widths)
+    ts = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8fafc')),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BORDER),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, BRAND_BORDER),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]
+    for i in range(1, len(table_data)):
+        if i % 2 == 0:
+            ts.append(('BACKGROUND', (0, i), (-1, i), ROW_STRIPE))
+    items_table.setStyle(TableStyle(ts))
+    content.append(items_table)
+    content.append(Spacer(1, 0.15 * inch))
+
+    # ================================================================
+    # TOTALS — right-aligned summary block
+    # ================================================================
+    totals_data = []
+    totals_data.append([
+        Paragraph('Subtotal', td_muted_right),
+        Paragraph(_fmt(po.subtotal), td_right),
+    ])
+    if po.tax_amount and Decimal(str(po.tax_amount or "0")) > 0:
+        tax_label = "Tax"
+        if settings and settings.tax_name:
+            tax_label = esc(settings.tax_name)
+        totals_data.append([
+            Paragraph(tax_label, td_muted_right),
+            Paragraph(_fmt(po.tax_amount), td_right),
+        ])
+    if po.shipping_cost and Decimal(str(po.shipping_cost or "0")) > 0:
+        totals_data.append([
+            Paragraph('Shipping', td_muted_right),
+            Paragraph(_fmt(po.shipping_cost), td_right),
+        ])
+    totals_data.append([
+        Paragraph('Total', s_total_label),
+        Paragraph(_fmt(po.total_amount), s_total_value),
+    ])
+
+    totals_width = 3.0 * inch
+    spacer_width = page_width - totals_width
+    totals_table = Table(
+        [[Spacer(spacer_width, 1), Table(
+            totals_data,
+            colWidths=[1.6 * inch, 1.4 * inch],
+            style=TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('LINEABOVE', (0, -1), (-1, -1), 1.5, BRAND_DARK),
+                ('TOPPADDING', (0, -1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, -1), (-1, -1), 4),
+            ]),
+        )]],
+        colWidths=[spacer_width, totals_width],
+    )
+    totals_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    content.append(totals_table)
+    content.append(Spacer(1, 0.3 * inch))
+
+    # ================================================================
+    # NOTES (if present)
+    # ================================================================
+    if po.notes:
+        content.append(KeepTogether([
+            HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER),
+            Spacer(1, 0.1 * inch),
+            Paragraph("NOTES", s_section),
+            Paragraph(esc(po.notes), s_notes_box),
+            Spacer(1, 0.2 * inch),
+        ]))
+
+    # ================================================================
+    # FOOTER
+    # ================================================================
+    content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+    content.append(Spacer(1, 0.1 * inch))
+    company_name = esc(settings.company_name) if settings and settings.company_name else "us"
+    content.append(Paragraph(
+        f"This purchase order was generated by {company_name}. "
+        "Please reference the PO number on all correspondence and shipping documents.",
+        s_footer_center,
+    ))
+
+    doc.build(content)
+    pdf_buffer.seek(0)
+    return pdf_buffer

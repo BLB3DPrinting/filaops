@@ -4,6 +4,7 @@ Purchase Orders API Endpoints
 Uses purchase_order_service for business logic (ARCHITECT-003).
 """
 from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 from typing import Annotated, Optional
 from sqlalchemy.orm import Session
 
@@ -449,3 +450,27 @@ async def add_po_event(
     )
 
     return _build_event_response(event)
+
+
+# ---------------------------------------------------------------------------
+# PDF Generation
+# ---------------------------------------------------------------------------
+
+@router.get("/{po_id}/pdf")
+async def download_po_pdf(
+    po_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate and download a PDF for a purchase order."""
+    pdf_buffer = purchase_order_service.generate_po_pdf(db, po_id)
+
+    po = purchase_order_service.get_purchase_order(db, po_id)
+
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{po.po_number}.pdf"'
+        },
+    )
