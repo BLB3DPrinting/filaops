@@ -162,8 +162,7 @@ export default function Breadcrumbs() {
                 style={{ color: "var(--text-primary)" }}
                 aria-current="page"
               >
-                {index === 0 && <HomeIcon />}
-                {index === 0 ? null : crumb.label}
+                {crumb.label}
               </span>
             ) : NON_NAVIGABLE_PATHS.has(crumb.path) ? (
               <span
