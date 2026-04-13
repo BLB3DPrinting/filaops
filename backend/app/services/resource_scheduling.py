@@ -299,13 +299,49 @@ def check_predecessor_scheduling(
                 start = start.replace(tzinfo=timezone.utc)
 
             if pred_end > start:
+                pred_end_fmt = pred_end.strftime("%b %d %Y at %I:%M %p UTC")
+                start_fmt = start.strftime("%b %d %Y at %I:%M %p UTC")
                 return (
                     f"Operation {pred.sequence} ({pred.operation_name or pred.operation_code}) "
-                    f"is scheduled until {pred_end.isoformat()}, "
-                    f"which is after the requested start time {start.isoformat()}"
+                    f"runs until {pred_end_fmt}, after your requested start of {start_fmt}"
                 )
 
     return None
+
+
+def get_earliest_start_after_predecessors(
+    db: Session,
+    operation: ProductionOrderOperation,
+    after: datetime,
+) -> datetime:
+    """
+    Return the earliest datetime this operation can start, respecting
+    predecessor scheduled_end times.
+
+    Takes the max of `after` and the latest scheduled_end among all
+    lower-sequence operations on the same PO that are not yet in a
+    terminal status.
+    """
+    predecessors = db.query(ProductionOrderOperation).filter(
+        ProductionOrderOperation.production_order_id == operation.production_order_id,
+        ProductionOrderOperation.sequence < operation.sequence,
+        ProductionOrderOperation.id != operation.id,
+        ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+        ProductionOrderOperation.scheduled_end.isnot(None),
+    ).all()
+
+    earliest = after
+    for pred in predecessors:
+        pred_end = pred.scheduled_end
+        # Normalize timezone — DB stores naive UTC, after may be tz-aware
+        if pred_end.tzinfo is None and earliest.tzinfo is not None:
+            pred_end = pred_end.replace(tzinfo=timezone.utc)
+        elif pred_end.tzinfo is not None and earliest.tzinfo is None:
+            earliest = earliest.replace(tzinfo=timezone.utc)
+        if pred_end > earliest:
+            earliest = pred_end
+
+    return earliest
 
 
 def schedule_operation(

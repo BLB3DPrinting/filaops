@@ -37,6 +37,7 @@ from app.services.operation_blocking import (
 from app.services.resource_scheduling import (
     schedule_operation as schedule_operation_service,
     find_next_available_slot,
+    get_earliest_start_after_predecessors,
     SequenceError,
 )
 from app.services.operation_generation import (
@@ -528,19 +529,49 @@ def schedule_operation_endpoint(
             is_printer=request.is_printer,
         )
     except SequenceError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-    if not success:
-        # Calculate next available slot for this resource
+        # Return same shape as a conflict so the frontend gets a suggested slot
         from datetime import timedelta
         duration_minutes = int(
             (request.scheduled_end - request.scheduled_start).total_seconds() / 60
+        )
+        earliest = get_earliest_start_after_predecessors(
+            db=db,
+            operation=op,
+            after=request.scheduled_start,
         )
         next_start = find_next_available_slot(
             db=db,
             resource_id=request.resource_id,
             duration_minutes=duration_minutes,
+            after=earliest,
+            is_printer=request.is_printer,
+        )
+        return ScheduleOperationResponse(
+            success=False,
+            message=str(e),
+            conflicts=[],
+            next_available_start=next_start,
+            next_available_end=next_start + timedelta(minutes=duration_minutes),
+        )
+
+    if not success:
+        # Calculate next available slot for this resource, accounting for
+        # both resource conflicts AND predecessor sequence constraints.
+        from datetime import timedelta
+        duration_minutes = int(
+            (request.scheduled_end - request.scheduled_start).total_seconds() / 60
+        )
+        # Floor: can't start before all predecessors are done
+        earliest = get_earliest_start_after_predecessors(
+            db=db,
+            operation=op,
             after=request.scheduled_start,
+        )
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=request.resource_id,
+            duration_minutes=duration_minutes,
+            after=earliest,
             is_printer=request.is_printer,
         )
         suggested_end = next_start + timedelta(minutes=duration_minutes)
