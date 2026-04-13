@@ -2241,6 +2241,28 @@ class TestRecordQCInspection:
         assert result["quantity_passed"] == 10
         assert result["inspector"] == "Inspector Smith"
         assert result["order_code"] == order.code
+        assert order.qc_status == "passed"
+        assert order.qc_inspected_by == "Inspector Smith"
+        assert order.qc_inspected_at is not None
+
+    def test_record_passed_inspection_persists_order_qc_fields(self, db, finished_good):
+        """Should persist order-level QC fields used by quality dashboards."""
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        result = svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Persist",
+            qc_status="passed",
+            quantity_passed=10,
+            notes="All checks passed",
+        )
+
+        db.expunge(order)
+        reloaded = db.query(ProductionOrder).filter(ProductionOrder.id == result["order_id"]).first()
+        assert reloaded is not None
+        assert reloaded.qc_status == "passed"
+        assert reloaded.qc_inspected_by == "Inspector Persist"
+        assert reloaded.qc_notes == "All checks passed"
+        assert reloaded.qc_inspected_at is not None
 
     def test_record_failed_inspection_updates_scrap(self, db, finished_good):
         """Should update scrap quantity on failed inspection."""
@@ -2253,8 +2275,11 @@ class TestRecordQCInspection:
             quantity_failed=3,
             failure_reason="Surface defects",
         )
-        # Service modifies order in-memory without flush — check directly
+        # Service persists order-level QC fields and failed scrap quantity.
         assert int(order.quantity_scrapped) == 3
+        assert order.qc_status == "failed"
+        assert order.qc_inspected_by == "Inspector Smith"
+        assert order.qc_inspected_at is not None
 
     def test_record_inspection_with_qc_operation(self, db, finished_good):
         """Should complete the QC operation if found."""

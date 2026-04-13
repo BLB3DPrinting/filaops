@@ -7,17 +7,21 @@ import { useState, useEffect } from 'react';
 import { API_URL } from '../config/api';
 import Modal from './Modal';
 
+
 export default function OperationMaterialModal({
   isOpen,
   onClose,
   operationId,
-  material = null, // If provided, editing existing material
+  operation = null,          // Operation context (for title/label)
+  defaultTypeFilter = 'all', // Smart default computed by parent from operation name
+  material = null,           // If provided, editing existing material
   onSave,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
 
   // Form state — field names match backend RoutingOperationMaterialCreate schema
   const [formData, setFormData] = useState({
@@ -34,8 +38,9 @@ export default function OperationMaterialModal({
 
   const isEditing = !!material;
 
-  // Load material data when editing
+  // Reset / populate form whenever the modal opens or the target material changes
   useEffect(() => {
+    if (!isOpen) return;
     if (material) {
       setFormData({
         component_id: material.component_id || '',
@@ -48,8 +53,9 @@ export default function OperationMaterialModal({
         is_variable: material.is_variable ?? false,
         notes: material.notes || '',
       });
+      // Show all types when editing so the selected component is always visible
+      setTypeFilter('all');
     } else {
-      // Reset form for new material
       setFormData({
         component_id: '',
         quantity: 1,
@@ -61,8 +67,10 @@ export default function OperationMaterialModal({
         is_variable: false,
         notes: '',
       });
+      setSearchTerm('');
+      setTypeFilter(defaultTypeFilter);
     }
-  }, [material, isOpen]);
+  }, [isOpen, material, defaultTypeFilter]);
 
   // Fetch products for component selection
   useEffect(() => {
@@ -71,15 +79,16 @@ export default function OperationMaterialModal({
     const fetchProducts = async () => {
       try {
         const params = new URLSearchParams({
-          skip: '0',
-          limit: '100',
+          offset: '0',
+          limit: '500',
           active_only: 'true',
+          exclude_variants: 'true',
         });
         if (searchTerm) {
           params.append('search', searchTerm);
         }
 
-        const res = await fetch(`${API_URL}/api/v1/products?${params}`, {
+        const res = await fetch(`${API_URL}/api/v1/items?${params}`, {
           credentials: "include",
         });
         if (res.ok) {
@@ -192,13 +201,32 @@ export default function OperationMaterialModal({
 
   const selectedProduct = products.find((p) => p.id === parseInt(formData.component_id));
 
+  const TYPE_LABELS = {
+    finished_good: 'FG',
+    component: 'COMP',
+    material: 'MAT',
+    supply: 'SUPPLY',
+  };
+
+  const filteredProducts = typeFilter === 'all'
+    ? products
+    : products.filter((p) => p.item_type === typeFilter);
+
+  const availableTypes = [...new Set(products.map((p) => p.item_type).filter(Boolean))];
+
+  // Context-aware label: "Add Component" for assemblies, "Add Material" default
+  const addLabel = defaultTypeFilter === 'component' ? 'Component'
+    : defaultTypeFilter === 'supply' ? 'Supply'
+    : 'Material';
+  const modalTitle = isEditing ? `Edit ${addLabel}` : `Add ${addLabel}`;
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Material' : 'Add Material'} disableClose={loading} className="w-full max-w-lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} disableClose={loading} className="w-full max-w-lg">
         <div className="p-6">
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-white">
-              {isEditing ? 'Edit Material' : 'Add Material'}
+              {modalTitle}
             </h2>
             <button
               onClick={onClose}
@@ -224,9 +252,29 @@ export default function OperationMaterialModal({
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Component *
               </label>
+              {/* Type filter chips */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setTypeFilter('all')}
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${typeFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+                >
+                  All
+                </button>
+                {availableTypes.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTypeFilter(t)}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${typeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+                  >
+                    {TYPE_LABELS[t] || t}
+                  </button>
+                ))}
+              </div>
               <input
                 type="text"
-                placeholder="Search products..."
+                placeholder="Search by SKU or name..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white mb-2"
@@ -238,21 +286,21 @@ export default function OperationMaterialModal({
                   setFormData({
                     ...formData,
                     component_id: e.target.value,
-                    unit: product?.unit_of_measure || 'EA',
+                    unit: product?.unit || 'EA',
                   });
                 }}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
               >
                 <option value="">Select component...</option>
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.sku} - {p.name}
+                    [{TYPE_LABELS[p.item_type] || p.item_type || '?'}] {p.sku} — {p.name}
                   </option>
                 ))}
               </select>
               {selectedProduct && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Type: {selectedProduct.product_type} | Unit: {selectedProduct.unit_of_measure}
+                  Type: {selectedProduct.item_type} | Unit: {selectedProduct.unit}
                 </p>
               )}
             </div>
@@ -389,7 +437,7 @@ export default function OperationMaterialModal({
                 disabled={loading || !formData.component_id}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
               >
-                {loading ? 'Saving...' : isEditing ? 'Update' : 'Add Material'}
+                {loading ? 'Saving...' : isEditing ? 'Update' : `Add ${addLabel}`}
               </button>
             </div>
           </div>

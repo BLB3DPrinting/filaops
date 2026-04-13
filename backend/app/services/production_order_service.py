@@ -991,6 +991,8 @@ def record_qc_inspection(
     """
     order = get_production_order(db, order_id)
 
+    inspected_at = datetime.now(timezone.utc)
+
     # Find QC operation
     qc_op = (
         db.query(ProductionOrderOperation)
@@ -1003,16 +1005,24 @@ def record_qc_inspection(
 
     if qc_op:
         qc_op.status = "complete"
-        qc_op.actual_end = datetime.now(timezone.utc)
+        qc_op.actual_end = inspected_at
         qc_op.quantity_completed = quantity_passed
         qc_op.quantity_scrapped = quantity_failed
         qc_op.operator_name = inspector
         if notes:
             qc_op.notes = notes
 
+    # Persist order-level QC fields consumed by quality dashboards and reporting.
+    order.qc_status = qc_status
+    order.qc_inspected_by = inspector
+    order.qc_inspected_at = inspected_at
+    order.qc_notes = notes
+
     # Update order based on QC result
     if qc_status == "failed" and quantity_failed > 0:
         order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_failed
+
+    db.flush()
 
     inspection_result = {
         "order_id": order_id,
@@ -1023,7 +1033,7 @@ def record_qc_inspection(
         "quantity_failed": quantity_failed,
         "failure_reason": failure_reason,
         "notes": notes,
-        "inspected_at": datetime.now(timezone.utc).isoformat(),
+        "inspected_at": inspected_at.isoformat(),
     }
 
     logger.info(f"QC inspection recorded for {order.code}: {qc_status}")
