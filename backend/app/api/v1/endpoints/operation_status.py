@@ -43,6 +43,10 @@ from app.services.resource_scheduling import (
 from app.services.operation_generation import (
     generate_operations_manual,
 )
+from app.services.resource_compatibility_service import (
+    is_machine_compatible,
+    normalize_resource,
+)
 from app.schemas.resource_scheduling import (
     ScheduleOperationRequest,
     ScheduleOperationResponse,
@@ -60,13 +64,6 @@ from app.models.printer import Printer
 
 
 router = APIRouter()
-
-
-class _PrinterAsResource:
-    """Minimal resource-like adapter for printers, used by is_machine_compatible."""
-    def __init__(self, printer: Printer):
-        self.code = printer.code
-        self.machine_type = printer.model
 
 
 def build_operation_response(op, po, next_op=None) -> OperationResponse:
@@ -434,13 +431,11 @@ def check_resource_compatibility(
     if not po:
         raise HTTPException(status_code=404, detail="Production order not found")
 
-    from app.api.v1.endpoints.scheduling import is_machine_compatible
-
     if is_printer:
         printer = db.get(Printer, resource_id)
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
-        check_resource = _PrinterAsResource(printer)
+        check_resource = normalize_resource(printer)
     else:
         resource = db.get(Resource, resource_id)
         if not resource:
@@ -505,8 +500,7 @@ def schedule_operation_endpoint(
 
     # Check material/printer compatibility
     if resource_obj or request.is_printer:
-        from app.api.v1.endpoints.scheduling import is_machine_compatible
-        check_resource = _PrinterAsResource(printer) if request.is_printer else resource_obj
+        check_resource = normalize_resource(printer) if request.is_printer else resource_obj
         if check_resource:
             compatible, reason = is_machine_compatible(db, check_resource, po)
             if not compatible:

@@ -80,7 +80,13 @@ export default function ProductionOrderDetail() {
       const data = await api.get(`/api/v1/production-orders/${orderId}`);
       setOrder(data);
     } catch (err) {
-      if (!silent) setError(err.message);
+      console.error("fetchOrder failed:", err);
+      setError(err.message);
+      // For terminal errors on background refreshes, clear stale order data
+      const status = err.response?.status;
+      if (silent && status && (status === 401 || status >= 500)) {
+        setOrder(null);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
