@@ -3,7 +3,7 @@
  *
  * Allows selecting resource and time slot with conflict detection.
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useResources, useResourceConflicts } from "../../hooks/useResources";
 import { formatDuration, formatTime } from "../../utils/formatting";
@@ -117,7 +117,7 @@ function CompatibilityWarning({ reason }) {
 /**
  * Success banner shown after scheduling, with option to advance to next op
  */
-function ScheduleSuccess({ operationCode, nextOperation, onNext, onDone }) {
+function ScheduleSuccess({ operationCode, nextOperation, onNext }) {
   return (
     <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
       <div className="flex items-start gap-3">
@@ -195,19 +195,6 @@ export default function OperationSchedulerModal({
     if (isOpen && operation) setCurrentOp(operation);
   }, [operation, isOpen]);
 
-  // Debug: track unmount and isOpen changes
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      console.log("[Scheduler] Component UNMOUNTED");
-    };
-  }, []);
-  useEffect(() => {
-    console.log("[Scheduler] isOpen changed to:", isOpen);
-  }, [isOpen]);
-
   // Get available resources for the operation's work center
   const { resources, loading: loadingResources } = useResources(
     currentOp?.work_center_id,
@@ -263,6 +250,8 @@ export default function OperationSchedulerModal({
     const selectedRes = resources.find((r) => String(r.id) === resourceId);
     if (!selectedRes) return;
 
+    let cancelled = false;
+
     const checkCompat = async () => {
       try {
         const params = new URLSearchParams({
@@ -273,7 +262,7 @@ export default function OperationSchedulerModal({
           `${API_URL}/api/v1/production-orders/${productionOrder.id}/check-resource-compatibility?${params}`,
           { credentials: "include" },
         );
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
           if (!data.compatible) {
             setCompatWarning(data.reason);
@@ -285,6 +274,7 @@ export default function OperationSchedulerModal({
     };
 
     checkCompat();
+    return () => { cancelled = true; };
   }, [resourceId, productionOrder?.id, resources]);
 
   // Auto-suggest next available slot when resource is selected
@@ -326,7 +316,7 @@ export default function OperationSchedulerModal({
     fetchSuggested();
   }, [resourceId, estimatedMinutes, resources]);
 
-  // Fetch operations list to find next pending op
+  // Fetch operations list to find next pending op after the one just scheduled
   const fetchNextPendingOp = async (justScheduledId) => {
     try {
       const res = await fetch(
@@ -336,10 +326,13 @@ export default function OperationSchedulerModal({
       if (!res.ok) return null;
       const data = await res.json();
       const ops = Array.isArray(data) ? data : data.operations || [];
-      // Find next pending op after the one we just scheduled (by sequence)
       const sorted = ops.sort((a, b) => a.sequence - b.sequence);
+      const justScheduled = sorted.find((op) => op.id === justScheduledId);
+      // Find the first pending op with a higher sequence than the one just scheduled
       return sorted.find(
-        (op) => op.id !== justScheduledId && op.status === "pending",
+        (op) =>
+          op.status === "pending" &&
+          (justScheduled ? op.sequence > justScheduled.sequence : true),
       );
     } catch {
       return null;
@@ -359,13 +352,6 @@ export default function OperationSchedulerModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("[Scheduler] handleSubmit called", {
-      resourceId,
-      startTime,
-      endTime,
-      poId: productionOrder?.id,
-      opId: currentOp?.id,
-    });
 
     if (!resourceId || !startTime || !endTime) {
       setError("Please fill in all required fields");
@@ -409,18 +395,12 @@ export default function OperationSchedulerModal({
       );
 
       const data = await res.json();
-      console.log("[Scheduler] Response:", {
-        status: res.status,
-        ok: res.ok,
-        data,
-      });
 
       if (!res.ok) {
         throw new Error(data.detail || "Failed to schedule operation");
       }
 
       if (data.success === false) {
-        console.log("[Scheduler] CONFLICT - staying open, setting error");
         setForceOpen(true);
         setServerConflicts(data.conflicts || []);
         if (data.next_available_start) {
@@ -432,10 +412,6 @@ export default function OperationSchedulerModal({
         return;
       }
 
-      // Success — notify parent, find next op, stay open
-      console.log(
-        "[Scheduler] SUCCESS - calling onScheduled, will NOT close modal",
-      );
       onScheduled?.();
       const scheduledCode = `${currentOp.sequence} — ${currentOp.operation_code}`;
       const nextOp = await fetchNextPendingOp(currentOp.id);
@@ -463,9 +439,10 @@ export default function OperationSchedulerModal({
 
   const handleUseSuggestedSlot = (suggestedStart, suggestedEnd) => {
     const start = new Date(suggestedStart);
-    const end = new Date(suggestedEnd);
     setStartTime(start.toISOString().slice(0, 16));
-    setEndTime(end.toISOString().slice(0, 16));
+    if (suggestedEnd) {
+      setEndTime(new Date(suggestedEnd).toISOString().slice(0, 16));
+    }
     setServerConflicts([]);
     setNextAvailableStart(null);
     setNextAvailableEnd(null);

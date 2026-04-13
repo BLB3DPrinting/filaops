@@ -62,6 +62,13 @@ from app.models.printer import Printer
 router = APIRouter()
 
 
+class _PrinterAsResource:
+    """Minimal resource-like adapter for printers, used by is_machine_compatible."""
+    def __init__(self, printer: Printer):
+        self.code = printer.code
+        self.machine_type = printer.model
+
+
 def build_operation_response(op, po, next_op=None) -> OperationResponse:
     """Build response from operation model."""
     resource_code = None
@@ -433,11 +440,6 @@ def check_resource_compatibility(
         printer = db.get(Printer, resource_id)
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
-
-        class _PrinterAsResource:
-            def __init__(self, p):
-                self.code = p.code
-                self.machine_type = p.model
         check_resource = _PrinterAsResource(printer)
     else:
         resource = db.get(Resource, resource_id)
@@ -467,9 +469,12 @@ def schedule_operation_endpoint(
     Validates:
     - Resource exists
     - Operation exists and belongs to this PO
+    - Material/printer compatibility
+    - Predecessor sequence constraints
     - No time conflicts with existing scheduled operations
 
-    Returns 409 Conflict if scheduling would create a conflict.
+    Returns success=False with conflict details and next_available_start/end
+    when scheduling would create a conflict or violate sequence constraints.
     """
     # Validate PO exists
     po = db.get(ProductionOrder, po_id)
@@ -501,15 +506,7 @@ def schedule_operation_endpoint(
     # Check material/printer compatibility
     if resource_obj or request.is_printer:
         from app.api.v1.endpoints.scheduling import is_machine_compatible
-        # For printers, build a resource-like object with machine_type
-        if request.is_printer and printer:
-            class _PrinterAsResource:
-                def __init__(self, p):
-                    self.code = p.code
-                    self.machine_type = p.model
-            check_resource = _PrinterAsResource(printer)
-        else:
-            check_resource = resource_obj
+        check_resource = _PrinterAsResource(printer) if request.is_printer else resource_obj
         if check_resource:
             compatible, reason = is_machine_compatible(db, check_resource, po)
             if not compatible:
@@ -517,6 +514,17 @@ def schedule_operation_endpoint(
                     status_code=422,
                     detail=f"Incompatible resource: {reason}"
                 )
+
+    # Validate time range
+    from datetime import timedelta
+    duration_minutes = int(
+        (request.scheduled_end - request.scheduled_start).total_seconds() / 60
+    )
+    if duration_minutes <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="scheduled_end must be after scheduled_start"
+        )
 
     # Attempt to schedule
     try:
@@ -530,10 +538,6 @@ def schedule_operation_endpoint(
         )
     except SequenceError as e:
         # Return same shape as a conflict so the frontend gets a suggested slot
-        from datetime import timedelta
-        duration_minutes = int(
-            (request.scheduled_end - request.scheduled_start).total_seconds() / 60
-        )
         earliest = get_earliest_start_after_predecessors(
             db=db,
             operation=op,
@@ -557,10 +561,6 @@ def schedule_operation_endpoint(
     if not success:
         # Calculate next available slot for this resource, accounting for
         # both resource conflicts AND predecessor sequence constraints.
-        from datetime import timedelta
-        duration_minutes = int(
-            (request.scheduled_end - request.scheduled_start).total_seconds() / 60
-        )
         # Floor: can't start before all predecessors are done
         earliest = get_earliest_start_after_predecessors(
             db=db,

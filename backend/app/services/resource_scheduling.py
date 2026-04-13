@@ -388,8 +388,6 @@ def schedule_operation(
     # Check predecessor sequencing
     seq_error = check_predecessor_scheduling(db, operation, scheduled_start)
     if seq_error:
-        # Return as a special "sequence_error" — caller should handle differently
-        # We store the error message on a fake operation-like object for the API layer
         raise SequenceError(seq_error)
 
     # Schedule the operation - use proper foreign key columns
