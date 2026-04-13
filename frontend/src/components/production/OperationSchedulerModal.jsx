@@ -455,7 +455,6 @@ export default function OperationSchedulerModal({
 
   // Close with full reset — used by X button, Done button, and advance
   const handleClose = () => {
-    console.log("[Scheduler] handleClose (manual) called");
     setForceOpen(false);
     setCurrentOp(null);
     setJustScheduled(null);
@@ -517,7 +516,6 @@ export default function OperationSchedulerModal({
             operationCode={justScheduled}
             nextOperation={nextPendingOp}
             onNext={handleAdvanceToNextOp}
-            onDone={handleClose}
           />
         )}
 
