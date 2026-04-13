@@ -306,9 +306,9 @@ export default function ProductionOrderModal({
         },
       );
 
-      if (!res.ok) {
-        const data = await res.json();
+      const data = await res.json();
 
+      if (!res.ok) {
         // If conflict (409), fetch next available slot and suggest it
         if (res.status === 409) {
           try {
@@ -338,12 +338,24 @@ export default function ProductionOrderModal({
               return;
             }
           } catch {
-            // err unused
             // If we can't get suggestion, fall through to regular error
           }
         }
 
         throw new Error(data.detail || "Failed to schedule operation");
+      }
+
+      // Backend returns 200 with success: false for scheduling conflicts,
+      // including next_available_start/end for the suggested slot.
+      if (data.success === false) {
+        if (data.next_available_start) {
+          setSuggestedSlot({
+            start: data.next_available_start,
+            end: data.next_available_end,
+          });
+        }
+        setError(data.message || "Scheduling conflict. See suggested time below.");
+        return;
       }
 
       setScheduleModalOpen(false);
