@@ -284,6 +284,8 @@ export default function OperationSchedulerModal({
     const selectedRes = resources.find((r) => String(r.id) === resourceId);
     if (!selectedRes) return;
 
+    let cancelled = false;
+
     const fetchSuggested = async () => {
       try {
         const res = await fetch(
@@ -299,9 +301,9 @@ export default function OperationSchedulerModal({
             }),
           },
         );
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
-          if (data.next_available) {
+          if (data.next_available && !cancelled) {
             const start = new Date(data.next_available);
             const end = new Date(data.suggested_end);
             setStartTime(start.toISOString().slice(0, 16));
@@ -314,6 +316,7 @@ export default function OperationSchedulerModal({
     };
 
     fetchSuggested();
+    return () => { cancelled = true; };
   }, [resourceId, estimatedMinutes, resources]);
 
   // Fetch operations list to find next pending op after the one just scheduled

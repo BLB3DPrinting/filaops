@@ -24,7 +24,7 @@ export default function Modal({
   const titleId = useId();
   // Track where mousedown started so text-selection drags that end on the
   // backdrop don't accidentally close the modal.
-  const mousedownOnBackdropRef = useRef(false);
+  const pointerDownOnBackdropRef = useRef(false);
 
   // Save and restore focus when modal opens/closes
   useEffect(() => {
@@ -102,14 +102,14 @@ export default function Modal({
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onMouseDown={(e) => {
-        mousedownOnBackdropRef.current = e.target === e.currentTarget;
+      onPointerDown={(e) => {
+        pointerDownOnBackdropRef.current = e.target === e.currentTarget;
       }}
-      onMouseUp={(e) => {
-        if (mousedownOnBackdropRef.current && e.target === e.currentTarget && !disableClose) {
+      onPointerUp={(e) => {
+        if (pointerDownOnBackdropRef.current && e.target === e.currentTarget && !disableClose) {
           onClose();
         }
-        mousedownOnBackdropRef.current = false;
+        pointerDownOnBackdropRef.current = false;
       }}
     >
       <div
