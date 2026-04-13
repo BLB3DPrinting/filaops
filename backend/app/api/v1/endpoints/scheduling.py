@@ -108,16 +108,22 @@ def machine_has_enclosure(resource: Resource) -> bool:
         return False
     
     machine_type_upper = resource.machine_type.upper()
-    # BambuLab models with enclosures
-    if machine_type_upper in ['X1C', 'X1', 'P1S', 'P1P']:
+
+    # BambuLab models with enclosures (substring match to handle
+    # stored values like "Bambu Lab X1C", "X1 Carbon", etc.)
+    enclosed_models = ['X1C', 'X1 CARBON', 'P1S', 'P1P']
+    if any(m in machine_type_upper for m in enclosed_models):
         return True
-    
+
     # BambuLab models without enclosures
-    if machine_type_upper in ['A1', 'A1 MINI']:
+    # Check A1 MINI first (more specific) to avoid false-matching "A1" inside "A1 MINI"
+    if 'A1 MINI' in machine_type_upper or 'A1MINI' in machine_type_upper:
+        return False
+    if 'A1' in machine_type_upper:
+        # Plain A1 (no enclosure) — but exclude models that matched above
         return False
     
     # Default: assume no enclosure for unknown models
-    # This can be made configurable via a database field later
     return False
 
 
@@ -509,4 +515,48 @@ async def auto_schedule_order(
         "scheduled_start": best_slot.isoformat(),
         "scheduled_end": scheduled_end.isoformat(),
     }
+
+
+@router.get("/resource-conflicts")
+async def get_resource_conflicts(
+    resource_id: int = Query(..., description="Resource or printer ID"),
+    start: str = Query(..., description="Start time (ISO 8601)"),
+    end: str = Query(..., description="End time (ISO 8601)"),
+    is_printer: bool = Query(False, description="True if resource is a printer"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Check for scheduling conflicts on a resource/printer in a time range.
+
+    Used by the frontend's live conflict checker to warn before submitting.
+    Returns list of conflicting operations with their PO codes and times.
+    """
+    from app.services.resource_scheduling import find_conflicts
+
+    # Parse ISO timestamps (handle trailing Z for UTC)
+    start_time = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    end_time = datetime.fromisoformat(end.replace("Z", "+00:00"))
+
+    conflicting_ops = find_conflicts(
+        db=db,
+        resource_id=resource_id,
+        start_time=start_time,
+        end_time=end_time,
+        is_printer=is_printer,
+    )
+
+    conflicts = []
+    for op in conflicting_ops:
+        po = op.production_order
+        conflicts.append({
+            "operation_id": op.id,
+            "operation_code": op.operation_code,
+            "production_order_code": po.code if po else None,
+            "po_code": po.code if po else None,
+            "scheduled_start": op.scheduled_start.isoformat() if op.scheduled_start else None,
+            "scheduled_end": op.scheduled_end.isoformat() if op.scheduled_end else None,
+        })
+
+    return {"conflicts": conflicts}
 

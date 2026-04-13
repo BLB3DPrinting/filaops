@@ -67,17 +67,19 @@ export default function ProductionOrderDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  const fetchOrder = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchOrder = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const data = await api.get(`/api/v1/production-orders/${orderId}`);
       setOrder(data);
     } catch (err) {
-      setError(err.message);
+      if (!silent) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -347,7 +349,7 @@ export default function ProductionOrderDetail() {
         productionOrder={order}
         onScheduled={() => {
           toast.success('Operation scheduled successfully');
-          fetchOrder();
+          fetchOrder({ silent: true });
         }}
       />
     </div>

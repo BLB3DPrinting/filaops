@@ -130,7 +130,7 @@ export function useResources(workCenterId = null) {
  * Since we don't have a dedicated conflicts endpoint, this simulates by checking
  * if scheduling would succeed.
  */
-export function useResourceConflicts(resourceId, startTime, endTime) {
+export function useResourceConflicts(resourceId, startTime, endTime, isPrinter = false) {
   const [conflicts, setConflicts] = useState([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
@@ -149,7 +149,8 @@ export function useResourceConflicts(resourceId, startTime, endTime) {
         const params = new URLSearchParams({
           resource_id: resourceId,
           start: new Date(startTime).toISOString(),
-          end: new Date(endTime).toISOString()
+          end: new Date(endTime).toISOString(),
+          is_printer: isPrinter ? 'true' : 'false'
         });
 
         const res = await fetch(
@@ -179,7 +180,7 @@ export function useResourceConflicts(resourceId, startTime, endTime) {
     // Debounce the conflict check
     const timer = setTimeout(checkConflicts, 300);
     return () => clearTimeout(timer);
-  }, [resourceId, startTime, endTime]);
+  }, [resourceId, startTime, endTime, isPrinter]);
 
   return { conflicts, checking, error, hasConflicts: conflicts.length > 0 };
 }
