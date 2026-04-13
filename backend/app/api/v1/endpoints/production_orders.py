@@ -1080,10 +1080,9 @@ async def check_compatibility(
     for every operation that has a printer or resource assigned.
     """
     from app.services.compatibility_service import check_order_compatibility
-    from sqlalchemy.orm import selectinload, joinedload
+    from sqlalchemy.orm import selectinload
     from app.models.production_order import ProductionOrderOperationMaterial
     from app.models.product import Product
-    from app.models.material import MaterialType
 
     order = (
         db.query(ProductionOrder)
@@ -1138,7 +1137,7 @@ async def check_operation_compat(
 ) -> OperationCompatibilityResponse:
     """Check material-printer compatibility for a single operation."""
     from app.services.compatibility_service import check_operation_compatibility
-    from sqlalchemy.orm import selectinload, joinedload
+    from sqlalchemy.orm import selectinload
     from app.models.production_order import ProductionOrderOperationMaterial
     from app.models.product import Product
 

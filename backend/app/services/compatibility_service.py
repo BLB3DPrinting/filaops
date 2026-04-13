@@ -10,7 +10,6 @@ required by a production order operation:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -22,7 +21,6 @@ from app.models.product import Product
 from app.models.production_order import (
     ProductionOrder,
     ProductionOrderOperation,
-    ProductionOrderOperationMaterial,
 )
 
 
