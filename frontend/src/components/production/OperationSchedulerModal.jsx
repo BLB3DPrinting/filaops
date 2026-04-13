@@ -3,7 +3,7 @@
  *
  * Allows selecting resource and time slot with conflict detection.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API_URL } from "../../config/api";
 import { useResources, useResourceConflicts } from "../../hooks/useResources";
 import { formatDuration, formatTime } from "../../utils/formatting";
@@ -184,11 +184,29 @@ export default function OperationSchedulerModal({
   const [serverConflicts, setServerConflicts] = useState([]);
   const [justScheduled, setJustScheduled] = useState(null); // op code of just-scheduled op
   const [nextPendingOp, setNextPendingOp] = useState(null); // next op to schedule
+  // Defensive: keep modal alive even if parent unmounts/remounts during conflicts
+  const [forceOpen, setForceOpen] = useState(false);
 
-  // Sync external operation prop into internal state
+  // Sync external operation prop into internal state.
+  // Depends on isOpen too: if the same operation is clicked twice, the prop
+  // reference hasn't changed so the effect won't re-fire — isOpen going
+  // false→true forces a re-sync so currentOp is never stale on reopen.
   useEffect(() => {
-    if (operation) setCurrentOp(operation);
-  }, [operation]);
+    if (isOpen && operation) setCurrentOp(operation);
+  }, [operation, isOpen]);
+
+  // Debug: track unmount and isOpen changes
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      console.log("[Scheduler] Component UNMOUNTED");
+    };
+  }, []);
+  useEffect(() => {
+    console.log("[Scheduler] isOpen changed to:", isOpen);
+  }, [isOpen]);
 
   // Get available resources for the operation's work center
   const { resources, loading: loadingResources } = useResources(
@@ -341,6 +359,13 @@ export default function OperationSchedulerModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log("[Scheduler] handleSubmit called", {
+      resourceId,
+      startTime,
+      endTime,
+      poId: productionOrder?.id,
+      opId: currentOp?.id,
+    });
 
     if (!resourceId || !startTime || !endTime) {
       setError("Please fill in all required fields");
@@ -384,22 +409,33 @@ export default function OperationSchedulerModal({
       );
 
       const data = await res.json();
+      console.log("[Scheduler] Response:", {
+        status: res.status,
+        ok: res.ok,
+        data,
+      });
 
       if (!res.ok) {
         throw new Error(data.detail || "Failed to schedule operation");
       }
 
       if (data.success === false) {
+        console.log("[Scheduler] CONFLICT - staying open, setting error");
+        setForceOpen(true);
         setServerConflicts(data.conflicts || []);
         if (data.next_available_start) {
           setNextAvailableStart(data.next_available_start);
           setNextAvailableEnd(data.next_available_end);
         }
         setError(data.message || "Scheduling conflict");
+        setSubmitting(false);
         return;
       }
 
       // Success — notify parent, find next op, stay open
+      console.log(
+        "[Scheduler] SUCCESS - calling onScheduled, will NOT close modal",
+      );
       onScheduled?.();
       const scheduledCode = `${currentOp.sequence} — ${currentOp.operation_code}`;
       const nextOp = await fetchNextPendingOp(currentOp.id);
@@ -434,9 +470,13 @@ export default function OperationSchedulerModal({
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
     setError(null);
+    setForceOpen(false);
   };
 
+  // Close with full reset — used by X button, Done button, and advance
   const handleClose = () => {
+    console.log("[Scheduler] handleClose (manual) called");
+    setForceOpen(false);
     setCurrentOp(null);
     setJustScheduled(null);
     setNextPendingOp(null);
@@ -444,12 +484,23 @@ export default function OperationSchedulerModal({
     onClose();
   };
 
-  if (!isOpen) return null;
+  // Auto-close guard — used by Modal backdrop click and Escape key.
+  // Blocks involuntary close when there are unacknowledged server conflicts.
+  const handleAutoClose = () => {
+    if (serverConflicts.length > 0 || error) {
+      console.warn("[Scheduler] Blocked auto-close — conflicts/error present");
+      return;
+    }
+    handleClose();
+  };
+
+  const effectiveOpen = isOpen || forceOpen;
+  if (!effectiveOpen) return null;
 
   return (
     <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
+      isOpen={effectiveOpen}
+      onClose={handleAutoClose}
       title="Schedule Operation"
       disableClose={submitting}
       className="w-full max-w-lg mx-4"
