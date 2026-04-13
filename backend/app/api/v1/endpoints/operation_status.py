@@ -618,19 +618,18 @@ def get_next_available_slot(
         printer = db.get(Printer, request.resource_id)
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
-        stored_resource_id = -request.resource_id
     else:
         resource = db.get(Resource, request.resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
-        stored_resource_id = request.resource_id
 
     # Find next available slot
     next_start = find_next_available_slot(
         db=db,
-        resource_id=stored_resource_id,
+        resource_id=request.resource_id,
         duration_minutes=request.duration_minutes,
-        after=request.after
+        after=request.after,
+        is_printer=request.is_printer,
     )
 
     # Calculate suggested end time

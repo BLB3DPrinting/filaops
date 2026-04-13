@@ -27,8 +27,6 @@ from app.api.v1.deps import get_current_user
 from app.core.features import require_tier, Tier
 from app.models.user import User
 from app.services.resource_compatibility_service import (
-    get_material_requirements,
-    machine_has_enclosure,
     is_machine_compatible,
 )
 
