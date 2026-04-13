@@ -70,6 +70,9 @@ const AdminNotifications = lazy(
 const MaterialTraceability = lazy(
   () => import("./pages/admin/quality/MaterialTraceability"),
 );
+const QualityDashboard = lazy(
+  () => import("./pages/admin/quality/QualityDashboard"),
+);
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 
 // Suspense fallback for lazy-loaded pages
@@ -350,6 +353,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminSpools />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="quality"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <QualityDashboard />
                         </Suspense>
                       }
                     />

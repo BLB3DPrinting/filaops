@@ -1676,6 +1676,7 @@ def get_order_spools(db: Session, order_id: int) -> list[dict]:
             result.append({
                 "spool_id": spool.id,
                 "spool_code": spool.code,
+                "product_id": spool.product_id,
                 "product_sku": product.sku if product else None,
                 "product_name": product.name if product else None,
                 "quantity_remaining": float(spool.quantity_remaining or 0),

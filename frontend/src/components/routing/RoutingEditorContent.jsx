@@ -359,16 +359,18 @@ export default function RoutingEditorContent({
       return;
     }
 
-    setOperations([
-      ...operations,
-      {
-        ...newOperation,
-        work_center_id: parseInt(newOperation.work_center_id),
-        work_center_name: workCenter.name,
-        work_center_code: workCenter.code,
-        hourly_rate: parseFloat(workCenter.total_rate_per_hour) || 0,
-      },
-    ]);
+    setOperations(
+      [
+        ...operations,
+        {
+          ...newOperation,
+          work_center_id: parseInt(newOperation.work_center_id),
+          work_center_name: workCenter.name,
+          work_center_code: workCenter.code,
+          hourly_rate: parseFloat(workCenter.total_rate_per_hour) || 0,
+        },
+      ].sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+    );
 
     setNewOperation({
       work_center_id: "",

@@ -535,6 +535,11 @@ const navGroups = [
     label: "QUALITY",
     items: [
       {
+        path: "/admin/quality",
+        label: "Quality Dashboard",
+        icon: QualityIcon,
+      },
+      {
         path: "/admin/quality/traceability",
         label: "Material Traceability",
         icon: QualityIcon,

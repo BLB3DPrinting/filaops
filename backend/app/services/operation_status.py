@@ -437,7 +437,8 @@ def complete_operation(
     op.status = 'complete'
     op.actual_end = datetime.now(timezone.utc)
     op.quantity_completed = quantity_completed
-    op.quantity_scrapped = quantity_scrapped
+    # Note: op.quantity_scrapped is set below — either by scrap_service (cascade)
+    # or directly in the non-cascade path, to avoid double-counting.
     op.scrap_reason = scrap_reason
 
     # Calculate actual run time if not provided
@@ -492,11 +493,11 @@ def complete_operation(
             logger.info(f"Auto-skipped {skipped} downstream operations due to 0 good pieces")
 
     # Update PO quantities BEFORE deriving status
-    # Note: scrap_service may have already updated these, so use max to avoid double-counting
     po.quantity_completed = quantity_completed
-    # Don't double-update quantity_scrapped - scrap_service handles this when called
+    # Don't double-update scrap quantities — scrap_service handles both op and PO
+    # when cascade accounting runs.  Only set directly if scrap_service wasn't called.
     if not scrap_result:
-        # Only update if scrap_service wasn't called
+        op.quantity_scrapped = quantity_scrapped
         po.quantity_scrapped = (po.quantity_scrapped or Decimal("0")) + quantity_scrapped
 
     # Update PO status (uses quantity_completed to determine complete vs short)

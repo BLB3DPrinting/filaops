@@ -64,6 +64,12 @@ export default function ProductionOrderModal({
 
   const [refreshRoutingLoading, setRefreshRoutingLoading] = useState(false);
 
+  // Spool assignment state
+  const [assignedSpools, setAssignedSpools] = useState([]);
+  const [spoolPickerFor, setSpoolPickerFor] = useState(null); // component_id of material being assigned
+  const [availableSpools, setAvailableSpools] = useState([]);
+  const [spoolLoading, setSpoolLoading] = useState(false);
+
   // Schedule modal state (for pending ops)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [operationToSchedule, setOperationToSchedule] = useState(null);
@@ -78,6 +84,7 @@ export default function ProductionOrderModal({
   useEffect(() => {
     if (productionOrder?.id) {
       fetchOperations();
+      fetchAssignedSpools();
       setNotes(productionOrder.notes || '');
     }
   }, [productionOrder?.id]);
@@ -95,6 +102,51 @@ export default function ProductionOrderModal({
       setResources([]);
     }
   }, [selectedWorkCenter]);
+
+  const fetchAssignedSpools = async () => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/spools`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        setAssignedSpools(await res.json());
+      }
+    } catch { /* ignore */ }
+  };
+
+  const openSpoolPicker = async (componentId) => {
+    setSpoolPickerFor(componentId);
+    setAvailableSpools([]);
+    setSpoolLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/spools/?product_id=${componentId}&status=active`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableSpools(data.items || []);
+      }
+    } catch { /* ignore */ }
+    setSpoolLoading(false);
+  };
+
+  const assignSpool = async (spoolId) => {
+    if (spoolLoading) return;
+    try {
+      setSpoolLoading(true);
+      const res = await fetch(
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/spools/${spoolId}`,
+        { method: "POST", credentials: "include" }
+      );
+      if (res.ok) {
+        await fetchAssignedSpools();
+        setSpoolPickerFor(null);
+      }
+    } catch { /* ignore */ }
+    setSpoolLoading(false);
+  };
 
   const fetchOperations = async () => {
     try {
@@ -611,32 +663,109 @@ export default function ProductionOrderModal({
             <div>
               <h3 className="text-gray-400 text-sm font-medium mb-3">MATERIALS</h3>
               <div className="bg-gray-800/30 rounded-lg p-4 space-y-2">
-                {allMaterials.slice(0, 5).map((mat, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-300">
-                      {mat.component_name || mat.component_sku || 'Unknown'}
-                      <span className="text-gray-500 ml-2">
-                        × {mat.quantity_required} {mat.unit || ''}
-                      </span>
-                    </span>
-                    <span
-                      className={
-                        mat.status === 'consumed'
-                          ? 'text-green-400'
-                          : mat.status === 'allocated'
-                          ? 'text-blue-400'
-                          : 'text-red-400'
-                      }
-                    >
-                      {mat.status}
-                    </span>
-                  </div>
-                ))}
+                {allMaterials.slice(0, 5).map((mat, idx) => {
+                  const matSpool = assignedSpools.find(
+                    (s) => s.product_id === mat.component_id
+                  );
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300">
+                          {mat.component_name || mat.component_sku || 'Unknown'}
+                          <span className="text-gray-500 ml-2">
+                            × {mat.quantity_required} {mat.unit || ''}
+                          </span>
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              mat.status === 'consumed'
+                                ? 'text-green-400'
+                                : mat.status === 'allocated'
+                                ? 'text-blue-400'
+                                : 'text-red-400'
+                            }
+                          >
+                            {mat.status}
+                          </span>
+                          {mat.component_id && (
+                            <button
+                              onClick={() => openSpoolPicker(mat.component_id)}
+                              className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                              title="Assign spool for traceability (optional)"
+                            >
+                              {matSpool ? '🔗 ' + matSpool.spool_code : 'Assign Spool'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
                 {allMaterials.length > 5 && (
                   <div className="text-gray-500 text-xs">
                     +{allMaterials.length - 5} more materials
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Spool Picker Dropdown */}
+          {spoolPickerFor && (
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-medium text-white">Select Spool</h4>
+                <button
+                  onClick={() => setSpoolPickerFor(null)}
+                  className="text-gray-400 hover:text-white text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+              {spoolLoading ? (
+                <div className="text-gray-400 text-sm">Loading spools…</div>
+              ) : availableSpools.length === 0 ? (
+                <div className="text-gray-500 text-sm">No active spools found for this material.</div>
+              ) : (
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {availableSpools.map((spool) => (
+                    <button
+                      key={spool.id}
+                      onClick={() => assignSpool(spool.id)}
+                      disabled={spoolLoading}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-700 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-white">{spool.spool_number}</span>
+                      <span className="text-gray-400">
+                        {(spool.current_weight_kg ?? 0).toFixed(2)} kg
+                        {spool.supplier_lot_number && (
+                          <span className="ml-2 text-gray-500">Lot: {spool.supplier_lot_number}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Assigned Spools Summary */}
+          {assignedSpools.length > 0 && (
+            <div>
+              <h3 className="text-gray-400 text-sm font-medium mb-3">ASSIGNED SPOOLS</h3>
+              <div className="bg-gray-800/30 rounded-lg p-4 space-y-1">
+                {assignedSpools.map((s, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-300">
+                      {s.spool_code}
+                      <span className="text-gray-500 ml-2">— {s.product_name}</span>
+                    </span>
+                    <span className="text-gray-400 text-xs">
+                      {s.quantity_remaining != null ? `${s.quantity_remaining} kg remaining` : ''}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

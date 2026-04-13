@@ -32,6 +32,7 @@ from app.api.v1.endpoints import (
     system,
     spools,
     traceability,
+    quality,
     maintenance,
     command_center,
     security,
@@ -218,6 +219,13 @@ router.include_router(security.router)
 
 # Material Spools
 router.include_router(spools.router)
+
+# Quality - Dashboard & Metrics
+router.include_router(
+    quality.router,
+    prefix="/quality",
+    tags=["quality"]
+)
 
 # Quality - Traceability
 router.include_router(

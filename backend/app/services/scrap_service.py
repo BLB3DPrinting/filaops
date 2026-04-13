@@ -46,6 +46,45 @@ from app.services.inventory_service import get_effective_cost_per_inventory_unit
 logger = logging.getLogger(__name__)
 
 
+def _get_work_center_hourly_rate(wc) -> Decimal:
+    """Get combined hourly rate for a work center (machine + labor + overhead)."""
+    if not wc:
+        return Decimal("0")
+    machine = Decimal(str(wc.machine_rate_per_hour or 0))
+    labor = Decimal(str(wc.labor_rate_per_hour or 0))
+    overhead = Decimal(str(wc.overhead_rate_per_hour or 0))
+    combined = machine + labor + overhead
+    if combined == Decimal("0"):
+        combined = Decimal(str(wc.hourly_rate or 0))
+    return combined
+
+
+def _calculate_operation_labor_cost(
+    op: ProductionOrderOperation,
+    quantity_scrapped: int,
+    quantity_ordered: Decimal,
+) -> Decimal:
+    """
+    Calculate the labor/overhead cost attributable to scrapped units for one operation.
+
+    Formula: (op_time_minutes / 60) × hourly_rate × (scrapped / ordered)
+
+    Uses actual_run_minutes when available (operation completed), otherwise planned.
+    """
+    minutes = Decimal(str(op.actual_run_minutes or op.planned_run_minutes or 0))
+    minutes += Decimal(str(op.actual_setup_minutes or op.planned_setup_minutes or 0))
+    hours = minutes / Decimal("60")
+
+    rate = _get_work_center_hourly_rate(op.work_center)
+    if rate == Decimal("0") or hours == Decimal("0"):
+        return Decimal("0")
+
+    # Total operation cost, then proportion attributable to scrapped units
+    total_op_cost = hours * rate
+    scrap_share = Decimal(str(quantity_scrapped)) / (quantity_ordered or Decimal("1"))
+    return total_op_cost * scrap_share
+
+
 class ScrapError(Exception):
     """Custom exception for scrap processing errors."""
     def __init__(self, message: str, status_code: int = 400):
@@ -148,37 +187,42 @@ def calculate_scrap_cascade(
     affected_ops = get_prior_operations_inclusive(po, op)
 
     materials_consumed = []
-    total_cost = Decimal("0")
+    total_material_cost = Decimal("0")
+    total_labor_cost = Decimal("0")
+    labor_by_operation = []
+    qty_ordered = po.quantity_ordered or Decimal("1")
 
     for affected_op in affected_ops:
-        # Get materials for this operation
+        # --- Labor / overhead cost for this operation ---
+        op_labor = _calculate_operation_labor_cost(affected_op, quantity, qty_ordered)
+        total_labor_cost += op_labor
+        labor_by_operation.append({
+            "operation_id": affected_op.id,
+            "operation_sequence": affected_op.sequence,
+            "operation_name": affected_op.operation_name,
+            "labor_cost": float(op_labor),
+        })
+
+        # --- Material cost for this operation ---
         op_materials = db.query(ProductionOrderOperationMaterial).filter(
             ProductionOrderOperationMaterial.production_order_operation_id == affected_op.id
         ).all()
 
         for mat in op_materials:
-            # Get the component product
             component = db.get(Product, mat.component_id)
             if not component:
                 logger.warning(f"Component {mat.component_id} not found for material {mat.id}")
                 continue
 
-            # Skip cost-only items (no physical inventory impact)
-            # Note: Check if is_cost_only exists on the routing material
-
-            # Calculate quantity for scrapped units
-            # quantity_required is for full PO qty, so calculate per-unit rate
-            qty_ordered = po.quantity_ordered or Decimal("1")
             qty_per_unit = (mat.quantity_required or Decimal("0")) / qty_ordered
             scrap_qty = qty_per_unit * Decimal(str(quantity))
 
             if scrap_qty <= 0:
                 continue
 
-            # Get cost - use effective cost from inventory service
             unit_cost = get_effective_cost_per_inventory_unit(component)
             cost = scrap_qty * unit_cost
-            total_cost += cost
+            total_material_cost += cost
 
             materials_consumed.append({
                 "operation_id": affected_op.id,
@@ -200,7 +244,10 @@ def calculate_scrap_cascade(
         "operation_name": op.operation_name,
         "quantity_scrapped": quantity,
         "materials_consumed": materials_consumed,
-        "total_cost": float(total_cost),
+        "labor_by_operation": labor_by_operation,
+        "material_cost": float(total_material_cost),
+        "labor_cost": float(total_labor_cost),
+        "total_cost": float(total_material_cost + total_labor_cost),
         "operations_affected": len(affected_ops),
     }
 
@@ -279,14 +326,22 @@ def process_operation_scrap(
     txn_service = TransactionService(db)
 
     scrap_records_created = []
-    total_scrap_cost = Decimal("0")
+    total_material_cost = Decimal("0")
+    total_labor_cost = Decimal("0")
     journal_entry = None  # We'll create one combined entry
+    qty_ordered = po.quantity_ordered or Decimal("1")
 
     # Collect all materials to scrap for a combined journal entry
     materials_to_scrap = []
 
     for affected_op in affected_ops:
-        # Get materials for this operation
+        # --- Labor / overhead cost for this operation ---
+        op_labor = _calculate_operation_labor_cost(
+            affected_op, quantity_scrapped, qty_ordered,
+        )
+        total_labor_cost += op_labor
+
+        # --- Material cost for this operation ---
         op_materials = db.query(ProductionOrderOperationMaterial).filter(
             ProductionOrderOperationMaterial.production_order_operation_id == affected_op.id
         ).all()
@@ -297,7 +352,6 @@ def process_operation_scrap(
                 continue
 
             # Calculate scrap quantity
-            qty_ordered = po.quantity_ordered or Decimal("1")
             qty_per_unit = (mat.quantity_required or Decimal("0")) / qty_ordered
             scrap_qty = qty_per_unit * Decimal(str(quantity_scrapped))
 
@@ -314,16 +368,25 @@ def process_operation_scrap(
                 "unit_cost": unit_cost,
             })
 
-            total_scrap_cost += scrap_qty * unit_cost
+            total_material_cost += scrap_qty * unit_cost
 
-    # Create single combined journal entry for all materials
+    total_scrap_cost = total_material_cost + total_labor_cost
+
+    # Create single combined journal entry for all materials + labor
     if total_scrap_cost > Decimal("0"):
+        gl_lines = []
+        # Debit: Scrap Expense for material
+        if total_material_cost > Decimal("0"):
+            gl_lines.append(("5020", total_material_cost, "DR"))   # Scrap Expense – Material
+        # Debit: Scrap Expense for labor/overhead
+        if total_labor_cost > Decimal("0"):
+            gl_lines.append(("5020", total_labor_cost, "DR"))      # Scrap Expense – Labor
+        # Credit: WIP for total
+        gl_lines.append(("1210", total_scrap_cost, "CR"))          # WIP Inventory
+
         journal_entry = txn_service._create_journal_entry(
             description=f"Scrap at {op.operation_name} for {po.code}: {quantity_scrapped} units ({scrap_reason_code})",
-            lines=[
-                ("5020", total_scrap_cost, "DR"),  # Scrap Expense
-                ("1210", total_scrap_cost, "CR"),  # WIP Inventory
-            ],
+            lines=gl_lines,
             source_type="production_order",
             source_id=po_id,
             user_id=user_id,
@@ -396,6 +459,8 @@ def process_operation_scrap(
         "success": True,
         "scrap_records_created": len(scrap_records_created),
         "operations_affected": len(affected_ops),
+        "material_cost": float(total_material_cost),
+        "labor_cost": float(total_labor_cost),
         "total_scrap_cost": float(total_scrap_cost),
         "journal_entry_number": journal_entry.entry_number if journal_entry else None,
         "downstream_ops_skipped": skipped_ops,
