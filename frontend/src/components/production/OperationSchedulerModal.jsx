@@ -485,10 +485,11 @@ export default function OperationSchedulerModal({
   };
 
   // Auto-close guard — used by Modal backdrop click and Escape key.
-  // Blocks involuntary close when there are unacknowledged server conflicts.
+  // Blocks involuntary close when live or server conflicts are shown — the
+  // user needs to explicitly resolve or dismiss them, not lose their work
+  // by accidentally clicking outside.
   const handleAutoClose = () => {
-    if (serverConflicts.length > 0 || error) {
-      console.warn("[Scheduler] Blocked auto-close — conflicts/error present");
+    if (serverConflicts.length > 0 || conflicts.length > 0 || error) {
       return;
     }
     handleClose();
