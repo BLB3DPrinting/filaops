@@ -363,7 +363,6 @@ export default function ProductionOrderModal({
       setSelectedResource(null);
       setSuggestedSlot(null);
       fetchOperations();
-      onUpdated?.();
     } catch (err) {
       setError(err.message);
     } finally {
