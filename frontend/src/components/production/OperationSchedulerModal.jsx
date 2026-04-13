@@ -489,7 +489,7 @@ export default function OperationSchedulerModal({
   // user needs to explicitly resolve or dismiss them, not lose their work
   // by accidentally clicking outside.
   const handleAutoClose = () => {
-    if (serverConflicts.length > 0 || conflicts.length > 0 || error) {
+    if (serverConflicts.length > 0 || conflicts.length > 0 || error || compatWarning) {
       return;
     }
     handleClose();
