@@ -1,6 +1,6 @@
 ---
 name: filaops-safety-philosophy
-description: Use when questioning why safety gates exist, debating whether a mechanical gate applies, or constructing justifications to route around constraints. Loads the meta-awareness context from CLAUDE.md Layer 2.
+description: Use when questioning why safety gates exist, debating whether a mechanical gate applies, or constructing justifications to route around constraints. Provides meta-awareness context that complements CLAUDE.md Layer 0 (mechanical gates) and Layer 1 (behavioral guidelines).
 ---
 
 # FilaOps Safety Philosophy — Meta-Awareness

@@ -60,8 +60,8 @@ Enforced by hooks and CI. If blocked, read the block message and comply — don'
 ### Supply Chain & Observation
 See skills: `filaops-supply-chain` (dependency hygiene, registry trust, attribution, anomaly reporting) and `filaops-safety-philosophy` (why gates exist, threat landscape).
 
-All commits include AI attribution:
-```
+AI attribution is required in commits, PR descriptions, and documentation:
+```text
 feat: short description
 
 Co-authored-by: Claude <claude@anthropic.com>
@@ -70,7 +70,7 @@ Agent-Session: [session-id]
 
 ## Core vs PRO Architecture
 
-```
+```text
 ┌─────────────────────────────────┐
 │         FilaOps Core            │  ← This repo. Open source. Standalone.
 │   FastAPI + React + PostgreSQL  │

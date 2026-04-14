@@ -1,6 +1,6 @@
 ---
 name: filaops-supply-chain
-description: Use when adding/updating dependencies, running installs, debugging package issues, reviewing build output for network activity, or evaluating package safety. Loads the supply-chain and observation rules from CLAUDE.md Layer 1.10-1.13.
+description: Use when adding/updating dependencies, running installs, debugging package issues, reviewing build output for network activity, or evaluating package safety. Defines supply-chain hygiene, registry verification, AI contribution disclosure, and anomaly reporting rules that complement CLAUDE.md Layer 0/1.
 ---
 
 # FilaOps Supply Chain Hygiene
