@@ -15,9 +15,12 @@ import BlockingIssuesPanel from "../../components/orders/BlockingIssuesPanel";
 import {
   OperationsPanel,
   OperationSchedulerModal,
-  OperationsTimeline
+  OperationsTimeline,
 } from "../../components/production";
-import { PRODUCTION_ORDER_COLORS, getStatusColor } from "../../lib/statusColors.js";
+import {
+  PRODUCTION_ORDER_COLORS,
+  getStatusColor,
+} from "../../lib/statusColors.js";
 
 /**
  * Wrapper to fetch operations for timeline
@@ -31,11 +34,11 @@ function OperationsTimelineWrapper({ productionOrderId }) {
       if (!productionOrderId) return;
       try {
         const data = await api.get(
-          `/api/v1/production-orders/${productionOrderId}/operations`
+          `/api/v1/production-orders/${productionOrderId}/operations`,
         );
         setOperations(Array.isArray(data) ? data : data.operations || []);
       } catch (err) {
-        console.error('Failed to fetch operations for timeline:', err);
+        console.error("Failed to fetch operations for timeline:", err);
       }
     };
     fetchOps();
@@ -67,17 +70,25 @@ export default function ProductionOrderDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  const fetchOrder = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchOrder = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const data = await api.get(`/api/v1/production-orders/${orderId}`);
       setOrder(data);
     } catch (err) {
+      console.error("fetchOrder failed:", err);
       setError(err.message);
+      // For terminal errors on background refreshes, clear stale order data
+      const status = err.response?.status;
+      if (silent && status && (status === 401 || status >= 500)) {
+        setOrder(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -138,9 +149,10 @@ export default function ProductionOrderDetail() {
     );
   }
 
-  const progress = order.quantity_ordered > 0
-    ? Math.round((order.quantity_completed / order.quantity_ordered) * 100)
-    : 0;
+  const progress =
+    order.quantity_ordered > 0
+      ? Math.round((order.quantity_completed / order.quantity_ordered) * 100)
+      : 0;
 
   return (
     <div className="space-y-6 p-6">
@@ -201,7 +213,9 @@ export default function ProductionOrderDetail() {
         <div className="grid grid-cols-5 gap-4">
           <div>
             <div className="text-sm text-gray-400">Product</div>
-            <div className="text-white font-medium">{order.product_name || order.product_sku || "N/A"}</div>
+            <div className="text-white font-medium">
+              {order.product_name || order.product_sku || "N/A"}
+            </div>
           </div>
           <div>
             <div className="text-sm text-gray-400">Quantity</div>
@@ -211,18 +225,24 @@ export default function ProductionOrderDetail() {
           </div>
           <div>
             <div className="text-sm text-gray-400">Status</div>
-            <span className={`inline-block px-2 py-1 rounded-full text-sm ${getProductionStatusColor(order.status)}`}>
+            <span
+              className={`inline-block px-2 py-1 rounded-full text-sm ${getProductionStatusColor(order.status)}`}
+            >
               {order.status}
             </span>
           </div>
           <div>
             <div className="text-sm text-gray-400">Priority</div>
-            <div className="text-white font-medium">{order.priority || "Normal"}</div>
+            <div className="text-white font-medium">
+              {order.priority || "Normal"}
+            </div>
           </div>
           <div>
             <div className="text-sm text-gray-400">Due Date</div>
             <div className="text-white font-medium">
-              {order.due_date ? new Date(order.due_date).toLocaleDateString() : "Not set"}
+              {order.due_date
+                ? new Date(order.due_date).toLocaleDateString()
+                : "Not set"}
             </div>
           </div>
         </div>
@@ -243,7 +263,7 @@ export default function ProductionOrderDetail() {
       </div>
 
       {/* Operations Timeline (visual overview) */}
-      {order.status !== 'draft' && (
+      {order.status !== "draft" && (
         <OperationsTimelineWrapper productionOrderId={order.id} />
       )}
 
@@ -253,7 +273,7 @@ export default function ProductionOrderDetail() {
         productionOrder={order}
         orderStatus={order.status}
         onOperationClick={(operation) => {
-          if (operation.status === 'pending') {
+          if (operation.status === "pending") {
             setSelectedOperation(operation);
             setSchedulerOpen(true);
           }
@@ -266,15 +286,17 @@ export default function ProductionOrderDetail() {
         orderId={order.id}
         onActionClick={(action) => {
           // Navigate based on action reference type
-          if (action.reference_type === 'purchase_order') {
+          if (action.reference_type === "purchase_order") {
             navigate(`/admin/purchasing?po_id=${action.reference_id}`);
-          } else if (action.reference_type === 'product') {
+          } else if (action.reference_type === "product") {
             // Navigate to purchasing with product pre-selected for new PO
             // Extract quantity from action impact (e.g., "Need 7 units")
             const quantityMatch = action.impact?.match(/Need\s+([\d.]+)/);
-            const quantity = quantityMatch ? quantityMatch[1] : '';
-            navigate(`/admin/purchasing?create_po=true&product_id=${action.reference_id}${quantity ? `&quantity=${quantity}` : ''}`);
-          } else if (action.reference_type === 'production_order') {
+            const quantity = quantityMatch ? quantityMatch[1] : "";
+            navigate(
+              `/admin/purchasing?create_po=true&product_id=${action.reference_id}${quantity ? `&quantity=${quantity}` : ""}`,
+            );
+          } else if (action.reference_type === "production_order") {
             navigate(`/admin/production/${action.reference_id}`);
           }
         }}
@@ -284,15 +306,31 @@ export default function ProductionOrderDetail() {
       {order.remake_of_id && (
         <div className="bg-gray-900 border border-yellow-600/30 rounded-xl p-6">
           <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <svg
+              className="w-5 h-5 text-yellow-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
-            <h2 className="text-lg font-semibold text-yellow-400">Remake Order</h2>
+            <h2 className="text-lg font-semibold text-yellow-400">
+              Remake Order
+            </h2>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm mb-1">This order is a remake of:</p>
-              <p className="text-white font-medium">{order.remake_of_code || `PO-${order.remake_of_id}`}</p>
+              <p className="text-gray-400 text-sm mb-1">
+                This order is a remake of:
+              </p>
+              <p className="text-white font-medium">
+                {order.remake_of_code || `PO-${order.remake_of_id}`}
+              </p>
               {order.remake_reason && (
                 <p className="text-yellow-400/80 text-sm mt-1">
                   Reason: {order.remake_reason}
@@ -300,7 +338,9 @@ export default function ProductionOrderDetail() {
               )}
             </div>
             <button
-              onClick={() => navigate(`/admin/production/${order.remake_of_id}`)}
+              onClick={() =>
+                navigate(`/admin/production/${order.remake_of_id}`)
+              }
               className="px-4 py-2 bg-yellow-600/20 text-yellow-400 rounded-lg hover:bg-yellow-600/30"
             >
               View Original
@@ -312,11 +352,17 @@ export default function ProductionOrderDetail() {
       {/* Linked Sales Order */}
       {order.sales_order_id && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Linked Sales Order</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">
+            Linked Sales Order
+          </h2>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-white font-medium">{order.sales_order_code || `SO-${order.sales_order_id}`}</p>
-              <p className="text-gray-400 text-sm">{order.customer_name || "Customer"}</p>
+              <p className="text-white font-medium">
+                {order.sales_order_code || `SO-${order.sales_order_id}`}
+              </p>
+              <p className="text-gray-400 text-sm">
+                {order.customer_name || "Customer"}
+              </p>
             </div>
             <button
               onClick={() => navigate(`/admin/orders/${order.sales_order_id}`)}
@@ -346,8 +392,8 @@ export default function ProductionOrderDetail() {
         operation={selectedOperation}
         productionOrder={order}
         onScheduled={() => {
-          toast.success('Operation scheduled successfully');
-          fetchOrder();
+          toast.success("Operation scheduled successfully");
+          fetchOrder({ silent: true });
         }}
       />
     </div>

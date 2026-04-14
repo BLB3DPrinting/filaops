@@ -37,15 +37,22 @@ from app.services.operation_blocking import (
 from app.services.resource_scheduling import (
     schedule_operation as schedule_operation_service,
     find_next_available_slot,
+    get_earliest_start_after_predecessors,
+    SequenceError,
 )
 from app.services.operation_generation import (
     generate_operations_manual,
+)
+from app.services.resource_compatibility_service import (
+    is_machine_compatible,
+    normalize_resource,
 )
 from app.schemas.resource_scheduling import (
     ScheduleOperationRequest,
     ScheduleOperationResponse,
     NextAvailableSlotRequest,
     NextAvailableSlotResponse,
+    ConflictInfo,
 )
 from app.schemas.routing_operations import (
     GenerateOperationsRequest,
@@ -403,6 +410,42 @@ def get_blocking_issues(
 # Resource Scheduling Endpoints (API-403)
 # =============================================================================
 
+@router.get(
+    "/{po_id}/check-resource-compatibility",
+    summary="Check resource compatibility with production order materials"
+)
+def check_resource_compatibility(
+    po_id: int,
+    resource_id: int,
+    is_printer: bool = False,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Check if a resource/printer is compatible with a production order's materials.
+
+    Returns compatibility status and reason.
+    Used by the frontend to warn users before scheduling.
+    """
+    po = db.get(ProductionOrder, po_id)
+    if not po:
+        raise HTTPException(status_code=404, detail="Production order not found")
+
+    if is_printer:
+        printer = db.get(Printer, resource_id)
+        if not printer:
+            raise HTTPException(status_code=404, detail="Printer not found")
+        check_resource = normalize_resource(printer)
+    else:
+        resource = db.get(Resource, resource_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Resource not found")
+        check_resource = resource
+
+    compatible, reason = is_machine_compatible(db, check_resource, po)
+    return {"compatible": compatible, "reason": reason}
+
+
 @router.post(
     "/{po_id}/operations/{op_id}/schedule",
     response_model=ScheduleOperationResponse,
@@ -421,9 +464,12 @@ def schedule_operation_endpoint(
     Validates:
     - Resource exists
     - Operation exists and belongs to this PO
+    - Material/printer compatibility
+    - Predecessor sequence constraints
     - No time conflicts with existing scheduled operations
 
-    Returns 409 Conflict if scheduling would create a conflict.
+    Returns success=False with conflict details and next_available_start/end
+    when scheduling would create a conflict or violate sequence constraints.
     """
     # Validate PO exists
     po = db.get(ProductionOrder, po_id)
@@ -445,25 +491,103 @@ def schedule_operation_endpoint(
         printer = db.get(Printer, request.resource_id)
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
+        resource_obj = None
     else:
         resource = db.get(Resource, request.resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        resource_obj = resource
+
+    # Check material/printer compatibility
+    if resource_obj or request.is_printer:
+        check_resource = normalize_resource(printer) if request.is_printer else resource_obj
+        if check_resource:
+            compatible, reason = is_machine_compatible(db, check_resource, po)
+            if not compatible:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Incompatible resource: {reason}"
+                )
+
+    # Validate time range
+    from datetime import timedelta
+    duration_minutes = int(
+        (request.scheduled_end - request.scheduled_start).total_seconds() / 60
+    )
+    if duration_minutes <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="scheduled_end must be after scheduled_start"
+        )
 
     # Attempt to schedule
-    success, conflicts = schedule_operation_service(
-        db=db,
-        operation=op,
-        resource_id=request.resource_id,
-        scheduled_start=request.scheduled_start,
-        scheduled_end=request.scheduled_end,
-        is_printer=request.is_printer,
-    )
+    try:
+        success, conflicts = schedule_operation_service(
+            db=db,
+            operation=op,
+            resource_id=request.resource_id,
+            scheduled_start=request.scheduled_start,
+            scheduled_end=request.scheduled_end,
+            is_printer=request.is_printer,
+        )
+    except SequenceError as e:
+        # Return same shape as a conflict so the frontend gets a suggested slot
+        earliest = get_earliest_start_after_predecessors(
+            db=db,
+            operation=op,
+            after=request.scheduled_start,
+        )
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=request.resource_id,
+            duration_minutes=duration_minutes,
+            after=earliest,
+            is_printer=request.is_printer,
+        )
+        return ScheduleOperationResponse(
+            success=False,
+            message=str(e),
+            conflicts=[],
+            next_available_start=next_start,
+            next_available_end=next_start + timedelta(minutes=duration_minutes),
+        )
 
     if not success:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Scheduling conflict with {len(conflicts)} existing operation(s)"
+        # Calculate next available slot for this resource, accounting for
+        # both resource conflicts AND predecessor sequence constraints.
+        # Floor: can't start before all predecessors are done
+        earliest = get_earliest_start_after_predecessors(
+            db=db,
+            operation=op,
+            after=request.scheduled_start,
+        )
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=request.resource_id,
+            duration_minutes=duration_minutes,
+            after=earliest,
+            is_printer=request.is_printer,
+        )
+        suggested_end = next_start + timedelta(minutes=duration_minutes)
+
+        # Build conflict details
+        conflict_details = []
+        for c in conflicts:
+            conflict_details.append(ConflictInfo(
+                operation_id=c.id,
+                production_order_id=c.production_order_id,
+                production_order_code=c.production_order.code if c.production_order else None,
+                operation_code=c.operation_code,
+                scheduled_start=c.scheduled_start,
+                scheduled_end=c.scheduled_end,
+            ))
+
+        return ScheduleOperationResponse(
+            success=False,
+            message=f"Scheduling conflict with {len(conflicts)} existing operation(s)",
+            conflicts=conflict_details,
+            next_available_start=next_start,
+            next_available_end=suggested_end,
         )
 
     db.commit()
@@ -494,19 +618,18 @@ def get_next_available_slot(
         printer = db.get(Printer, request.resource_id)
         if not printer:
             raise HTTPException(status_code=404, detail="Printer not found")
-        stored_resource_id = -request.resource_id
     else:
         resource = db.get(Resource, request.resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
-        stored_resource_id = request.resource_id
 
     # Find next available slot
     next_start = find_next_available_slot(
         db=db,
-        resource_id=stored_resource_id,
+        resource_id=request.resource_id,
         duration_minutes=request.duration_minutes,
-        after=request.after
+        after=request.after,
+        is_printer=request.is_printer,
     )
 
     # Calculate suggested end time

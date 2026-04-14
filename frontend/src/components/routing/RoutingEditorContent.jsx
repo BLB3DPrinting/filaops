@@ -37,6 +37,7 @@ export default function RoutingEditorContent({
   const [expandedOperations, setExpandedOperations] = useState({});
   const [materialModalOpen, setMaterialModalOpen] = useState(false);
   const [selectedOperationId, setSelectedOperationId] = useState(null);
+  const [selectedOperation, setSelectedOperation] = useState(null);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
 
   const [newOperation, setNewOperation] = useState({
@@ -448,14 +449,27 @@ export default function RoutingEditorContent({
     }));
   };
 
+  const getOperationTypeFilter = (op) => {
+    if (!op?.operation_name) return 'all';
+    const name = op.operation_name.toLowerCase();
+    if (name.includes('fdm') || name.includes('print')) return 'material';
+    if (name.includes('assembl')) return 'component';
+    if (name.includes('pack') || name.includes('ship')) return 'supply';
+    return 'all';
+  };
+
   const handleAddMaterial = (operationId) => {
+    const op = operations.find((o) => o.id === operationId) || null;
     setSelectedOperationId(operationId);
+    setSelectedOperation(op);
     setSelectedMaterial(null);
     setMaterialModalOpen(true);
   };
 
   const handleEditMaterial = (operationId, material) => {
+    const op = operations.find((o) => o.id === operationId) || null;
     setSelectedOperationId(operationId);
+    setSelectedOperation(op);
     setSelectedMaterial(material);
     setMaterialModalOpen(true);
   };
@@ -753,8 +767,11 @@ export default function RoutingEditorContent({
         onClose={() => {
           setMaterialModalOpen(false);
           setSelectedMaterial(null);
+          setSelectedOperation(null);
         }}
         operationId={selectedOperationId}
+        operation={selectedOperation}
+        defaultTypeFilter={getOperationTypeFilter(selectedOperation)}
         material={selectedMaterial}
         onSave={handleMaterialSave}
       />
