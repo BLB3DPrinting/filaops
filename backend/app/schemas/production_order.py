@@ -250,6 +250,14 @@ class ProductionOrderListResponse(BaseModel):
     operation_count: int = 0
     current_operation: Optional[str] = None  # Name of current/next operation
 
+    # Costs — included so the modal can render without a separate detail fetch
+    estimated_material_cost: Optional[Decimal] = None
+    estimated_labor_cost: Optional[Decimal] = None
+    estimated_total_cost: Optional[Decimal] = None
+    actual_material_cost: Optional[Decimal] = None
+    actual_labor_cost: Optional[Decimal] = None
+    actual_total_cost: Optional[Decimal] = None
+
     created_at: datetime
 
     class Config:

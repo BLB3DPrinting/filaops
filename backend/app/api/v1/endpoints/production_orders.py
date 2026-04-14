@@ -271,6 +271,12 @@ def build_list_response(order: ProductionOrder, db: Session) -> ProductionOrderL
         assigned_to=order.assigned_to,
         operation_count=op_count,
         current_operation=current_op.operation_name if current_op else None,
+        estimated_material_cost=order.estimated_material_cost,
+        estimated_labor_cost=order.estimated_labor_cost,
+        estimated_total_cost=order.estimated_total_cost,
+        actual_material_cost=order.actual_material_cost,
+        actual_labor_cost=order.actual_labor_cost,
+        actual_total_cost=order.actual_total_cost,
         created_at=order.created_at,
     )
 
