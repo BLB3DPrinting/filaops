@@ -11,7 +11,7 @@
 
 | Metric | Count |
 | ------ | ----- |
-| **Total Migrations** | 60 |
+| **Total Migrations** | 62 |
 | **Database** | PostgreSQL |
 | **Tool** | Alembic |
 
@@ -29,12 +29,12 @@
 | Purchasing | 5 | 019, 027, 028, 036, 2940c6a93ea7 |
 | Settings | 3 | 020, 037, 062 |
 | Performance | 1 | 905ef924f499 |
-| Sales | 11 | 024, 038, 043, 061, 066, 069, 071, 072, 074, 076, 077 |
+| Sales | 12 | 024, 038, 043, 061, 066, 069, 071, 072, 074, 076, 077, 078 |
 | Maintenance | 2 | 025, 026 |
 | Products | 3 | 040, 055, 065 |
 | Accounting | 5 | 044, 045, 046, 052, 053 |
 | Tax | 1 | 063 |
-| Other | 3 | 070, 073, 075 |
+| Other | 4 | 070, 073, 075, 079 |
 
 ---
 
@@ -1180,6 +1180,36 @@
 
 ---
 
+#### `078_add_price_levels_table.py`
+
+**Tier**: Core
+**Date**: 2026-04-07
+**Purpose**: Add price_levels table
+**Revises**: 077
+
+**Creates Tables**:
+
+- `price_levels` - Price Levels
+
+---
+
+#### `079_add_filament_diameter_to_material_types.py`
+
+**Tier**: Core
+**Date**: 2026-04-11
+**Purpose**: Add filament_diameter to material_types
+**Revises**: 078
+
+**Adds Columns**:
+
+- `material_types.filament_diameter`
+
+**Alters Columns**:
+
+- `material_types.filament_diameter`
+
+---
+
 ## Migration Dependencies
 
 ```text
@@ -1304,6 +1334,10 @@ b1815de543ea (001_initial_postgres_schema)
 076_add_fulfillment_status_to_so_lines
     |
 077_make_so_unit_price_nullable
+    |
+078_add_price_levels_table
+    |
+079_add_filament_diameter_to_material_types
 ```
 
 
@@ -1328,5 +1362,5 @@ alembic history --verbose
 
 ---
 
-*Last updated: 2026-04-06*
-*Generated for FilaOps Core v3.7.0*
+*Last updated: 2026-04-14*
+*Generated for FilaOps Core v4.0.0*

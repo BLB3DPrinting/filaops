@@ -10,15 +10,15 @@
 
 | Metric | Count |
 | ------ | ----- |
-| **Total Endpoints** | ~438 |
+| **Total Endpoints** | ~444 |
 | **Router Files** | 49 |
 | **Router Groups** | 28 (including 18 admin sub-modules) |
 | **Base Path** | `/api/v1/` |
 
 ### HTTP Method Distribution
 
-- **GET**: ~213 endpoints (read/query operations)
-- **POST**: ~152 endpoints (create/execute operations)
+- **GET**: ~218 endpoints (read/query operations)
+- **POST**: ~153 endpoints (create/execute operations)
 - **PUT/PATCH**: ~42 endpoints (update operations)
 - **DELETE**: ~31 endpoints (delete operations)
 
@@ -201,7 +201,7 @@ Authorization: Bearer <access_token>
 
 **Tier**: Core
 **File**: `endpoints/production_orders.py`, `endpoints/operation_status.py`
-**Endpoints**: 42
+**Endpoints**: 46
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -236,6 +236,9 @@ Authorization: Bearer <access_token>
 | GET | `/production-orders/{order_id}/blocking-issues` | Get blocking issues for a production order. | CUSTOMER |
 | GET | `/production-orders/{order_id}/required-orders` | Get MRP cascade of required orders. | CUSTOMER |
 | GET | `/production-orders/{order_id}/cost-breakdown` | Get cost breakdown for a production order. | CUSTOMER |
+| POST | `/production-orders/{order_id}/estimate-cost` | Re-estimate costs for a production order from its routing and BOM. | CUSTOMER |
+| GET | `/production-orders/{order_id}/compatibility` | Check material-printer compatibility for all operations in a production order. | CUSTOMER |
+| GET | `/production-orders/{order_id}/operations/{operation_id}/compatibility` | Check material-printer compatibility for a single operation. | CUSTOMER |
 | GET | `/production-orders/{order_id}/spools` | Get spools assigned to a production order. | CUSTOMER |
 | POST | `/production-orders/{order_id}/spools/{spool_id}` | Assign a spool to a production order. | CUSTOMER |
 | GET | `/production-orders/{po_id}/operations` | Get all operations for a production order, ordered by sequence. | CUSTOMER |
@@ -244,6 +247,7 @@ Authorization: Bearer <access_token>
 | POST | `/production-orders/{po_id}/operations/{op_id}/skip` | Skip an operation with a reason. | CUSTOMER |
 | GET | `/production-orders/{po_id}/operations/{op_id}/can-start` | Quick check if an operation can start based on material availability. | CUSTOMER |
 | GET | `/production-orders/{po_id}/operations/{op_id}/blocking-issues` | Get detailed blocking issues for an operation. | CUSTOMER |
+| GET | `/production-orders/{po_id}/check-resource-compatibility` | Check if a resource/printer is compatible with a production order's materials. | CUSTOMER |
 | POST | `/production-orders/{po_id}/operations/{op_id}/schedule` | Schedule an operation on a resource with time slot validation. | CUSTOMER |
 | POST | `/production-orders/resources/next-available` | Find the next available time slot on a resource. | CUSTOMER |
 | POST | `/production-orders/{po_id}/operations/generate` | Manually generate operations from routing. | CUSTOMER |
@@ -306,7 +310,7 @@ Authorization: Bearer <access_token>
 
 **Tier**: Core
 **File**: `endpoints/purchase_orders.py`, `endpoints/po_documents.py`, `endpoints/low_stock.py`, `endpoints/vendor_items.py`
-**Endpoints**: 31
+**Endpoints**: 32
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -323,6 +327,7 @@ Authorization: Bearer <access_token>
 | DELETE | `/purchase-orders/{po_id}` | Delete a purchase order (draft only) | CUSTOMER |
 | GET | `/purchase-orders/{po_id}/events` | List activity events for a purchase order | CUSTOMER |
 | POST | `/purchase-orders/{po_id}/events` | Add a manual event to a purchase order (typically a note) | CUSTOMER |
+| GET | `/purchase-orders/{po_id}/pdf` | Generate and download a PDF for a purchase order. | CUSTOMER |
 | POST | `/purchase-orders/{po_id}/documents` | Upload a document to a purchase order | CUSTOMER |
 | GET | `/purchase-orders/{po_id}/documents` | List all documents attached to a purchase order | PUBLIC |
 | GET | `/purchase-orders/{po_id}/documents/{doc_id}` | Get document details by ID | PUBLIC |
@@ -435,7 +440,7 @@ Authorization: Bearer <access_token>
 
 **Tier**: Core
 **File**: `endpoints/scheduling.py`
-**Endpoints**: 4
+**Endpoints**: 5
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -443,6 +448,7 @@ Authorization: Bearer <access_token>
 | GET | `/scheduling/capacity/available-slots` | Find available time slots for a resource within a date range. | CUSTOMER |
 | GET | `/scheduling/capacity/machine-availability` | Get availability status for all machines in a date range. | CUSTOMER |
 | POST | `/scheduling/auto-schedule` | Automatically find the best available slot for a production order. | CUSTOMER |
+| GET | `/scheduling/resource-conflicts` | Check for scheduling conflicts on a resource/printer in a time range. | CUSTOMER |
 
 ---
 
@@ -977,5 +983,5 @@ All endpoints are prefixed with `/api/v1/`
 
 ---
 
-*Last updated: 2026-04-06*
-*Generated for FilaOps Core v3.7.0*
+*Last updated: 2026-04-14*
+*Generated for FilaOps Core v4.0.0*
