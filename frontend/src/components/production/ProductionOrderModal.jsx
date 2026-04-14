@@ -675,6 +675,37 @@ export default function ProductionOrderModal({
             </div>
           </div>
 
+          {/* Cost Summary */}
+          {(productionOrder.estimated_material_cost != null || productionOrder.actual_material_cost != null) && (
+            <div>
+              <h3 className="text-gray-400 text-sm font-medium mb-3">COST</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {productionOrder.estimated_material_cost != null && (
+                  <div className="bg-gray-800/50 rounded-lg p-3">
+                    <div className="text-gray-500 text-xs mb-1">Estimated</div>
+                    <div className="text-white font-mono text-sm">
+                      ${(parseFloat(productionOrder.estimated_material_cost) + parseFloat(productionOrder.estimated_labor_cost || 0)).toFixed(2)}
+                    </div>
+                    <div className="text-gray-500 text-xs mt-1">
+                      Mat: ${parseFloat(productionOrder.estimated_material_cost).toFixed(2)} · Labor: ${parseFloat(productionOrder.estimated_labor_cost || 0).toFixed(2)}
+                    </div>
+                  </div>
+                )}
+                {productionOrder.actual_material_cost != null && (
+                  <div className="bg-gray-800/50 rounded-lg p-3">
+                    <div className="text-gray-500 text-xs mb-1">Actual</div>
+                    <div className="text-white font-mono text-sm">
+                      ${(parseFloat(productionOrder.actual_material_cost) + parseFloat(productionOrder.actual_labor_cost || 0)).toFixed(2)}
+                    </div>
+                    <div className="text-gray-500 text-xs mt-1">
+                      Mat: ${parseFloat(productionOrder.actual_material_cost).toFixed(2)} · Labor: ${parseFloat(productionOrder.actual_labor_cost || 0).toFixed(2)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Operations */}
           <div>
             <h3 className="text-gray-400 text-sm font-medium mb-3">OPERATIONS</h3>
@@ -845,7 +876,6 @@ export default function ProductionOrderModal({
             )}
           </div>
         </div>
-      </div>
 
       {/* Footer */}
       <div className="flex justify-between items-center p-6 border-t border-gray-800">
