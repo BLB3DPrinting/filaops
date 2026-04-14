@@ -256,13 +256,13 @@ def create_production_order(
         created_by=created_by,
     )
 
-    # Auto-estimate costs if operations exist
-    if order.operations:
-        from app.services.cost_estimation_service import estimate_production_order_cost
-        try:
-            estimate_production_order_cost(db, order)
-        except Exception:
-            logger.exception("Cost estimation failed for production order id=%s code=%s", order.id, order.code)
+    # Auto-estimate costs — flush first so the operations relationship is populated
+    db.flush()
+    from app.services.cost_estimation_service import estimate_production_order_cost
+    try:
+        estimate_production_order_cost(db, order)
+    except Exception:
+        logger.exception("Cost estimation failed for production order id=%s code=%s", order.id, order.code)
 
     return order
 
