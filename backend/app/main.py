@@ -89,6 +89,7 @@ def init_database():
         logger.info("Database connection verified")
     except Exception as e:
         logger.error(f"Database connection check failed: {e}", exc_info=True)
+        raise
 
 
 def seed_default_data():
