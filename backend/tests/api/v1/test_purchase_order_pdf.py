@@ -10,18 +10,22 @@ import pytest
 from decimal import Decimal
 from datetime import date
 
+from app.models.purchase_order import PurchaseOrderLine
+
 try:
     import pdfplumber
     HAS_PDFPLUMBER = True
 except ImportError:
+    pdfplumber = None
     HAS_PDFPLUMBER = False
+
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
     """Extract all text from a PDF using pdfplumber."""
+    if pdfplumber is None:
+        raise RuntimeError("pdfplumber is required to extract PDF text in tests")
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         return "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-from app.models.purchase_order import PurchaseOrderLine
 
 
 BASE_URL = "/api/v1/purchase-orders"
@@ -209,6 +213,7 @@ class TestGeneratePoPdfContent:
     def test_vendor_name_in_pdf(self, client, db, make_vendor, make_product, make_purchase_order):
         po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
         response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
         text = _extract_pdf_text(response.content)
         assert "Acme Supplies" in text
 
@@ -216,6 +221,7 @@ class TestGeneratePoPdfContent:
         """PURCHASE UNIT column header and line value should appear in the PDF."""
         po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
         response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
         text = _extract_pdf_text(response.content)
         assert "PURCHASE UNIT" in text
         # line2 has purchase_unit="KG"
@@ -225,6 +231,7 @@ class TestGeneratePoPdfContent:
         """Subtotal and total amounts should appear in the PDF."""
         po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
         response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
         text = _extract_pdf_text(response.content)
         assert "200.00" in text   # subtotal
         assert "226.00" in text   # total

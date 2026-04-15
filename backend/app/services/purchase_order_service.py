@@ -1385,11 +1385,18 @@ def generate_po_pdf(
     ]]
 
     def _fmt_qty(qty_decimal) -> str:
-        """Format a quantity Decimal, stripping unnecessary trailing zeros."""
-        value = Decimal(str(qty_decimal or 0)).quantize(Decimal("0.0001"))
-        # Remove trailing zeros after decimal point
-        normalized = value.normalize()
-        return f"{normalized:,}"
+        """Format quantity without scientific notation; trim trailing zeros."""
+        value = Decimal(str(qty_decimal or 0))
+        text = format(value, "f")  # fixed-point, never scientific notation
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        if text in {"", "-0"}:
+            return "0"
+        int_part, dot, frac = text.partition(".")
+        sign = "-" if int_part.startswith("-") else ""
+        digits = int_part[1:] if sign else int_part
+        grouped_int = f"{int(digits or '0'):,}"
+        return f"{sign}{grouped_int}{dot}{frac}" if frac else f"{sign}{grouped_int}"
 
     for line in lines:
         unit_str = esc(line.purchase_unit) if line.purchase_unit else "ea"
