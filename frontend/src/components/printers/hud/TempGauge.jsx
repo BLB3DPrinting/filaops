@@ -11,7 +11,10 @@ import { T } from "./tokens";
 export default function TempGauge({ value, max, color, label }) {
   const R = 22;
   const CIRC = 2 * Math.PI * R;
-  const pct = Math.min(1, Math.max(0, (value || 0) / max));
+  // Guard against zero/undefined max so a mis-props'd gauge can't produce
+  // NaN stroke offsets and blow up the SVG.
+  const safeMax = Number(max) > 0 ? Number(max) : 1;
+  const pct = Math.min(1, Math.max(0, (value || 0) / safeMax));
   const offset = CIRC * (1 - pct);
   const SIZE = 58;
   const hasValue = value > 0;

@@ -27,12 +27,16 @@ export const T = {
   fontMono: "'JetBrains Mono', monospace",
 };
 
+// Keys here must stay in sync with backend PrinterStatus enum in
+// backend/app/schemas/printer.py. Missing a key makes the printer fall
+// through to "offline" visuals which is misleading for operators.
 export const STATUS_CFG = {
-  idle:     { border: "#2B3529", dot: T.amber,   glow: "rgba(245,158,11,0.35)", label: "IDLE"     },
-  printing: { border: "#1C3829", dot: T.emerald, glow: "rgba(16,185,129,0.35)", label: "PRINTING" },
-  paused:   { border: "#332E18", dot: T.yellow,  glow: "rgba(234,179,8,0.35)",  label: "PAUSED"   },
-  error:    { border: "#371A1A", dot: T.red,     glow: "rgba(239,68,68,0.35)",  label: "ERROR"    },
-  offline:  { border: T.border,  dot: "#3A3F3B", glow: "transparent",           label: "OFFLINE"  },
+  idle:        { border: "#2B3529", dot: T.amber,   glow: "rgba(245,158,11,0.35)", label: "IDLE"        },
+  printing:    { border: "#1C3829", dot: T.emerald, glow: "rgba(16,185,129,0.35)", label: "PRINTING"    },
+  paused:      { border: "#332E18", dot: T.yellow,  glow: "rgba(234,179,8,0.35)",  label: "PAUSED"      },
+  error:       { border: "#371A1A", dot: T.red,     glow: "rgba(239,68,68,0.35)",  label: "ERROR"       },
+  maintenance: { border: "#3A311C", dot: T.yellow,  glow: "rgba(234,179,8,0.25)",  label: "MAINTENANCE" },
+  offline:     { border: T.border,  dot: "#3A3F3B", glow: "transparent",           label: "OFFLINE"     },
 };
 
 export const JOB_STATUS_COLORS = {

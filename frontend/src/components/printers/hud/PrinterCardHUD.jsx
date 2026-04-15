@@ -22,6 +22,9 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
   const isPrinting = printer.status === "printing";
   const isActive = isPrinting || printer.status === "paused";
   const showControls = Boolean(onCommand) && isActive;
+  // Clamp progress to [0, 100] so out-of-range values from telemetry can't
+  // push the CSS width bar off the card or show "115%" to operators.
+  const progressPct = Math.max(0, Math.min(100, Number(printer.progress ?? 0) || 0));
 
   return (
     <div
@@ -143,14 +146,21 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
                 color: T.emerald,
               }}
             >
-              {Number(printer.progress ?? 0).toFixed(0)}%
+              {progressPct.toFixed(0)}%
             </span>
           </div>
-          <div style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+          <div
+            style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}
+            role="progressbar"
+            aria-valuenow={progressPct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Print progress ${progressPct.toFixed(0)} percent`}
+          >
             <div
               style={{
                 height: "100%",
-                width: `${printer.progress ?? 0}%`,
+                width: `${progressPct}%`,
                 background: `linear-gradient(90deg, ${T.emerald}, #34D399)`,
                 borderRadius: 2,
                 transition: "width 1s ease",
@@ -160,10 +170,13 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
         </div>
       )}
 
-      {/* AMS slots — only when the printer reports multi-material state */}
+      {/* AMS slots — only when the printer reports multi-material state.
+          Color-only UI is inaccessible on its own, so each swatch carries
+          a role="img" + aria-label describing slot number and material. */}
       {printer.ams_slots?.length > 0 && (
         <div>
           <div
+            id={`ams-label-${printer.id}`}
             style={{
               fontFamily: T.fontDisplay,
               fontWeight: 600,
@@ -175,20 +188,29 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
           >
             AMS SLOTS
           </div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {printer.ams_slots.map((slot, i) => (
-              <div
-                key={i}
-                title={`Slot ${slot.slot ?? i + 1}: ${slot.material || "empty"}`}
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 3,
-                  background: slot.color || T.raised,
-                  border: `1px solid ${T.borderHover}`,
-                }}
-              />
-            ))}
+          <div
+            role="list"
+            aria-labelledby={`ams-label-${printer.id}`}
+            style={{ display: "flex", gap: 4, flexWrap: "wrap" }}
+          >
+            {printer.ams_slots.map((slot, i) => {
+              const slotLabel = `Slot ${slot.slot ?? i + 1}: ${slot.material || "empty"}`;
+              return (
+                <div
+                  key={i}
+                  role="img"
+                  aria-label={slotLabel}
+                  title={slotLabel}
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 3,
+                    background: slot.color || T.raised,
+                    border: `1px solid ${T.borderHover}`,
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -227,6 +249,7 @@ function IconBtn({ onClick, title, hoverColor, children }) {
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
       type="button"
       style={{
         background: "none",

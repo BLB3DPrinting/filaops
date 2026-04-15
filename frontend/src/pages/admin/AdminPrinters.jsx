@@ -79,6 +79,16 @@ export default function AdminPrinters() {
     }
   }, [activeTab, filters.brand, filters.status]);
 
+  // Force viewMode back to "table" if the PRO/filafarm license is revoked
+  // mid-session. Prevents users from being stranded in a locked HUD view
+  // after a downgrade event. The render path also double-gates on canUseHud
+  // below so the HUD never renders without the feature flag.
+  useEffect(() => {
+    if (!canUseHud && viewMode === "hud") {
+      setViewMode("table");
+    }
+  }, [canUseHud, viewMode]);
+
   // ============================================================================
   // Data Fetching
   // ============================================================================
@@ -307,7 +317,9 @@ export default function AdminPrinters() {
                   }
                   setViewMode("hud");
                 }}
-                disabled={!canUseHud}
+                // aria-disabled (not disabled) so the click handler still fires
+                // in Core tier — that's how the upgrade toast reaches the user.
+                aria-disabled={!canUseHud}
                 title={canUseHud ? "Industrial HUD view" : "PRO feature — upgrade to unlock"}
                 className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 border-l border-gray-700 ${
                   viewMode === "hud" ? "bg-amber-900/40 text-amber-400" : "text-gray-400 hover:text-white"
@@ -438,9 +450,13 @@ export default function AdminPrinters() {
                 Try network discovery to find printers
               </button>
             </div>
-          ) : viewMode === "hud" ? (
-            // Industrial HUD view — PRO only. Rendered as a parallel path to
-            // the tailwind table view below. Core's `/api/v1/printers` does not
+          ) : viewMode === "hud" && canUseHud ? (
+            // Industrial HUD view — PRO only. Double-gated: the useEffect
+            // above forces viewMode back to "table" when canUseHud flips
+            // false, and this render condition refuses to draw the HUD
+            // without the feature flag even if state gets out of sync.
+            // Rendered as a parallel path to the tailwind table view below.
+            // Core's `/api/v1/printers` does not
             // populate live telemetry (nozzle_temp, bed_temp, progress,
             // ams_slots) — PrinterCardHUD degrades gracefully when those
             // fields are missing. PRO's live MQTT path (BambuFleetManager)

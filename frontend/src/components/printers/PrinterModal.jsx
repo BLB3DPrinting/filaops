@@ -141,7 +141,10 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
       </div>
 
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Brand — non-Core brands gated behind PRO+filafarm */}
+          {/* Brand — non-Core brands gated behind PRO+filafarm.
+              Options are driven by the /brands/info response (brandInfo)
+              so plugin-registered brands (Klipper/OctoPrint/Prusa/Creality
+              from filaops-pro) appear automatically when PRO is active. */}
           <div>
             <label className="block text-sm text-gray-300 mb-1">Brand</label>
             <select
@@ -156,21 +159,35 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
               }}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {Object.entries(brandLabels).map(([value, label]) => {
-                const locked = !canAddMultiBrand && !CORE_BRANDS.has(value);
-                // Keep a locked brand selectable only if the printer is already that brand
-                // (edit mode), so existing records don't silently lose their brand.
-                const allowInEditMode = printer?.brand === value;
-                return (
-                  <option
-                    key={value}
-                    value={value}
-                    disabled={locked && !allowInEditMode}
-                  >
-                    {label}{locked ? "  🔒  PRO" : ""}
-                  </option>
-                );
-              })}
+              {(() => {
+                // Build option list: prefer brandInfo when available so backend/plugin
+                // brands surface; otherwise fall back to the static brandLabels map.
+                const codesFromApi = brandInfo.map((b) => b.code);
+                const codesToRender = codesFromApi.length > 0 ? codesFromApi : Object.keys(brandLabels);
+                // If editing a printer whose brand isn't in the current API response
+                // (e.g. Klipper record with filafarm later downgraded), make sure the
+                // option still exists so the select has a valid value and Save works.
+                if (printer?.brand && !codesToRender.includes(printer.brand)) {
+                  codesToRender.push(printer.brand);
+                }
+                return codesToRender.map((value) => {
+                  const infoEntry = brandInfo.find((b) => b.code === value);
+                  const label = infoEntry?.name || brandLabels[value] || value;
+                  const locked = !canAddMultiBrand && !CORE_BRANDS.has(value);
+                  // Keep a locked brand selectable only if the printer is already that brand
+                  // (edit mode), so existing records don't silently lose their brand.
+                  const allowInEditMode = printer?.brand === value;
+                  return (
+                    <option
+                      key={value}
+                      value={value}
+                      disabled={locked && !allowInEditMode}
+                    >
+                      {label}{locked ? "  🔒  PRO" : ""}
+                    </option>
+                  );
+                });
+              })()}
             </select>
             {!canAddMultiBrand && (
               <p className="text-xs text-gray-500 mt-1">
