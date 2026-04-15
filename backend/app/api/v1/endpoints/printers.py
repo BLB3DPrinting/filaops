@@ -11,7 +11,7 @@ import csv
 import io
 import time
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -45,6 +45,46 @@ from app.models.production_order import ProductionOrder, ProductionOrderOperatio
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# Brand registry (tiered)
+# ============================================================================
+#
+# Core ships with only Bambu Lab + Generic brands visible to the UI. The
+# discovery orchestrator may register additional adapter stubs (e.g. Klipper
+# mDNS), but those are hidden from `/brands/info` unless a PRO plugin opts
+# them in via `register_brand()`. This is the single surface PRO uses to
+# advertise multi-brand support without Core having to know about PRO.
+#
+# PRO calls this at import time from `filaops_pro.register()`:
+#
+#     from app.api.v1.endpoints.printers import register_brand
+#     register_brand(PrinterBrandInfo(code="klipper", ...))
+#
+# Duplicate registrations (same code) overwrite earlier entries, so PRO can
+# supply its own richer model lists without colliding with Core defaults.
+
+_CORE_BRAND_CODES: frozenset[str] = frozenset({"bambulab", "generic"})
+_extra_brands: Dict[str, PrinterBrandInfo] = {}
+
+
+def register_brand(brand_info: PrinterBrandInfo) -> None:
+    """
+    Register an additional brand for `/brands/info`.
+
+    Intended for PRO plugins to advertise brands beyond Core's Bambu+Generic
+    baseline (Klipper, OctoPrint, Prusa, Creality, etc.). Called at import
+    time from `filaops_pro.register()`; no-op if the brand code already
+    lives in `_CORE_BRAND_CODES`.
+    """
+    if brand_info.code in _CORE_BRAND_CODES:
+        logger.debug(
+            "Ignoring register_brand(%s): already a Core brand", brand_info.code
+        )
+        return
+    _extra_brands[brand_info.code] = brand_info
+    logger.info("Registered extra printer brand: %s", brand_info.code)
 
 
 def _generate_printer_code(db: Session, prefix: str = "PRT") -> str:
@@ -108,17 +148,21 @@ async def get_supported_brands(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get information about supported printer brands
+    Get information about supported printer brands.
 
-    Returns details about each brand including:
-    - Supported models
-    - Discovery support
-    - Required connection fields
+    Core returns only Bambu Lab + Generic. PRO plugins opt additional brands
+    in via `register_brand()` (see module docstring). Returns details about
+    each brand including supported models, discovery support, and required
+    connection fields.
     """
     orchestrator = get_orchestrator()
-    brands = []
+    brands: List[PrinterBrandInfo] = []
 
+    # Core brands sourced from the discovery orchestrator
     for brand_code, adapter in orchestrator.adapters.items():
+        if brand_code not in _CORE_BRAND_CODES:
+            continue
+
         models = [
             PrinterModelInfo(
                 value=m["value"],
@@ -128,16 +172,16 @@ async def get_supported_brands(
             for m in adapter.get_supported_models()
         ]
 
-        # Check if adapter supports discovery
-        supports_discovery = hasattr(adapter, 'discover_local')
-
         brands.append(PrinterBrandInfo(
             code=brand_code,
             name=adapter.brand_name,
-            supports_discovery=supports_discovery,
+            supports_discovery=hasattr(adapter, "discover_local"),
             models=models,
             connection_fields=adapter.get_connection_fields(),
         ))
+
+    # PRO-contributed brands (Klipper, OctoPrint, Prusa, Creality, ...)
+    brands.extend(_extra_brands.values())
 
     return brands
 
