@@ -265,7 +265,7 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
               PAUSE
             </CtrlBtn>
           )}
-          {printer.status === "paused" && (
+          {statusKey === "paused" && (
             <CtrlBtn onClick={() => onCommand(printer.id, "resume")} color={T.emerald}>
               RESUME
             </CtrlBtn>
