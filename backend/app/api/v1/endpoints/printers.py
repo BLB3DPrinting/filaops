@@ -77,14 +77,25 @@ def register_brand(brand_info: PrinterBrandInfo) -> None:
     baseline (Klipper, OctoPrint, Prusa, Creality, etc.). Called at import
     time from `filaops_pro.register()`; no-op if the brand code already
     lives in `_CORE_BRAND_CODES`.
+
+    Brand codes are canonicalized (trimmed + lower-cased) at the boundary so
+    plugins passing `" Klipper "` or `"KLIPPER"` land in the same dict slot
+    as `"klipper"` and can't sneak past the Core-brand check.
     """
-    if brand_info.code in _CORE_BRAND_CODES:
+    code = (brand_info.code or "").strip().lower()
+    if not code:
+        logger.debug("Ignoring register_brand(): empty or whitespace-only code")
+        return
+    if code in _CORE_BRAND_CODES:
         logger.debug(
-            "Ignoring register_brand(%s): already a Core brand", brand_info.code
+            "Ignoring register_brand(%s): already a Core brand", code
         )
         return
-    _extra_brands[brand_info.code] = brand_info
-    logger.info("Registered extra printer brand: %s", brand_info.code)
+    # Store the normalized code on the stored copy so downstream consumers
+    # (the /brands/info response) see the canonical form.
+    normalized = brand_info.model_copy(update={"code": code})
+    _extra_brands[code] = normalized
+    logger.info("Registered extra printer brand: %s", code)
 
 
 def _generate_printer_code(db: Session, prefix: str = "PRT") -> str:
