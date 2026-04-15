@@ -18,9 +18,14 @@ import TempGauge from "./TempGauge";
  *                  fleet controls (pause / resume / cancel).
  */
 export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand }) {
-  const cfg = STATUS_CFG[printer.status] || STATUS_CFG.offline;
-  const isPrinting = printer.status === "printing";
-  const isActive = isPrinting || printer.status === "paused";
+  // Normalize the status key: backend MQTT monitor can emit "unknown" as a
+  // transient state (see services/mqtt/monitor.py), which is not in the
+  // Pydantic PrinterStatus enum but still reaches the UI via telemetry JSON.
+  // Lowercase so case-mismatched strings still resolve to the right entry.
+  const statusKey = String(printer.status ?? "").toLowerCase();
+  const cfg = STATUS_CFG[statusKey] || STATUS_CFG.unknown;
+  const isPrinting = statusKey === "printing";
+  const isActive = isPrinting || statusKey === "paused";
   const showControls = Boolean(onCommand) && isActive;
   // Clamp progress to [0, 100] so out-of-range values from telemetry can't
   // push the CSS width bar off the card or show "115%" to operators.
@@ -191,24 +196,54 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
           <div
             role="list"
             aria-labelledby={`ams-label-${printer.id}`}
-            style={{ display: "flex", gap: 4, flexWrap: "wrap" }}
+            style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
           >
             {printer.ams_slots.map((slot, i) => {
-              const slotLabel = `Slot ${slot.slot ?? i + 1}: ${slot.material || "empty"}`;
+              const slotNum = slot.slot ?? i + 1;
+              const slotLabel = `Slot ${slotNum}: ${slot.material || "empty"}`;
               return (
                 <div
                   key={i}
-                  role="img"
+                  role="listitem"
                   aria-label={slotLabel}
                   title={slotLabel}
                   style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 3,
-                    background: slot.color || T.raised,
-                    border: `1px solid ${T.borderHover}`,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 2,
                   }}
-                />
+                >
+                  <div
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 3,
+                      background: slot.color || T.raised,
+                      border: `1px solid ${T.borderHover}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {/* Slot number inside swatch — mix-blend-mode: difference
+                        auto-inverts against any background color so the
+                        digit stays legible without per-color contrast math. */}
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        fontFamily: T.fontMono,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "#fff",
+                        mixBlendMode: "difference",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {slotNum}
+                    </span>
+                  </div>
+                </div>
               );
             })}
           </div>

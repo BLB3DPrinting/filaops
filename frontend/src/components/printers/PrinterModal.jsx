@@ -10,7 +10,7 @@ import Modal from "../Modal";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { brandLabels, CORE_BRANDS } from "./constants";
 
-export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
+export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] }) {
   const toast = useToast();
   const { isPro, hasFeature } = useFeatureFlags();
   // Multi-brand (Klipper, OctoPrint, Prusa, Creality) is a PRO feature.

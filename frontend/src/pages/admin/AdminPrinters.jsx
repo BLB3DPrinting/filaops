@@ -17,11 +17,15 @@ import { PrinterCardHUD, HUD_KEYFRAMES, T as HUD_T } from "../../components/prin
 export default function AdminPrinters() {
   const api = useApi();
   const toast = useToast();
-  const { isPro, hasFeature } = useFeatureFlags();
+  const { isPro, hasFeature, loading: featureFlagsLoading } = useFeatureFlags();
   // HUD view mode is a PRO visual layer gated behind the filafarm feature.
   // Core shows the existing tailwind table view; PRO can toggle into the
   // industrial control panel HUD with live gauges, AMS, and status glow.
-  const canUseHud = isPro && hasFeature("filafarm");
+  //
+  // We gate on !featureFlagsLoading too so the locked CTA + upsell toast
+  // don't flash on first paint before /system/info returns. A true PRO user
+  // would otherwise see the "upgrade to unlock" toast briefly on cold load.
+  const canUseHud = !featureFlagsLoading && isPro && hasFeature("filafarm");
   const [activeTab, setActiveTab] = useState("list"); // list | discovery | import | maintenance
   const [viewMode, setViewMode] = useState("table"); // table | hud
   const [printers, setPrinters] = useState([]);
