@@ -1,60 +1,76 @@
+/**
+ * AdminFilaFarm — Industrial Control Panel
+ *
+ * Aesthetic: Factory floor HUD. Dense, unambiguous, readable at a glance.
+ * Typography: Rajdhani (labels/headers) + JetBrains Mono (all numeric data)
+ * Color: Near-black #0C0E0D with amber #F59E0B accent, status border accents.
+ */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
-const STATUS_COLORS = {
-  idle: { bg: "bg-gray-700", dot: "bg-gray-400", text: "text-gray-400" },
-  printing: {
-    bg: "bg-emerald-900/30",
-    dot: "bg-emerald-400",
-    text: "text-emerald-400",
-  },
-  paused: {
-    bg: "bg-yellow-900/30",
-    dot: "bg-yellow-400",
-    text: "text-yellow-400",
-  },
-  error: { bg: "bg-red-900/30", dot: "bg-red-400", text: "text-red-400" },
-  offline: { bg: "bg-gray-800", dot: "bg-gray-600", text: "text-gray-600" },
+// ─── Font injection ────────────────────────────────────────────────────────
+
+const FONT_HREF =
+  "https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap";
+
+function useFonts() {
+  useEffect(() => {
+    if (document.querySelector(`link[href="${FONT_HREF}"]`)) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = FONT_HREF;
+    document.head.appendChild(link);
+  }, []);
+}
+
+// ─── Design tokens ─────────────────────────────────────────────────────────
+
+const T = {
+  bg: "#0C0E0D",
+  surface: "#131614",
+  raised: "#1A1D1B",
+  border: "#232724",
+  borderHover: "#343B35",
+  amber: "#F59E0B",
+  amberDim: "#92610A",
+  amberGlow: "rgba(245,158,11,0.12)",
+  emerald: "#10B981",
+  red: "#EF4444",
+  yellow: "#EAB308",
+  textPrimary: "#E8EAE6",
+  textSecondary: "#8A9188",
+  textMuted: "#454B43",
+  fontDisplay: "'Rajdhani', sans-serif",
+  fontMono: "'JetBrains Mono', monospace",
+};
+
+const STATUS_CFG = {
+  idle:     { border: "#2B3529", dot: T.amber,   glow: "rgba(245,158,11,0.35)",  label: "IDLE"     },
+  printing: { border: "#1C3829", dot: T.emerald, glow: "rgba(16,185,129,0.35)",  label: "PRINTING" },
+  paused:   { border: "#332E18", dot: T.yellow,  glow: "rgba(234,179,8,0.35)",   label: "PAUSED"   },
+  error:    { border: "#371A1A", dot: T.red,     glow: "rgba(239,68,68,0.35)",   label: "ERROR"    },
+  offline:  { border: T.border,  dot: "#3A3F3B", glow: "transparent",            label: "OFFLINE"  },
 };
 
 const JOB_STATUS_COLORS = {
-  queued: "text-blue-400",
-  assigned: "text-yellow-400",
-  printing: "text-emerald-400",
-  completed: "text-green-400",
-  failed: "text-red-400",
-  cancelled: "text-gray-500",
+  queued:    T.amber,
+  assigned:  T.yellow,
+  printing:  T.emerald,
+  completed: "#4ADE80",
+  failed:    T.red,
+  cancelled: T.textMuted,
 };
 
-// Brand display names + suggested models
+// ─── Brand data ────────────────────────────────────────────────────────────
+
 const BRANDS = [
-  {
-    value: "bambulab",
-    label: "Bambu Lab",
-    models: ["A1", "A1 Mini", "P1S", "P1P", "X1C", "X1E"],
-  },
-  {
-    value: "klipper",
-    label: "Klipper / Moonraker",
-    models: ["Voron 2.4", "Voron Trident", "Creality K1", "Creality K1 Max", "Custom"],
-  },
-  {
-    value: "octoprint",
-    label: "OctoPrint",
-    models: ["Ender 3", "Ender 5", "CR-10", "Custom"],
-  },
-  {
-    value: "prusa",
-    label: "Prusa (PrusaLink)",
-    models: ["MK4", "MK3.9", "XL", "MINI+"],
-  },
-  {
-    value: "generic",
-    label: "Other / Generic",
-    models: ["Custom"],
-  },
+  { value: "bambulab",  label: "Bambu Lab",          models: ["A1", "A1 Mini", "P1S", "P1P", "X1C", "X1E"] },
+  { value: "klipper",   label: "Klipper / Moonraker", models: ["Voron 2.4", "Voron Trident", "Creality K1", "Creality K1 Max", "Custom"] },
+  { value: "octoprint", label: "OctoPrint",           models: ["Ender 3", "Ender 5", "CR-10", "Custom"] },
+  { value: "prusa",     label: "Prusa (PrusaLink)",   models: ["MK4", "MK3.9", "XL", "MINI+"] },
+  { value: "generic",   label: "Other / Generic",     models: ["Custom"] },
 ];
 
 const EMPTY_FORM = {
@@ -67,48 +83,347 @@ const EMPTY_FORM = {
   connection_config: {},
 };
 
-function formatTime(seconds) {
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function fmtTime(seconds) {
   if (seconds == null) return "--";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-// ─── Brand-specific connection field sets ──────────────────────────────────
+// ─── SVG temperature arc gauge ─────────────────────────────────────────────
+//
+// Uses stroke-dasharray / stroke-dashoffset on a rotated circle.
+// The SVG is rotated -90deg so the arc starts at 12 o'clock.
+// Max nozzle = 300°C, max bed = 120°C (FDM practical ceilings).
+
+function TempGauge({ value, max, color, label }) {
+  const R = 22;
+  const CIRC = 2 * Math.PI * R;
+  const pct = Math.min(1, Math.max(0, (value || 0) / max));
+  const offset = CIRC * (1 - pct);
+  const SIZE = 58;
+  const hasValue = value > 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+      <svg
+        width={SIZE}
+        height={SIZE}
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        style={{ transform: "rotate(-90deg)" }}
+      >
+        {/* Track ring */}
+        <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke={T.border} strokeWidth={4} />
+        {/* Value arc */}
+        <circle
+          cx={SIZE / 2} cy={SIZE / 2} r={R}
+          fill="none"
+          stroke={hasValue ? color : T.textMuted}
+          strokeWidth={4}
+          strokeLinecap="round"
+          strokeDasharray={CIRC}
+          strokeDashoffset={hasValue ? offset : CIRC}
+          style={{ transition: "stroke-dashoffset 0.8s ease" }}
+        />
+        {/* Counter-rotate the text group so it reads normally */}
+        <g transform={`rotate(90, ${SIZE / 2}, ${SIZE / 2})`}>
+          <text
+            x={SIZE / 2} y={SIZE / 2 - 3}
+            textAnchor="middle" dominantBaseline="middle"
+            fill={hasValue ? color : T.textMuted}
+            fontSize="10" fontFamily={T.fontMono} fontWeight="600"
+          >
+            {hasValue ? Math.round(value) : "--"}
+          </text>
+          <text
+            x={SIZE / 2} y={SIZE / 2 + 9}
+            textAnchor="middle" dominantBaseline="middle"
+            fill={T.textMuted}
+            fontSize="7" fontFamily={T.fontDisplay} fontWeight="500"
+          >
+            °C
+          </text>
+        </g>
+      </svg>
+      <span style={{
+        fontSize: 9, fontFamily: T.fontDisplay, fontWeight: 600,
+        letterSpacing: "0.1em", color: T.textMuted, textTransform: "uppercase",
+      }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+// ─── Printer card ──────────────────────────────────────────────────────────
+
+function PrinterCard({ printer, onCommand, onEdit, onRemove }) {
+  const cfg = STATUS_CFG[printer.status] || STATUS_CFG.offline;
+  const isPrinting = printer.status === "printing";
+  const isActive = isPrinting || printer.status === "paused";
+
+  return (
+    <div
+      style={{
+        background: T.surface,
+        border: `1px solid ${cfg.border}`,
+        borderLeft: `3px solid ${cfg.dot}`,
+        borderRadius: 8,
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        transition: "box-shadow 0.2s, border-color 0.2s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = cfg.dot;
+        e.currentTarget.style.boxShadow = `0 0 16px -4px ${cfg.glow}`;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = cfg.border;
+        e.currentTarget.style.borderLeftColor = cfg.dot;
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    >
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 16,
+            letterSpacing: "0.04em", color: T.textPrimary,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>
+            {printer.name}
+          </div>
+          <div style={{ fontFamily: T.fontMono, fontSize: 10, color: T.textMuted, marginTop: 2, letterSpacing: "0.06em" }}>
+            {printer.model}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8, flexShrink: 0 }}>
+          {/* Status indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+              background: cfg.dot,
+              boxShadow: isPrinting ? `0 0 6px 2px ${cfg.glow}` : "none",
+              animation: isPrinting ? "pulse-dot 1.4s ease-in-out infinite" : "none",
+              display: "inline-block",
+            }} />
+            <span style={{
+              fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 10,
+              letterSpacing: "0.12em", color: cfg.dot,
+            }}>
+              {cfg.label}
+            </span>
+          </div>
+          <IconBtn onClick={() => onEdit(printer)} title="Edit" hoverColor={T.textSecondary}>✎</IconBtn>
+          <IconBtn onClick={() => onRemove(printer)} title="Remove" hoverColor={T.red}>✕</IconBtn>
+        </div>
+      </div>
+
+      {/* Temperature gauges */}
+      <div style={{ display: "flex", justifyContent: "space-around", paddingTop: 4 }}>
+        <TempGauge value={printer.nozzle_temp ?? 0} max={300} color={T.amber}  label="NOZZLE" />
+        <TempGauge value={printer.bed_temp   ?? 0} max={120} color={T.emerald} label="BED"    />
+      </div>
+
+      {/* Progress */}
+      {isPrinting && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+            <span style={{ fontFamily: T.fontMono, fontSize: 9, color: T.textMuted, letterSpacing: "0.05em" }}>
+              {printer.current_job || "PRINTING"}
+            </span>
+            <span style={{ fontFamily: T.fontMono, fontSize: 10, fontWeight: 600, color: T.emerald }}>
+              {(printer.progress ?? 0).toFixed(0)}%
+            </span>
+          </div>
+          <div style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+            <div style={{
+              height: "100%",
+              width: `${printer.progress ?? 0}%`,
+              background: `linear-gradient(90deg, ${T.emerald}, #34D399)`,
+              borderRadius: 2,
+              transition: "width 1s ease",
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* AMS slots */}
+      {printer.ams_slots?.length > 0 && (
+        <div>
+          <div style={{
+            fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 9,
+            letterSpacing: "0.14em", color: T.textMuted, marginBottom: 5,
+          }}>
+            AMS SLOTS
+          </div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {printer.ams_slots.map((slot, i) => (
+              <div
+                key={i}
+                title={`Slot ${slot.slot ?? i + 1}: ${slot.material || "empty"}`}
+                style={{
+                  width: 16, height: 16, borderRadius: 3,
+                  background: slot.color || T.raised,
+                  border: `1px solid ${T.borderHover}`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Controls */}
+      {isActive && (
+        <div style={{
+          display: "flex", gap: 6,
+          paddingTop: 8, borderTop: `1px solid ${T.border}`,
+        }}>
+          {isPrinting && (
+            <CtrlBtn onClick={() => onCommand(printer.id, "pause")} color={T.yellow}>PAUSE</CtrlBtn>
+          )}
+          {printer.status === "paused" && (
+            <CtrlBtn onClick={() => onCommand(printer.id, "resume")} color={T.emerald}>RESUME</CtrlBtn>
+          )}
+          <CtrlBtn onClick={() => onCommand(printer.id, "cancel")} color={T.red}>CANCEL</CtrlBtn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconBtn({ onClick, title, hoverColor, children }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        background: "none", border: "none", cursor: "pointer",
+        color: T.textMuted, padding: "2px 3px", lineHeight: 1, fontSize: 13,
+        transition: "color 0.15s",
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.color = hoverColor}
+      onMouseLeave={(e) => e.currentTarget.style.color = T.textMuted}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CtrlBtn({ onClick, color, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: "transparent",
+        border: `1px solid ${color}33`,
+        color,
+        fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 10,
+        letterSpacing: "0.12em", padding: "4px 10px", borderRadius: 4,
+        cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = `${color}18`;
+        e.currentTarget.style.borderColor = color;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.borderColor = `${color}33`;
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Shared form primitives ────────────────────────────────────────────────
+
+function FieldLabel({ children, required, hint }) {
+  return (
+    <label style={{
+      display: "block",
+      fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 11,
+      letterSpacing: "0.1em", color: T.textSecondary,
+      marginBottom: 6, textTransform: "uppercase",
+    }}>
+      {children}
+      {required && <span style={{ color: T.red, marginLeft: 3 }}>*</span>}
+      {hint && (
+        <span style={{
+          color: T.textMuted, marginLeft: 6,
+          textTransform: "none", fontSize: 10, letterSpacing: 0,
+        }}>
+          {hint}
+        </span>
+      )}
+    </label>
+  );
+}
+
+const baseInputStyle = {
+  width: "100%", boxSizing: "border-box",
+  background: T.raised, border: `1px solid ${T.border}`,
+  borderRadius: 5, padding: "9px 12px",
+  fontSize: 13, fontFamily: T.fontMono, color: T.textPrimary,
+  outline: "none", transition: "border-color 0.15s",
+};
+
+function TextInput({ value, onChange, placeholder, type = "text", maxLength }) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      style={baseInputStyle}
+      onFocus={(e) => (e.currentTarget.style.borderColor = T.amber)}
+      onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
+    />
+  );
+}
+
+function SelectInput({ value, onChange, children }) {
+  return (
+    <select
+      value={value}
+      onChange={onChange}
+      style={{ ...baseInputStyle, cursor: "pointer" }}
+      onFocus={(e) => (e.currentTarget.style.borderColor = T.amber)}
+      onBlur={(e) => (e.currentTarget.style.borderColor = T.border)}
+    >
+      {children}
+    </select>
+  );
+}
+
+// ─── Brand-specific connection fields ──────────────────────────────────────
 
 function BambuFields({ form, setField }) {
   return (
     <>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          Serial Number <span className="text-red-400">*</span>
-          <span className="text-gray-500 ml-1">(from printer LCD or Bambu app)</span>
-        </label>
-        <input
-          type="text"
+        <FieldLabel required hint="from printer LCD or Bambu app">Serial Number</FieldLabel>
+        <TextInput
           value={form.serial_number}
           onChange={(e) => setField("serial_number", e.target.value)}
-          placeholder="e.g. 01P00A123456789"
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+          placeholder="01P00A123456789"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          Access Code <span className="text-red-400">*</span>
-          <span className="text-gray-500 ml-1">(8-char code from printer LCD)</span>
-        </label>
-        <input
-          type="text"
+        <FieldLabel required hint="8-char code from LCD">Access Code</FieldLabel>
+        <TextInput
           value={form.connection_config?.access_code || ""}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              access_code: e.target.value,
-            })
+            setField("connection_config", { ...form.connection_config, access_code: e.target.value })
           }
-          placeholder="e.g. 12345678"
+          placeholder="12345678"
           maxLength={8}
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono"
         />
       </div>
     </>
@@ -119,38 +434,23 @@ function KlipperFields({ form, setField }) {
   return (
     <>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          Moonraker Port
-          <span className="text-gray-500 ml-1">(default 7125)</span>
-        </label>
-        <input
+        <FieldLabel hint="default 7125">Moonraker Port</FieldLabel>
+        <TextInput
           type="number"
           value={form.connection_config?.port ?? 7125}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              port: parseInt(e.target.value) || 7125,
-            })
+            setField("connection_config", { ...form.connection_config, port: parseInt(e.target.value) || 7125 })
           }
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          API Key
-          <span className="text-gray-500 ml-1">(optional)</span>
-        </label>
-        <input
-          type="text"
+        <FieldLabel hint="optional">API Key</FieldLabel>
+        <TextInput
           value={form.connection_config?.api_key || ""}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              api_key: e.target.value,
-            })
+            setField("connection_config", { ...form.connection_config, api_key: e.target.value })
           }
           placeholder="Moonraker API key"
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
         />
       </div>
     </>
@@ -161,37 +461,23 @@ function OctoPrintFields({ form, setField }) {
   return (
     <>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          OctoPrint Port
-          <span className="text-gray-500 ml-1">(default 5000)</span>
-        </label>
-        <input
+        <FieldLabel hint="default 5000">OctoPrint Port</FieldLabel>
+        <TextInput
           type="number"
           value={form.connection_config?.port ?? 5000}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              port: parseInt(e.target.value) || 5000,
-            })
+            setField("connection_config", { ...form.connection_config, port: parseInt(e.target.value) || 5000 })
           }
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          API Key <span className="text-red-400">*</span>
-        </label>
-        <input
-          type="text"
+        <FieldLabel required>API Key</FieldLabel>
+        <TextInput
           value={form.connection_config?.api_key || ""}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              api_key: e.target.value,
-            })
+            setField("connection_config", { ...form.connection_config, api_key: e.target.value })
           }
           placeholder="OctoPrint API key"
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
         />
       </div>
     </>
@@ -202,50 +488,32 @@ function PrusaFields({ form, setField }) {
   return (
     <>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          PrusaLink Port
-          <span className="text-gray-500 ml-1">(default 8080)</span>
-        </label>
-        <input
+        <FieldLabel hint="default 8080">PrusaLink Port</FieldLabel>
+        <TextInput
           type="number"
           value={form.connection_config?.port ?? 8080}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              port: parseInt(e.target.value) || 8080,
-            })
+            setField("connection_config", { ...form.connection_config, port: parseInt(e.target.value) || 8080 })
           }
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Username</label>
-        <input
-          type="text"
+        <FieldLabel>Username</FieldLabel>
+        <TextInput
           value={form.connection_config?.username || "maker"}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              username: e.target.value,
-            })
+            setField("connection_config", { ...form.connection_config, username: e.target.value })
           }
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          Password <span className="text-red-400">*</span>
-        </label>
-        <input
+        <FieldLabel required>Password</FieldLabel>
+        <TextInput
           type="password"
           value={form.connection_config?.password || ""}
           onChange={(e) =>
-            setField("connection_config", {
-              ...form.connection_config,
-              password: e.target.value,
-            })
+            setField("connection_config", { ...form.connection_config, password: e.target.value })
           }
-          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
         />
       </div>
     </>
@@ -272,67 +540,43 @@ function PrinterModal({ printer, onClose, onSave }) {
         }
       : { ...EMPTY_FORM }
   );
-
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const setField = (key, value) =>
-    setFormState((prev) => ({ ...prev, [key]: value }));
+  const setField = (key, val) => setFormState((p) => ({ ...p, [key]: val }));
 
   const handleBrandChange = (brand) => {
-    setFormState((prev) => ({
-      ...prev,
-      brand,
-      model: "",
-      connection_config: {},
-    }));
+    setFormState((p) => ({ ...p, brand, model: "", connection_config: {} }));
     setTestResult(null);
   };
 
   const handleTest = async () => {
-    if (!printer?.id) {
-      toast.error("Save the printer first, then test the connection.");
-      return;
-    }
-    setTesting(true);
-    setTestResult(null);
+    if (!printer?.id) { toast.error("Save the printer first, then test."); return; }
+    setTesting(true); setTestResult(null);
     try {
-      const res = await api.post(
-        `/api/v1/pro/filafarm/printers/${printer.id}/test-connection`
-      );
-      setTestResult(res);
+      setTestResult(await api.post(`/api/v1/pro/filafarm/printers/${printer.id}/test-connection`));
     } catch (err) {
       setTestResult({ reachable: false, message: err.message });
-    } finally {
-      setTesting(false);
-    }
+    } finally { setTesting(false); }
   };
 
   const validate = () => {
     if (!form.name.trim()) return "Printer name is required";
-    if (!form.model.trim() || form.model === "__custom")
-      return "Select or enter a printer model";
+    if (!form.model.trim() || form.model === "__custom") return "Select or enter a model";
     if (!form.ip_address.trim()) return "IP address is required";
     if (form.brand === "bambulab") {
-      if (!form.serial_number.trim())
-        return "Serial number is required for Bambu Lab printers";
-      if (!form.connection_config?.access_code?.trim())
-        return "Access code is required for Bambu Lab printers";
+      if (!form.serial_number.trim()) return "Serial number required for Bambu Lab";
+      if (!form.connection_config?.access_code?.trim()) return "Access code required for Bambu Lab";
     }
-    if (form.brand === "octoprint" && !form.connection_config?.api_key?.trim())
-      return "API key is required for OctoPrint";
-    if (form.brand === "prusa" && !form.connection_config?.password?.trim())
-      return "Password is required for PrusaLink";
+    if (form.brand === "octoprint" && !form.connection_config?.api_key?.trim()) return "API key required for OctoPrint";
+    if (form.brand === "prusa" && !form.connection_config?.password?.trim()) return "Password required for PrusaLink";
     return null;
   };
 
   const handleSave = async () => {
     const err = validate();
-    if (err) {
-      toast.error(err);
-      return;
-    }
+    if (err) { toast.error(err); return; }
     setSaving(true);
     try {
       const payload = {
@@ -349,195 +593,177 @@ function PrinterModal({ printer, onClose, onSave }) {
         toast.success(`${form.name} updated`);
       } else {
         await api.post("/api/v1/pro/filafarm/printers", payload);
-        toast.success(`${form.name} added — fleet connecting shortly`);
+        toast.success(`${form.name} added — fleet connecting`);
       }
-      onSave();
-      onClose();
+      onSave(); onClose();
     } catch (err) {
       toast.error(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const brandMeta = BRANDS.find((b) => b.value === form.brand);
-  const showCustomModelInput = form.model === "__custom";
+  const isCustomModel = form.model === "__custom";
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 50, padding: 16,
+    }}>
+      <div style={{
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderTop: `2px solid ${T.amber}`,
+        borderRadius: 10,
+        width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto",
+      }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">
-            {isEdit ? "Edit Printer" : "Add Printer"}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl leading-none"
-          >
-            ×
-          </button>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 20px", borderBottom: `1px solid ${T.border}`,
+        }}>
+          <div>
+            <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: T.textPrimary }}>
+              {isEdit ? "EDIT PRINTER" : "ADD PRINTER"}
+            </div>
+            {!isEdit && (
+              <div style={{ fontFamily: T.fontMono, fontSize: 9, color: T.textMuted, marginTop: 3, letterSpacing: "0.08em" }}>
+                SELECT BRAND → CONFIGURE → SAVE
+              </div>
+            )}
+          </div>
+          <IconBtn onClick={onClose} hoverColor={T.textPrimary} title="Close">×</IconBtn>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Brand grid — add mode only */}
           {!isEdit && (
             <div>
-              <label className="block text-xs text-gray-400 mb-2">Brand</label>
-              <div className="grid grid-cols-2 gap-2">
-                {BRANDS.map((b) => (
-                  <button
-                    key={b.value}
-                    type="button"
-                    onClick={() => handleBrandChange(b.value)}
-                    className={`px-3 py-2 rounded text-sm text-left transition-colors ${
-                      form.brand === b.value
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    }`}
-                  >
-                    {b.label}
-                  </button>
-                ))}
+              <FieldLabel>Brand</FieldLabel>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {BRANDS.map((b) => {
+                  const active = form.brand === b.value;
+                  return (
+                    <button
+                      key={b.value}
+                      onClick={() => handleBrandChange(b.value)}
+                      style={{
+                        background: active ? T.amberGlow : T.raised,
+                        border: `1px solid ${active ? T.amber : T.border}`,
+                        borderRadius: 5, padding: "8px 12px",
+                        fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 13,
+                        color: active ? T.amber : T.textSecondary,
+                        cursor: "pointer", textAlign: "left", letterSpacing: "0.03em",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {b.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* Printer name */}
+          {/* Common fields */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">
-              Printer Name <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setField("name", e.target.value)}
-              placeholder='e.g. "BLB-A1-01"'
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
+            <FieldLabel required>Printer Name</FieldLabel>
+            <TextInput value={form.name} onChange={(e) => setField("name", e.target.value)} placeholder="BLB-A1-01" />
           </div>
 
-          {/* Model */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">
-              Model <span className="text-red-400">*</span>
-            </label>
+            <FieldLabel required>Model</FieldLabel>
             {brandMeta?.models.length > 1 ? (
-              <select
-                value={showCustomModelInput ? "__custom" : form.model}
-                onChange={(e) => setField("model", e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-              >
+              <SelectInput value={isCustomModel ? "__custom" : form.model} onChange={(e) => setField("model", e.target.value)}>
                 <option value="">Select model…</option>
-                {brandMeta.models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
+                {brandMeta.models.map((m) => <option key={m} value={m}>{m}</option>)}
                 <option value="__custom">Custom…</option>
-              </select>
+              </SelectInput>
             ) : (
-              <input
-                type="text"
-                value={form.model}
-                onChange={(e) => setField("model", e.target.value)}
-                placeholder="Printer model"
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-              />
+              <TextInput value={form.model} onChange={(e) => setField("model", e.target.value)} placeholder="Printer model" />
             )}
-            {showCustomModelInput && (
-              <input
-                type="text"
-                autoFocus
-                placeholder="Enter model name"
-                onChange={(e) => setField("model", e.target.value)}
-                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-              />
+            {isCustomModel && (
+              <div style={{ marginTop: 6 }}>
+                <TextInput value="" onChange={(e) => setField("model", e.target.value)} placeholder="Enter model name" />
+              </div>
             )}
           </div>
 
-          {/* IP address */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">
-              IP Address <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={form.ip_address}
-              onChange={(e) => setField("ip_address", e.target.value)}
-              placeholder="e.g. 192.168.1.42"
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono"
-            />
+            <FieldLabel required>IP Address</FieldLabel>
+            <TextInput value={form.ip_address} onChange={(e) => setField("ip_address", e.target.value)} placeholder="192.168.1.42" />
           </div>
 
-          {/* Brand-specific fields */}
-          {form.brand === "bambulab" && (
-            <BambuFields form={form} setField={setField} />
-          )}
-          {form.brand === "klipper" && (
-            <KlipperFields form={form} setField={setField} />
-          )}
-          {form.brand === "octoprint" && (
-            <OctoPrintFields form={form} setField={setField} />
-          )}
-          {form.brand === "prusa" && (
-            <PrusaFields form={form} setField={setField} />
-          )}
+          {/* Brand-specific */}
+          {form.brand === "bambulab"  && <BambuFields  form={form} setField={setField} />}
+          {form.brand === "klipper"   && <KlipperFields form={form} setField={setField} />}
+          {form.brand === "octoprint" && <OctoPrintFields form={form} setField={setField} />}
+          {form.brand === "prusa"     && <PrusaFields   form={form} setField={setField} />}
 
-          {/* Location (optional) */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">
-              Location
-              <span className="text-gray-500 ml-1">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={form.location}
-              onChange={(e) => setField("location", e.target.value)}
-              placeholder='e.g. "Farm Room A"'
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            />
+            <FieldLabel hint="optional">Location</FieldLabel>
+            <TextInput value={form.location} onChange={(e) => setField("location", e.target.value)} placeholder="Farm Room A" />
           </div>
 
           {/* Test connection result */}
           {testResult && (
-            <div
-              className={`rounded px-3 py-2 text-sm ${
-                testResult.reachable
-                  ? "bg-emerald-900/30 border border-emerald-700 text-emerald-300"
-                  : "bg-red-900/30 border border-red-700 text-red-300"
-              }`}
-            >
-              {testResult.reachable ? "✓ " : "✗ "}
-              {testResult.message}
+            <div style={{
+              background: testResult.reachable ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
+              border: `1px solid ${testResult.reachable ? T.emerald : T.red}44`,
+              borderRadius: 5, padding: "10px 12px",
+              fontFamily: T.fontMono, fontSize: 12,
+              color: testResult.reachable ? T.emerald : T.red,
+            }}>
+              {testResult.reachable ? "✓ " : "✗ "}{testResult.message}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center px-6 py-4 border-t border-gray-700 gap-3">
+        <div style={{
+          display: "flex", alignItems: "center",
+          padding: "14px 20px", borderTop: `1px solid ${T.border}`, gap: 10,
+        }}>
           {isEdit && (
             <button
               onClick={handleTest}
               disabled={testing}
-              className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50"
+              style={{
+                background: T.raised, border: `1px solid ${T.border}`,
+                color: T.textSecondary, fontFamily: T.fontDisplay, fontWeight: 600,
+                fontSize: 12, letterSpacing: "0.08em", padding: "7px 14px",
+                borderRadius: 5, cursor: testing ? "default" : "pointer",
+                opacity: testing ? 0.5 : 1,
+              }}
             >
-              {testing ? "Testing…" : "Test Connection"}
+              {testing ? "TESTING…" : "TEST CONNECTION"}
             </button>
           )}
-          <div className="flex gap-2 ml-auto">
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button
               onClick={onClose}
-              className="px-4 py-1.5 text-sm text-gray-400 hover:text-white rounded"
+              style={{
+                background: "transparent", border: "none",
+                color: T.textMuted, fontFamily: T.fontDisplay, fontWeight: 600,
+                fontSize: 13, letterSpacing: "0.06em", padding: "7px 14px", cursor: "pointer",
+              }}
             >
-              Cancel
+              CANCEL
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50"
+              style={{
+                background: saving ? T.amberDim : T.amber,
+                border: "none", color: "#000",
+                fontFamily: T.fontDisplay, fontWeight: 700,
+                fontSize: 13, letterSpacing: "0.08em",
+                padding: "7px 18px", borderRadius: 5,
+                cursor: saving ? "default" : "pointer",
+                opacity: saving ? 0.8 : 1, transition: "background 0.15s",
+              }}
             >
-              {saving ? "Saving…" : isEdit ? "Save Changes" : "Add Printer"}
+              {saving ? "SAVING…" : isEdit ? "SAVE CHANGES" : "ADD PRINTER"}
             </button>
           </div>
         </div>
@@ -546,33 +772,53 @@ function PrinterModal({ printer, onClose, onSave }) {
   );
 }
 
-// ─── Remove confirmation dialog ────────────────────────────────────────────
+// ─── Remove confirm ────────────────────────────────────────────────────────
 
 function RemoveConfirm({ printer, onConfirm, onCancel }) {
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-sm p-6">
-        <h3 className="text-base font-semibold text-white mb-2">
-          Remove Printer
-        </h3>
-        <p className="text-sm text-gray-400 mb-6">
-          Remove{" "}
-          <span className="text-white font-medium">{printer.name}</span> from
-          FilaFarm? Print job history is preserved. You can re-add it at any
-          time.
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 50, padding: 16,
+    }}>
+      <div style={{
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderTop: `2px solid ${T.red}`,
+        borderRadius: 10, width: "100%", maxWidth: 380, padding: "24px",
+      }}>
+        <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 16, letterSpacing: "0.06em", color: T.textPrimary, marginBottom: 10 }}>
+          REMOVE PRINTER
+        </div>
+        <p style={{ fontFamily: T.fontMono, fontSize: 12, color: T.textSecondary, lineHeight: 1.6, marginBottom: 20 }}>
+          Remove <span style={{ color: T.textPrimary }}>{printer.name}</span>?{" "}
+          Print job history is preserved. Re-add at any time.
         </p>
-        <div className="flex gap-3 justify-end">
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}
-            className="px-4 py-1.5 text-sm text-gray-400 hover:text-white rounded"
+            style={{
+              background: "transparent", border: "none",
+              color: T.textMuted, fontFamily: T.fontDisplay, fontWeight: 600,
+              fontSize: 13, letterSpacing: "0.06em", padding: "7px 14px", cursor: "pointer",
+            }}
           >
-            Cancel
+            CANCEL
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-500"
+            style={{
+              background: "transparent",
+              border: `1px solid ${T.red}`,
+              color: T.red, fontFamily: T.fontDisplay, fontWeight: 700,
+              fontSize: 13, letterSpacing: "0.08em",
+              padding: "7px 18px", borderRadius: 5, cursor: "pointer",
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.12)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           >
-            Remove
+            REMOVE
           </button>
         </div>
       </div>
@@ -580,115 +826,17 @@ function RemoveConfirm({ printer, onConfirm, onCancel }) {
   );
 }
 
-// ─── Printer card ──────────────────────────────────────────────────────────
+// ─── Stat chip ─────────────────────────────────────────────────────────────
 
-function PrinterCard({ printer, onCommand, onEdit, onRemove }) {
-  const colors = STATUS_COLORS[printer.status] || STATUS_COLORS.offline;
-  const isPrinting = printer.status === "printing";
-
+function StatChip({ value, label, color }) {
   return (
-    <div
-      className={`${colors.bg} border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors`}
-    >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-medium text-white truncate">{printer.name}</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{printer.model}</p>
-        </div>
-        <div className="flex items-center gap-2 ml-2 shrink-0">
-          <span className={`flex items-center gap-1.5 text-xs ${colors.text}`}>
-            <span
-              className={`w-2 h-2 rounded-full ${colors.dot} ${isPrinting ? "animate-pulse" : ""}`}
-            />
-            {printer.status}
-          </span>
-          <button
-            onClick={() => onEdit(printer)}
-            title="Edit printer"
-            className="text-gray-500 hover:text-gray-300 text-sm p-0.5"
-          >
-            ✎
-          </button>
-          <button
-            onClick={() => onRemove(printer)}
-            title="Remove printer"
-            className="text-gray-600 hover:text-red-400 text-sm p-0.5"
-          >
-            ✕
-          </button>
-        </div>
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "12px 16px" }}>
+      <div style={{ fontFamily: T.fontMono, fontWeight: 600, fontSize: 26, color: color || T.textPrimary, lineHeight: 1 }}>
+        {value}
       </div>
-
-      {/* Temps */}
-      <div className="flex gap-4 text-xs text-gray-400 mb-2">
-        <span>🔥 {printer.nozzle_temp?.toFixed(0) ?? "--"}°C</span>
-        <span>🛏️ {printer.bed_temp?.toFixed(0) ?? "--"}°C</span>
+      <div style={{ fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 9, letterSpacing: "0.14em", color: T.textMuted, marginTop: 6, textTransform: "uppercase" }}>
+        {label}
       </div>
-
-      {/* Progress bar */}
-      {isPrinting && (
-        <div className="mt-2">
-          <div className="flex justify-between text-xs mb-1">
-            <span className="text-gray-400 truncate">
-              {printer.current_job || "Printing..."}
-            </span>
-            <span className="text-emerald-400">
-              {(printer.progress ?? 0).toFixed(0)}%
-            </span>
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-1.5">
-            <div
-              className="bg-emerald-500 h-1.5 rounded-full transition-all"
-              style={{ width: `${printer.progress ?? 0}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* AMS slots */}
-      {printer.ams_slots && printer.ams_slots.length > 0 && (
-        <div className="mt-3 pt-2 border-t border-gray-700">
-          <span className="text-xs text-gray-500">AMS:</span>
-          <div className="flex gap-1 mt-1">
-            {printer.ams_slots.map((slot, i) => (
-              <div
-                key={i}
-                className="w-4 h-4 rounded-sm border border-gray-600"
-                style={{ backgroundColor: slot.color || "#666" }}
-                title={`Slot ${i + 1}: ${slot.material || "empty"}`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Print controls */}
-      {(printer.status === "printing" || printer.status === "paused") && (
-        <div className="mt-3 pt-2 border-t border-gray-700 flex gap-2">
-          {printer.status === "printing" && (
-            <button
-              onClick={() => onCommand(printer.id, "pause")}
-              className="text-xs px-2 py-1 bg-yellow-800/50 text-yellow-300 rounded hover:bg-yellow-800"
-            >
-              Pause
-            </button>
-          )}
-          {printer.status === "paused" && (
-            <button
-              onClick={() => onCommand(printer.id, "resume")}
-              className="text-xs px-2 py-1 bg-emerald-800/50 text-emerald-300 rounded hover:bg-emerald-800"
-            >
-              Resume
-            </button>
-          )}
-          <button
-            onClick={() => onCommand(printer.id, "cancel")}
-            className="text-xs px-2 py-1 bg-red-800/50 text-red-300 rounded hover:bg-red-800"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -696,28 +844,38 @@ function PrinterCard({ printer, onCommand, onEdit, onRemove }) {
 // ─── Job row ───────────────────────────────────────────────────────────────
 
 function JobRow({ job }) {
-  const statusColor = JOB_STATUS_COLORS[job.status] || "text-gray-400";
+  const color = JOB_STATUS_COLORS[job.status] || T.textMuted;
+  const cell = { padding: "10px 12px" };
   return (
-    <tr className="border-b border-gray-800 hover:bg-gray-800/50">
-      <td className="py-2 px-3 text-sm text-white">{job.name}</td>
-      <td className={`py-2 px-3 text-sm ${statusColor}`}>{job.status}</td>
-      <td className="py-2 px-3 text-sm text-gray-400">
-        {job.printer_id || "—"}
+    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+      <td style={{ ...cell, fontFamily: T.fontMono, fontSize: 12, color: T.textPrimary }}>{job.name}</td>
+      <td style={cell}>
+        <span style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 10, letterSpacing: "0.12em", color }}>
+          {job.status.toUpperCase()}
+        </span>
       </td>
-      <td className="py-2 px-3 text-sm text-gray-400">
-        {(job.progress ?? 0).toFixed(0)}%
-      </td>
-      <td className="py-2 px-3 text-sm text-gray-400">
-        {formatTime(job.estimated_time)}
-      </td>
-      <td className="py-2 px-3 text-sm text-gray-400">{job.priority}</td>
+      <td style={{ ...cell, fontFamily: T.fontMono, fontSize: 11, color: T.textSecondary }}>{job.printer_id || "—"}</td>
+      <td style={{ ...cell, fontFamily: T.fontMono, fontSize: 11, color: T.textSecondary }}>{(job.progress ?? 0).toFixed(0)}%</td>
+      <td style={{ ...cell, fontFamily: T.fontMono, fontSize: 11, color: T.textSecondary }}>{fmtTime(job.estimated_time)}</td>
+      <td style={{ ...cell, fontFamily: T.fontMono, fontSize: 11, color: T.textMuted }}>{job.priority}</td>
     </tr>
   );
 }
 
+// ─── Global keyframes ──────────────────────────────────────────────────────
+
+const GLOBAL_STYLES = `
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.45; transform: scale(0.65); }
+  }
+`;
+
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function AdminFilaFarm() {
+  useFonts();
+
   const api = useApi();
   const toast = useToast();
   const { isPro, hasFeature, loading: flagsLoading } = useFeatureFlags();
@@ -735,29 +893,23 @@ export default function AdminFilaFarm() {
   const [removingPrinter, setRemovingPrinter] = useState(null);
 
   const refreshRef = useRef(null);
-  const commandTimeoutRef = useRef(null);
+  const cmdTimeoutRef = useRef(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [printersRes, jobsRes, statsRes] = await Promise.allSettled([
+      const [pRes, jRes, sRes] = await Promise.allSettled([
         api.get("/api/v1/pro/filafarm/printers"),
         api.get("/api/v1/pro/filafarm/jobs"),
         api.get("/api/v1/pro/filafarm/stats/today"),
       ]);
-
-      setPrinters(
-        printersRes.status === "fulfilled"
-          ? printersRes.value?.printers || []
-          : []
+      setPrinters(pRes.status === "fulfilled" ? pRes.value?.printers || [] : []);
+      setJobs(jRes.status === "fulfilled" ? jRes.value?.jobs || [] : []);
+      setStats(sRes.status === "fulfilled" ? sRes.value : null);
+      setError(
+        pRes.status === "rejected" || jRes.status === "rejected" || sRes.status === "rejected"
+          ? "Some data could not be loaded."
+          : null
       );
-      setJobs(jobsRes.status === "fulfilled" ? jobsRes.value?.jobs || [] : []);
-      setStats(statsRes.status === "fulfilled" ? statsRes.value : null);
-
-      const anyFailed =
-        printersRes.status === "rejected" ||
-        jobsRes.status === "rejected" ||
-        statsRes.status === "rejected";
-      setError(anyFailed ? "Some FilaFarm data could not be loaded." : null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -772,20 +924,14 @@ export default function AdminFilaFarm() {
     return () => clearInterval(refreshRef.current);
   }, [fetchData, hasFilaFarmAccess]);
 
-  useEffect(() => {
-    return () => {
-      if (commandTimeoutRef.current) clearTimeout(commandTimeoutRef.current);
-    };
-  }, []);
+  useEffect(() => () => cmdTimeoutRef.current && clearTimeout(cmdTimeoutRef.current), []);
 
   const handleCommand = async (printerId, command) => {
     try {
-      await api.post(`/api/v1/pro/filafarm/printers/${printerId}/command`, {
-        command,
-      });
-      toast.success(`Sent "${command}" to printer`);
-      if (commandTimeoutRef.current) clearTimeout(commandTimeoutRef.current);
-      commandTimeoutRef.current = setTimeout(fetchData, 1000);
+      await api.post(`/api/v1/pro/filafarm/printers/${printerId}/command`, { command });
+      toast.success(`${command} sent`);
+      if (cmdTimeoutRef.current) clearTimeout(cmdTimeoutRef.current);
+      cmdTimeoutRef.current = setTimeout(fetchData, 1000);
     } catch (err) {
       toast.error(err.message);
     }
@@ -794,9 +940,7 @@ export default function AdminFilaFarm() {
   const handleRemoveConfirm = async () => {
     if (!removingPrinter) return;
     try {
-      await api.del(
-        `/api/v1/pro/filafarm/printers/${removingPrinter.id}`
-      );
+      await api.del(`/api/v1/pro/filafarm/printers/${removingPrinter.id}`);
       toast.success(`${removingPrinter.name} removed`);
       setRemovingPrinter(null);
       fetchData();
@@ -807,33 +951,24 @@ export default function AdminFilaFarm() {
 
   if (flagsLoading) {
     return (
-      <div className="p-6 flex justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+      <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
       </div>
     );
   }
 
   if (!hasFilaFarmAccess) {
     return (
-      <div className="p-6 text-center">
-        <div className="bg-gray-800 rounded-lg p-8 max-w-md mx-auto">
-          <svg
-            className="w-12 h-12 text-gray-600 mx-auto mb-3"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-            />
-          </svg>
-          <h2 className="text-lg font-medium text-white mb-2">PRO Feature</h2>
-          <p className="text-gray-400 text-sm">
-            FilaFarm printer automation requires a PRO license with the
-            FilaFarm feature enabled.
+      <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+        <div style={{
+          background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10,
+          padding: "40px 32px", maxWidth: 400, textAlign: "center",
+        }}>
+          <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 20, letterSpacing: "0.08em", color: T.textPrimary, marginBottom: 10 }}>
+            PRO FEATURE
+          </div>
+          <p style={{ fontFamily: T.fontMono, fontSize: 11, color: T.textMuted, lineHeight: 1.7 }}>
+            FilaFarm requires a PRO license with the filafarm feature enabled.
           </p>
         </div>
       </div>
@@ -841,19 +976,19 @@ export default function AdminFilaFarm() {
   }
 
   const printingCount = printers.filter((p) => p.status === "printing").length;
-  const idleCount = printers.filter((p) => p.status === "idle").length;
-  const errorCount = printers.filter((p) => p.status === "error").length;
+  const idleCount     = printers.filter((p) => p.status === "idle").length;
+  const offlineCount  = printers.filter((p) => p.status === "offline").length;
+  const errorCount    = printers.filter((p) => p.status === "error").length;
 
   return (
-    <div className="p-6 space-y-6">
+    <div style={{ padding: 24, background: T.bg, minHeight: "100%" }}>
+      <style>{GLOBAL_STYLES}</style>
+
       {/* Modals */}
       {(showAddModal || editingPrinter) && (
         <PrinterModal
           printer={editingPrinter}
-          onClose={() => {
-            setShowAddModal(false);
-            setEditingPrinter(null);
-          }}
+          onClose={() => { setShowAddModal(false); setEditingPrinter(null); }}
           onSave={fetchData}
         />
       )}
@@ -865,91 +1000,111 @@ export default function AdminFilaFarm() {
         />
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Page header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
-          <h1 className="text-2xl font-bold text-white">FilaFarm</h1>
-          <p className="text-gray-400 text-sm">
-            Printer automation & job management
-          </p>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+            <h1 style={{
+              fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 30,
+              letterSpacing: "0.1em", color: T.textPrimary, margin: 0,
+            }}>
+              FILAFARM
+            </h1>
+            <span style={{ fontFamily: T.fontMono, fontSize: 10, color: T.amber, letterSpacing: "0.14em" }}>
+              PRODUCTION CONTROL
+            </span>
+          </div>
+          <div style={{ fontFamily: T.fontMono, fontSize: 10, color: T.textMuted, letterSpacing: "0.08em", marginTop: 4 }}>
+            {printers.length} PRINTER{printers.length !== 1 ? "S" : ""} · {printingCount} ACTIVE
+          </div>
         </div>
-        <div className="flex gap-2">
+
+        <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={fetchData}
-            className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+            style={{
+              background: T.raised, border: `1px solid ${T.border}`,
+              color: T.textSecondary, fontFamily: T.fontDisplay, fontWeight: 600,
+              fontSize: 12, letterSpacing: "0.08em", padding: "8px 14px",
+              borderRadius: 5, cursor: "pointer", transition: "border-color 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = T.borderHover)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = T.border)}
           >
-            ↻ Refresh
+            ↻ REFRESH
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-500"
+            style={{
+              background: T.amber, border: "none", color: "#000",
+              fontFamily: T.fontDisplay, fontWeight: 700,
+              fontSize: 12, letterSpacing: "0.1em", padding: "8px 18px",
+              borderRadius: 5, cursor: "pointer", transition: "opacity 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
           >
-            + Add Printer
+            + ADD PRINTER
           </button>
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-white">
-              {stats.jobs_completed ?? 0}
-            </div>
-            <div className="text-xs text-gray-400">Jobs Completed</div>
-          </div>
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-emerald-400">
-              {stats.jobs_printing ?? 0}
-            </div>
-            <div className="text-xs text-gray-400">Currently Printing</div>
-          </div>
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-blue-400">
-              {stats.jobs_queued ?? 0}
-            </div>
-            <div className="text-xs text-gray-400">In Queue</div>
-          </div>
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-2xl font-bold text-yellow-400">
-              {formatTime(stats.total_print_time ?? 0)}
-            </div>
-            <div className="text-xs text-gray-400">Total Print Time</div>
-          </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
+          <StatChip value={stats.jobs_completed ?? 0} label="Jobs Completed Today" />
+          <StatChip value={stats.jobs_printing ?? 0}  label="Currently Printing"   color={T.emerald} />
+          <StatChip value={stats.jobs_queued ?? 0}    label="In Queue"             color={T.amber} />
+          <StatChip value={fmtTime(stats.total_print_time ?? 0)} label="Total Print Time" />
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-800 rounded-lg p-1 w-fit">
+      {/* Tab bar */}
+      <div style={{
+        display: "flex", gap: 2,
+        background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: 6, padding: 3, width: "fit-content", marginBottom: 20,
+      }}>
         {[
-          { id: "printers", label: `Printers (${printers.length})` },
-          { id: "jobs", label: `Jobs (${jobs.length})` },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-1.5 text-sm rounded ${
-              activeTab === tab.id
-                ? "bg-blue-600 text-white"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+          { id: "printers", label: `PRINTERS (${printers.length})` },
+          { id: "jobs",     label: `JOBS (${jobs.length})` },
+        ].map(({ id, label }) => {
+          const active = activeTab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              style={{
+                background: active ? T.amber : "transparent",
+                border: "none",
+                color: active ? "#000" : T.textMuted,
+                fontFamily: T.fontDisplay, fontWeight: 700,
+                fontSize: 11, letterSpacing: "0.12em",
+                padding: "6px 16px", borderRadius: 4,
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 text-red-400 text-sm">
+        <div style={{
+          background: "rgba(239,68,68,0.08)", border: `1px solid ${T.red}44`,
+          borderRadius: 6, padding: "12px 16px",
+          fontFamily: T.fontMono, fontSize: 12, color: T.red, marginBottom: 16,
+        }}>
           {error}
         </div>
       )}
 
       {/* Loading */}
       {loading && (
-        <div className="flex justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+        <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
         </div>
       )}
 
@@ -957,45 +1112,56 @@ export default function AdminFilaFarm() {
       {!loading && activeTab === "printers" && (
         <div>
           {printers.length === 0 ? (
-            <div className="bg-gray-800 rounded-lg p-10 text-center">
-              <svg
-                className="w-10 h-10 text-gray-600 mx-auto mb-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"
-                />
-              </svg>
-              <p className="text-gray-300 font-medium mb-1">No printers yet</p>
-              <p className="text-gray-500 text-sm mb-4">
-                Add your first printer to start automating your print farm.
-              </p>
+            <div style={{
+              background: T.surface, border: `1px dashed ${T.border}`,
+              borderRadius: 10, padding: "60px 24px", textAlign: "center",
+            }}>
+              <div style={{
+                fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 52,
+                color: T.border, lineHeight: 1, marginBottom: 16,
+              }}>
+                [ ]
+              </div>
+              <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 15, letterSpacing: "0.12em", color: T.textMuted, marginBottom: 8 }}>
+                NO PRINTERS REGISTERED
+              </div>
+              <div style={{ fontFamily: T.fontMono, fontSize: 11, color: T.textMuted, marginBottom: 24, lineHeight: 1.7 }}>
+                Add your first printer to initialize the fleet.
+              </div>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-500"
+                style={{
+                  background: T.amber, border: "none", color: "#000",
+                  fontFamily: T.fontDisplay, fontWeight: 700,
+                  fontSize: 12, letterSpacing: "0.1em", padding: "10px 24px",
+                  borderRadius: 5, cursor: "pointer",
+                }}
               >
-                + Add Printer
+                + ADD PRINTER
               </button>
             </div>
           ) : (
             <>
-              <div className="flex gap-4 mb-4 text-sm">
-                <span className="text-emerald-400">{printingCount} printing</span>
-                <span className="text-gray-400">{idleCount} idle</span>
-                {errorCount > 0 && (
-                  <span className="text-red-400">{errorCount} error</span>
-                )}
+              {/* Fleet status strip */}
+              <div style={{ display: "flex", gap: 20, marginBottom: 14 }}>
+                {[
+                  { count: printingCount, label: "PRINTING", color: T.emerald },
+                  { count: idleCount,     label: "IDLE",     color: T.amber },
+                  { count: offlineCount,  label: "OFFLINE",  color: T.textMuted },
+                  ...(errorCount > 0 ? [{ count: errorCount, label: "ERROR", color: T.red }] : []),
+                ].map(({ count, label, color }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: T.fontMono, fontWeight: 600, fontSize: 15, color }}>{count}</span>
+                    <span style={{ fontFamily: T.fontDisplay, fontWeight: 600, fontSize: 10, letterSpacing: "0.12em", color: T.textMuted }}>{label}</span>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {printers.map((printer) => (
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                {printers.map((p) => (
                   <PrinterCard
-                    key={printer.id}
-                    printer={printer}
+                    key={p.id}
+                    printer={p}
                     onCommand={handleCommand}
                     onEdit={setEditingPrinter}
                     onRemove={setRemovingPrinter}
@@ -1011,38 +1177,32 @@ export default function AdminFilaFarm() {
       {!loading && activeTab === "jobs" && (
         <div>
           {jobs.length === 0 ? (
-            <div className="bg-gray-800 rounded-lg p-8 text-center">
-              <p className="text-gray-400">No print jobs</p>
+            <div style={{
+              background: T.surface, border: `1px solid ${T.border}`,
+              borderRadius: 8, padding: "32px 24px", textAlign: "center",
+            }}>
+              <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 12, letterSpacing: "0.12em", color: T.textMuted }}>
+                NO PRINT JOBS
+              </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
-                  <tr className="border-b border-gray-700 text-left">
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Job
-                    </th>
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Status
-                    </th>
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Printer
-                    </th>
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Progress
-                    </th>
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Est. Time
-                    </th>
-                    <th className="py-2 px-3 text-xs font-medium text-gray-500 uppercase">
-                      Priority
-                    </th>
+                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                    {["Job", "Status", "Printer", "Progress", "Est. Time", "Priority"].map((h) => (
+                      <th key={h} style={{
+                        padding: "8px 12px", textAlign: "left",
+                        fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 9,
+                        letterSpacing: "0.14em", color: T.textMuted, textTransform: "uppercase",
+                      }}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.map((job) => (
-                    <JobRow key={job.id} job={job} />
-                  ))}
+                  {jobs.map((job) => <JobRow key={job.id} job={job} />)}
                 </tbody>
               </table>
             </div>
