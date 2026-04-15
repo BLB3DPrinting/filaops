@@ -74,16 +74,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 def init_database():
-    """Initialize database tables on startup (idempotent)."""
+    """Verify database connectivity on startup.
+
+    Schema management is handled exclusively by Alembic migrations
+    (run via `alembic upgrade head` in the Docker entrypoint before uvicorn
+    starts). create_all() is intentionally absent here — running it at startup
+    races with Alembic and causes DuplicateTable errors on every upgrade.
+    """
     try:
         from app.db.session import engine
-        from app.db.base import Base
-        import app.models  # noqa: F401
-        logger.info("Checking database tables...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables ready")
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        logger.info("Database connection verified")
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"Database connection check failed: {e}")
 
 
 def seed_default_data():

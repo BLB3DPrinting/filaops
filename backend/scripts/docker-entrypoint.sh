@@ -54,6 +54,14 @@ if [ -n "$FILAOPS_LICENSE_KEY" ]; then
     fi
 fi
 
+# ─── Database Migrations ───
+# Run Alembic migrations before starting the app. This is the authoritative
+# schema management step — create_all() has been removed from app startup to
+# prevent DuplicateTable races on upgrades (see issue #516).
+echo "FilaOps: Running database migrations..."
+python -m alembic upgrade head
+echo "FilaOps: Migrations complete."
+
 # ─── Run Command ───
 if [ $# -gt 0 ]; then
     exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" "$@"
