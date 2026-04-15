@@ -54,7 +54,6 @@ const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 const AdminLocations = lazy(() => import("./pages/admin/AdminLocations"));
 const AdminAccounting = lazy(() => import("./pages/admin/AdminAccounting"));
 const AdminPrinters = lazy(() => import("./pages/admin/AdminPrinters"));
-const AdminFilaFarm = lazy(() => import("./pages/admin/AdminFilaFarm"));
 const AdminScrapReasons = lazy(() => import("./pages/admin/AdminScrapReasons"));
 const AdminSpools = lazy(() => import("./pages/admin/AdminSpools"));
 const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
@@ -329,14 +328,6 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminPrinters />
-                        </Suspense>
-                      }
-                    />
-                    <Route
-                      path="filafarm"
-                      element={
-                        <Suspense fallback={<PageLoader />}>
-                          <AdminFilaFarm />
                         </Suspense>
                       }
                     />

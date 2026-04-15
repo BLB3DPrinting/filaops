@@ -154,7 +154,6 @@ describe("ROUTE_LABELS coverage", () => {
       "/admin/production",
       "/admin/manufacturing",
       "/admin/printers",
-      "/admin/filafarm",
       "/admin/purchasing",
       "/admin/shipping",
       // Quality
