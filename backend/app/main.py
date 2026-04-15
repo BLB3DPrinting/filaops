@@ -83,11 +83,12 @@ def init_database():
     """
     try:
         from app.db.session import engine
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+            conn.execute(text("SELECT 1"))
         logger.info("Database connection verified")
     except Exception as e:
-        logger.error(f"Database connection check failed: {e}")
+        logger.error(f"Database connection check failed: {e}", exc_info=True)
 
 
 def seed_default_data():

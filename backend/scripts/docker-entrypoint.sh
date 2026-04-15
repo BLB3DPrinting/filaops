@@ -54,17 +54,16 @@ if [ -n "$FILAOPS_LICENSE_KEY" ]; then
     fi
 fi
 
-# ─── Database Migrations ───
-# Run Alembic migrations before starting the app. This is the authoritative
-# schema management step — create_all() has been removed from app startup to
-# prevent DuplicateTable races on upgrades (see issue #516).
-echo "FilaOps: Running database migrations..."
-python -m alembic upgrade head
-echo "FilaOps: Migrations complete."
-
 # ─── Run Command ───
 if [ $# -gt 0 ]; then
     exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" "$@"
 else
+    # ─── Database Migrations ───
+    # Only run on the default uvicorn startup path. Custom commands (e.g. the
+    # migrate service running docker-migrate.sh) handle their own migrations with
+    # full error recovery and PRO plugin migration steps.
+    echo "FilaOps: Running database migrations..."
+    python -m alembic upgrade head
+    echo "FilaOps: Migrations complete."
     exec env FILAOPS_PRO_MODULE="$FILAOPS_PRO_MODULE" uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
 fi
