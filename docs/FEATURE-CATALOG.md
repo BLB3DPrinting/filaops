@@ -9,8 +9,8 @@
 
 | Tier | Features | Status |
 | ------ | ---------- | -------- |
-| **Core (Open Source)** | 51 | Released |
-| **Total** | 51 | - |
+| **Core (Open Source)** | 60 | Released |
+| **Total** | 60 | - |
 
 ---
 
@@ -20,7 +20,7 @@
 
 ### Core (Open Source)
 
-## Core Features (50)
+## Core Features (60)
 
 ### Authentication & Access
 
@@ -127,6 +127,35 @@
 | # | Feature | Description | Status |
 | --- | ------- | ----------- | ------ |
 | 51 | Price Levels | Wholesale pricing tiers with configurable discount percentages; CRUD managed in Core Admin (`/api/v1/price-levels`); customer assignment is a PRO feature | ✅ Complete |
+
+### Manufacturing — Scheduling & Quality (v4.0.0)
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 52 | Print Cost Estimation | Auto-estimates material and labor cost on PO creation using work center rates; shown in PO modal with estimated/actual breakdown | ✅ Complete |
+| 53 | Material-Printer Compatibility Validation | Validates filament material type and diameter against printer nozzle and platform specs before scheduling; suggests compatible alternatives | ✅ Complete |
+| 54 | Scheduling Sequence Enforcement | Operations must be scheduled in sequence order; attempting to schedule out of order returns a validation error with next-available slot suggestion | ✅ Complete |
+| 55 | Scheduling Conflict Slot Suggestion | When a requested time slot is taken, returns the next available slot on that work center | ✅ Complete |
+| 56 | Quality Dashboard | Inspection queue, pass/fail metrics, scrap analysis, and trend charts for QC managers | ✅ Complete |
+
+### Supply Chain (v4.0.0)
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 57 | Purchase Order PDF | Printable PO document with vendor info, line items, and totals; matches invoice/quote style | ✅ Complete |
+
+### UX & Navigation (v4.0.0)
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 58 | Breadcrumb Navigation | Contextual breadcrumb trail across all admin pages; clickable path segments with active-page suppression | ✅ Complete |
+| 59 | PO Cost Section in Modal | Estimated and actual cost breakdown (material + labor) displayed in the Production Order modal | ✅ Complete |
+
+### FilaFarm Integration (v4.0.0)
+
+| # | Feature | Description | Status |
+| --- | ------- | ----------- | ------ |
+| 60 | FilaFarm Admin Page | PRO-gated admin panel for FilaFarm printer farm management and automation settings | ✅ Complete |
 
 ---
 

@@ -2,9 +2,9 @@
 
 # FilaOps Database Schema Reference
 
-**Generated:** 2026-04-06
-**Source:** FilaOps Core v3.7.0
-**Total Models:** 64 (Core only)
+**Generated:** 2026-04-14
+**Source:** FilaOps Core v4.0.0
+**Total Models:** 65 (Core only)
 **Purpose:** AI knowledge source for codebase understanding
 
 > This is the **Core (Open Source)** schema reference.
@@ -25,7 +25,7 @@
 10. [UOM Models](#uom-models) (1 model)
 11. [Accounting Models](#accounting-models) (4 models)
 12. [Tax Models](#tax-models) (1 model)
-13. [Reference Data Models](#reference-data-models) (9 models)
+13. [Reference Data Models](#reference-data-models) (10 models)
 
 ---
 
@@ -1148,7 +1148,7 @@
 
 ### Color
 
-**Table:** `colors` | **Tier:** Core | **File:** `material.py:74`
+**Table:** `colors` | **Tier:** Core | **File:** `material.py:75`
 
 | Column | Type | Constraints | Description |
 | ------ | ---- | ----------- | ----------- |
@@ -1197,7 +1197,7 @@
 
 ### MaterialColor
 
-**Table:** `material_colors` | **Tier:** Core | **File:** `material.py:112`
+**Table:** `material_colors` | **Tier:** Core | **File:** `material.py:113`
 
 | Column | Type | Constraints | Description |
 | ------ | ---- | ----------- | ----------- |
@@ -1217,7 +1217,7 @@
 
 ### MaterialInventory
 
-**Table:** `material_inventory` | **Tier:** Core | **File:** `material.py:148`
+**Table:** `material_inventory` | **Tier:** Core | **File:** `material.py:149`
 
 | Column | Type | Constraints | Description |
 | ------ | ---- | ----------- | ----------- |
@@ -1331,6 +1331,7 @@
 | bed_temp_min | Integer |  | Bed temp min |
 | bed_temp_max | Integer |  | Bed temp max |
 | requires_enclosure | Boolean | DEFAULT False | Requires enclosure |
+| filament_diameter | Numeric(4, 2) | NOT NULL, DEFAULT 1.75, DEFAULT '1.75' | Filament diameter |
 | base_price_per_kg | Numeric(10, 2) | NOT NULL | Base price per kg |
 | price_multiplier | Numeric(4, 2) | DEFAULT 1.0 | Price multiplier |
 | description | Text |  | Description text |
@@ -1991,6 +1992,22 @@
 
 ---
 
+### PriceLevel
+
+**Table:** `price_levels` | **Tier:** Core | **File:** `price_level.py:14`
+
+| Column | Type | Constraints | Description |
+| ------ | ---- | ----------- | ----------- |
+| id | Integer | PK | Primary key |
+| name | String(100) | NOT NULL, UNIQUE | Display name |
+| discount_percent | Numeric(5, 2) | NOT NULL | Discount percent |
+| description | Text |  | Description text |
+| is_active | Boolean | DEFAULT True, NOT NULL | Active flag |
+| created_at | DateTime | DEFAULT utcnow, NOT NULL | Creation timestamp |
+| updated_at | DateTime | DEFAULT utcnow | Last update timestamp |
+
+---
+
 ### ProductionOrderMaterial
 
 **Table:** `production_order_materials` | **Tier:** Core | **File:** `production_order.py:288`
@@ -2060,5 +2077,5 @@
 | UOM Models | 1 | 1 |
 | Accounting Models | 4 | 4 |
 | Tax Models | 1 | 1 |
-| Reference Data Models | 9 | 9 |
-| **Total** | **64** | **64** |
+| Reference Data Models | 10 | 10 |
+| **Total** | **65** | **65** |

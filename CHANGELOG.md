@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-04-14
+
+### Added
+
+- **Quality Dashboard** — inspection queue, pass/fail metrics by product/inspector, scrap analysis, and trend charts for QC managers (#525)
+- **Print Cost Estimation Engine** — auto-estimates material and labor cost on PO creation using work center rates (machine + labor + overhead); estimated/actual breakdown visible in the PO modal (#521, #539)
+- **Material-Printer Compatibility Validation** — validates filament material type and diameter against printer nozzle and platform specs before scheduling; suggests compatible alternatives on mismatch (#522)
+- **Scheduling Sequence Enforcement** — operations must be scheduled in sequence order; out-of-order attempts return a validation error with the next-available slot suggestion (#526)
+- **Purchase Order PDF** — printable PO document with vendor info, line items, and totals; matches invoice/quote visual style (#523)
+- **Breadcrumb Navigation** — contextual breadcrumb trail across all admin pages with clickable path segments (#524)
+- **FilaFarm Admin Page** — PRO-gated admin panel for FilaFarm printer farm management and automation settings (#518, #520)
+- **Silent Token Refresh** — 401 responses trigger background token refresh without interrupting in-progress form work (#517)
+
+### Fixed
+
+- Production order modal rendered its content block twice due to rebase conflict residue — removed duplicate 119-line section (#539)
+- Cost estimation silently skipped on new POs — `db.flush()` now called before relationship access so operations are populated at estimation time (#539)
+- `ProductionOrderListResponse` did not include cost fields — modal received a lean list object with no cost data; fields added to list schema and `build_list_response` (#539)
+- FilaFarm API response shape — extract printers/jobs arrays from nested response object (#520)
+
+### Documentation
+
+- Regenerated API-REFERENCE.md (444 endpoints across 49 files), SCHEMA-REFERENCE.md (65 models), MIGRATIONS-LOG.md (62 migrations)
+- Updated FEATURE-CATALOG.md: 51 → 60 features
+
 ## [3.7.1] - 2026-04-07
 
 ### Fixed
