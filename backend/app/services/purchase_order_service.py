@@ -1189,7 +1189,8 @@ def generate_po_pdf(
 
     s_doc_label = ParagraphStyle(
         'POLabel', parent=s_normal,
-        fontSize=28, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=2,
+        fontSize=24, fontName='Helvetica-Bold', textColor=BRAND_DARK, spaceAfter=2,
+        alignment=TA_RIGHT, leading=28,
     )
     s_section = ParagraphStyle(
         'POSection', parent=s_normal,
@@ -1312,7 +1313,7 @@ def generate_po_pdf(
 
     header_table = Table(
         [[left_header, right_header]],
-        colWidths=[page_width * 0.55, page_width * 0.45],
+        colWidths=[page_width * 0.4, page_width * 0.6],
     )
     header_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
