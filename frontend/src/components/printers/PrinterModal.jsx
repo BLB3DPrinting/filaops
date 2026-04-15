@@ -7,10 +7,16 @@ import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 import Modal from "../Modal";
-import { brandLabels } from "./constants";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
+import { brandLabels, CORE_BRANDS } from "./constants";
 
 export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
   const toast = useToast();
+  const { isPro, hasFeature } = useFeatureFlags();
+  // Multi-brand (Klipper, OctoPrint, Prusa, Creality) is a PRO feature.
+  // Core tier can still view/edit existing non-Core brands if they're
+  // already on a printer record, but the dropdown flags them as locked.
+  const canAddMultiBrand = isPro && hasFeature("filafarm");
   const [loading, setLoading] = useState(false);
   const [workCenters, setWorkCenters] = useState([]);
   const [form, setForm] = useState({
@@ -135,18 +141,42 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
       </div>
 
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Brand */}
+          {/* Brand — non-Core brands gated behind PRO+filafarm */}
           <div>
             <label className="block text-sm text-gray-300 mb-1">Brand</label>
             <select
               value={form.brand}
-              onChange={(e) => setForm({ ...form, brand: e.target.value, model: "" })}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (!canAddMultiBrand && !CORE_BRANDS.has(next) && next !== printer?.brand) {
+                  toast.info("Multi-brand support is a PRO feature. Upgrade to add Klipper, OctoPrint, Prusa, or Creality printers.");
+                  return;
+                }
+                setForm({ ...form, brand: next, model: "" });
+              }}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {Object.entries(brandLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
+              {Object.entries(brandLabels).map(([value, label]) => {
+                const locked = !canAddMultiBrand && !CORE_BRANDS.has(value);
+                // Keep a locked brand selectable only if the printer is already that brand
+                // (edit mode), so existing records don't silently lose their brand.
+                const allowInEditMode = printer?.brand === value;
+                return (
+                  <option
+                    key={value}
+                    value={value}
+                    disabled={locked && !allowInEditMode}
+                  >
+                    {label}{locked ? "  🔒  PRO" : ""}
+                  </option>
+                );
+              })}
             </select>
+            {!canAddMultiBrand && (
+              <p className="text-xs text-gray-500 mt-1">
+                Core supports Bambu Lab + Generic. Upgrade to PRO to add Klipper, OctoPrint, Prusa, and Creality.
+              </p>
+            )}
           </div>
 
           {/* Model */}
