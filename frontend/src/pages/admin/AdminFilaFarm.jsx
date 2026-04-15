@@ -540,6 +540,12 @@ function PrinterModal({ printer, onClose, onSave }) {
         }
       : { ...EMPTY_FORM }
   );
+  const [customModelText, setCustomModelText] = useState(
+    // If editing a printer whose model isn't in the brand list, pre-fill custom
+    printer && !BRANDS.find((b) => b.value === (printer.brand || "bambulab"))?.models.includes(printer.model || "")
+      ? printer.model || ""
+      : ""
+  );
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -547,7 +553,7 @@ function PrinterModal({ printer, onClose, onSave }) {
   const setField = (key, val) => setFormState((p) => ({ ...p, [key]: val }));
 
   const handleBrandChange = (brand) => {
-    setFormState((p) => ({ ...p, brand, model: "", connection_config: {} }));
+    setFormState((p) => ({ ...p, brand, model: "", serial_number: "", connection_config: {} }));
     setTestResult(null);
   };
 
@@ -563,11 +569,13 @@ function PrinterModal({ printer, onClose, onSave }) {
 
   const validate = () => {
     if (!form.name.trim()) return "Printer name is required";
-    if (!form.model.trim() || form.model === "__custom") return "Select or enter a model";
+    if (!resolvedModel.trim()) return "Select or enter a model";
     if (!form.ip_address.trim()) return "IP address is required";
     if (form.brand === "bambulab") {
       if (!form.serial_number.trim()) return "Serial number required for Bambu Lab";
-      if (!form.connection_config?.access_code?.trim()) return "Access code required for Bambu Lab";
+      const ac = form.connection_config?.access_code?.trim() || "";
+      if (!ac) return "Access code required for Bambu Lab";
+      if (ac.length !== 8) return "Access code must be exactly 8 characters";
     }
     if (form.brand === "octoprint" && !form.connection_config?.api_key?.trim()) return "API key required for OctoPrint";
     if (form.brand === "prusa" && !form.connection_config?.password?.trim()) return "Password required for PrusaLink";
@@ -579,14 +587,20 @@ function PrinterModal({ printer, onClose, onSave }) {
     if (err) { toast.error(err); return; }
     setSaving(true);
     try {
+      // Merge brand-specific defaults so backend always receives expected keys
+      const brandDefaults =
+        form.brand === "klipper"   ? { port: 7125, api_path: "/printer/info" } :
+        form.brand === "octoprint" ? { port: 5000 } :
+        form.brand === "prusa"     ? { port: 8080, username: "maker" } :
+        {};
       const payload = {
         brand: form.brand,
         name: form.name.trim(),
-        model: form.model.trim(),
+        model: resolvedModel.trim(),
         ip_address: form.ip_address.trim(),
         serial_number: form.serial_number.trim() || null,
         location: form.location.trim() || null,
-        connection_config: form.connection_config || {},
+        connection_config: { ...brandDefaults, ...(form.connection_config || {}) },
       };
       if (isEdit) {
         await api.put(`/api/v1/pro/filafarm/printers/${printer.id}`, payload);
@@ -603,27 +617,41 @@ function PrinterModal({ printer, onClose, onSave }) {
 
   const brandMeta = BRANDS.find((b) => b.value === form.brand);
   const isCustomModel = form.model === "__custom";
+  // Resolved model: use customModelText when the sentinel is selected
+  const resolvedModel = isCustomModel ? customModelText : form.model;
+
+  const modalTitleId = isEdit ? "edit-printer-title" : "add-printer-title";
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 50, padding: 16,
-    }}>
-      <div style={{
-        background: T.surface,
-        border: `1px solid ${T.border}`,
-        borderTop: `2px solid ${T.amber}`,
-        borderRadius: 10,
-        width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto",
-      }}>
+    <div
+      role="presentation"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 50, padding: 16,
+      }}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={modalTitleId}
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderTop: `2px solid ${T.amber}`,
+          borderRadius: 10,
+          width: "100%", maxWidth: 500, maxHeight: "90vh", overflowY: "auto",
+        }}
+      >
         {/* Header */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "16px 20px", borderBottom: `1px solid ${T.border}`,
         }}>
           <div>
-            <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: T.textPrimary }}>
+            <div id={modalTitleId} style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: T.textPrimary }}>
               {isEdit ? "EDIT PRINTER" : "ADD PRINTER"}
             </div>
             {!isEdit && (
@@ -684,7 +712,12 @@ function PrinterModal({ printer, onClose, onSave }) {
             )}
             {isCustomModel && (
               <div style={{ marginTop: 6 }}>
-                <TextInput value="" onChange={(e) => setField("model", e.target.value)} placeholder="Enter model name" />
+                <TextInput
+                  value={customModelText}
+                  onChange={(e) => setCustomModelText(e.target.value)}
+                  placeholder="Enter model name"
+                  autoFocus
+                />
               </div>
             )}
           </div>
@@ -776,18 +809,27 @@ function PrinterModal({ printer, onClose, onSave }) {
 
 function RemoveConfirm({ printer, onConfirm, onCancel }) {
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 50, padding: 16,
-    }}>
-      <div style={{
-        background: T.surface,
-        border: `1px solid ${T.border}`,
-        borderTop: `2px solid ${T.red}`,
-        borderRadius: 10, width: "100%", maxWidth: 380, padding: "24px",
-      }}>
-        <div style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 16, letterSpacing: "0.06em", color: T.textPrimary, marginBottom: 10 }}>
+    <div
+      role="presentation"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 50, padding: 16,
+      }}
+      onKeyDown={(e) => e.key === "Escape" && onCancel()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="remove-printer-title"
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderTop: `2px solid ${T.red}`,
+          borderRadius: 10, width: "100%", maxWidth: 380, padding: "24px",
+        }}
+      >
+        <div id="remove-printer-title" style={{ fontFamily: T.fontDisplay, fontWeight: 700, fontSize: 16, letterSpacing: "0.06em", color: T.textPrimary, marginBottom: 10 }}>
           REMOVE PRINTER
         </div>
         <p style={{ fontFamily: T.fontMono, fontSize: 12, color: T.textSecondary, lineHeight: 1.6, marginBottom: 20 }}>
