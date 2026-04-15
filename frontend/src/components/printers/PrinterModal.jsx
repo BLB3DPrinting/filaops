@@ -25,6 +25,7 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
     work_center_id: printer?.work_center_id || "",
     notes: printer?.notes || "",
     active: printer?.active !== false,
+    filament_diameters: printer?.capabilities?.filament_diameters || [],
   });
 
   const isEdit = !!printer;
@@ -61,10 +62,15 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
         : `${API_URL}/api/v1/printers`;
 
       // Build payload with connection_config for brand-specific settings
-      const { access_code, ...rest } = form;
+      const { access_code, filament_diameters, ...rest } = form;
+      const capabilities = { ...(printer?.capabilities || {}) };
+      if (filament_diameters.length > 0) {
+        capabilities.filament_diameters = filament_diameters;
+      }
       const payload = {
         ...rest,
         connection_config: access_code ? { access_code } : {},
+        capabilities,
       };
 
       const res = await fetch(url, {
@@ -88,6 +94,15 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleDiameter = (d) => {
+    setForm((f) => ({
+      ...f,
+      filament_diameters: f.filament_diameters.includes(d)
+        ? f.filament_diameters.filter((x) => x !== d)
+        : [...f.filament_diameters, d],
+    }));
   };
 
   const generateCode = async () => {
@@ -264,6 +279,24 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
                 <option key={wc.id} value={wc.id}>{wc.name}</option>
               ))}
             </select>
+          </div>
+
+          {/* Supported Filament Diameters */}
+          <div>
+            <label className="block text-sm text-gray-300 mb-2">Supported Diameters</label>
+            <div className="flex gap-6">
+              {[1.75, 2.85].map((d) => (
+                <label key={d} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.filament_diameters.includes(d)}
+                    onChange={() => toggleDiameter(d)}
+                    className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">{d} mm</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Notes */}

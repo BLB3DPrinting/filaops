@@ -4,7 +4,7 @@ Material API Endpoints
 Provides material type and color options for the quote portal.
 Uses material_service for business logic (ARCHITECT-003).
 """
-from typing import List
+from typing import List, Literal
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, contains_eager
@@ -110,6 +110,12 @@ class MaterialTypeItem(BaseModel):
     price_multiplier: float
     strength_rating: int | None
     requires_enclosure: bool
+    filament_diameter: float = 1.75
+
+
+class MaterialTypePatch(BaseModel):
+    """Payload for PATCH /types/{code}"""
+    filament_diameter: Literal[1.75, 2.85]
 
 
 class MaterialTypesResponse(BaseModel):
@@ -218,12 +224,45 @@ def list_material_types(
                     "price_multiplier": float(m.price_multiplier),
                     "strength_rating": m.strength_rating,
                     "requires_enclosure": m.requires_enclosure,
+                    "filament_diameter": float(m.filament_diameter),
                 }
                 for m in materials
             ]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/types/{material_type_code}", response_model=MaterialTypeItem)
+def update_material_type(
+    material_type_code: str,
+    body: MaterialTypePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MaterialTypeItem:
+    """Update a material type's attributes (admin only). Currently supports filament_diameter."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from app.models.material import MaterialType
+    mt = db.query(MaterialType).filter(MaterialType.code == material_type_code).first()
+    if not mt:
+        raise HTTPException(status_code=404, detail=f"Material type not found: {material_type_code}")
+
+    mt.filament_diameter = body.filament_diameter
+    db.commit()
+    db.refresh(mt)
+
+    return MaterialTypeItem(
+        code=mt.code,
+        name=mt.name,
+        base_material=mt.base_material,
+        description=mt.description,
+        price_multiplier=float(mt.price_multiplier),
+        strength_rating=mt.strength_rating,
+        requires_enclosure=mt.requires_enclosure,
+        filament_diameter=float(mt.filament_diameter),
+    )
 
 
 @router.get("/types/{material_type_code}/colors", response_model=ColorsResponse)
