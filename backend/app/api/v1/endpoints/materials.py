@@ -4,7 +4,7 @@ Material API Endpoints
 Provides material type and color options for the quote portal.
 Uses material_service for business logic (ARCHITECT-003).
 """
-from typing import List
+from typing import List, Literal
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, contains_eager
@@ -115,7 +115,7 @@ class MaterialTypeItem(BaseModel):
 
 class MaterialTypePatch(BaseModel):
     """Payload for PATCH /types/{code}"""
-    filament_diameter: float
+    filament_diameter: Literal[1.75, 2.85]
 
 
 class MaterialTypesResponse(BaseModel):

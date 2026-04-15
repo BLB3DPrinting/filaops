@@ -63,13 +63,14 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo }) {
 
       // Build payload with connection_config for brand-specific settings
       const { access_code, filament_diameters, ...rest } = form;
+      const capabilities = { ...(printer?.capabilities || {}) };
+      if (filament_diameters.length > 0) {
+        capabilities.filament_diameters = filament_diameters;
+      }
       const payload = {
         ...rest,
         connection_config: access_code ? { access_code } : {},
-        capabilities: {
-          ...(printer?.capabilities || {}),
-          filament_diameters,
-        },
+        capabilities,
       };
 
       const res = await fetch(url, {
