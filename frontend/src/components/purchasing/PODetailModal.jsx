@@ -6,6 +6,7 @@ import POActivityTimeline from "../POActivityTimeline";
 import DocumentUploadPanel from "./DocumentUploadPanel";
 import { statusColors } from "./constants";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
+import { API_URL } from "../../config/api";
 
 export default function PODetailModal({
   po,
@@ -274,6 +275,14 @@ export default function PODetailModal({
                 </button>
               )}
             </div>
+            <a
+              href={`${API_URL}/api/v1/purchase-orders/${po.id}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300 text-sm"
+            >
+              Download PDF
+            </a>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-300"

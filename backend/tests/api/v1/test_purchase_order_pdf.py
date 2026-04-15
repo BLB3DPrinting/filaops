@@ -5,11 +5,27 @@ Covers:
 - GET /api/v1/purchase-orders/{id}/pdf (endpoint)
 - generate_po_pdf() service function
 """
+import io
 import pytest
 from decimal import Decimal
 from datetime import date
 
 from app.models.purchase_order import PurchaseOrderLine
+
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    pdfplumber = None
+    HAS_PDFPLUMBER = False
+
+
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract all text from a PDF using pdfplumber."""
+    if pdfplumber is None:
+        raise RuntimeError("pdfplumber is required to extract PDF text in tests")
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
 
 BASE_URL = "/api/v1/purchase-orders"
@@ -184,3 +200,51 @@ class TestGeneratePoPdf:
         result = generate_po_pdf(db, po.id)
         assert isinstance(result, io.BytesIO)
         assert result.read(5) == b"%PDF-"
+
+
+# =============================================================================
+# Content tests — assert text rendered in the PDF
+# =============================================================================
+
+@pytest.mark.skipif(not HAS_PDFPLUMBER, reason="pdfplumber not installed")
+class TestGeneratePoPdfContent:
+    """Assert that specific text appears in the rendered PDF."""
+
+    def test_vendor_name_in_pdf(self, client, db, make_vendor, make_product, make_purchase_order):
+        po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
+        response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
+        text = _extract_pdf_text(response.content)
+        assert "Acme Supplies" in text
+
+    def test_purchase_unit_column_in_pdf(self, client, db, make_vendor, make_product, make_purchase_order):
+        """PURCHASE UNIT column header and line value should appear in the PDF."""
+        po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
+        response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
+        text = _extract_pdf_text(response.content)
+        assert "PURCHASE UNIT" in text
+        # line2 has purchase_unit="KG"
+        assert "KG" in text
+
+    def test_totals_in_pdf(self, client, db, make_vendor, make_product, make_purchase_order):
+        """Subtotal and total amounts should appear in the PDF."""
+        po = _create_po_with_lines(db, make_vendor, make_product, make_purchase_order)
+        response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
+        text = _extract_pdf_text(response.content)
+        assert "200.00" in text   # subtotal
+        assert "226.00" in text   # total
+
+    def test_multiline_notes_paginate(self, client, db, make_vendor, make_product, make_purchase_order):
+        """Long multi-line notes should appear in the PDF without crashing."""
+        long_notes = "\n".join(f"Note line {i}: please handle with care." for i in range(1, 30))
+        po = _create_po_with_lines(
+            db, make_vendor, make_product, make_purchase_order,
+            notes=long_notes,
+        )
+        response = client.get(f"{BASE_URL}/{po.id}/pdf")
+        assert response.status_code == 200
+        text = _extract_pdf_text(response.content)
+        assert "Note line 1" in text
+        assert "Note line 29" in text
