@@ -1143,7 +1143,7 @@ def generate_po_pdf(
     from reportlab.lib.enums import TA_RIGHT, TA_CENTER
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
-        HRFlowable, KeepTogether,
+        HRFlowable,
     )
 
     if po is None:
@@ -1376,18 +1376,21 @@ def generate_po_pdf(
         Paragraph('#', th),
         Paragraph('PRODUCT', th),
         Paragraph('SKU', th),
+        Paragraph('PURCHASE UNIT', th),
         Paragraph('QTY ORDERED', th_right),
         Paragraph('QTY RECEIVED', th_right),
-        Paragraph('UNIT', th),
         Paragraph('UNIT COST', th_right),
         Paragraph('TOTAL', th_right),
     ]]
 
+    def _fmt_qty(qty_decimal) -> str:
+        """Format a quantity Decimal, stripping unnecessary trailing zeros."""
+        value = Decimal(str(qty_decimal or 0)).quantize(Decimal("0.0001"))
+        # Remove trailing zeros after decimal point
+        normalized = value.normalize()
+        return f"{normalized:,}"
+
     for line in lines:
-        qty_ord = float(line.quantity_ordered or 0)
-        qty_ord_str = str(int(qty_ord)) if qty_ord == int(qty_ord) else f"{qty_ord:g}"
-        qty_rec = float(line.quantity_received or 0)
-        qty_rec_str = str(int(qty_rec)) if qty_rec == int(qty_rec) else f"{qty_rec:g}"
         unit_str = esc(line.purchase_unit) if line.purchase_unit else "ea"
         product_name = line.product.name if line.product else "—"
         product_sku = line.product.sku if line.product else "—"
@@ -1395,14 +1398,14 @@ def generate_po_pdf(
             Paragraph(str(line.line_number), td_muted),
             Paragraph(esc(product_name), td),
             Paragraph(esc(product_sku), td_muted),
-            Paragraph(qty_ord_str, td_right),
-            Paragraph(qty_rec_str, td_right),
             Paragraph(unit_str, td_muted),
+            Paragraph(_fmt_qty(line.quantity_ordered), td_right),
+            Paragraph(_fmt_qty(line.quantity_received), td_right),
             Paragraph(_fmt(line.unit_cost), td_right),
             Paragraph(_fmt(line.line_total), td_bold_right),
         ])
 
-    col_widths = [0.3 * inch, 1.6 * inch, 0.8 * inch, 0.75 * inch, 0.75 * inch, 0.5 * inch, 0.75 * inch, 0.75 * inch]
+    col_widths = [0.3 * inch, 1.5 * inch, 0.75 * inch, 0.75 * inch, 0.7 * inch, 0.7 * inch, 0.75 * inch, 0.75 * inch]
     items_table = Table(table_data, colWidths=col_widths)
     ts = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8fafc')),
@@ -1472,13 +1475,12 @@ def generate_po_pdf(
     # NOTES (if present)
     # ================================================================
     if po.notes:
-        content.append(KeepTogether([
-            HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER),
-            Spacer(1, 0.1 * inch),
-            Paragraph("NOTES", s_section),
-            Paragraph(esc(po.notes), s_notes_box),
-            Spacer(1, 0.2 * inch),
-        ]))
+        notes_html = esc(po.notes).replace("\n", "<br/>")
+        content.append(HRFlowable(width="100%", thickness=0.5, color=BRAND_BORDER))
+        content.append(Spacer(1, 0.1 * inch))
+        content.append(Paragraph("NOTES", s_section))
+        content.append(Paragraph(notes_html, s_notes_box))
+        content.append(Spacer(1, 0.2 * inch))
 
     # ================================================================
     # FOOTER
