@@ -5,7 +5,6 @@
 export const NON_NAVIGABLE_PATHS = new Set([
   "/admin/inventory",
   "/admin/materials",
-  "/admin/quality",
 ]);
 
 /**
