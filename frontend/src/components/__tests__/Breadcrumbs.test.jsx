@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect } from "vitest";
-import Breadcrumbs, { buildBreadcrumbs, ROUTE_LABELS, NON_NAVIGABLE_PATHS } from "../Breadcrumbs";
+import Breadcrumbs from "../Breadcrumbs";
+import { buildBreadcrumbs, ROUTE_LABELS, NON_NAVIGABLE_PATHS } from "../breadcrumbs.utils";
 
 function renderAtPath(path) {
   return render(
@@ -105,6 +106,15 @@ describe("Breadcrumbs component", () => {
     expect(screen.getByText("Inventory")).toBeInTheDocument();
     expect(screen.getByText("Inventory").closest("a")).toBeNull();
     expect(screen.getByText("Cycle Count")).toBeInTheDocument();
+  });
+
+  it("renders /admin/materials as non-navigable plain text", () => {
+    renderAtPath("/admin/materials/import");
+    // Dashboard link + Import Materials (text), but Materials is non-navigable (plain text)
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1); // Only Dashboard link
+    expect(screen.getByText("Materials")).toBeInTheDocument();
+    expect(screen.getByText("Materials").closest("a")).toBeNull();
   });
 
   it("renders navigable intermediate crumbs as links", () => {
