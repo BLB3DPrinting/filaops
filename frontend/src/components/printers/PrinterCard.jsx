@@ -7,11 +7,12 @@
  * data from fetchPrinters() (Core + PRO telemetry overlay).
  *
  * Props:
- *   printer   — Merged printer object (Core fields + PRO telemetry when available)
- *   onEdit    — (printer) => void
- *   onCommand — (printerId, command) => void | undefined (PRO fleet control)
- *   onTest    — (printer) => void
- *   testing   — boolean (is this printer currently being connection-tested)
+ *   printer        — Merged printer object (Core fields + PRO telemetry when available)
+ *   onEdit         — (printer) => void
+ *   onCommand      — (printerId, command) => void | undefined (PRO fleet control)
+ *   onTest         — (printer) => void
+ *   testing        — boolean (is this printer currently being connection-tested)
+ *   commandPending — boolean (is a fleet command currently in-flight for this printer)
  */
 import { brandLabels } from "./constants";
 
@@ -72,6 +73,7 @@ export default function PrinterCard({
   onCommand,
   onTest,
   testing,
+  commandPending,
 }) {
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
@@ -80,16 +82,33 @@ export default function PrinterCard({
   const eta = fmtEta(printer.remaining_minutes ?? printer.mc_remaining_time);
   const ams = getActiveAmsSlot(printer.ams_slots);
 
-  // Build contextual actions based on printer state
+  // Build contextual actions based on printer state.
+  // While a command is in-flight for this printer, disable pause/resume/cancel
+  // so a double-click can't fire duplicate requests.
   const actions = [];
   if (isPrinting && onCommand) {
-    actions.push({ label: "Pause", primary: true, onClick: () => onCommand(printer.id, "pause") });
+    actions.push({
+      label: "Pause",
+      primary: true,
+      onClick: () => onCommand(printer.id, "pause"),
+      disabled: commandPending,
+    });
   }
   if (status === "paused" && onCommand) {
-    actions.push({ label: "Resume", primary: true, onClick: () => onCommand(printer.id, "resume") });
+    actions.push({
+      label: "Resume",
+      primary: true,
+      onClick: () => onCommand(printer.id, "resume"),
+      disabled: commandPending,
+    });
   }
   if (isActive && onCommand) {
-    actions.push({ label: "Cancel", primary: false, onClick: () => onCommand(printer.id, "cancel") });
+    actions.push({
+      label: "Cancel",
+      primary: false,
+      onClick: () => onCommand(printer.id, "cancel"),
+      disabled: commandPending,
+    });
   }
   if (status === "offline") {
     // Disable Test when printer has no IP — there's nothing to probe.
@@ -223,20 +242,26 @@ export default function PrinterCard({
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-800 pt-4">
         <div className="text-sm text-slate-500">{heartbeat}</div>
         <div className="flex gap-2">
-          {actions.map((action) => (
-            <button
-              key={action.label}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                action.primary
-                  ? "bg-white text-slate-950 hover:bg-slate-200 disabled:opacity-50"
-                  : "border border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600 hover:bg-slate-800"
-              }`}
-            >
-              {action.disabled ? "Testing..." : action.label}
-            </button>
-          ))}
+          {actions.map((action) => {
+            // Only the Test action uses a "Testing..." busy label; fleet commands
+            // stay labeled and just go disabled while in-flight.
+            const busyLabel = action.label === "Test" && action.disabled ? "Testing..." : action.label;
+            return (
+              <button
+                key={action.label}
+                onClick={action.onClick}
+                disabled={action.disabled}
+                title={action.title}
+                className={`rounded-xl px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  action.primary
+                    ? "bg-white text-slate-950 hover:bg-slate-200"
+                    : "border border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600 hover:bg-slate-800"
+                }`}
+              >
+                {busyLabel}
+              </button>
+            );
+          })}
         </div>
       </div>
     </article>

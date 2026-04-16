@@ -60,6 +60,10 @@ export default function AdminPrinters() {
   // Connection testing state
   const [testingConnection, setTestingConnection] = useState(null); // printer id being tested
 
+  // Per-printer fleet-command in-flight set (pause/resume/cancel).
+  // Prevents double-firing when a user double-clicks a card action.
+  const [pendingCommands, setPendingCommands] = useState(() => new Set());
+
   // Active work tracking
   const [activeWork, setActiveWork] = useState({}); // printer_id -> work info
 
@@ -290,6 +294,13 @@ export default function AdminPrinters() {
   };
 
   const handleCommand = async (printerId, command) => {
+    // Guard against double-firing when a user double-clicks a card action.
+    if (pendingCommands.has(printerId)) return;
+    setPendingCommands((prev) => {
+      const next = new Set(prev);
+      next.add(printerId);
+      return next;
+    });
     try {
       await api.post(`/api/v1/pro/filafarm/printers/${printerId}/command`, { command });
       toast.success(`${command} sent`);
@@ -297,6 +308,12 @@ export default function AdminPrinters() {
       setTimeout(() => fetchPrinters({ silent: true }), 1000);
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setPendingCommands((prev) => {
+        const next = new Set(prev);
+        next.delete(printerId);
+        return next;
+      });
     }
   };
 
@@ -520,15 +537,22 @@ export default function AdminPrinters() {
             // summary stats, contextual actions, and gradient accents.
             <div className="space-y-6">
               {/* Summary stats bar */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                {[
+              {(() => {
+                // Normalize once — matches the PrinterCard normalization so
+                // summary counts stay in sync with what the cards render.
+                const normStatus = (p) => (p.status || "offline").toLowerCase();
+                const countBy = (s) => printers.filter((p) => normStatus(p) === s).length;
+                const tiles = [
                   { label: "Total", value: printers.length },
-                  { label: "Printing", value: printers.filter((p) => p.status === "printing").length },
-                  { label: "Idle", value: printers.filter((p) => p.status === "idle").length },
-                  { label: "Offline", value: printers.filter((p) => p.status === "offline").length },
-                  { label: "Errors", value: printers.filter((p) => p.status === "error").length },
-                  { label: "Maintenance", value: printers.filter((p) => p.status === "maintenance").length },
-                ].map((stat) => (
+                  { label: "Printing", value: countBy("printing") },
+                  { label: "Idle", value: countBy("idle") },
+                  { label: "Offline", value: countBy("offline") },
+                  { label: "Errors", value: countBy("error") },
+                  { label: "Maintenance", value: countBy("maintenance") },
+                ];
+                return (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                {tiles.map((stat) => (
                   <div
                     key={stat.label}
                     className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4 shadow-2xl shadow-black/20"
@@ -542,6 +566,8 @@ export default function AdminPrinters() {
                   </div>
                 ))}
               </div>
+                );
+              })()}
 
               {/* Printer cards grid */}
               <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
@@ -556,6 +582,7 @@ export default function AdminPrinters() {
                     onCommand={handleCommand}
                     onTest={handleTestConnection}
                     testing={testingConnection === printer.id}
+                    commandPending={pendingCommands.has(printer.id)}
                   />
                 ))}
               </div>
