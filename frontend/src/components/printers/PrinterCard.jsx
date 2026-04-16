@@ -44,8 +44,11 @@ function fmtTemp(value) {
 
 function fmtEta(minutes) {
   if (minutes == null || minutes <= 0) return null;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  // Round first so fractional telemetry doesn't render as "1h 30.5m".
+  // Integer division naturally carries a rounded-up 60 into the hour column.
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
@@ -243,9 +246,9 @@ export default function PrinterCard({
         <div className="text-sm text-slate-500">{heartbeat}</div>
         <div className="flex gap-2">
           {actions.map((action) => {
-            // Only the Test action uses a "Testing..." busy label; fleet commands
-            // stay labeled and just go disabled while in-flight.
-            const busyLabel = action.label === "Test" && action.disabled ? "Testing..." : action.label;
+            // "Testing..." busy label only when actually probing — a Test button
+            // disabled because IP is missing should still read "Test".
+            const busyLabel = action.label === "Test" && testing ? "Testing..." : action.label;
             return (
               <button
                 key={action.label}

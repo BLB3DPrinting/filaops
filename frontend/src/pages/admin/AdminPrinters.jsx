@@ -365,6 +365,19 @@ export default function AdminPrinters() {
   // Render
   // ============================================================================
 
+  // Summary tile counts for the PRO fleet dashboard. Normalization matches the
+  // status derivation in PrinterCard so tile counts stay in sync with cards.
+  const normStatus = (p) => (p.status || "offline").toLowerCase();
+  const countByStatus = (s) => printers.filter((p) => normStatus(p) === s).length;
+  const summaryTiles = [
+    { label: "Total", value: printers.length },
+    { label: "Printing", value: countByStatus("printing") },
+    { label: "Idle", value: countByStatus("idle") },
+    { label: "Offline", value: countByStatus("offline") },
+    { label: "Errors", value: countByStatus("error") },
+    { label: "Maintenance", value: countByStatus("maintenance") },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -537,22 +550,8 @@ export default function AdminPrinters() {
             // summary stats, contextual actions, and gradient accents.
             <div className="space-y-6">
               {/* Summary stats bar */}
-              {(() => {
-                // Normalize once — matches the PrinterCard normalization so
-                // summary counts stay in sync with what the cards render.
-                const normStatus = (p) => (p.status || "offline").toLowerCase();
-                const countBy = (s) => printers.filter((p) => normStatus(p) === s).length;
-                const tiles = [
-                  { label: "Total", value: printers.length },
-                  { label: "Printing", value: countBy("printing") },
-                  { label: "Idle", value: countBy("idle") },
-                  { label: "Offline", value: countBy("offline") },
-                  { label: "Errors", value: countBy("error") },
-                  { label: "Maintenance", value: countBy("maintenance") },
-                ];
-                return (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                {tiles.map((stat) => (
+                {summaryTiles.map((stat) => (
                   <div
                     key={stat.label}
                     className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4 shadow-2xl shadow-black/20"
@@ -566,8 +565,6 @@ export default function AdminPrinters() {
                   </div>
                 ))}
               </div>
-                );
-              })()}
 
               {/* Printer cards grid */}
               <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
