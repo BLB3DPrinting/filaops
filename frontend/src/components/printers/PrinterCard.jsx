@@ -92,7 +92,15 @@ export default function PrinterCard({
     actions.push({ label: "Cancel", primary: false, onClick: () => onCommand(printer.id, "cancel") });
   }
   if (status === "offline") {
-    actions.push({ label: "Test", primary: true, onClick: () => onTest?.(printer), disabled: testing });
+    // Disable Test when printer has no IP — there's nothing to probe.
+    const hasIp = Boolean(printer.ip_address);
+    actions.push({
+      label: "Test",
+      primary: true,
+      onClick: () => onTest?.(printer),
+      disabled: testing || !hasIp,
+      title: hasIp ? undefined : "Add an IP address to test this printer",
+    });
   }
   actions.push({ label: "Edit", primary: false, onClick: () => onEdit?.(printer) });
 
@@ -133,9 +141,10 @@ export default function PrinterCard({
         </span>
       </div>
 
-      {/* Job section */}
+      {/* Job section — active job UI is driven by status (printing/paused), not by
+          the presence of telemetry. Progress bar renders only when progress is reported. */}
       <div className="mb-5 rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-        {isActive && printer.progress != null ? (
+        {isActive ? (
           <>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -157,26 +166,28 @@ export default function PrinterCard({
                 </div>
               )}
             </div>
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span>Progress</span>
-                <span>{progress}%</span>
-              </div>
-              <div
-                className="h-2.5 rounded-full bg-slate-800"
-                role="progressbar"
-                aria-valuenow={progress}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
+            {printer.progress != null && (
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                  <span>Progress</span>
+                  <span>{progress}%</span>
+                </div>
                 <div
-                  className={`h-2.5 rounded-full transition-all duration-1000 ${
-                    PROGRESS_COLORS[status] || "bg-slate-500"
-                  }`}
-                  style={{ width: `${progress}%` }}
-                />
+                  className="h-2.5 rounded-full bg-slate-800"
+                  role="progressbar"
+                  aria-valuenow={progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className={`h-2.5 rounded-full transition-all duration-1000 ${
+                      PROGRESS_COLORS[status] || "bg-slate-500"
+                    }`}
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </>
         ) : (
           <>

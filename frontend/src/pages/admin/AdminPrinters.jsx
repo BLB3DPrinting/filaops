@@ -520,13 +520,14 @@ export default function AdminPrinters() {
             // summary stats, contextual actions, and gradient accents.
             <div className="space-y-6">
               {/* Summary stats bar */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
                 {[
                   { label: "Total", value: printers.length },
                   { label: "Printing", value: printers.filter((p) => p.status === "printing").length },
                   { label: "Idle", value: printers.filter((p) => p.status === "idle").length },
                   { label: "Offline", value: printers.filter((p) => p.status === "offline").length },
-                  { label: "Errors", value: printers.filter((p) => p.status === "error" || p.status === "maintenance").length },
+                  { label: "Errors", value: printers.filter((p) => p.status === "error").length },
+                  { label: "Maintenance", value: printers.filter((p) => p.status === "maintenance").length },
                 ].map((stat) => (
                   <div
                     key={stat.label}
