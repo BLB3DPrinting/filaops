@@ -133,11 +133,13 @@ export default function AdminPrinters() {
       if (canUseHud) {
         try {
           const proData = await api.get("/api/v1/pro/filafarm/printers");
+          // PRO endpoint returns id as string ("1"), Core returns number (1).
+          // Coerce both to string for reliable Map lookup.
           const proMap = new Map(
-            (proData.printers || []).map((p) => [p.id, p])
+            (proData.printers || []).map((p) => [String(p.id), p])
           );
           printerList = printerList.map((p) =>
-            proMap.has(p.id) ? { ...p, ...proMap.get(p.id) } : p
+            proMap.has(String(p.id)) ? { ...p, ...proMap.get(String(p.id)) } : p
           );
         } catch {
           // PRO endpoint unavailable (fleet not started, license issue,
@@ -507,8 +509,8 @@ export default function AdminPrinters() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                  gap: 12,
+                  gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))",
+                  gap: 20,
                 }}
               >
                 {printers.map((printer) => (
