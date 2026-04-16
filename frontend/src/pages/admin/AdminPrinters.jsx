@@ -93,6 +93,20 @@ export default function AdminPrinters() {
     }
   }, [canUseHud, viewMode]);
 
+  // Re-fetch printers when viewMode changes so switching to HUD
+  // immediately picks up live telemetry from the PRO endpoint.
+  // Also set up a 15-second polling interval in HUD mode for near-
+  // real-time telemetry updates (original AdminFilaFarm used 15s).
+  // Table mode relies on the existing 30s activeWork polling instead.
+  useEffect(() => {
+    if (activeTab !== "list") return;
+    fetchPrinters();
+    if (viewMode === "hud" && canUseHud) {
+      const hudInterval = setInterval(fetchPrinters, 15000);
+      return () => clearInterval(hudInterval);
+    }
+  }, [viewMode, canUseHud]);
+
   // ============================================================================
   // Data Fetching
   // ============================================================================
@@ -108,7 +122,30 @@ export default function AdminPrinters() {
       params.set("page_size", "100");
 
       const data = await api.get(`/api/v1/printers?${params}`);
-      setPrinters(data.items || []);
+      let printerList = data.items || [];
+
+      // When PRO + filafarm is active, enrich with live MQTT telemetry
+      // from BambuFleetManager. The PRO /filafarm/printers endpoint
+      // returns Bambu printers with nozzle_temp, bed_temp, progress,
+      // current_job, ams_slots. We merge by ID: PRO data overlays Core
+      // data for matching printers, so non-Bambu printers still appear
+      // in the HUD (they just show "--" for telemetry fields).
+      if (canUseHud) {
+        try {
+          const proData = await api.get("/api/v1/pro/filafarm/printers");
+          const proMap = new Map(
+            (proData.printers || []).map((p) => [p.id, p])
+          );
+          printerList = printerList.map((p) =>
+            proMap.has(p.id) ? { ...p, ...proMap.get(p.id) } : p
+          );
+        } catch {
+          // PRO endpoint unavailable (fleet not started, license issue,
+          // etc.) — degrade gracefully, HUD shows "--" for telemetry.
+        }
+      }
+
+      setPrinters(printerList);
     } catch (err) {
       setError(err.message);
     } finally {
