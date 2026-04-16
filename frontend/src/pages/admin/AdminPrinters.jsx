@@ -4,7 +4,7 @@
  * Sub-components extracted per ARCHITECT-002:
  *   PrinterModal, IPProbeSection, MaintenanceModal, constants
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
@@ -93,26 +93,36 @@ export default function AdminPrinters() {
     }
   }, [canUseHud, viewMode]);
 
-  // Re-fetch printers when viewMode changes so switching to HUD
-  // immediately picks up live telemetry from the PRO endpoint.
-  // Also set up a 15-second polling interval in HUD mode for near-
-  // real-time telemetry updates (original AdminFilaFarm used 15s).
-  // Table mode relies on the existing 30s activeWork polling instead.
+  // HUD-mode telemetry polling. Re-fetches when viewMode, canUseHud,
+  // or activeTab changes so:
+  //   - switching to HUD immediately picks up live telemetry
+  //   - switching tabs clears the interval (no leaked polling)
+  //   - losing PRO license stops the polling
+  // Uses a ref guard to skip the initial mount (the mount effect at
+  // line 67 already calls fetchPrinters, so this avoids a double fetch).
+  const hudEffectMounted = useRef(false);
   useEffect(() => {
+    if (!hudEffectMounted.current) {
+      hudEffectMounted.current = true;
+      return;
+    }
     if (activeTab !== "list") return;
     fetchPrinters();
     if (viewMode === "hud" && canUseHud) {
-      const hudInterval = setInterval(fetchPrinters, 15000);
+      const hudInterval = setInterval(() => fetchPrinters({ silent: true }), 15000);
       return () => clearInterval(hudInterval);
     }
-  }, [viewMode, canUseHud]);
+  }, [viewMode, canUseHud, activeTab]);
 
   // ============================================================================
   // Data Fetching
   // ============================================================================
 
-  const fetchPrinters = async () => {
-    setLoading(true);
+  const fetchPrinters = async ({ silent = false } = {}) => {
+    // Silent mode: skip loading state on background 15s polls so the UI
+    // doesn't flash "Loading printers..." every refresh cycle. Only the
+    // initial fetch and user-triggered refreshes show the loading state.
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filters.brand !== "all") params.set("brand", filters.brand);
@@ -124,34 +134,35 @@ export default function AdminPrinters() {
       const data = await api.get(`/api/v1/printers?${params}`);
       let printerList = data.items || [];
 
-      // When PRO + filafarm is active, enrich with live MQTT telemetry
-      // from BambuFleetManager. The PRO /filafarm/printers endpoint
-      // returns Bambu printers with nozzle_temp, bed_temp, progress,
-      // current_job, ams_slots. We merge by ID: PRO data overlays Core
-      // data for matching printers, so non-Bambu printers still appear
-      // in the HUD (they just show "--" for telemetry fields).
-      if (canUseHud) {
+      // Only overlay PRO telemetry when HUD mode is active. Table view
+      // doesn't need live temps/progress, so we skip the extra API call
+      // to avoid unnecessary requests and silent failures when the fleet
+      // isn't running. The overlay merges by string-coerced ID because
+      // Core returns numeric IDs and PRO returns string IDs.
+      if (viewMode === "hud" && canUseHud) {
         try {
           const proData = await api.get("/api/v1/pro/filafarm/printers");
-          // PRO endpoint returns id as string ("1"), Core returns number (1).
-          // Coerce both to string for reliable Map lookup.
           const proMap = new Map(
             (proData.printers || []).map((p) => [String(p.id), p])
           );
           printerList = printerList.map((p) =>
             proMap.has(String(p.id)) ? { ...p, ...proMap.get(String(p.id)) } : p
           );
-        } catch {
+        } catch (err) {
           // PRO endpoint unavailable (fleet not started, license issue,
           // etc.) — degrade gracefully, HUD shows "--" for telemetry.
+          if (import.meta.env.DEV) {
+            console.debug("[AdminPrinters] PRO telemetry fetch failed:", err);
+          }
         }
       }
 
       setPrinters(printerList);
+      setError(null); // Clear any prior transient error on success
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
