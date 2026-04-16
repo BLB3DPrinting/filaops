@@ -38,10 +38,10 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
         border: `1px solid ${cfg.border}`,
         borderLeft: `3px solid ${cfg.dot}`,
         borderRadius: 8,
-        padding: "14px 16px",
+        padding: "24px 28px",
         display: "flex",
         flexDirection: "column",
-        gap: 10,
+        gap: 18,
         transition: "box-shadow 0.2s, border-color 0.2s",
       }}
       onMouseEnter={(e) => {
@@ -61,7 +61,7 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
             style={{
               fontFamily: T.fontDisplay,
               fontWeight: 700,
-              fontSize: 16,
+              fontSize: 22,
               letterSpacing: "0.04em",
               color: T.textPrimary,
               whiteSpace: "nowrap",
@@ -74,9 +74,9 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
           <div
             style={{
               fontFamily: T.fontMono,
-              fontSize: 10,
+              fontSize: 14,
               color: T.textMuted,
-              marginTop: 2,
+              marginTop: 4,
               letterSpacing: "0.06em",
             }}
           >
@@ -102,7 +102,7 @@ export default function PrinterCardHUD({ printer, onEdit, onRemove, onCommand })
               style={{
                 fontFamily: T.fontDisplay,
                 fontWeight: 600,
-                fontSize: 10,
+                fontSize: 14,
                 letterSpacing: "0.12em",
                 color: cfg.dot,
               }}

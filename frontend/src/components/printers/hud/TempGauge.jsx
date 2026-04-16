@@ -9,14 +9,14 @@ import { T } from "./tokens";
  * time temp updates.
  */
 export default function TempGauge({ value, max, color, label }) {
-  const R = 22;
+  const R = 40;
   const CIRC = 2 * Math.PI * R;
   // Guard against zero/undefined max so a mis-props'd gauge can't produce
   // NaN stroke offsets and blow up the SVG.
   const safeMax = Number(max) > 0 ? Number(max) : 1;
   const pct = Math.min(1, Math.max(0, (value || 0) / safeMax));
   const offset = CIRC * (1 - pct);
-  const SIZE = 58;
+  const SIZE = 100;
   const hasValue = value > 0;
 
   return (
@@ -29,14 +29,14 @@ export default function TempGauge({ value, max, color, label }) {
         role="img"
         aria-label={`${label} temperature ${hasValue ? `${Math.round(value)} degrees Celsius` : "not reading"}`}
       >
-        <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke={T.border} strokeWidth={4} />
+        <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" stroke={T.border} strokeWidth={6} />
         <circle
           cx={SIZE / 2}
           cy={SIZE / 2}
           r={R}
           fill="none"
           stroke={hasValue ? color : T.textMuted}
-          strokeWidth={4}
+          strokeWidth={6}
           strokeLinecap="round"
           strokeDasharray={CIRC}
           strokeDashoffset={hasValue ? offset : CIRC}
@@ -49,7 +49,7 @@ export default function TempGauge({ value, max, color, label }) {
             textAnchor="middle"
             dominantBaseline="middle"
             fill={hasValue ? color : T.textMuted}
-            fontSize="10"
+            fontSize="18"
             fontFamily={T.fontMono}
             fontWeight="600"
           >
@@ -57,11 +57,11 @@ export default function TempGauge({ value, max, color, label }) {
           </text>
           <text
             x={SIZE / 2}
-            y={SIZE / 2 + 9}
+            y={SIZE / 2 + 14}
             textAnchor="middle"
             dominantBaseline="middle"
             fill={T.textMuted}
-            fontSize="7"
+            fontSize="11"
             fontFamily={T.fontDisplay}
             fontWeight="500"
           >
@@ -71,7 +71,7 @@ export default function TempGauge({ value, max, color, label }) {
       </svg>
       <span
         style={{
-          fontSize: 9,
+          fontSize: 13,
           fontFamily: T.fontDisplay,
           fontWeight: 600,
           letterSpacing: "0.1em",
