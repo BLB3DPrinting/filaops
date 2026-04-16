@@ -61,7 +61,10 @@ export default function AdminPrinters() {
   const [testingConnection, setTestingConnection] = useState(null); // printer id being tested
 
   // Per-printer fleet-command in-flight set (pause/resume/cancel).
-  // Prevents double-firing when a user double-clicks a card action.
+  // Ref-backed for synchronous check+add on the click handler (fast
+  // double-clicks race React state updates), mirrored into state for UI
+  // button-disable feedback.
+  const pendingCommandsRef = useRef(new Set());
   const [pendingCommands, setPendingCommands] = useState(() => new Set());
 
   // Active work tracking
@@ -294,13 +297,11 @@ export default function AdminPrinters() {
   };
 
   const handleCommand = async (printerId, command) => {
-    // Guard against double-firing when a user double-clicks a card action.
-    if (pendingCommands.has(printerId)) return;
-    setPendingCommands((prev) => {
-      const next = new Set(prev);
-      next.add(printerId);
-      return next;
-    });
+    // Synchronous guard via ref — React state reads are stale when two clicks
+    // land before a re-render, so state alone is a flimsy mutex.
+    if (pendingCommandsRef.current.has(printerId)) return;
+    pendingCommandsRef.current.add(printerId);
+    setPendingCommands(new Set(pendingCommandsRef.current));
     try {
       await api.post(`/api/v1/pro/filafarm/printers/${printerId}/command`, { command });
       toast.success(`${command} sent`);
@@ -309,11 +310,8 @@ export default function AdminPrinters() {
     } catch (err) {
       toast.error(err.message);
     } finally {
-      setPendingCommands((prev) => {
-        const next = new Set(prev);
-        next.delete(printerId);
-        return next;
-      });
+      pendingCommandsRef.current.delete(printerId);
+      setPendingCommands(new Set(pendingCommandsRef.current));
     }
   };
 

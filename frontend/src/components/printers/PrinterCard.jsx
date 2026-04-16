@@ -61,12 +61,14 @@ function stateLabel(status) {
 
 function getActiveAmsSlot(amsSlots) {
   if (!amsSlots?.length) return { material: "Unknown", slot: "No AMS" };
-  // TODO: BambuFleetManager should report the active slot index.
-  // For now, show the first slot's material as a reasonable default.
+  // TODO: BambuFleetManager should report the active slot index (tray_now in
+  // Bambu MQTT). Until then, fall back to slot 0. Mark multi-slot printers as
+  // "(estimated)" so operators know the value isn't authoritative.
   const active = amsSlots[0];
+  const slotLabel = `Slot ${active.slot ?? 1}`;
   return {
     material: active.material || "Unknown",
-    slot: `Slot ${active.slot ?? 1}`,
+    slot: amsSlots.length > 1 ? `${slotLabel} (estimated)` : slotLabel,
   };
 }
 
@@ -126,13 +128,15 @@ export default function PrinterCard({
   }
   actions.push({ label: "Edit", primary: false, onClick: () => onEdit?.(printer) });
 
-  // Heartbeat text
+  // Heartbeat text — an online idle printer should read "Connected" even if
+  // it has a historic last_seen timestamp, so the idle check comes before the
+  // last_seen fallback.
   const heartbeat = isPrinting
     ? "Live now"
-    : printer.last_seen
-    ? `Last seen ${new Date(printer.last_seen).toLocaleString()}`
     : status === "idle"
     ? "Connected"
+    : printer.last_seen
+    ? `Last seen ${new Date(printer.last_seen).toLocaleString()}`
     : "—";
 
   return (
