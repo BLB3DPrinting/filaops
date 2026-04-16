@@ -346,14 +346,31 @@ class TestPrinterUpdate:
         assert resp.status_code == 200
         assert resp.json()["name"] == "Updated Name"
 
-    def test_update_printer_brand(self, client):
-        printer = _create_printer(client)
+    def test_update_printer_brand_to_core_brand(self, client):
+        """Changing to a Core brand (bambulab ↔ generic) is always allowed."""
+        printer = _create_printer(client, brand="bambulab")
+        if "id" not in printer:
+            pytest.skip("Tier limit reached")
+
+        resp = client.put(f"{BASE_URL}/{printer['id']}", json={"brand": "generic"})
+        assert resp.status_code == 200
+        assert resp.json()["brand"] == "generic"
+
+    def test_update_printer_brand_to_pro_brand_forbidden(self, client):
+        """
+        Changing to a non-Core brand (klipper/octoprint/prusa/creality) must
+        be rejected on Core tier when no PRO plugin has registered the brand.
+        This is the mechanical half of the freemium gate — without it, the
+        UI brand filter is security theater and any curl can bypass.
+        """
+        printer = _create_printer(client, brand="bambulab")
         if "id" not in printer:
             pytest.skip("Tier limit reached")
 
         resp = client.put(f"{BASE_URL}/{printer['id']}", json={"brand": "klipper"})
-        assert resp.status_code == 200
-        assert resp.json()["brand"] == "klipper"
+        assert resp.status_code == 403
+        assert "klipper" in resp.json()["detail"].lower()
+        assert "pro" in resp.json()["detail"].lower()
 
     def test_update_printer_not_found(self, client):
         resp = client.put(f"{BASE_URL}/999999", json={"name": "Ghost"})
@@ -537,12 +554,13 @@ class TestCSVImport:
         assert "Missing required field" in data["errors"][0]["error"]
 
     def test_import_csv_multiple_rows(self, client):
+        """Multi-row CSV import with only Core brands imports all rows."""
         uid = uuid.uuid4().hex[:6]
         csv_data = (
             "code,name,model,brand\n"
             f"PRT-M1-{uid},Printer A,Mod A,generic\n"
             f"PRT-M2-{uid},Printer B,Mod B,bambulab\n"
-            f"PRT-M3-{uid},Printer C,Mod C,klipper"
+            f"PRT-M3-{uid},Printer C,Mod C,generic"
         )
         resp = client.post(f"{BASE_URL}/import-csv", json={
             "csv_data": csv_data, "skip_duplicates": True,
@@ -554,6 +572,35 @@ class TestCSVImport:
         assert data["total_rows"] == 3
         # Some may fail due to tier limit, but total_rows should be 3
         assert data["imported"] + data["skipped"] + len(data["errors"]) == 3
+
+    def test_import_csv_rejects_pro_brand_row(self, client):
+        """
+        CSV import enforces the same freemium gate as POST /printers.
+        A klipper row in an otherwise-valid CSV becomes a per-row error,
+        while core brands import normally. Closes the CSV bypass path CR
+        didn't call out but that existed alongside the POST/PUT holes.
+        """
+        uid = uuid.uuid4().hex[:6]
+        csv_data = (
+            "code,name,model,brand\n"
+            f"PRT-CR1-{uid},Printer A,Mod A,bambulab\n"
+            f"PRT-CR2-{uid},Printer B,Mod B,klipper"
+        )
+        resp = client.post(f"{BASE_URL}/import-csv", json={
+            "csv_data": csv_data, "skip_duplicates": True,
+        })
+        if resp.status_code == 403:
+            pytest.skip("Tier limit reached")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_rows"] == 2
+        # Bambu row succeeds (unless hitting tier limit), klipper row fails
+        # the brand gate and becomes a per-row error.
+        assert len(data["errors"]) >= 1
+        klipper_errors = [
+            e for e in data["errors"] if "klipper" in str(e.get("error", "")).lower()
+        ]
+        assert len(klipper_errors) == 1, f"Expected klipper gate error, got {data['errors']}"
 
     def test_import_csv_invalid_brand_defaults_to_generic(self, client):
         uid = uuid.uuid4().hex[:6]
@@ -646,10 +693,9 @@ class TestPrinterEdgeCases:
         # Empty update should still succeed (no fields changed)
         assert resp.status_code == 200
 
-    def test_create_with_all_brands(self, client):
-        """Verify all valid brand enum values are accepted."""
-        valid_brands = ["bambulab", "klipper", "octoprint", "prusa", "creality", "generic"]
-        for brand in valid_brands:
+    def test_create_with_core_brands_allowed(self, client):
+        """Core brands (bambulab, generic) must always be acceptable."""
+        for brand in ["bambulab", "generic"]:
             uid = uuid.uuid4().hex[:6]
             resp = client.post(BASE_URL, json={
                 "code": f"PRT-B-{uid}",
@@ -657,10 +703,36 @@ class TestPrinterEdgeCases:
                 "model": "M",
                 "brand": brand,
             })
-            # 200/201 = created, 403 = tier limit
+            # 200/201 = created, 403 = tier resource limit (not brand gating).
+            # The brand-gating 403 path is covered separately below.
             assert resp.status_code in (200, 201, 403), (
                 f"Brand '{brand}' failed with {resp.status_code}: {resp.text}"
             )
+
+    def test_create_with_pro_brands_forbidden(self, client):
+        """
+        Non-Core brands (klipper, octoprint, prusa, creality) must be
+        rejected via 403 when no PRO plugin has called register_brand()
+        for them. Matches `_CORE_BRAND_CODES` in
+        `app/api/v1/endpoints/printers.py`.
+
+        This is the mechanical freemium gate — a Core-tier install
+        shouldn't be able to POST a Klipper printer directly via curl
+        even though `PrinterBrand` enum still formally accepts the value.
+        """
+        for brand in ["klipper", "octoprint", "prusa", "creality"]:
+            uid = uuid.uuid4().hex[:6]
+            resp = client.post(BASE_URL, json={
+                "code": f"PRT-B-{uid}",
+                "name": f"Brand Test {uid}",
+                "model": "M",
+                "brand": brand,
+            })
+            assert resp.status_code == 403, (
+                f"Brand '{brand}' expected 403, got {resp.status_code}: {resp.text}"
+            )
+            assert brand in resp.json()["detail"].lower()
+            assert "pro" in resp.json()["detail"].lower()
 
     def test_create_with_all_statuses_via_patch(self, client):
         """Verify all valid status values can be set via PATCH."""

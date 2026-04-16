@@ -11,7 +11,7 @@ import csv
 import io
 import time
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -45,6 +45,92 @@ from app.models.production_order import ProductionOrder, ProductionOrderOperatio
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# Brand registry (tiered)
+# ============================================================================
+#
+# Core ships with only Bambu Lab + Generic brands visible to the UI. The
+# discovery orchestrator may register additional adapter stubs (e.g. Klipper
+# mDNS), but those are hidden from `/brands/info` unless a PRO plugin opts
+# them in via `register_brand()`. This is the single surface PRO uses to
+# advertise multi-brand support without Core having to know about PRO.
+#
+# PRO calls this at import time from `filaops_pro.register()`:
+#
+#     from app.api.v1.endpoints.printers import register_brand
+#     register_brand(PrinterBrandInfo(code="klipper", ...))
+#
+# `_extra_brands` is mutated only at plugin import time (single-threaded
+# startup) and read thereafter. Runtime registration is NOT supported —
+# mutating this dict while requests are in flight would be a data race.
+# If runtime plugin loading becomes a thing, wrap reads/writes in a lock.
+#
+# The same registry is the single source of truth for BOTH /brands/info
+# (UI surface) AND server-side POST/PUT enforcement via
+# `_assert_brand_allowed()` below. Keeping both reads paths consistent
+# means the freemium gate is mechanical, not just UI hiding.
+
+_CORE_BRAND_CODES: frozenset[str] = frozenset({"bambulab", "generic"})
+_extra_brands: Dict[str, PrinterBrandInfo] = {}
+
+
+def _assert_brand_allowed(brand_code: str | None, *, context: str = "create") -> None:
+    """
+    Enforce that `brand_code` is in the currently-registered set.
+
+    Raises HTTPException 403 if the brand is neither a Core brand nor has
+    been registered by a plugin. The UI filters its dropdown off `/brands/info`,
+    but without this check a Community-tier client could POST any brand
+    string directly and bypass the freemium gate. This is the mechanical
+    enforcement that makes the UI filter actually load-bearing.
+
+    Normalizes the code via the same strip+lowercase rule as `register_brand()`
+    so "  Klipper  " and "KLIPPER" resolve the same as "klipper".
+    """
+    code = (brand_code or "").strip().lower()
+    if not code:
+        return  # no brand supplied — caller falls back to "generic" default
+    if code in _CORE_BRAND_CODES or code in _extra_brands:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"Brand '{code}' is not available on this install. "
+            "Klipper, OctoPrint, Prusa, and Creality require a PRO license "
+            "with the filafarm feature enabled."
+        ),
+    )
+
+
+def register_brand(brand_info: PrinterBrandInfo) -> None:
+    """
+    Register an additional brand for `/brands/info`.
+
+    Intended for PRO plugins to advertise brands beyond Core's Bambu+Generic
+    baseline (Klipper, OctoPrint, Prusa, Creality, etc.). Called at import
+    time from `filaops_pro.register()`; no-op if the brand code already
+    lives in `_CORE_BRAND_CODES`.
+
+    Brand codes are canonicalized (trimmed + lower-cased) at the boundary so
+    plugins passing `" Klipper "` or `"KLIPPER"` land in the same dict slot
+    as `"klipper"` and can't sneak past the Core-brand check.
+    """
+    code = (brand_info.code or "").strip().lower()
+    if not code:
+        logger.debug("Ignoring register_brand(): empty or whitespace-only code")
+        return
+    if code in _CORE_BRAND_CODES:
+        logger.debug(
+            "Ignoring register_brand(%s): already a Core brand", code
+        )
+        return
+    # Store the normalized code on the stored copy so downstream consumers
+    # (the /brands/info response) see the canonical form.
+    normalized = brand_info.model_copy(update={"code": code})
+    _extra_brands[code] = normalized
+    logger.info("Registered extra printer brand: %s", code)
 
 
 def _generate_printer_code(db: Session, prefix: str = "PRT") -> str:
@@ -108,17 +194,21 @@ async def get_supported_brands(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get information about supported printer brands
+    Get information about supported printer brands.
 
-    Returns details about each brand including:
-    - Supported models
-    - Discovery support
-    - Required connection fields
+    Core returns only Bambu Lab + Generic. PRO plugins opt additional brands
+    in via `register_brand()` (see module docstring). Returns details about
+    each brand including supported models, discovery support, and required
+    connection fields.
     """
     orchestrator = get_orchestrator()
-    brands = []
+    brands: List[PrinterBrandInfo] = []
 
+    # Core brands sourced from the discovery orchestrator
     for brand_code, adapter in orchestrator.adapters.items():
+        if brand_code not in _CORE_BRAND_CODES:
+            continue
+
         models = [
             PrinterModelInfo(
                 value=m["value"],
@@ -128,16 +218,16 @@ async def get_supported_brands(
             for m in adapter.get_supported_models()
         ]
 
-        # Check if adapter supports discovery
-        supports_discovery = hasattr(adapter, 'discover_local')
-
         brands.append(PrinterBrandInfo(
             code=brand_code,
             name=adapter.brand_name,
-            supports_discovery=supports_discovery,
+            supports_discovery=hasattr(adapter, "discover_local"),
             models=models,
             connection_fields=adapter.get_connection_fields(),
         ))
+
+    # PRO-contributed brands (Klipper, OctoPrint, Prusa, Creality, ...)
+    brands.extend(_extra_brands.values())
 
     return brands
 
@@ -313,6 +403,13 @@ async def create_printer(
 
     Note: Subject to tier limits. Community tier allows up to 4 printers.
     """
+    # Enforce brand gating: non-Core brands require a PRO plugin to have
+    # registered them. Rejects bypass attempts via direct API calls.
+    requested_brand = (
+        data.brand.value if (data.brand and hasattr(data.brand, "value")) else data.brand
+    )
+    _assert_brand_allowed(requested_brand, context="create")
+
     # Check tier limits before creating
     current_printer_count = db.query(Printer).filter(
         Printer.active.is_(True)
@@ -366,6 +463,20 @@ async def update_printer(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+
+    # Enforce brand gating on brand changes only. If a printer already has
+    # a non-Core brand (e.g. Klipper record from a period when PRO was
+    # installed, and PRO is now uninstalled), we allow edits that keep the
+    # existing brand — otherwise the user would be trapped with an
+    # uneditable record.
+    if data.brand is not None:
+        requested_brand = (
+            data.brand.value if hasattr(data.brand, "value") else str(data.brand)
+        )
+        current_brand = (printer.brand or "").strip().lower()
+        normalized_request = (requested_brand or "").strip().lower()
+        if normalized_request != current_brand:
+            _assert_brand_allowed(requested_brand, context="update")
 
     # Check for duplicate code if changing
     if data.code and data.code != printer.code:
@@ -712,11 +823,21 @@ async def import_printers_csv(
                     })
                     continue
 
-            # Validate brand
+            # Validate brand against the PrinterBrand enum first; unknown
+            # strings fall back to "generic". Then apply the freemium gate
+            # so CSV import can't bypass what POST /printers enforces.
             brand = row.get("brand", "generic").strip().lower()
             valid_brands = [b.value for b in PrinterBrand]
             if brand not in valid_brands:
                 brand = "generic"
+            try:
+                _assert_brand_allowed(brand, context="csv-import")
+            except HTTPException as exc:
+                errors.append({
+                    "row": str(row_num),
+                    "error": exc.detail,
+                })
+                continue
 
             printer = Printer(
                 code=code,

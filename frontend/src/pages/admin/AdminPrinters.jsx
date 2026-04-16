@@ -7,15 +7,27 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { statusColors, brandLabels, MAINTENANCE_TYPE_CLASS } from "../../components/printers/constants";
 import PrinterModal from "../../components/printers/PrinterModal";
 import IPProbeSection from "../../components/printers/IPProbeSection";
 import MaintenanceModal from "../../components/printers/MaintenanceModal";
+import { PrinterCardHUD, HUD_KEYFRAMES, T as HUD_T } from "../../components/printers/hud";
 
 export default function AdminPrinters() {
   const api = useApi();
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState("list"); // list | discovery | import
+  const { isPro, hasFeature, loading: featureFlagsLoading } = useFeatureFlags();
+  // HUD view mode is a PRO visual layer gated behind the filafarm feature.
+  // Core shows the existing tailwind table view; PRO can toggle into the
+  // industrial control panel HUD with live gauges, AMS, and status glow.
+  //
+  // We gate on !featureFlagsLoading too so the locked CTA + upsell toast
+  // don't flash on first paint before /system/info returns. A true PRO user
+  // would otherwise see the "upgrade to unlock" toast briefly on cold load.
+  const canUseHud = !featureFlagsLoading && isPro && hasFeature("filafarm");
+  const [activeTab, setActiveTab] = useState("list"); // list | discovery | import | maintenance
+  const [viewMode, setViewMode] = useState("table"); // table | hud
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -70,6 +82,16 @@ export default function AdminPrinters() {
       fetchMaintenanceDue();
     }
   }, [activeTab, filters.brand, filters.status]);
+
+  // Force viewMode back to "table" if the PRO/filafarm license is revoked
+  // mid-session. Prevents users from being stranded in a locked HUD view
+  // after a downgrade event. The render path also double-gates on canUseHud
+  // below so the HUD never renders without the feature flag.
+  useEffect(() => {
+    if (!canUseHud && viewMode === "hud") {
+      setViewMode("table");
+    }
+  }, [canUseHud, viewMode]);
 
   // ============================================================================
   // Data Fetching
@@ -275,7 +297,49 @@ export default function AdminPrinters() {
             Manage your 3D printer fleet
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          {/* View-mode toggle: PRO unlocks the industrial HUD. In Core the
+              HUD button is shown locked as a visible daily upgrade prompt. */}
+          {activeTab === "list" && (
+            <div className="inline-flex rounded-lg border border-gray-700 overflow-hidden" role="group" aria-label="View mode">
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={`px-3 py-2 text-sm transition-colors ${
+                  viewMode === "table" ? "bg-gray-700 text-white" : "text-gray-400 hover:text-white"
+                }`}
+                aria-pressed={viewMode === "table"}
+              >
+                Table
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canUseHud) {
+                    toast.info("HUD view is a PRO feature. Upgrade to unlock the industrial fleet view.");
+                    return;
+                  }
+                  setViewMode("hud");
+                }}
+                // aria-disabled (not disabled) so the click handler still fires
+                // in Core tier — that's how the upgrade toast reaches the user.
+                aria-disabled={!canUseHud}
+                title={canUseHud ? "Industrial HUD view" : "PRO feature — upgrade to unlock"}
+                className={`px-3 py-2 text-sm transition-colors flex items-center gap-1.5 border-l border-gray-700 ${
+                  viewMode === "hud" ? "bg-amber-900/40 text-amber-400" : "text-gray-400 hover:text-white"
+                } ${!canUseHud ? "opacity-60 cursor-not-allowed" : ""}`}
+                aria-pressed={viewMode === "hud"}
+              >
+                HUD
+                {!canUseHud && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/40" aria-label="PRO feature">
+                    🔒 PRO
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
           {printers.filter(p => p.ip_address).length > 0 && (
             <button
               onClick={async () => {
@@ -389,6 +453,44 @@ export default function AdminPrinters() {
               >
                 Try network discovery to find printers
               </button>
+            </div>
+          ) : viewMode === "hud" && canUseHud ? (
+            // Industrial HUD view — PRO only. Double-gated: the useEffect
+            // above forces viewMode back to "table" when canUseHud flips
+            // false, and this render condition refuses to draw the HUD
+            // without the feature flag even if state gets out of sync.
+            // Rendered as a parallel path to the tailwind table view below.
+            // Core's `/api/v1/printers` does not
+            // populate live telemetry (nozzle_temp, bed_temp, progress,
+            // ams_slots) — PrinterCardHUD degrades gracefully when those
+            // fields are missing. PRO's live MQTT path (BambuFleetManager)
+            // populates them via /api/v1/pro/filafarm/*.
+            <div style={{ background: HUD_T.bg, borderRadius: 10, padding: 16, border: `1px solid ${HUD_T.border}` }}>
+              <style>{HUD_KEYFRAMES}</style>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {printers.map((printer) => (
+                  <PrinterCardHUD
+                    key={printer.id}
+                    printer={printer}
+                    onEdit={(p) => {
+                      setSelectedPrinter(p);
+                      setShowEditModal(true);
+                    }}
+                    onRemove={handleDelete}
+                    // onCommand intentionally omitted — pause/resume/cancel
+                    // is a PRO fleet-management feature routed through
+                    // /api/v1/pro/filafarm/printers/:id/command. When the
+                    // PRO page injection arrives, that handler will be
+                    // passed here; until then, Core HUD shows status only.
+                  />
+                ))}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

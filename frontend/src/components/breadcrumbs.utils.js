@@ -36,7 +36,6 @@ export const ROUTE_LABELS = {
   "/admin/production": "Production",
   "/admin/manufacturing": "Manufacturing",
   "/admin/printers": "Printers",
-  "/admin/filafarm": "FilaFarm",
   "/admin/purchasing": "Purchasing",
   "/admin/shipping": "Shipping",
   // Quality
