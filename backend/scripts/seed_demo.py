@@ -29,7 +29,7 @@ from scripts.seed_data import _guards, _time  # noqa: E402
 # Modules are added commit-by-commit as they land.
 SEED_PIPELINE: list[tuple[str, str, str]] = [
     ("Creating users...", "users", "seed"),
-    # ("Creating printers + maintenance...", "printers", "seed"),
+    ("Creating printers + maintenance...", "printers", "seed"),
     # ("Creating price levels...", "price_levels", "seed"),
     # ("Creating customers...", "customers", "seed"),
     # ("Creating vendors...", "vendors", "seed"),
