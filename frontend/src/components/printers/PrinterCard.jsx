@@ -123,6 +123,7 @@ export default function PrinterCard({
   const hasError = printError > 0 || hmsCodes.length > 0 || status === "error";
   const primaryHmsCode = hmsCodes[0] || null;
   const primaryHmsDescription = hmsDescriptions[0] || null;
+  const primaryHmsWikiUrl = primaryHmsCode ? bambuErrorUrl(primaryHmsCode) : null;
 
   // Build contextual actions based on printer state.
   // While a command is in-flight for this printer, disable pause/resume/cancel
@@ -245,9 +246,9 @@ export default function PrinterCard({
                 </div>
               )}
             </div>
-            {primaryHmsCode && bambuErrorUrl(primaryHmsCode) && (
+            {primaryHmsWikiUrl && (
               <a
-                href={bambuErrorUrl(primaryHmsCode)}
+                href={primaryHmsWikiUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 rounded-lg border border-red-500/40 px-2.5 py-1 text-xs font-medium text-red-200 transition hover:border-red-400/60 hover:bg-red-500/10"
