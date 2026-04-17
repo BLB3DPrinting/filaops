@@ -24,6 +24,8 @@ venv\Scripts\activate.bat
 source venv/bin/activate
 
 pip install -r requirements.txt
+# For fixture generators (faker) and other dev-only tooling:
+pip install -r requirements-dev.txt
 cp .env.example .env
 # Edit .env with your database credentials
 

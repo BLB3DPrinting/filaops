@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Development-only dependencies.
+# Not installed by the production Docker image.
+# Use: pip install -r requirements-dev.txt
+
+# Fixture / demo data generation.
+faker>=24.0
