@@ -12,7 +12,7 @@ import { statusColors, brandLabels, MAINTENANCE_TYPE_CLASS } from "../../compone
 import PrinterModal from "../../components/printers/PrinterModal";
 import IPProbeSection from "../../components/printers/IPProbeSection";
 import MaintenanceModal from "../../components/printers/MaintenanceModal";
-import { PrinterCardHUD, HUD_KEYFRAMES, T as HUD_T } from "../../components/printers/hud";
+import PrinterCard from "../../components/printers/PrinterCard";
 
 export default function AdminPrinters() {
   const api = useApi();
@@ -59,6 +59,13 @@ export default function AdminPrinters() {
 
   // Connection testing state
   const [testingConnection, setTestingConnection] = useState(null); // printer id being tested
+
+  // Per-printer fleet-command in-flight set (pause/resume/cancel).
+  // Ref-backed for synchronous check+add on the click handler (fast
+  // double-clicks race React state updates), mirrored into state for UI
+  // button-disable feedback.
+  const pendingCommandsRef = useRef(new Set());
+  const [pendingCommands, setPendingCommands] = useState(() => new Set());
 
   // Active work tracking
   const [activeWork, setActiveWork] = useState({}); // printer_id -> work info
@@ -289,6 +296,25 @@ export default function AdminPrinters() {
     }
   };
 
+  const handleCommand = async (printerId, command) => {
+    // Synchronous guard via ref — React state reads are stale when two clicks
+    // land before a re-render, so state alone is a flimsy mutex.
+    if (pendingCommandsRef.current.has(printerId)) return;
+    pendingCommandsRef.current.add(printerId);
+    setPendingCommands(new Set(pendingCommandsRef.current));
+    try {
+      await api.post(`/api/v1/pro/filafarm/printers/${printerId}/command`, { command });
+      toast.success(`${command} sent`);
+      // Refresh after a short delay to let the printer state update
+      setTimeout(() => fetchPrinters({ silent: true }), 1000);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      pendingCommandsRef.current.delete(printerId);
+      setPendingCommands(new Set(pendingCommandsRef.current));
+    }
+  };
+
   const handleDelete = async (printer) => {
     if (!confirm(`Delete printer "${printer.name}"? This cannot be undone.`)) {
       return;
@@ -337,6 +363,19 @@ export default function AdminPrinters() {
   // Render
   // ============================================================================
 
+  // Summary tile counts for the PRO fleet dashboard. Normalization matches the
+  // status derivation in PrinterCard so tile counts stay in sync with cards.
+  const normStatus = (p) => (p.status || "offline").toLowerCase();
+  const countByStatus = (s) => printers.filter((p) => normStatus(p) === s).length;
+  const summaryTiles = [
+    { label: "Total", value: printers.length },
+    { label: "Printing", value: countByStatus("printing") },
+    { label: "Idle", value: countByStatus("idle") },
+    { label: "Offline", value: countByStatus("offline") },
+    { label: "Errors", value: countByStatus("error") },
+    { label: "Maintenance", value: countByStatus("maintenance") },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -366,7 +405,7 @@ export default function AdminPrinters() {
                 type="button"
                 onClick={() => {
                   if (!canUseHud) {
-                    toast.info("HUD view is a PRO feature. Upgrade to unlock the industrial fleet view.");
+                    toast.info("Cards view is a PRO feature. Upgrade to unlock the fleet dashboard.");
                     return;
                   }
                   setViewMode("hud");
@@ -380,7 +419,7 @@ export default function AdminPrinters() {
                 } ${!canUseHud ? "opacity-60 cursor-not-allowed" : ""}`}
                 aria-pressed={viewMode === "hud"}
               >
-                HUD
+                Cards
                 {!canUseHud && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/40" aria-label="PRO feature">
                     🔒 PRO
@@ -505,39 +544,40 @@ export default function AdminPrinters() {
               </button>
             </div>
           ) : viewMode === "hud" && canUseHud ? (
-            // Industrial HUD view — PRO only. Double-gated: the useEffect
-            // above forces viewMode back to "table" when canUseHud flips
-            // false, and this render condition refuses to draw the HUD
-            // without the feature flag even if state gets out of sync.
-            // Rendered as a parallel path to the tailwind table view below.
-            // Core's `/api/v1/printers` does not
-            // populate live telemetry (nozzle_temp, bed_temp, progress,
-            // ams_slots) — PrinterCardHUD degrades gracefully when those
-            // fields are missing. PRO's live MQTT path (BambuFleetManager)
-            // populates them via /api/v1/pro/filafarm/*.
-            <div style={{ background: HUD_T.bg, borderRadius: 10, padding: 16, border: `1px solid ${HUD_T.border}` }}>
-              <style>{HUD_KEYFRAMES}</style>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))",
-                  gap: 20,
-                }}
-              >
+            // PRO fleet dashboard — rich card view with live telemetry,
+            // summary stats, contextual actions, and gradient accents.
+            <div className="space-y-6">
+              {/* Summary stats bar */}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                {summaryTiles.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4 shadow-2xl shadow-black/20"
+                  >
+                    <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      {stat.label}
+                    </div>
+                    <div className="mt-3 text-2xl font-semibold text-white">
+                      {stat.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Printer cards grid */}
+              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 {printers.map((printer) => (
-                  <PrinterCardHUD
+                  <PrinterCard
                     key={printer.id}
                     printer={printer}
                     onEdit={(p) => {
                       setSelectedPrinter(p);
                       setShowEditModal(true);
                     }}
-                    onRemove={handleDelete}
-                    // onCommand intentionally omitted — pause/resume/cancel
-                    // is a PRO fleet-management feature routed through
-                    // /api/v1/pro/filafarm/printers/:id/command. When the
-                    // PRO page injection arrives, that handler will be
-                    // passed here; until then, Core HUD shows status only.
+                    onCommand={handleCommand}
+                    onTest={handleTestConnection}
+                    testing={testingConnection === printer.id}
+                    commandPending={pendingCommands.has(printer.id)}
                   />
                 ))}
               </div>
