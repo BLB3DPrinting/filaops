@@ -43,10 +43,13 @@ function fmtTemp(value) {
 }
 
 function fmtEta(minutes) {
-  if (minutes == null || minutes <= 0) return null;
+  // Coerce + guard — telemetry can arrive as string, null, or garbage;
+  // never render NaN to users.
+  const n = Number(minutes);
+  if (!Number.isFinite(n) || n <= 0) return null;
   // Round first so fractional telemetry doesn't render as "1h 30.5m".
   // Integer division naturally carries a rounded-up 60 into the hour column.
-  const total = Math.round(minutes);
+  const total = Math.round(n);
   const h = Math.floor(total / 60);
   const m = total % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -83,7 +86,13 @@ export default function PrinterCard({
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
   const isPrinting = status === "printing";
-  const progress = Math.max(0, Math.min(100, Number(printer.progress ?? 0)));
+  // Coerce + clamp — non-numeric telemetry (null/NaN/"--") must never leak into
+  // width styles or aria-valuenow.
+  const progressRaw = Number(printer.progress);
+  const progress = Number.isFinite(progressRaw)
+    ? Math.max(0, Math.min(100, progressRaw))
+    : 0;
+  const hasProgress = Number.isFinite(progressRaw);
   const eta = fmtEta(printer.remaining_minutes ?? printer.mc_remaining_time);
   const ams = getActiveAmsSlot(printer.ams_slots);
 
@@ -192,7 +201,7 @@ export default function PrinterCard({
                 </div>
               )}
             </div>
-            {printer.progress != null && (
+            {hasProgress && (
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
                   <span>Progress</span>
