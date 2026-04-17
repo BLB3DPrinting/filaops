@@ -63,16 +63,25 @@ function stateLabel(status) {
 }
 
 function getActiveAmsSlot(amsSlots) {
-  if (!amsSlots?.length) return { material: "Unknown", slot: "No AMS" };
-  // TODO: BambuFleetManager should report the active slot index (tray_now in
-  // Bambu MQTT). Until then, fall back to slot 0. Mark multi-slot printers as
-  // "(estimated)" so operators know the value isn't authoritative.
-  const active = amsSlots[0];
-  const slotLabel = `Slot ${active.slot ?? 1}`;
+  if (!amsSlots?.length) return { material: "Unknown", slot: "No AMS", color: null };
+  // Backend now reports `active: true` on the slot Bambu has loaded (tray_now).
+  // Fall back to the first slot only when nothing is authoritatively active;
+  // in that case mark the slot label "(estimated)" so operators know it's a guess.
+  const activeSlot = amsSlots.find((s) => s.active) || amsSlots[0];
+  const slotLabel = `Slot ${activeSlot.slot ?? 1}`;
+  const isEstimated = !activeSlot.active && amsSlots.length > 1;
   return {
-    material: active.material || "Unknown",
-    slot: amsSlots.length > 1 ? `${slotLabel} (estimated)` : slotLabel,
+    material: activeSlot.material || "Unknown",
+    slot: isEstimated ? `${slotLabel} (estimated)` : slotLabel,
+    color: activeSlot.color || null,
   };
+}
+
+// Bambu's public error-code lookup. Takes their HMS string ("ATTR_CODE") and
+// returns a user-friendly description page.
+function bambuErrorUrl(hmsCode) {
+  if (!hmsCode) return null;
+  return `https://e.bambulab.com/query.php?lang=en&E=${encodeURIComponent(hmsCode)}`;
 }
 
 export default function PrinterCard({
@@ -95,6 +104,14 @@ export default function PrinterCard({
   const hasProgress = Number.isFinite(progressRaw);
   const eta = fmtEta(printer.remaining_minutes ?? printer.mc_remaining_time);
   const ams = getActiveAmsSlot(printer.ams_slots);
+
+  // Surface HMI errors from Bambu MQTT telemetry. print_error is an integer
+  // (0 = none); hms_codes is an array of "ATTR_CODE" hex strings that resolve
+  // against Bambu's published catalog.
+  const hmsCodes = Array.isArray(printer.hms_codes) ? printer.hms_codes : [];
+  const printError = Number(printer.print_error) || 0;
+  const hasError = printError > 0 || hmsCodes.length > 0 || status === "error";
+  const primaryHmsCode = hmsCodes[0] || null;
 
   // Build contextual actions based on printer state.
   // While a command is in-flight for this printer, disable pause/resume/cancel
@@ -121,6 +138,16 @@ export default function PrinterCard({
       label: "Cancel",
       primary: false,
       onClick: () => onCommand(printer.id, "cancel"),
+      disabled: commandPending,
+    });
+  }
+  // Clear Error is offered whenever an HMI code is active, regardless of
+  // status — the printer may be paused, failed, or idle-with-error.
+  if (hasError && onCommand) {
+    actions.push({
+      label: "Clear Error",
+      primary: false,
+      onClick: () => onCommand(printer.id, "clear_error"),
       disabled: commandPending,
     });
   }
@@ -175,6 +202,42 @@ export default function PrinterCard({
           {status}
         </span>
       </div>
+
+      {/* HMI / print error banner — only rendered when the printer is reporting
+          an error. Links the first HMS code to Bambu's public lookup page. */}
+      {hasError && (
+        <div className="mb-5 rounded-2xl border border-red-500/40 bg-red-950/30 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.16em] text-red-300/90">
+                Printer Error
+              </div>
+              <div className="mt-1 text-sm font-medium text-red-100">
+                {primaryHmsCode
+                  ? `HMS ${primaryHmsCode}`
+                  : printError
+                  ? `Print error ${printError}`
+                  : "Printer reported an error"}
+              </div>
+              {hmsCodes.length > 1 && (
+                <div className="mt-1 text-xs text-red-300/80">
+                  +{hmsCodes.length - 1} additional code{hmsCodes.length > 2 ? "s" : ""}
+                </div>
+              )}
+            </div>
+            {primaryHmsCode && (
+              <a
+                href={bambuErrorUrl(primaryHmsCode)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 rounded-lg border border-red-500/40 px-2.5 py-1 text-xs font-medium text-red-200 transition hover:border-red-400/60 hover:bg-red-500/10"
+              >
+                Look up ↗
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Job section — active job UI is driven by status (printing/paused), not by
           the presence of telemetry. Progress bar renders only when progress is reported. */}
@@ -246,11 +309,12 @@ export default function PrinterCard({
         )}
       </div>
 
-      {/* Metric tiles */}
+      {/* Metric tiles — the Filament tile shows a color swatch next to the
+          material name when the AMS reports one (Bambu sends RGBA hex). */}
       <div className="grid grid-cols-2 gap-3">
         <Metric label="Nozzle" value={fmtTemp(printer.nozzle_temp)} />
         <Metric label="Bed" value={fmtTemp(printer.bed_temp)} />
-        <Metric label="Filament" value={ams.material} />
+        <Metric label="Filament" value={ams.material} swatchColor={ams.color} />
         <Metric label="Feed" value={ams.slot} />
       </div>
 
@@ -284,13 +348,22 @@ export default function PrinterCard({
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value, swatchColor }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-3">
       <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
         {label}
       </div>
-      <div className="mt-2 text-sm font-medium text-slate-100">{value}</div>
+      <div className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-100">
+        {swatchColor && (
+          <span
+            aria-hidden="true"
+            className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-white/20 shadow-inner"
+            style={{ backgroundColor: swatchColor }}
+          />
+        )}
+        <span className="truncate">{value}</span>
+      </div>
     </div>
   );
 }
