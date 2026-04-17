@@ -30,7 +30,7 @@ from scripts.seed_data import _guards, _time  # noqa: E402
 SEED_PIPELINE: list[tuple[str, str, str]] = [
     ("Creating users...", "users", "seed"),
     ("Creating printers + maintenance...", "printers", "seed"),
-    # ("Creating price levels...", "price_levels", "seed"),
+    ("Creating price levels...", "price_levels", "seed"),
     # ("Creating customers...", "customers", "seed"),
     # ("Creating vendors...", "vendors", "seed"),
     # ("Creating products + BOMs + routings...", "products", "seed"),
