@@ -77,11 +77,17 @@ function getActiveAmsSlot(amsSlots) {
   };
 }
 
-// Bambu's public error-code lookup. Takes their HMS string ("ATTR_CODE") and
-// returns a user-friendly description page.
+// Bambu's public wiki error-code page. Their URL format groups hex as four
+// 4-digit chunks joined by underscores ("0500_0500_0001_0007") while our
+// backend emits two 8-digit chunks ("05000500_00010007"). Reformat so the
+// link lands on the human-readable troubleshooting page instead of the raw
+// catalog dump at e.bambulab.com/query.php.
 function bambuErrorUrl(hmsCode) {
   if (!hmsCode) return null;
-  return `https://e.bambulab.com/query.php?lang=en&E=${encodeURIComponent(hmsCode)}`;
+  const clean = String(hmsCode).replace(/[_-]/g, "").toLowerCase();
+  if (clean.length !== 16) return null;
+  const parts = [clean.slice(0, 4), clean.slice(4, 8), clean.slice(8, 12), clean.slice(12, 16)];
+  return `https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${parts.join("_")}`;
 }
 
 export default function PrinterCard({
@@ -106,12 +112,18 @@ export default function PrinterCard({
   const ams = getActiveAmsSlot(printer.ams_slots);
 
   // Surface HMI errors from Bambu MQTT telemetry. print_error is an integer
-  // (0 = none); hms_codes is an array of "ATTR_CODE" hex strings that resolve
-  // against Bambu's published catalog.
+  // (0 = none); hms_codes is an array of "ATTR_CODE" hex strings. hms_descriptions
+  // aligns 1:1 with hms_codes and carries the decoded message from Bambu's
+  // catalog (backend-cached). Entries may be null on cache miss.
   const hmsCodes = Array.isArray(printer.hms_codes) ? printer.hms_codes : [];
+  const hmsDescriptions = Array.isArray(printer.hms_descriptions)
+    ? printer.hms_descriptions
+    : [];
   const printError = Number(printer.print_error) || 0;
   const hasError = printError > 0 || hmsCodes.length > 0 || status === "error";
   const primaryHmsCode = hmsCodes[0] || null;
+  const primaryHmsDescription = hmsDescriptions[0] || null;
+  const primaryHmsWikiUrl = primaryHmsCode ? bambuErrorUrl(primaryHmsCode) : null;
 
   // Build contextual actions based on printer state.
   // While a command is in-flight for this printer, disable pause/resume/cancel
@@ -203,31 +215,40 @@ export default function PrinterCard({
         </span>
       </div>
 
-      {/* HMI / print error banner — only rendered when the printer is reporting
-          an error. Links the first HMS code to Bambu's public lookup page. */}
+      {/* HMI / print error banner. When the backend can resolve the HMS code
+          against Bambu's catalog, the primary line is the decoded description
+          with the code as a secondary label. On cache miss / offline the code
+          itself becomes the primary line. "Look up" links to Bambu's wiki
+          troubleshooting page using the four-chunk URL format. */}
       {hasError && (
         <div className="mb-5 rounded-2xl border border-red-500/40 bg-red-950/30 p-4">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="text-xs uppercase tracking-[0.16em] text-red-300/90">
                 Printer Error
               </div>
               <div className="mt-1 text-sm font-medium text-red-100">
-                {primaryHmsCode
-                  ? `HMS ${primaryHmsCode}`
-                  : printError
-                  ? `Print error ${printError}`
-                  : "Printer reported an error"}
+                {primaryHmsDescription ||
+                  (primaryHmsCode
+                    ? `HMS ${primaryHmsCode}`
+                    : printError
+                    ? `Print error ${printError}`
+                    : "Printer reported an error")}
               </div>
+              {primaryHmsDescription && primaryHmsCode && (
+                <div className="mt-1 font-mono text-xs text-red-300/70">
+                  HMS {primaryHmsCode}
+                </div>
+              )}
               {hmsCodes.length > 1 && (
                 <div className="mt-1 text-xs text-red-300/80">
                   +{hmsCodes.length - 1} additional code{hmsCodes.length > 2 ? "s" : ""}
                 </div>
               )}
             </div>
-            {primaryHmsCode && (
+            {primaryHmsWikiUrl && (
               <a
-                href={bambuErrorUrl(primaryHmsCode)}
+                href={primaryHmsWikiUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 rounded-lg border border-red-500/40 px-2.5 py-1 text-xs font-medium text-red-200 transition hover:border-red-400/60 hover:bg-red-500/10"
