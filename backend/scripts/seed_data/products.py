@@ -24,7 +24,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models.bom import BOM
 from app.models.item_category import ItemCategory
+from app.models.manufacturing import RoutingOperationMaterial
 from app.models.product import Product
 from app.models.work_center import WorkCenter
 from app.schemas.bom import BOMCreate, BOMLineCreate
@@ -363,7 +365,7 @@ def seed(db: Session, context: dict[str, Any]) -> None:
 
     for sku, fg_id in finished_good_ids.items():
         has_sub = sku in multi_level_parents
-        routing_service.create_routing(
+        routing = routing_service.create_routing(
             db,
             data={
                 "product_id": fg_id,
@@ -375,6 +377,44 @@ def seed(db: Session, context: dict[str, Any]) -> None:
             },
             operations=_build_routing_ops(rng, wc_ids, has_subassembly=has_sub),
         )
+
+        # Mirror the BOM line materials onto the routing operations so the
+        # PO detail's per-operation 'Materials' sub-row is populated. BOM
+        # lines drive inventory reservation (reserve_production_materials);
+        # routing_operation_materials drive per-op execution tracking and
+        # get copied to production_order_operation_materials by
+        # copy_routing_to_operations. Without these rows, the PO detail
+        # UI shows 'No materials assigned to this operation' on every op.
+        bom = (
+            db.query(BOM)
+            .filter(BOM.product_id == fg_id, BOM.active.is_(True))
+            .first()
+        )
+        if bom is None:
+            continue
+        print_op = next((op for op in routing.operations if op.operation_code == "PRINT"), None)
+        assemble_op = next((op for op in routing.operations if op.operation_code == "ASSEMBLE"), None)
+        for line in bom.lines:
+            component = db.get(Product, line.component_id)
+            if component is None:
+                continue
+            # Raw materials go on the PRINT op; sub-assemblies go on the
+            # ASSEMBLE op (if the routing has one), else PRINT.
+            if component.is_raw_material:
+                target = print_op
+            else:
+                target = assemble_op or print_op
+            if target is None:
+                continue
+            db.add(RoutingOperationMaterial(
+                routing_operation_id=target.id,
+                component_id=line.component_id,
+                quantity=line.quantity,
+                quantity_per="unit",
+                unit=line.unit or component.unit or "EA",
+                scrap_factor=line.scrap_factor or Decimal("0"),
+            ))
+        db.flush()
 
     context["category_ids"] = cat_ids
     context["work_center_ids"] = wc_ids
