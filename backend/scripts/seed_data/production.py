@@ -115,11 +115,12 @@ def seed(db: Session, context: dict[str, Any]) -> None:
 
     def _new_po(status: str, qty: int, product_id: int, sales_order_id: int | None, days_back: int) -> ProductionOrder:
         created = now - timedelta(days=days_back)
+        routing_id = routings_by_product[product_id].id if product_id in routings_by_product else None
         po = ProductionOrder(
             code=production_order_service.generate_production_order_code(db),
             product_id=product_id,
             bom_id=boms_by_product[product_id].id if product_id in boms_by_product else None,
-            routing_id=routings_by_product[product_id].id if product_id in routings_by_product else None,
+            routing_id=routing_id,
             sales_order_id=sales_order_id,
             quantity_ordered=Decimal(str(qty)),
             quantity_completed=Decimal("0"),
@@ -136,7 +137,63 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         )
         db.add(po)
         db.flush()
+
+        # Copy routing operations to production_order_operations (+ their
+        # materials via routing_operation_materials). Without this the PO
+        # detail page shows 'No operations' because we bypassed
+        # create_production_order() for inventory-reservation reasons.
+        if routing_id:
+            production_order_service.copy_routing_to_operations(db, po, routing_id)
+            db.flush()
+
         return po
+
+    def _mark_ops_complete(po: ProductionOrder, qty_completed: Decimal) -> None:
+        """All ops done -- completed / accepted_short buckets."""
+        for op in sorted(po.operations, key=lambda o: o.sequence):
+            op.status = "complete"
+            op.quantity_completed = qty_completed
+            op.actual_setup_minutes = op.planned_setup_minutes
+            op.actual_run_minutes = op.planned_run_minutes
+            op.actual_start = po.actual_start
+            op.actual_end = po.actual_end
+            op.operator_name = "Demo Operator"
+
+    def _mark_ops_in_progress(po: ProductionOrder) -> None:
+        """First op complete, second op running, rest pending."""
+        ops = sorted(po.operations, key=lambda o: o.sequence)
+        if not ops:
+            return
+        first = ops[0]
+        first.status = "complete"
+        first.quantity_completed = po.quantity_ordered
+        first.actual_setup_minutes = first.planned_setup_minutes
+        first.actual_run_minutes = first.planned_run_minutes
+        first.actual_start = po.actual_start
+        first.actual_end = po.actual_start + timedelta(
+            minutes=float(first.planned_run_minutes or 0)
+        )
+        first.operator_name = "Demo Operator"
+        if len(ops) > 1:
+            second = ops[1]
+            second.status = "running"
+            second.actual_start = first.actual_end
+            second.operator_name = "Demo Operator"
+
+    def _mark_ops_scrapped(po: ProductionOrder, scrap_code: str) -> None:
+        """First op complete, second op skipped with scrap_reason."""
+        ops = sorted(po.operations, key=lambda o: o.sequence)
+        if not ops:
+            return
+        ops[0].status = "complete"
+        ops[0].quantity_completed = Decimal("0")
+        ops[0].quantity_scrapped = po.quantity_scrapped
+        ops[0].actual_start = po.created_at + timedelta(hours=1)
+        ops[0].actual_end = po.scrapped_at
+        ops[0].scrap_reason = scrap_code
+        ops[0].operator_name = "Demo Operator"
+        for op in ops[1:]:
+            op.status = "skipped"
 
     completed_po_ids: list[int] = []
 
@@ -153,6 +210,7 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         po.completed_at = po.created_at + timedelta(days=rng.randint(1, 5))
         po.actual_start = po.created_at + timedelta(hours=2)
         po.actual_end = po.completed_at
+        _mark_ops_complete(po, po.quantity_ordered)
         db.add(po)
         completed_po_ids.append(po.id)
 
@@ -167,6 +225,7 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         po.quantity_completed = Decimal(str(int(po.quantity_ordered) * rng.randint(10, 70) // 100))
         po.actual_start = po.created_at + timedelta(hours=1)
         po.released_at = po.created_at
+        _mark_ops_in_progress(po)
         db.add(po)
 
     for _ in range(5):
@@ -186,6 +245,7 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         po.completed_at = po.created_at + timedelta(days=rng.randint(2, 8))
         po.actual_start = po.created_at + timedelta(hours=2)
         po.actual_end = po.completed_at
+        _mark_ops_complete(po, po.quantity_completed)
         db.add(po)
 
     scrap_codes = rng.sample(list(scrap_reason_ids.keys()), k=5)
@@ -204,6 +264,7 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         po.qc_status = "failed"
         po.scrapped_at = po.created_at + timedelta(days=rng.randint(1, 3))
         po.scrap_reason = scrap_code
+        _mark_ops_scrapped(po, scrap_code)
         db.add(po)
 
         unit_cost = Decimal(str(product.standard_cost or 5))
