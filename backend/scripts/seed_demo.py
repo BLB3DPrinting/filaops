@@ -101,7 +101,7 @@ def main() -> int:
     print(f"[seed] Login: {context['admin_email']} / {context['admin_password']}")
     print(
         "[seed] Price levels created (A/B/C/D). Customer assignment is a PRO "
-        "feature —"
+        "feature --"
     )
     print(
         "[seed]   install filaops-pro to assign customers to tiers."

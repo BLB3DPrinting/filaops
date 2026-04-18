@@ -19,6 +19,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 
+# Invoke alembic via the same Python interpreter (python -m alembic) so that
+# running the seed with an explicit venv path like
+#   /path/to/venv/Scripts/python.exe -m scripts.seed_demo
+# still works without the venv being on PATH. Shelling out to bare `alembic`
+# would require activation.
+_ALEMBIC_CMD = [sys.executable, "-m", "alembic"]
+
+
 def check_db_name(db_name: str) -> None:
     override = os.environ.get("FILAOPS_DEMO_OVERRIDE") == "1"
     if override:
@@ -40,14 +48,14 @@ def check_alembic_head() -> None:
     backend_dir = Path(__file__).resolve().parents[2]
     try:
         current = subprocess.run(
-            ["alembic", "current"],
+            [*_ALEMBIC_CMD, "current"],
             cwd=backend_dir,
             capture_output=True,
             text=True,
             check=True,
         ).stdout.strip()
         heads = subprocess.run(
-            ["alembic", "heads"],
+            [*_ALEMBIC_CMD, "heads"],
             cwd=backend_dir,
             capture_output=True,
             text=True,
@@ -55,8 +63,10 @@ def check_alembic_head() -> None:
         ).stdout.strip()
     except FileNotFoundError:
         print(
-            "[seed] REFUSING TO RUN: alembic not found on PATH.\n"
-            "       Install backend requirements and activate the venv first.",
+            "[seed] REFUSING TO RUN: alembic module not available in this "
+            "Python environment.\n"
+            f"       Tried: {' '.join(_ALEMBIC_CMD)} current\n"
+            "       Install dev requirements: pip install -r requirements-dev.txt",
             file=sys.stderr,
         )
         sys.exit(1)
