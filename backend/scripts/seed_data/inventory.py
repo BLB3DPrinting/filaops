@@ -32,9 +32,13 @@ LOW_STOCK_ON_HAND_G = {
     "RAW-PLA-WHT": Decimal("350"),   # below reorder_point (500g)
 }
 HEALTHY_RAW_ON_HAND_G = {
-    "RAW-PLA-RED":  Decimal("2400"),
-    "RAW-PETG-CLR": Decimal("3600"),
-    "RAW-ABS-BLK":  Decimal("1800"),
+    # Bumped so on_hand > allocated_quantity after production.py reserves
+    # materials -- keeps the 'shortage' badge limited to the two
+    # intentionally low-stock SKUs above. Values are comfortably above
+    # the deterministic allocation totals observed at seed=42.
+    "RAW-PLA-RED":  Decimal("22000"),
+    "RAW-PETG-CLR": Decimal("15000"),
+    "RAW-ABS-BLK":  Decimal("25000"),
 }
 CYCLE_COUNT_SKU = "KEEP-005"  # Keychain Fob — flagged for cycle count
 

@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.models.production_order import ProductionOrder, ScrapRecord
 from app.models.scrap_reason import ScrapReason
-from app.services import production_order_service
+from app.services import inventory_service, production_order_service
 
 from scripts.seed_data import _time
 
@@ -148,47 +148,61 @@ def seed(db: Session, context: dict[str, Any]) -> None:
 
         return po
 
+    def _schedule_ops(po: ProductionOrder, anchor) -> None:
+        """Forward-schedule ops: first starts at anchor, each next follows."""
+        cursor = anchor
+        for op in sorted(po.operations, key=lambda o: o.sequence):
+            duration_min = float(op.planned_run_minutes or 0) + float(op.planned_setup_minutes or 0)
+            op.scheduled_start = cursor
+            op.scheduled_end = cursor + timedelta(minutes=duration_min)
+            cursor = op.scheduled_end
+
     def _mark_ops_complete(po: ProductionOrder, qty_completed: Decimal) -> None:
         """All ops done -- completed / accepted_short buckets."""
+        _schedule_ops(po, po.actual_start or po.created_at)
         for op in sorted(po.operations, key=lambda o: o.sequence):
             op.status = "complete"
             op.quantity_completed = qty_completed
             op.actual_setup_minutes = op.planned_setup_minutes
             op.actual_run_minutes = op.planned_run_minutes
-            op.actual_start = po.actual_start
-            op.actual_end = po.actual_end
+            op.actual_start = op.scheduled_start
+            op.actual_end = op.scheduled_end
             op.operator_name = "Demo Operator"
 
     def _mark_ops_in_progress(po: ProductionOrder) -> None:
-        """First op complete, second op running, rest pending."""
+        """First op complete, second op running, rest pending (scheduled)."""
         ops = sorted(po.operations, key=lambda o: o.sequence)
         if not ops:
             return
+        _schedule_ops(po, po.actual_start or po.created_at)
         first = ops[0]
         first.status = "complete"
         first.quantity_completed = po.quantity_ordered
         first.actual_setup_minutes = first.planned_setup_minutes
         first.actual_run_minutes = first.planned_run_minutes
-        first.actual_start = po.actual_start
-        first.actual_end = po.actual_start + timedelta(
-            minutes=float(first.planned_run_minutes or 0)
-        )
+        first.actual_start = first.scheduled_start
+        first.actual_end = first.scheduled_end
         first.operator_name = "Demo Operator"
         if len(ops) > 1:
             second = ops[1]
             second.status = "running"
-            second.actual_start = first.actual_end
+            second.actual_start = second.scheduled_start
             second.operator_name = "Demo Operator"
+
+    def _mark_ops_released(po: ProductionOrder) -> None:
+        """All ops pending but scheduled forward from released_at."""
+        _schedule_ops(po, po.released_at or po.created_at)
 
     def _mark_ops_scrapped(po: ProductionOrder, scrap_code: str) -> None:
         """First op complete, second op skipped with scrap_reason."""
+        _schedule_ops(po, po.created_at)
         ops = sorted(po.operations, key=lambda o: o.sequence)
         if not ops:
             return
         ops[0].status = "complete"
         ops[0].quantity_completed = Decimal("0")
         ops[0].quantity_scrapped = po.quantity_scrapped
-        ops[0].actual_start = po.created_at + timedelta(hours=1)
+        ops[0].actual_start = ops[0].scheduled_start
         ops[0].actual_end = po.scrapped_at
         ops[0].scrap_reason = scrap_code
         ops[0].operator_name = "Demo Operator"
@@ -289,8 +303,21 @@ def seed(db: Session, context: dict[str, Any]) -> None:
             days_back=rng.randint(0, 3),
         )
         po.released_at = po.created_at
+        _mark_ops_released(po)
         db.add(po)
 
+    db.flush()
+
+    # Allocate materials for every PO that reached the released stage or
+    # beyond. reserve_production_materials bumps inventory.allocated_quantity
+    # and writes 'reservation' InventoryTransaction rows. It does NOT raise
+    # on insufficient stock -- it warns and lets available_quantity go
+    # negative, which is realistic for demo data showing the Low Stock
+    # alert badge on PLA Black / PLA White.
+    for po in db.query(ProductionOrder).filter(ProductionOrder.status != "scrapped").all():
+        inventory_service.reserve_production_materials(
+            db=db, production_order=po, created_by=admin_email,
+        )
     db.flush()
 
     for po_id in rng.sample(completed_po_ids, k=5):
