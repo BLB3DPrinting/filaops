@@ -1,0 +1,89 @@
+# docker-compose.demo.yml
+#
+# Override for the 'demo' profile: same stack as docker-compose.yml but with
+#   1. Isolated volume (filaops_demo_data) so demo data never collides with dev
+#   2. DB_NAME=filaops_demo  (satisfies seed_demo's DB-name guard)
+#   3. A 'seed' service that runs after migrate completes and before backend
+#      boots, installing faker via requirements-dev.txt and running
+#      scripts/seed_demo.py --yes.
+#
+# Usage:
+#     docker compose -f docker-compose.yml -f docker-compose.demo.yml \
+#         --profile demo up -d
+#
+# The --profile demo flag gates the demo-specific override; without it the
+# base stack runs unchanged so existing dev envs are unaffected.
+
+services:
+  db:
+    container_name: filaops-demo-db
+    environment:
+      POSTGRES_DB: filaops_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DEMO_DB_PASSWORD:-demo}
+    volumes:
+      - filaops_demo_data:/var/lib/postgresql/data
+    profiles: [demo]
+
+  migrate:
+    container_name: filaops-demo-migrate
+    environment:
+      DB_NAME: filaops_demo
+      DB_USER: postgres
+      DB_PASSWORD: ${DEMO_DB_PASSWORD:-demo}
+      DATABASE_URL: postgresql+psycopg://postgres:${DEMO_DB_PASSWORD:-demo}@db:5432/filaops_demo
+    profiles: [demo]
+
+  seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: filaops-demo-seed
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        pip install --no-cache-dir -r requirements-dev.txt
+        python -m scripts.seed_demo --yes
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: filaops_demo
+      DB_USER: postgres
+      DB_PASSWORD: ${DEMO_DB_PASSWORD:-demo}
+      DATABASE_URL: postgresql+psycopg://postgres:${DEMO_DB_PASSWORD:-demo}@db:5432/filaops_demo
+      SECRET_KEY: demo-only-do-not-use-in-production
+      FILAOPS_DEMO_SEED: ${FILAOPS_DEMO_SEED:-42}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - filaops-network
+    profiles: [demo]
+
+  backend:
+    container_name: filaops-demo-backend
+    environment:
+      DB_NAME: filaops_demo
+      DB_USER: postgres
+      DB_PASSWORD: ${DEMO_DB_PASSWORD:-demo}
+      SECRET_KEY: demo-only-do-not-use-in-production
+      ENVIRONMENT: demo
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    profiles: [demo]
+
+  frontend:
+    container_name: filaops-demo-frontend
+    profiles: [demo]
+
+volumes:
+  filaops_demo_data:
+    name: filaops_demo_data
