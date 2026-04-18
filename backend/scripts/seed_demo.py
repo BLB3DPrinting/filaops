@@ -38,7 +38,7 @@ SEED_PIPELINE: list[tuple[str, str, str]] = [
     ("Creating quotes...", "quotes", "seed"),
     ("Creating 90 days of sales...", "sales_orders", "seed"),
     ("Creating 90 days of production...", "production", "seed"),
-    # ("Creating 90 days of purchasing...", "purchasing", "seed"),
+    ("Creating 90 days of purchasing...", "purchasing", "seed"),
 ]
 
 
