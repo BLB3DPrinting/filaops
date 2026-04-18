@@ -1,15 +1,24 @@
 """
 Seed 4 printers (Alpha/Bravo/Charlie/Delta) + maintenance history.
 
-Capability shapes are deliberately mixed:
-- Alpha/Bravo/Delta: Vendor A Model X1 with AMS, camera, enclosure.
-- Charlie: Vendor B Model S2 — camera only. The ams_slots key is
-  OMITTED (not set to 0) so the UI's 'badge absent' render path is
-  exercised, not just the 'badge shows 0' path.
-- Delta: status='offline', overdue maintenance badge (last service
-  > next_due_at).
+All printers use brand='generic' (one of the six valid PrinterBrand
+enum members). The spec asked for made-up 'Vendor A / Vendor B'
+labels for privacy; 'generic' is the legitimate enum member meant
+exactly for non-branded / self-managed printers, so we use it for
+all four and convey model variety via the free-form model string.
+
+Capability shapes are deliberately mixed so the UI renders a range:
+- Alpha/Bravo/Delta: Model X1 — AMS, camera, enclosure (256x256x256).
+- Charlie: Model S2 — camera only, smaller bed (220x220x250).
+  The ams_slots key is OMITTED (not set to 0) so the UI's
+  'badge absent' render path is exercised, not just 'badge=0'.
+- Delta: status='offline', overdue maintenance (service >= next_due_at).
 
 12 maintenance logs spread across the 90-day window.
+
+Enum validation: brand + status fields are validated against
+app.schemas.printer enums before any db.add() — a bad value raises
+at seed time instead of blowing up the first /api/v1/printers/ GET.
 """
 from datetime import timedelta
 from decimal import Decimal
@@ -19,15 +28,16 @@ from sqlalchemy.orm import Session
 
 from app.models.maintenance import MaintenanceLog
 from app.models.printer import Printer
+from app.schemas.printer import PrinterBrand, PrinterStatus
 
-from scripts.seed_data import _time
+from scripts.seed_data import _guards, _time
 
 
 PRINTER_FIXTURES = [
     {
         "code": "P-001",
         "name": "Alpha",
-        "brand": "vendor_a",
+        "brand": "generic",
         "model": "Model X1",
         "status": "idle",
         "capabilities": {
@@ -40,7 +50,7 @@ PRINTER_FIXTURES = [
     {
         "code": "P-002",
         "name": "Bravo",
-        "brand": "vendor_a",
+        "brand": "generic",
         "model": "Model X1",
         "status": "printing",
         "capabilities": {
@@ -53,7 +63,7 @@ PRINTER_FIXTURES = [
     {
         "code": "P-003",
         "name": "Charlie",
-        "brand": "vendor_b",
+        "brand": "generic",
         "model": "Model S2",
         "status": "idle",
         "capabilities": {
@@ -65,7 +75,7 @@ PRINTER_FIXTURES = [
     {
         "code": "P-004",
         "name": "Delta",
-        "brand": "vendor_a",
+        "brand": "generic",
         "model": "Model X1",
         "status": "offline",
         "capabilities": {
@@ -79,6 +89,12 @@ PRINTER_FIXTURES = [
 
 
 def seed(db: Session, context: dict[str, Any]) -> None:
+    _guards.validate_enum_fields(
+        PRINTER_FIXTURES,
+        {"brand": PrinterBrand, "status": PrinterStatus},
+        fixture_label="printer",
+    )
+
     now = _time.now()
     rng = _time.rng()
 

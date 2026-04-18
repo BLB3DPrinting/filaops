@@ -9,11 +9,16 @@ Safety guards for seed_demo.
 - confirm_wipe: interactive prompt unless --yes passed.
 - wipe_all_tables: TRUNCATE ... RESTART IDENTITY CASCADE for
   determinism (including auto-increment ID resets).
+- validate_enum_fields: catch invalid enum-backed strings in fixtures
+  at seed time rather than at first API call. Every seed module with
+  status/type/brand fields should call this before the first db.add().
 """
 import os
 import subprocess
 import sys
+from enum import Enum
 from pathlib import Path
+from typing import Iterable
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -101,6 +106,42 @@ def confirm_wipe(db_name: str, yes: bool) -> None:
     if resp != "yes":
         print("[seed] Aborted.")
         sys.exit(1)
+
+
+def validate_enum_fields(
+    fixtures: Iterable[dict],
+    field_map: dict[str, type[Enum]],
+    *,
+    fixture_label: str = "fixture",
+) -> None:
+    """
+    Verify every fixture value for the named fields is a valid enum member.
+
+    Why this exists: the DB layer often accepts free-form strings for columns
+    the schema/API layer later validates as strict enums. A bad value survives
+    the INSERT and blows up at GET time (FastAPI 500). This helper moves the
+    failure to seed time with a clear message, before anything hits the DB.
+
+    Args:
+        fixtures: iterable of dicts (e.g. PRINTER_FIXTURES).
+        field_map: {field_name: EnumClass}. Values are matched against
+            `member.value` (not `member.name`).
+        fixture_label: label for error messages (e.g. "printer").
+
+    Raises:
+        ValueError with the offending index + field + value + valid options.
+    """
+    for i, fx in enumerate(fixtures):
+        for field_name, enum_cls in field_map.items():
+            value = fx.get(field_name)
+            if value is None:
+                continue
+            valid = {member.value for member in enum_cls}
+            if value not in valid:
+                raise ValueError(
+                    f"[seed] Invalid {fixture_label}[{i}].{field_name} = "
+                    f"{value!r}. Must be one of: {sorted(valid)}"
+                )
 
 
 def wipe_all_tables(db: Session) -> None:
