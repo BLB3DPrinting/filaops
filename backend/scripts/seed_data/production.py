@@ -28,7 +28,7 @@ to consume actual inventory -- our raw-material stock is intentionally
 low (2 items below reorder point per spec). Direct ORM inserts skip
 the reservation and keep the module fast.
 
-QC inspection records: per Brandan's instruction, record_qc_inspection
+QC inspection records: per spec-author instruction, record_qc_inspection
 fires for 5 of the 15 completed orders even if the Quality Dashboard
 UI isn't wired in v4.0.0 -- pre-populates the data for when it lands.
 """

@@ -128,11 +128,18 @@ def seed(db: Session, context: dict[str, Any]) -> None:
         performed_at = now - timedelta(days=days_back)
 
         if printer.code == "P-004" and logs_per_printer["P-004"] == 0:
+            # Delta gets a deliberately-overdue maintenance log: last service
+            # 45 days ago, next_due was 15 days ago. Exercises the 'overdue'
+            # badge in the Maintenance tab screenshot. Spec asks for exactly
+            # ONE overdue printer, so every other log below clamps next_due
+            # to >= 5 days in the future regardless of how far back the
+            # performed_at fell.
             last_routine_days = 45
             performed_at = now - timedelta(days=last_routine_days)
             next_due = performed_at + timedelta(days=30)
         else:
-            next_due = performed_at + timedelta(days=rng.randint(30, 60))
+            candidate = performed_at + timedelta(days=rng.randint(30, 60))
+            next_due = max(now + timedelta(days=5), candidate)
 
         db.add(
             MaintenanceLog(
