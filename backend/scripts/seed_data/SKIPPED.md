@@ -60,20 +60,6 @@ line from this file.
 - **Action:** call `close_short_sales_order()` with realistic line_adjustments
   for the 3 orders.
 
-### [ ] Shipped-order GL journal entries (COGS + revenue)
-- **Spec ref:** acceptance criterion — "Dashboard shows 3 months of revenue
-  data, a non-zero COGS".
-- **Status:** shipped sales orders are stamped with `status='shipped'` +
-  `payment_status='paid'` via direct ORM updates. The `ship_order()` service
-  that generates GL journal entries (and therefore populates the Dashboard
-  COGS widget) is NOT called because it adds ~8 s to the seed runtime and
-  requires inventory-allocation setup.
-- **Trigger to revisit:** Dashboard COGS widget looks empty and must show
-  real data for a release screenshot.
-- **Action:** in `sales_orders.py`, replace the direct `order.status='shipped'`
-  stamps with `ship_order()` calls for the 28 Paid orders. Seed raw material
-  inventory higher up to keep allocation from failing. Expect ~20 s runtime.
-
 ### [ ] Close-short workflow for production orders
 - **Spec ref:** §Production Orders — "accepted-short" mix entry.
 - **Status:** 5 production orders are seeded with `status='completed'`,

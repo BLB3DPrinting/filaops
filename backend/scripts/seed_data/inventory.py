@@ -75,8 +75,11 @@ def seed(db: Session, context: dict[str, Any]) -> None:
             updated_at=now,
         ))
 
+    # FG on-hand bumped to 50-300 EA so that sales_orders.ship_order()
+    # has headroom to consume inventory across the 32 shipped orders
+    # without hitting stockouts. Lower bound was 10 pre-COGS-fix.
     for sku, fg_id in finished_good_ids.items():
-        on_hand = Decimal(str(rng.randint(10, 150)))
+        on_hand = Decimal(str(rng.randint(50, 300)))
         last_counted = None
         if sku == CYCLE_COUNT_SKU:
             last_counted = now - timedelta(days=120)

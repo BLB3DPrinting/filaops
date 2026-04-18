@@ -36,6 +36,7 @@ SEED_PIPELINE: list[tuple[str, str, str]] = [
     ("Creating products + BOMs + routings...", "products", "seed"),
     ("Creating inventory state...", "inventory", "seed"),
     ("Creating quotes...", "quotes", "seed"),
+    ("Seeding Chart of Accounts...", "gl_accounts", "seed"),
     ("Creating 90 days of sales...", "sales_orders", "seed"),
     ("Creating 90 days of production...", "production", "seed"),
     ("Creating 90 days of purchasing...", "purchasing", "seed"),

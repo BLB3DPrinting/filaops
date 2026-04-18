@@ -100,7 +100,10 @@ Current counts (v4.0.0):
   accepted-short)
 - **Purchase orders:** 25 (3 from the Low Stock workflow)
 
-Runtime: ~12 s on a developer laptop, well under the 30 s target. Full
+- **GL journal entries:** 32 (one per shipped order — DR 5000 COGS / CR 1220 FG Inventory)
+- **Chart of Accounts:** 14 system accounts
+
+Runtime: ~14 s on a developer laptop, well under the 30 s target. Full
 breakdown printed live by the seed as each module runs.
 
 ### Determinism check
