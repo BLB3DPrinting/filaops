@@ -196,10 +196,17 @@ def _seed_finished_good(db, now, sku, name, cat_id, cost, price):
 
 
 def _seed_raw_material(db, now, sku, name, cat_id, cost_per_kg, reorder_g):
+    # item_type='material' is load-bearing: inventory_helpers.is_material()
+    # returns True only for item_type=='material' OR material_type_id IS NOT NULL.
+    # Without this, the BOM cost rollup at
+    # bom_management_service.calculate_material_line_cost takes the
+    # non-materials branch and does literal qty * cost_per_kg -- treating
+    # grams as if they were kgs (1000x-inflated Material Cost on the BOM
+    # detail modal, e.g. 5 G * $25/KG rendered as $125 instead of $0.125).
     p = Product(
         sku=sku,
         name=name,
-        item_type="supply",
+        item_type="material",
         procurement_type="buy",
         category_id=cat_id,
         unit="G",
