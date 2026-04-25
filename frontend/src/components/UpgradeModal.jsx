@@ -24,7 +24,7 @@ export default function UpgradeModal() {
   const current = limitInfo?.current || 0;
 
   return (
-    <Modal isOpen={isOpen && !!limitInfo} onClose={() => setIsOpen(false)} title="Upgrade to Pro" className="max-w-md w-full">
+    <Modal isOpen={isOpen && !!limitInfo} onClose={() => setIsOpen(false)} title="Upgrade to PRO" className="max-w-md w-full">
         {/* Header */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -45,7 +45,7 @@ export default function UpgradeModal() {
             </div>
             <div>
               <h2 className="text-xl font-semibold text-white">
-                Upgrade to Pro
+                Upgrade to PRO
               </h2>
               <p className="text-sm text-gray-400">
                 You've reached a limit
