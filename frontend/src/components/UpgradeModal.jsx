@@ -61,37 +61,37 @@ export default function UpgradeModal() {
           </p>
 
           <div className="bg-gray-800 rounded-lg p-4 mb-6">
-            <h3 className="text-white font-medium mb-2">Pro includes:</h3>
+            <h3 className="text-white font-medium mb-2">PRO includes:</h3>
             <ul className="text-sm text-gray-400 space-y-2">
               <li className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Unlimited users
+                B2B Customer Portal
               </li>
               <li className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Unlimited printers
+                Quote Engine (Beta)
               </li>
               <li className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Customer quote portal
+                GL Accounting &amp; Schedule C
               </li>
               <li className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Advanced BOM features
+                Shopify Sync
               </li>
               <li className="flex items-center gap-2">
                 <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                QuickBooks integration
+                QuickBooks Export
               </li>
             </ul>
           </div>
@@ -104,7 +104,7 @@ export default function UpgradeModal() {
               Maybe Later
             </button>
             <a
-              href="https://filaops.com/pricing"
+              href="https://blb3dprinting.com/pro/pricing/"
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-center"
@@ -117,7 +117,7 @@ export default function UpgradeModal() {
         {/* Footer */}
         <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 rounded-b-xl">
           <p className="text-xs text-gray-500 text-center">
-            Starting at $29/user/month (2 seat minimum)
+            $49 / month · self-hosted · cancel anytime
           </p>
         </div>
     </Modal>
