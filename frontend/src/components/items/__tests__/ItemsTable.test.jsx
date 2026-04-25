@@ -90,3 +90,61 @@ describe('ItemsTable — currency display', () => {
     expect(screen.queryByText('$35.00')).not.toBeInTheDocument()
   })
 })
+
+describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
+  const templateRow = {
+    ...item,
+    id: 99,
+    sku: 'FG-TMPL-X',
+    name: 'Zorble Template',
+    item_type: 'finished_good',
+    material_type_id: null,
+    unit: 'EA',
+    on_hand_qty: 0,
+    available_qty: 0,
+    is_template: true,
+    variant_count: 3,
+    variants_on_hand_qty: 12,
+    variants_available_qty: 9,
+  }
+
+  const renderTemplate = () =>
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} items={[templateRow]} />
+      </MockLocaleProvider>
+    )
+
+  it('renders the rollup on-hand value (12) instead of the templates own 0', () => {
+    renderTemplate()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    // Template own-qty is always 0, but the cell should now show the rollup
+    expect(screen.queryByText('0', { selector: 'button' })).not.toBeInTheDocument()
+  })
+
+  it('renders the rollup available value (9)', () => {
+    renderTemplate()
+    expect(screen.getByText('9')).toBeInTheDocument()
+  })
+
+  it('exposes an accessible aria-label that names the variant count', () => {
+    renderTemplate()
+    // On-hand rollup indicator
+    expect(
+      screen.getByLabelText(/on-hand rolled up from 3 variants/i),
+    ).toBeInTheDocument()
+    // Available rollup indicator
+    expect(
+      screen.getByLabelText(/available rolled up from 3 variants/i),
+    ).toBeInTheDocument()
+  })
+
+  it('does not render rollup indicator for non-template rows', () => {
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} />
+      </MockLocaleProvider>
+    )
+    expect(screen.queryByLabelText(/rolled up from/i)).not.toBeInTheDocument()
+  })
+})

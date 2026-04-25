@@ -281,6 +281,26 @@ export default function ItemsTable({
                       ✕
                     </button>
                   </div>
+                ) : item.is_template && item.variants_on_hand_qty != null ? (
+                  // Variant inventory rollup (Workstream A): templates currently can't
+                  // carry their own inventory, so we replace the always-zero own-qty
+                  // cell with the SUM across child variants. If templates ever gain
+                  // their own stock, revisit this — we may need to show both values.
+                  <span
+                    className="text-right px-2 py-1 text-gray-300"
+                    title={`Sum across ${item.variant_count ?? 0} variants`}
+                  >
+                    {parseFloat(item.variants_on_hand_qty).toFixed(0)}
+                    <span className="text-gray-500 text-xs ml-1">
+                      {item.unit || "EA"}
+                    </span>
+                    <span
+                      className="text-blue-400 text-xs ml-1"
+                      aria-label={`On-hand rolled up from ${item.variant_count ?? 0} variants`}
+                    >
+                      ↘
+                    </span>
+                  </span>
                 ) : (
                   <button
                     onClick={() => onStartEditQty(item)}
@@ -320,6 +340,27 @@ export default function ItemsTable({
                 )}
               </td>
               <td className="py-3 px-4 text-right">
+                {item.is_template && item.variants_available_qty != null ? (
+                  <span
+                    className={
+                      parseFloat(item.variants_available_qty) <= 0
+                        ? "text-red-400"
+                        : "text-green-400"
+                    }
+                    title={`Sum across ${item.variant_count ?? 0} variants`}
+                  >
+                    {parseFloat(item.variants_available_qty).toFixed(0)}
+                    <span className="text-gray-500 text-xs ml-1">
+                      {item.unit || "EA"}
+                    </span>
+                    <span
+                      className="text-blue-400 text-xs ml-1"
+                      aria-label={`Available rolled up from ${item.variant_count ?? 0} variants`}
+                    >
+                      ↘
+                    </span>
+                  </span>
+                ) : (
                 <span
                   className={
                     item.available_qty != null &&
@@ -343,6 +384,7 @@ export default function ItemsTable({
                     "-"
                   )}
                 </span>
+                )}
               </td>
               <td className="py-3 px-4 text-center">
                 <span
