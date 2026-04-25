@@ -23,6 +23,8 @@ from app.models.company_settings import CompanySettings
 from app.models.inventory import Inventory, InventoryLocation
 from app.models.material_spool import MaterialSpool
 from app.models.traceability import MaterialLot
+from app.models.bom import BOM
+from app.models.manufacturing import Routing
 from app.services.uom_service import convert_quantity_safe, get_conversion_factor
 from app.services.inventory_helpers import is_material
 from app.services.transaction_service import TransactionService, ReceiptItem
@@ -909,6 +911,34 @@ def receive_purchase_order(
                 logger.info(
                     f"Created spool {spool_number} for {product.sku}: {spool_data['weight_g']}g "
                     f"(lot: {spool.supplier_lot_number or 'N/A'})"
+                )
+
+    # Auto-sync standard_cost ← average_cost for purchased items.
+    # Manufactured items (active BOM or active routing of their own) own
+    # standard_cost via cost rollup, so leaving them alone preserves the
+    # variance signal and lets recost handle them. Skipped products
+    # (effective_unit != product_unit) are absent from product_receipt_accum.
+    if product_receipt_accum:
+        synced_pids = list(product_receipt_accum.keys())
+        bom_pids = {
+            row[0] for row in db.query(BOM.product_id).filter(
+                BOM.product_id.in_(synced_pids), BOM.active.is_(True)
+            ).all()
+        }
+        routing_pids = {
+            row[0] for row in db.query(Routing.product_id).filter(
+                Routing.product_id.in_(synced_pids), Routing.is_active.is_(True)
+            ).all()
+        }
+        for pid in synced_pids:
+            if pid in bom_pids or pid in routing_pids:
+                continue
+            product_to_sync = db.query(Product).filter(Product.id == pid).first()
+            if product_to_sync and product_to_sync.average_cost is not None:
+                product_to_sync.standard_cost = product_to_sync.average_cost
+                logger.debug(
+                    f"Auto-synced standard_cost for purchased item {product_to_sync.sku}: "
+                    f"${product_to_sync.standard_cost} (= average_cost)"
                 )
 
     # PO receipt via TransactionService
