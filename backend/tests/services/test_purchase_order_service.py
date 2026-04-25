@@ -1636,6 +1636,88 @@ class TestReceivePurchaseOrder:
         assert float(product.average_cost) > 0
         assert float(product.last_cost) == pytest.approx(25.0, rel=1e-2)
 
+    def test_purchased_item_standard_cost_auto_synced(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """For purchased items (no BOM, no routing), receiving a PO sets
+        standard_cost = average_cost so downstream rollups (routing material
+        unit_cost, MRP suggestions, item grid) reflect the new cost basis
+        without requiring a manual Recost All.
+
+        Regression test for COMP-007 incident (2026-04-25): elastics received
+        on PO-2026-008 left standard_cost at 0, so the routing material on
+        the assembly operation showed no /unit price.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="ordered")
+        product = make_product(
+            item_type="component",
+            unit="EA",
+            purchase_uom="EA",
+            standard_cost=None,
+            average_cost=None,
+        )
+        line = _add_po_line(
+            db, po, product, Decimal("200"), Decimal("0.0575"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("200")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        assert product.average_cost is not None
+        assert float(product.average_cost) == pytest.approx(0.0575, rel=1e-3)
+        assert product.standard_cost is not None, "standard_cost should auto-sync from average_cost"
+        assert float(product.standard_cost) == pytest.approx(float(product.average_cost), rel=1e-6)
+        assert float(product.last_cost) == pytest.approx(0.0575, rel=1e-3)
+
+    def test_manufactured_item_standard_cost_not_auto_synced(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """For manufactured items (active BOM or routing), standard_cost is
+        owned by the cost rollup (BOM + routing). Receiving a PO must NOT
+        overwrite it with the purchase price — that would erase the rollup
+        and make standard_cost reflect raw-material cost instead of finished
+        cost. Recost All is the path that recalculates these.
+        """
+        from app.models.bom import BOM
+
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="ordered")
+        # Manufactured item that we somehow also purchase (e.g., outsourced backup).
+        product = make_product(
+            item_type="finished_good",
+            unit="EA",
+            purchase_uom="EA",
+            standard_cost=Decimal("12.34"),  # rollup-derived cost
+        )
+        bom = BOM(product_id=product.id, version=1, active=True)
+        db.add(bom)
+        db.flush()
+
+        line = _add_po_line(
+            db, po, product, Decimal("5"), Decimal("9.99"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        # average_cost still updates from receipt — it's a real number we paid
+        assert product.average_cost is not None
+        # but standard_cost stays at the rollup value, NOT the purchase price
+        assert float(product.standard_cost) == pytest.approx(12.34, rel=1e-6)
+
     def test_creates_material_lot(self, db, make_vendor, make_purchase_order, make_product):
         """Receiving a supply product creates a MaterialLot for traceability."""
         vendor = make_vendor()
