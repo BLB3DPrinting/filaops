@@ -8,6 +8,7 @@ import { formatPhoneNumber, timezoneOptions } from "../../components/settings/co
 import { currencyOptions, localeOptions } from "../../components/settings/i18nConstants";
 import { useLocale } from "../../contexts/LocaleContext";
 import AiSettingsSection from "../../components/settings/AiSettingsSection";
+import LicenseSection from "../../components/LicenseSection";
 import { useApp } from "../../contexts/AppContext";
 
 const AdminSettings = () => {
@@ -877,6 +878,8 @@ const AdminSettings = () => {
         {/* AI Configuration */}
         <AiSettingsSection />
 
+        {/* License & Subscription */}
+        <LicenseSection />
 
         {/* Version & Updates */}
         <div className="bg-gray-800 rounded-lg p-6">
