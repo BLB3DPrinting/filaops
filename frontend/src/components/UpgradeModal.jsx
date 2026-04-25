@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { on } from "../lib/events";
 import Modal from "./Modal";
+import { PRICING_URL } from "../config/pricing";
 
 export default function UpgradeModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -104,7 +105,7 @@ export default function UpgradeModal() {
               Maybe Later
             </button>
             <a
-              href="https://blb3dprinting.com/pro/pricing/"
+              href={PRICING_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-center"

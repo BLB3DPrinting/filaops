@@ -67,7 +67,8 @@ describe('LicenseSection', () => {
   it('opens the Stripe portal URL in a new tab when Manage Subscription is clicked', async () => {
     mocks.flags = { tier: 'professional', features: ['portal'], isPro: true, loading: false }
     mocks.post.mockResolvedValue({ url: 'https://billing.stripe.com/session/abc' })
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    // Return a truthy value so the popup-blocker branch doesn't fire
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false }))
     try {
       render(<LicenseSection />)
       fireEvent.click(screen.getByRole('button', { name: /Manage Subscription/i }))
@@ -95,6 +96,23 @@ describe('LicenseSection', () => {
     await waitFor(() => {
       expect(mocks.toastError).toHaveBeenCalledWith('Could not open subscription portal')
     })
+  })
+
+  it('shows a popup-blocked error toast when window.open returns null', async () => {
+    mocks.flags = { tier: 'professional', features: [], isPro: true, loading: false }
+    mocks.post.mockResolvedValue({ url: 'https://billing.stripe.com/session/blocked' })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      render(<LicenseSection />)
+      fireEvent.click(screen.getByRole('button', { name: /Manage Subscription/i }))
+      await waitFor(() => {
+        expect(mocks.toastError).toHaveBeenCalledWith(
+          expect.stringContaining('Popup blocked'),
+        )
+      })
+    } finally {
+      openSpy.mockRestore()
+    }
   })
 
   it('shows an error toast when the portal endpoint rejects', async () => {

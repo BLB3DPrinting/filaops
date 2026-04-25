@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { useToast } from "./Toast";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
-
-const PRICING_URL = "https://blb3dprinting.com/pro/pricing/";
+import { PRICING_URL } from "../config/pricing";
 
 function tierLabel(tier) {
   if (tier === "enterprise") return "Enterprise";
@@ -24,7 +23,10 @@ export default function LicenseSection() {
         return_url: window.location.href,
       });
       if (data?.url) {
-        window.open(data.url, "_blank", "noopener,noreferrer");
+        const popup = window.open(data.url, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          toast.error("Popup blocked — please allow popups to open the subscription portal");
+        }
       } else {
         toast.error("Could not open subscription portal");
       }
