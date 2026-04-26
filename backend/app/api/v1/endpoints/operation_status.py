@@ -173,6 +173,7 @@ def get_operations(
                 component_id=mat.component_id,
                 component_sku=mat.component.sku if mat.component else None,
                 component_name=mat.component.name if mat.component else None,
+                component_is_template=bool(mat.component.is_template) if mat.component else False,
                 quantity_required=mat.quantity_required,
                 quantity_consumed=mat.quantity_consumed,
                 unit=mat.unit,

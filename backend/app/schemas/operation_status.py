@@ -123,6 +123,7 @@ class OperationMaterial(BaseModel):
     component_id: int
     component_sku: Optional[str] = None
     component_name: Optional[str] = None
+    component_is_template: bool = False  # Workstream B0: gates the variant-swap UI
     quantity_required: Decimal
     quantity_consumed: Decimal = Decimal("0")
     unit: Optional[str] = None
