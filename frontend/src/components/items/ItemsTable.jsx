@@ -28,6 +28,35 @@ const getItemTypeStyle = (type, hasFilament = false) => {
   }[found.color];
 };
 
+/**
+ * Format a quantity value with the right unit for an item.
+ * Materials display in grams; non-materials use item.unit (default "EA").
+ *
+ * `scaleMaterial` exists because on_hand_qty is stored in grams already
+ * (raw inventory), while available_qty / allocated_qty come back in the
+ * item's purchase_uom (KG for materials) and need ×1000 to render in grams.
+ * If that backend convention ever unifies, drop the flag and the call sites
+ * become symmetric.
+ */
+function formatQtyWithUnit(item, qty, { scaleMaterial = false } = {}) {
+  if (qty == null) return null;
+  const isMaterial = !!item?.material_type_id;
+  const num = parseFloat(qty);
+  const value = isMaterial && scaleMaterial ? num * 1000 : num;
+  const unit = isMaterial ? "g" : (item?.unit || "EA");
+  return { display: value.toFixed(0), unit };
+}
+
+function QtyCell({ formatted, fallback = "-" }) {
+  if (!formatted) return <>{fallback}</>;
+  return (
+    <>
+      {formatted.display}
+      <span className="text-gray-500 text-xs ml-1">{formatted.unit}</span>
+    </>
+  );
+}
+
 function SortIndicator({ columnKey, sortConfig }) {
   if (sortConfig.key !== columnKey && !(sortConfig.key === "stock_status" && columnKey === "available_qty")) {
     return <span className="text-gray-600 ml-1">↕</span>;
@@ -290,10 +319,9 @@ export default function ItemsTable({
                     className="text-right px-2 py-1 text-gray-300"
                     title={`Sum across ${item.variant_count ?? 0} variants`}
                   >
-                    {parseFloat(item.variants_on_hand_qty).toFixed(0)}
-                    <span className="text-gray-500 text-xs ml-1">
-                      {item.unit || "EA"}
-                    </span>
+                    <QtyCell
+                      formatted={formatQtyWithUnit(item, item.variants_on_hand_qty)}
+                    />
                     <span
                       className="text-blue-400 text-xs ml-1"
                       aria-label={`On-hand rolled up from ${item.variant_count ?? 0} variants`}
@@ -309,32 +337,18 @@ export default function ItemsTable({
                     } hover:text-white`}
                     title="Click to edit on-hand quantity"
                   >
-                    {item.on_hand_qty != null ? (
-                      <>
-                        {item.material_type_id
-                          ? parseFloat(item.on_hand_qty).toFixed(0)
-                          : parseFloat(item.on_hand_qty).toFixed(0)}
-                        <span className="text-gray-500 text-xs ml-1">
-                          {item.material_type_id ? "g" : (item.unit || "EA")}
-                        </span>
-                      </>
-                    ) : (
-                      "-"
-                    )}
+                    <QtyCell
+                      formatted={formatQtyWithUnit(item, item.on_hand_qty)}
+                    />
                   </button>
                 )}
               </td>
               <td className="py-3 px-4 text-right text-yellow-400">
                 {item.allocated_qty != null &&
                 parseFloat(item.allocated_qty) > 0 ? (
-                  <>
-                    {item.material_type_id
-                      ? (parseFloat(item.allocated_qty) * 1000).toFixed(0)
-                      : parseFloat(item.allocated_qty).toFixed(0)}
-                    <span className="text-gray-500 text-xs ml-1">
-                      {item.material_type_id ? "g" : (item.unit || "EA")}
-                    </span>
-                  </>
+                  <QtyCell
+                    formatted={formatQtyWithUnit(item, item.allocated_qty, { scaleMaterial: true })}
+                  />
                 ) : (
                   "-"
                 )}
@@ -349,10 +363,9 @@ export default function ItemsTable({
                     }
                     title={`Sum across ${item.variant_count ?? 0} variants`}
                   >
-                    {parseFloat(item.variants_available_qty).toFixed(0)}
-                    <span className="text-gray-500 text-xs ml-1">
-                      {item.unit || "EA"}
-                    </span>
+                    <QtyCell
+                      formatted={formatQtyWithUnit(item, item.variants_available_qty, { scaleMaterial: true })}
+                    />
                     <span
                       className="text-blue-400 text-xs ml-1"
                       aria-label={`Available rolled up from ${item.variant_count ?? 0} variants`}
@@ -371,18 +384,9 @@ export default function ItemsTable({
                       : "text-green-400"
                   }
                 >
-                  {item.available_qty != null ? (
-                    <>
-                      {item.material_type_id
-                        ? (parseFloat(item.available_qty) * 1000).toFixed(0)
-                        : parseFloat(item.available_qty).toFixed(0)}
-                      <span className="text-gray-500 text-xs ml-1">
-                        {item.material_type_id ? "g" : (item.unit || "EA")}
-                      </span>
-                    </>
-                  ) : (
-                    "-"
-                  )}
+                  <QtyCell
+                    formatted={formatQtyWithUnit(item, item.available_qty, { scaleMaterial: true })}
+                  />
                 </span>
                 )}
               </td>

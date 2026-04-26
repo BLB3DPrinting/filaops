@@ -147,4 +147,35 @@ describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
     )
     expect(screen.queryByLabelText(/rolled up from/i)).not.toBeInTheDocument()
   })
+
+  it('renders material template rollup with "g" unit and ×1000 scaling on AVAILABLE only', () => {
+    // Material template: on_hand stays in grams (raw), available is in KG (scaled ×1000).
+    // The variants_on_hand_qty is the on-hand sum (already grams), variants_available_qty
+    // is the available sum (KG-equivalent) — same convention as the per-item fields.
+    const materialTemplate = {
+      ...templateRow,
+      id: 100,
+      sku: 'FIL-PLA-TMPL',
+      name: 'PLA Filament Template',
+      item_type: 'material',
+      material_type_id: 5,
+      unit: 'G',
+      variants_on_hand_qty: 800, // grams, render as-is
+      variants_available_qty: 0.7, // KG, render as 700 g
+    }
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} items={[materialTemplate]} />
+      </MockLocaleProvider>
+    )
+    // ON-HAND: 800 (no scaling) with 'g' unit
+    expect(screen.getByText('800')).toBeInTheDocument()
+    // AVAILABLE: 700 (0.7 × 1000) with 'g' unit
+    expect(screen.getByText('700')).toBeInTheDocument()
+    // 'g' unit appears at least twice (on-hand + available + allocated cells if any)
+    const gUnits = screen.getAllByText('g')
+    expect(gUnits.length).toBeGreaterThanOrEqual(2)
+    // 'EA' should NOT appear for this material template
+    expect(screen.queryByText('EA')).not.toBeInTheDocument()
+  })
 })
