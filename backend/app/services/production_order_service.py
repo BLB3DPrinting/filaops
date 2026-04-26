@@ -1652,9 +1652,16 @@ def swap_material_variant(
       - Order must exist
       - Material must exist AND belong to the given order
       - Material status must be 'pending'
+      - Material must have zero allocation/consumption (defensive integrity guard
+        against stale 'pending' rows whose state has drifted)
       - new_component_id must reference an active product that is either:
-          (a) equal to the current component_id (no-op, allowed for cancel/reset)
+          (a) equal to the current component_id (no-op, logged for audit)
           (b) a variant of the current component (parent_product_id == current_component_id)
+
+    Concurrency: the material row is selected with FOR UPDATE so concurrent
+    swaps or allocate/consume operations against the same row block until this
+    transaction commits. Prevents lost-update races between two operators
+    (and between a swap and an allocation in flight).
 
     Returns the updated material row.
     """
@@ -1671,6 +1678,7 @@ def swap_material_variant(
             ProductionOrderOperationMaterial.id == material_id,
             ProductionOrderOperation.production_order_id == order_id,
         )
+        .with_for_update()  # Row lock — prevents concurrent swap or allocate from clobbering
         .first()
     )
     if not mat:
@@ -1688,17 +1696,32 @@ def swap_material_variant(
             ),
         )
 
+    # Defensive integrity guard: status='pending' should imply zero qty_allocated
+    # and zero qty_consumed, but if either is non-zero the row's status has
+    # drifted. Refuse the swap rather than silently retargeting a row whose
+    # allocation/consumption was tracked against the previous component.
+    if (mat.quantity_allocated and float(mat.quantity_allocated) > 0) or (
+        mat.quantity_consumed and float(mat.quantity_consumed) > 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot swap variant: material status is 'pending' but "
+                f"quantity_allocated={mat.quantity_allocated} / "
+                f"quantity_consumed={mat.quantity_consumed} indicate the row's "
+                "state has drifted; reset the material before swapping"
+            ),
+        )
+
     new_component = db.query(Product).filter(Product.id == new_component_id).first()
     if not new_component:
         raise HTTPException(status_code=404, detail=f"Product {new_component_id} not found")
     if not new_component.active:
         raise HTTPException(status_code=400, detail="Target component is not active")
 
-    # Same component → no-op (still valid, lets UI use this for cancel/reset)
-    if new_component_id == mat.component_id:
-        return mat
+    is_no_op = new_component_id == mat.component_id
 
-    if new_component.parent_product_id != mat.component_id:
+    if not is_no_op and new_component.parent_product_id != mat.component_id:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1709,12 +1732,17 @@ def swap_material_variant(
         )
 
     old_component_id = mat.component_id
-    mat.component_id = new_component_id
-    db.flush()
+    if not is_no_op:
+        mat.component_id = new_component_id
+        db.flush()
 
+    # Always log — including the no-op case. A 'cancel/reset' click that resolves
+    # to no-op still leaves an audit breadcrumb of "operator considered swap, kept original".
     logger.info(
-        "PO %s op-material %s variant swap: component_id %s -> %s (reason: %s)",
-        order_id, material_id, old_component_id, new_component_id, reason or "(none)",
+        "PO %s op-material %s variant swap: component_id %s -> %s%s (reason: %s)",
+        order_id, material_id, old_component_id, new_component_id,
+        " [no-op]" if is_no_op else "",
+        reason or "(none)",
     )
 
     return mat

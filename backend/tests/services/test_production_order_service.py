@@ -2708,6 +2708,40 @@ class TestSwapMaterialVariant:
             svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
         assert exc.value.status_code == 400
 
+    def test_rejects_pending_material_with_drifted_allocated_quantity(
+        self, db, make_product, finished_good
+    ):
+        """Defensive integrity guard: status='pending' but quantity_allocated > 0
+        indicates the row's state has drifted (allocator updated qty without
+        flipping status, or status was hand-edited). Refuse the swap rather
+        than silently retargeting a row whose allocation was tracked against
+        the previous component.
+        """
+        template, variant = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        # Status stays 'pending', but quantity_allocated drifts to non-zero.
+        mat.quantity_allocated = Decimal("1")
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 400
+        assert "quantity_allocated" in exc.value.detail.lower() or "drift" in exc.value.detail.lower()
+
+    def test_rejects_pending_material_with_drifted_consumed_quantity(
+        self, db, make_product, finished_good
+    ):
+        """Same defensive guard as above, but for quantity_consumed > 0."""
+        template, variant = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        mat.quantity_consumed = Decimal("1")
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 400
+        assert "quantity_consumed" in exc.value.detail.lower() or "drift" in exc.value.detail.lower()
+
     def test_rejects_material_belonging_to_different_order(
         self, db, make_product, finished_good
     ):

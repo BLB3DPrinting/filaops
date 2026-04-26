@@ -16,7 +16,11 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.api.v1.deps import get_pagination_params
 from app.schemas.common import MessageResponse, PaginationParams
 from app.models import User, Product, SalesOrder
-from app.models.production_order import ProductionOrder, ProductionOrderOperation
+from app.models.production_order import (
+    ProductionOrder,
+    ProductionOrderOperation,
+    ProductionOrderOperationMaterial,
+)
 from app.models.work_center import WorkCenter
 from app.models.manufacturing import Resource
 from app.schemas.production_order import (
@@ -75,6 +79,30 @@ router = APIRouter()
 # Response Builders
 # =============================================================================
 
+def _build_operation_material_response(
+    mat: ProductionOrderOperationMaterial, db: Session
+) -> OperationMaterialResponse:
+    """Build the wire-format OperationMaterialResponse for one PO operation material.
+
+    Single source of truth for material serialization — every new field (e.g.
+    component_is_template added in Workstream B0) only needs to be wired here
+    rather than in each call site.
+    """
+    component = db.query(Product).filter(Product.id == mat.component_id).first()
+    return OperationMaterialResponse(
+        id=mat.id,
+        component_id=mat.component_id,
+        component_sku=component.sku if component else None,
+        component_name=component.name if component else None,
+        component_is_template=bool(component.is_template) if component else False,
+        quantity_required=mat.quantity_required,
+        quantity_allocated=mat.quantity_allocated or Decimal(0),
+        quantity_consumed=mat.quantity_consumed or Decimal(0),
+        unit=mat.unit,
+        status=mat.status or "pending",
+    )
+
+
 def build_production_order_response(order: ProductionOrder, db: Session) -> ProductionOrderResponse:
     """Build full response with related data."""
     from app.models import BOM
@@ -104,23 +132,9 @@ def build_production_order_response(order: ProductionOrder, db: Session) -> Prod
             wc = db.query(WorkCenter).filter(WorkCenter.id == op.work_center_id).first()
             res = db.query(Resource).filter(Resource.id == op.resource_id).first() if op.resource_id else None
 
-            materials_response = []
-            for mat in op.materials:
-                component = db.query(Product).filter(Product.id == mat.component_id).first()
-                materials_response.append(
-                    OperationMaterialResponse(
-                        id=mat.id,
-                        component_id=mat.component_id,
-                        component_sku=component.sku if component else None,
-                        component_name=component.name if component else None,
-                        component_is_template=bool(component.is_template) if component else False,
-                        quantity_required=mat.quantity_required,
-                        quantity_allocated=mat.quantity_allocated or Decimal(0),
-                        quantity_consumed=mat.quantity_consumed or Decimal(0),
-                        unit=mat.unit,
-                        status=mat.status or "pending",
-                    )
-                )
+            materials_response = [
+                _build_operation_material_response(mat, db) for mat in op.materials
+            ]
 
             operations_response.append(
                 ProductionOrderOperationResponse(
@@ -941,23 +955,9 @@ async def update_operation(
     wc = db.query(WorkCenter).filter(WorkCenter.id == op.work_center_id).first()
     res = db.query(Resource).filter(Resource.id == op.resource_id).first() if op.resource_id else None
 
-    materials_response = []
-    for mat in op.materials:
-        component = db.query(Product).filter(Product.id == mat.component_id).first()
-        materials_response.append(
-            OperationMaterialResponse(
-                id=mat.id,
-                component_id=mat.component_id,
-                component_sku=component.sku if component else None,
-                component_name=component.name if component else None,
-                component_is_template=bool(component.is_template) if component else False,
-                quantity_required=mat.quantity_required,
-                quantity_allocated=mat.quantity_allocated or Decimal(0),
-                quantity_consumed=mat.quantity_consumed or Decimal(0),
-                unit=mat.unit,
-                status=mat.status or "pending",
-            )
-        )
+    materials_response = [
+        _build_operation_material_response(mat, db) for mat in op.materials
+    ]
 
     return ProductionOrderOperationResponse(
         id=op.id,
@@ -1090,7 +1090,6 @@ async def check_compatibility(
     """
     from app.services.compatibility_service import check_order_compatibility
     from sqlalchemy.orm import selectinload
-    from app.models.production_order import ProductionOrderOperationMaterial
     from app.models.product import Product
 
     order = (
@@ -1238,17 +1237,4 @@ async def swap_material_variant_endpoint(
     )
     db.commit()
     db.refresh(mat)
-
-    component = db.query(Product).filter(Product.id == mat.component_id).first()
-    return OperationMaterialResponse(
-        id=mat.id,
-        component_id=mat.component_id,
-        component_sku=component.sku if component else None,
-        component_name=component.name if component else None,
-        component_is_template=bool(component.is_template) if component else False,
-        quantity_required=mat.quantity_required,
-        quantity_allocated=mat.quantity_allocated or Decimal(0),
-        quantity_consumed=mat.quantity_consumed or Decimal(0),
-        unit=mat.unit,
-        status=mat.status or "pending",
-    )
+    return _build_operation_material_response(mat, db)

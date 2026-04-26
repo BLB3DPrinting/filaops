@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API_URL } from "../../config/api";
 import { formatDuration, formatDate } from "../../utils/formatting";
 import { PRODUCTION_ORDER_BADGE_CONFIGS } from "../../lib/statusColors.js";
@@ -6,6 +6,26 @@ import Modal from "../Modal";
 import OperationCard from "./OperationCard";
 import SkipOperationModal from "./SkipOperationModal";
 import ShortageModal from "./ShortageModal";
+
+/**
+ * Normalize a FastAPI error detail into a renderable string.
+ * `detail` can be a string, an array (pydantic validation errors), or an
+ * arbitrary object. Calling setError(detail) directly with the latter two
+ * shapes produces "[object Object]" on screen.
+ */
+function normalizeErrorDetail(detail, fallback) {
+  if (detail == null) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d)))
+      .join("; ");
+  }
+  if (typeof detail === "object") {
+    return detail.msg || detail.message || JSON.stringify(detail);
+  }
+  return String(detail);
+}
 
 /**
  * Status badge component
@@ -87,6 +107,10 @@ export default function ProductionOrderModal({
   const [availableVariants, setAvailableVariants] = useState([]);
   const [variantLoading, setVariantLoading] = useState(false);
   const [variantSwapReason, setVariantSwapReason] = useState("");
+  // Tracks the in-flight variant-list AbortController so a quick second click
+  // on a different material aborts the older request and prevents a slow
+  // earlier response from clobbering a faster later one.
+  const variantFetchControllerRef = useRef(null);
 
   // Schedule modal state (for pending ops)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
@@ -167,6 +191,14 @@ export default function ProductionOrderModal({
   };
 
   const openVariantPicker = async (materialId, templateId) => {
+    // Abort any in-flight variant-list fetch from a prior click — guards
+    // against the slow-response-clobbers-fast-response race.
+    if (variantFetchControllerRef.current) {
+      variantFetchControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    variantFetchControllerRef.current = controller;
+
     setVariantPickerFor({ materialId, templateId });
     setAvailableVariants([]);
     setVariantSwapReason("");
@@ -174,14 +206,23 @@ export default function ProductionOrderModal({
     try {
       const res = await fetch(
         `${API_URL}/api/v1/items/${templateId}/variants`,
-        { credentials: "include" }
+        { credentials: "include", signal: controller.signal }
       );
+      // If a newer request started, this response is stale — silently drop it.
+      if (variantFetchControllerRef.current !== controller) return;
       if (res.ok) {
         const data = await res.json();
         setAvailableVariants(Array.isArray(data) ? data : data.items || []);
       }
-    } catch { /* ignore */ }
-    setVariantLoading(false);
+    } catch (e) {
+      if (e.name === "AbortError") return;  // expected on supersession
+    } finally {
+      // Only clear loading if this is still the latest request.
+      if (variantFetchControllerRef.current === controller) {
+        setVariantLoading(false);
+        variantFetchControllerRef.current = null;
+      }
+    }
   };
 
   const swapVariant = async (newComponentId) => {
@@ -207,10 +248,10 @@ export default function ProductionOrderModal({
         if (onUpdated) onUpdated();
       } else {
         const err = await res.json().catch(() => ({}));
-        setError(err.detail || "Failed to swap variant");
+        setError(normalizeErrorDetail(err.detail, "Failed to swap variant"));
       }
     } catch (e) {
-      setError(e.message || "Failed to swap variant");
+      setError(normalizeErrorDetail(e.message, "Failed to swap variant"));
     }
     setVariantLoading(false);
   };
