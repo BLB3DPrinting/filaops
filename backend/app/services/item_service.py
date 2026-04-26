@@ -434,7 +434,8 @@ def list_items(
         )
         routing_ids = {r.product_id for r in routing_rows}
 
-    # Batch variant count query for templates
+    # Batch variant count query for templates — active variants only, so
+    # soft-deleted variants don't inflate the count or roll up to live templates.
     variant_count_map: dict[int, int] = {}
     template_ids = [item.id for item in items if item.is_template]
     if template_ids:
@@ -443,11 +444,115 @@ def list_items(
                 Product.parent_product_id,
                 func.count(Product.id).label("cnt"),
             )
-            .filter(Product.parent_product_id.in_(template_ids))
+            .filter(
+                Product.parent_product_id.in_(template_ids),
+                Product.active.is_(True),
+            )
             .group_by(Product.parent_product_id)
             .all()
         )
         variant_count_map = {r.parent_product_id: r.cnt for r in vc_rows}
+
+    # Variant inventory rollup for templates (Workstream A — display only).
+    # Templates carry no inventory of their own today; surface child variants'
+    # combined stock so the template row reflects what's actually available.
+    # Maps are keyed by template_id; absence = "no rollup eligible" (None to UI).
+    # Symmetry with variant_count_map: only active variants contribute.
+    variants_on_hand_map: dict[int, float] = {}
+    variants_available_map: dict[int, float] = {}
+    if template_ids:
+        # Pre-filter subquery: only active variants under our templates.
+        # Reused as the join target for both inventory and allocation rollups,
+        # mirroring the alloc_map shape (component pre-filter before BOM/PO joins).
+        active_variants_sub = (
+            db.query(
+                Product.id.label("variant_id"),
+                Product.parent_product_id.label("parent_id"),
+            )
+            .filter(
+                Product.parent_product_id.in_(template_ids),
+                Product.active.is_(True),
+            )
+            .subquery()
+        )
+
+        # Sum on-hand grouped by parent (outerjoin so active variants without
+        # Inventory rows still anchor the template at 0, not None).
+        v_inv_rows = (
+            db.query(
+                active_variants_sub.c.parent_id,
+                func.coalesce(func.sum(Inventory.on_hand_quantity), 0).label("on_hand"),
+            )
+            .select_from(active_variants_sub)
+            .outerjoin(
+                Inventory, Inventory.product_id == active_variants_sub.c.variant_id
+            )
+            .group_by(active_variants_sub.c.parent_id)
+            .all()
+        )
+        variants_on_hand_map = {r.parent_id: float(r.on_hand) for r in v_inv_rows}
+
+        # Allocations: pre-filter BOMLine to active-variant component_ids first,
+        # then join PO/BOM. Mirrors the per-item alloc_map shape — narrows the
+        # cross-join surface before the aggregate.
+        # ProductionOrder is already imported above (line 365); list_items() always
+        # exits early if items is empty, and item_ids is non-empty whenever
+        # template_ids is non-empty, so the earlier import has already executed.
+        v_bom_lines_sub = (
+            db.query(
+                BOMLine.component_id,
+                BOMLine.bom_id,
+                BOMLine.quantity,
+            )
+            .join(
+                active_variants_sub,
+                BOMLine.component_id == active_variants_sub.c.variant_id,
+            )
+            .subquery()
+        )
+
+        v_boms_sub = (
+            db.query(
+                BOM.product_id,
+                v_bom_lines_sub.c.component_id,
+                v_bom_lines_sub.c.quantity,
+            )
+            .join(v_bom_lines_sub, BOM.id == v_bom_lines_sub.c.bom_id)
+            .filter(BOM.active.is_(True))
+            .subquery()
+        )
+
+        v_alloc_rows = (
+            db.query(
+                Product.parent_product_id.label("parent_id"),
+                func.coalesce(
+                    func.sum(
+                        (
+                            ProductionOrder.quantity_ordered
+                            - func.coalesce(ProductionOrder.quantity_completed, 0)
+                            - func.coalesce(ProductionOrder.quantity_scrapped, 0)
+                        )
+                        * v_boms_sub.c.quantity
+                    ),
+                    0,
+                ).label("allocated"),
+            )
+            .select_from(ProductionOrder)
+            .join(v_boms_sub, ProductionOrder.product_id == v_boms_sub.c.product_id)
+            .join(Product, Product.id == v_boms_sub.c.component_id)
+            .filter(
+                ProductionOrder.status.in_(
+                    ["draft", "released", "scheduled", "in_progress"]
+                )
+            )
+            .group_by(Product.parent_product_id)
+            .all()
+        )
+        v_alloc_map = {r.parent_id: float(r.allocated) for r in v_alloc_rows}
+
+        # available = on_hand - allocated, only for templates with rollup data
+        for parent_id, on_hand in variants_on_hand_map.items():
+            variants_available_map[parent_id] = on_hand - v_alloc_map.get(parent_id, 0.0)
 
     result = []
     for item in items:
@@ -494,6 +599,8 @@ def list_items(
                 "parent_product_id": item.parent_product_id,
                 "is_template": item.is_template,
                 "variant_count": variant_count_map.get(item.id, 0),
+                "variants_on_hand_qty": variants_on_hand_map.get(item.id) if item.is_template else None,
+                "variants_available_qty": variants_available_map.get(item.id) if item.is_template else None,
             }
         )
 

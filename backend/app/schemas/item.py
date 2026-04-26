@@ -264,6 +264,11 @@ class ItemListResponse(BaseModel):
     parent_product_id: Optional[int] = None
     is_template: bool = False
     variant_count: int = 0
+    # Variant inventory rollup — populated for templates only (None otherwise).
+    # SUM across child variants linked by parent_product_id. Pure presentation;
+    # consumption/MRP/PO logic still operates on individual variant rows.
+    variants_on_hand_qty: Optional[Decimal] = None
+    variants_available_qty: Optional[Decimal] = None
 
     class Config:
         from_attributes = True

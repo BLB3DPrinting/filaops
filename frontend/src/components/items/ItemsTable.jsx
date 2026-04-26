@@ -28,6 +28,60 @@ const getItemTypeStyle = (type, hasFilament = false) => {
   }[found.color];
 };
 
+/**
+ * Format a quantity value with the right unit for an item.
+ * Materials display in grams (integer); non-materials use item.unit (default
+ * "EA") and preserve fractional precision via toLocaleString.
+ *
+ * `scaleMaterial` exists because on_hand_qty is stored in grams already
+ * (raw inventory), while available_qty / allocated_qty come back in the
+ * item's purchase_uom (KG for materials) and need ×1000 to render in grams.
+ * If that backend convention ever unifies, drop the flag and the call sites
+ * become symmetric.
+ */
+function formatQtyWithUnit(item, qty, { scaleMaterial = false } = {}) {
+  if (qty == null) return null;
+  const isMaterial = !!item?.material_type_id;
+  const num = parseFloat(qty);
+  const value = isMaterial && scaleMaterial ? num * 1000 : num;
+  // Materials are always whole grams in display. Non-materials preserve any
+  // fractional EA / piece quantities entered by the user (e.g. 2.5 EA stays "2.5").
+  const display = isMaterial ? value.toFixed(0) : value.toLocaleString();
+  const unit = isMaterial ? "g" : (item?.unit || "EA");
+  return { display, unit };
+}
+
+function QtyCell({ formatted, fallback = "-" }) {
+  if (!formatted) return <>{fallback}</>;
+  return (
+    <>
+      {formatted.display}
+      <span className="text-gray-500 text-xs ml-1">{formatted.unit}</span>
+    </>
+  );
+}
+
+/**
+ * Build tooltip + aria-label copy for a variant rollup cell.
+ * `kind` is "On-hand" or "Available". Defensive: when `count` is somehow 0
+ * (shouldn't happen since the rollup cell only renders when at least one
+ * active variant exists), we fall back to neutral copy rather than the
+ * awkward "Sum across 0 variants".
+ */
+function rollupCopy(kind, count) {
+  const c = count ?? 0;
+  if (c <= 0) {
+    return {
+      title: `${kind} variant rollup`,
+      ariaLabel: `${kind} variant rollup`,
+    };
+  }
+  return {
+    title: `Sum across ${c} variants`,
+    ariaLabel: `${kind} rolled up from ${c} variants`,
+  };
+}
+
 function SortIndicator({ columnKey, sortConfig }) {
   if (sortConfig.key !== columnKey && !(sortConfig.key === "stock_status" && columnKey === "available_qty")) {
     return <span className="text-gray-600 ml-1">↕</span>;
@@ -281,6 +335,27 @@ export default function ItemsTable({
                       ✕
                     </button>
                   </div>
+                ) : item.is_template && item.variants_on_hand_qty != null ? (
+                  // Variant inventory rollup (Workstream A): templates currently can't
+                  // carry their own inventory, so we replace the always-zero own-qty
+                  // cell with the SUM across child variants. If templates ever gain
+                  // their own stock, revisit this — we may need to show both values.
+                  (() => {
+                    const copy = rollupCopy("On-hand", item.variant_count);
+                    return (
+                      <span className="px-2 py-1 text-gray-300" title={copy.title}>
+                        <QtyCell
+                          formatted={formatQtyWithUnit(item, item.variants_on_hand_qty)}
+                        />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
                 ) : (
                   <button
                     onClick={() => onStartEditQty(item)}
@@ -289,37 +364,72 @@ export default function ItemsTable({
                     } hover:text-white`}
                     title="Click to edit on-hand quantity"
                   >
-                    {item.on_hand_qty != null ? (
-                      <>
-                        {item.material_type_id
-                          ? parseFloat(item.on_hand_qty).toFixed(0)
-                          : parseFloat(item.on_hand_qty).toFixed(0)}
-                        <span className="text-gray-500 text-xs ml-1">
-                          {item.material_type_id ? "g" : (item.unit || "EA")}
-                        </span>
-                      </>
-                    ) : (
-                      "-"
-                    )}
+                    <QtyCell
+                      formatted={formatQtyWithUnit(item, item.on_hand_qty)}
+                    />
                   </button>
                 )}
               </td>
               <td className="py-3 px-4 text-right text-yellow-400">
-                {item.allocated_qty != null &&
-                parseFloat(item.allocated_qty) > 0 ? (
-                  <>
-                    {item.material_type_id
-                      ? (parseFloat(item.allocated_qty) * 1000).toFixed(0)
-                      : parseFloat(item.allocated_qty).toFixed(0)}
-                    <span className="text-gray-500 text-xs ml-1">
-                      {item.material_type_id ? "g" : (item.unit || "EA")}
-                    </span>
-                  </>
+                {item.is_template &&
+                item.variants_on_hand_qty != null &&
+                item.variants_available_qty != null ? (
+                  // Reserved rollup: derived from on_hand − available so the row
+                  // math reconciles. variants_*_qty come back in matching units
+                  // (both already in grams for materials, no scaling), so the
+                  // subtraction preserves the convention.
+                  (() => {
+                    const reserved =
+                      parseFloat(item.variants_on_hand_qty) -
+                      parseFloat(item.variants_available_qty);
+                    const copy = rollupCopy("Reserved", item.variant_count);
+                    return (
+                      <span title={copy.title}>
+                        <QtyCell formatted={formatQtyWithUnit(item, reserved)} />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
+                ) : item.allocated_qty != null &&
+                  parseFloat(item.allocated_qty) > 0 ? (
+                  <QtyCell
+                    formatted={formatQtyWithUnit(item, item.allocated_qty, { scaleMaterial: true })}
+                  />
                 ) : (
                   "-"
                 )}
               </td>
               <td className="py-3 px-4 text-right">
+                {item.is_template && item.variants_available_qty != null ? (
+                  (() => {
+                    const copy = rollupCopy("Available", item.variant_count);
+                    return (
+                      <span
+                        className={
+                          parseFloat(item.variants_available_qty) <= 0
+                            ? "text-red-400"
+                            : "text-green-400"
+                        }
+                        title={copy.title}
+                      >
+                        <QtyCell
+                          formatted={formatQtyWithUnit(item, item.variants_available_qty)}
+                        />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
+                ) : (
                 <span
                   className={
                     item.available_qty != null &&
@@ -330,19 +440,11 @@ export default function ItemsTable({
                       : "text-green-400"
                   }
                 >
-                  {item.available_qty != null ? (
-                    <>
-                      {item.material_type_id
-                        ? (parseFloat(item.available_qty) * 1000).toFixed(0)
-                        : parseFloat(item.available_qty).toFixed(0)}
-                      <span className="text-gray-500 text-xs ml-1">
-                        {item.material_type_id ? "g" : (item.unit || "EA")}
-                      </span>
-                    </>
-                  ) : (
-                    "-"
-                  )}
+                  <QtyCell
+                    formatted={formatQtyWithUnit(item, item.available_qty, { scaleMaterial: true })}
+                  />
                 </span>
+                )}
               </td>
               <td className="py-3 px-4 text-center">
                 <span

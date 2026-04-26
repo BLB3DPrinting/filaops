@@ -1718,6 +1718,124 @@ class TestReceivePurchaseOrder:
         # but standard_cost stays at the rollup value, NOT the purchase price
         assert float(product.standard_cost) == pytest.approx(12.34, rel=1e-6)
 
+    def test_variant_child_uses_same_standard_cost_sync_path_as_plain_purchased_item(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Contract: the standard_cost auto-sync at purchase_order_service.py:933-942
+        is variant-blind by design — it operates on Product.id only, with no special
+        case for parent_product_id or variant_metadata. A purchased variant child
+        (e.g. a sized hardware variant of a template, or a colored consumable variant
+        with no BOM/routing of its own) MUST flow through the same sync path and end
+        up with standard_cost == average_cost after receipt.
+
+        Locks in 'variant transparency' as deliberate behavior so a future agent
+        adding variant-aware branching to the sync loop has to break this test
+        first. The test does not exercise any new production code — it proves the
+        existing logic works for variant children identically to plain purchased
+        items.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="ordered")
+        template = make_product(
+            sku="VARIANT-XPARENT-TMPL",
+            item_type="component",
+            unit="EA",
+            purchase_uom="EA",
+            is_template=True,
+            standard_cost=None,
+        )
+        variant_child = make_product(
+            sku="VARIANT-XPARENT-TMPL-LG",
+            item_type="component",
+            unit="EA",
+            purchase_uom="EA",
+            parent_product_id=template.id,
+            variant_metadata={"axis": "size", "value": "LG"},
+            standard_cost=None,
+            average_cost=None,
+        )
+        line = _add_po_line(
+            db, po, variant_child, Decimal("100"), Decimal("0.42"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("100")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(variant_child)
+        db.refresh(template)
+        # Variant got the auto-sync, exactly like a plain purchased item would
+        assert variant_child.average_cost is not None
+        assert variant_child.standard_cost is not None, (
+            "variant child standard_cost should auto-sync — variant transparency contract"
+        )
+        assert float(variant_child.standard_cost) == pytest.approx(
+            float(variant_child.average_cost), rel=1e-6
+        )
+        # Template was not on the PO, so its standard_cost stays untouched —
+        # nothing in the sync path knows or cares that this variant has a parent
+        assert template.standard_cost is None
+
+    def test_purchased_item_with_uom_mismatch_skipped_from_standard_cost_sync(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Contract: when a non-material product's purchase_unit can't be converted
+        to its storage unit (e.g. ROLL → M with no conversion factor), the receipt
+        falls back to recording inventory in the purchase unit, and the product is
+        absent from product_receipt_accum (purchase_order_service.py:741 only
+        accumulates when effective_unit == product_unit). The auto-sync loop at
+        line 933 only walks the accumulator's keys, so the product's standard_cost
+        stays untouched.
+
+        Guards against a future refactor that 'helpfully' normalizes UOM inside
+        the accumulator — which would silently overwrite a per-storage-unit
+        standard_cost with a per-purchase-unit number (e.g. $/M with $/ROLL),
+        breaking every downstream rollup that reads standard_cost in the
+        product's storage unit. Note: G↔KG and other known-convertible pairs
+        DO sync correctly because the system converts cleanly; this test is
+        specifically about the fall-through path for unconvertible pairs.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="ordered")
+        # PTFE tubing: stored as metres (unit='M'), bought as rolls (purchase_uom='ROLL').
+        # ROLL isn't in the UOM conversion table, so the receipt falls back to
+        # recording inventory in ROLL (effective_unit='ROLL' != product_unit='M').
+        # item_type='supply' (not 'material'), so no HTTP 400 — silent fallback.
+        tubing = make_product(
+            sku="UOM-MISMATCH-TUBING",
+            item_type="supply",
+            unit="M",
+            purchase_uom="ROLL",
+            standard_cost=None,
+            average_cost=None,
+        )
+        line = _add_po_line(
+            db, po, tubing, Decimal("3"), Decimal("12.50"), purchase_unit="ROLL"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("3")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(tubing)
+        # The product was skipped from product_receipt_accum (effective_unit='ROLL'
+        # != product_unit='M'), so the auto-sync loop never sees it. standard_cost
+        # stays None — preserving the assumption that whoever set it knows the
+        # storage unit cost basis.
+        assert tubing.standard_cost is None, (
+            "UOM-mismatch product (failed conversion) must be skipped from "
+            "standard_cost auto-sync — the per-purchase-unit price is not a "
+            "valid per-storage-unit cost"
+        )
+
     def test_creates_material_lot(self, db, make_vendor, make_purchase_order, make_product):
         """Receiving a supply product creates a MaterialLot for traceability."""
         vendor = make_vendor()
