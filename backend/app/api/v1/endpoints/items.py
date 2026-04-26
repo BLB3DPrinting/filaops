@@ -256,6 +256,8 @@ async def list_items(
             parent_product_id=item.get("parent_product_id"),
             is_template=item.get("is_template", False),
             variant_count=item.get("variant_count", 0),
+            variants_on_hand_qty=item.get("variants_on_hand_qty"),
+            variants_available_qty=item.get("variants_available_qty"),
         )
         for item in items_data
     ]

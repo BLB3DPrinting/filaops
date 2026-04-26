@@ -643,6 +643,190 @@ class TestListItems:
 
 
 # =============================================================================
+# list_items — variant inventory rollup (Workstream A)
+# =============================================================================
+
+class TestListItemsVariantsRollup:
+    """When a row is is_template=True, list_items() returns SUM of child variants'
+    on-hand and available quantities under variants_on_hand_qty / variants_available_qty.
+
+    Pure presentation rollup — does not affect consumption, MRP, or production orders.
+    Templates carry no inventory of their own today (always 0), so this surfaces the
+    stock that would otherwise be invisible on the template row.
+    """
+
+    def test_template_with_variants_rolls_up_on_hand(
+        self, db, make_product
+    ):
+        template = make_product(sku="ROLLUP-TMPL-A", is_template=True)
+        v1 = make_product(sku="ROLLUP-TMPL-A-V1", parent_product_id=template.id)
+        v2 = make_product(sku="ROLLUP-TMPL-A-V2", parent_product_id=template.id)
+        _make_inventory(db, v1.id, on_hand=Decimal("5"))
+        _make_inventory(db, v2.id, on_hand=Decimal("7"))
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-TMPL-A")
+        row = next(i for i in items if i["sku"] == "ROLLUP-TMPL-A")
+
+        assert row["is_template"] is True
+        assert row["on_hand_qty"] == 0  # template carries no inventory of its own
+        assert row["variants_on_hand_qty"] == 12
+
+    def test_template_with_variants_rolls_up_available(
+        self, db, make_product
+    ):
+        """Without any open POs allocating against children, available equals on_hand."""
+        template = make_product(sku="ROLLUP-TMPL-B", is_template=True)
+        v1 = make_product(sku="ROLLUP-TMPL-B-V1", parent_product_id=template.id)
+        v2 = make_product(sku="ROLLUP-TMPL-B-V2", parent_product_id=template.id)
+        _make_inventory(db, v1.id, on_hand=Decimal("4"))
+        _make_inventory(db, v2.id, on_hand=Decimal("6"))
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-TMPL-B")
+        row = next(i for i in items if i["sku"] == "ROLLUP-TMPL-B")
+
+        assert row["variants_on_hand_qty"] == 10
+        assert row["variants_available_qty"] == 10
+
+    def test_template_with_no_variants_yields_none(self, db, make_product):
+        make_product(sku="ROLLUP-EMPTY-TMPL", is_template=True)
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-EMPTY-TMPL")
+        row = next(i for i in items if i["sku"] == "ROLLUP-EMPTY-TMPL")
+
+        assert row["is_template"] is True
+        assert row["variants_on_hand_qty"] is None
+        assert row["variants_available_qty"] is None
+
+    def test_non_template_yields_none(self, db, make_product):
+        make_product(sku="ROLLUP-STANDALONE")
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-STANDALONE")
+        row = next(i for i in items if i["sku"] == "ROLLUP-STANDALONE")
+
+        assert row["is_template"] is False
+        assert row["variants_on_hand_qty"] is None
+        assert row["variants_available_qty"] is None
+
+    def test_template_with_variants_but_no_inventory_rolls_up_zero(
+        self, db, make_product
+    ):
+        """Variants exist but none have Inventory rows — rollup is 0, not None.
+        The semantic distinction: 0 means 'rollup computed, sum is zero'.
+        None means 'not eligible for rollup' (non-template or no children).
+        """
+        template = make_product(sku="ROLLUP-TMPL-NOSTOCK", is_template=True)
+        make_product(
+            sku="ROLLUP-TMPL-NOSTOCK-V1", parent_product_id=template.id
+        )
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-TMPL-NOSTOCK")
+        row = next(i for i in items if i["sku"] == "ROLLUP-TMPL-NOSTOCK")
+
+        assert row["variants_on_hand_qty"] == 0
+        assert row["variants_available_qty"] == 0
+
+    def test_rollup_isolated_per_template(self, db, make_product):
+        """Two templates listed in the same response don't cross-pollinate."""
+        t_a = make_product(sku="ROLLUP-ISO-A", is_template=True)
+        t_b = make_product(sku="ROLLUP-ISO-B", is_template=True)
+        a_v = make_product(sku="ROLLUP-ISO-A-V1", parent_product_id=t_a.id)
+        b_v = make_product(sku="ROLLUP-ISO-B-V1", parent_product_id=t_b.id)
+        _make_inventory(db, a_v.id, on_hand=Decimal("3"))
+        _make_inventory(db, b_v.id, on_hand=Decimal("9"))
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-ISO")
+        a_row = next(i for i in items if i["sku"] == "ROLLUP-ISO-A")
+        b_row = next(i for i in items if i["sku"] == "ROLLUP-ISO-B")
+
+        assert a_row["variants_on_hand_qty"] == 3
+        assert b_row["variants_on_hand_qty"] == 9
+
+    def test_inactive_variant_inventory_excluded_from_rollup(
+        self, db, make_product
+    ):
+        """Soft-deleted variants must not contribute on-hand stock to the active template.
+        Without the active filter, a deleted FG-003-RED with leftover inventory
+        would falsely inflate FG-003's rollup."""
+        template = make_product(sku="ROLLUP-INACTIVE-TMPL", is_template=True)
+        live_variant = make_product(
+            sku="ROLLUP-INACTIVE-TMPL-V1", parent_product_id=template.id
+        )
+        dead_variant = make_product(
+            sku="ROLLUP-INACTIVE-TMPL-DEAD",
+            parent_product_id=template.id,
+            active=False,
+        )
+        _make_inventory(db, live_variant.id, on_hand=Decimal("4"))
+        _make_inventory(db, dead_variant.id, on_hand=Decimal("100"))
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-INACTIVE-TMPL")
+        row = next(i for i in items if i["sku"] == "ROLLUP-INACTIVE-TMPL")
+
+        assert row["variants_on_hand_qty"] == 4  # only the live variant
+        assert row["variant_count"] == 1  # dead variant excluded from count too
+
+    def test_inactive_variant_allocation_excluded_from_rollup(
+        self, db, make_product, make_bom
+    ):
+        """Soft-deleted variants with allocations against open POs must not
+        depress the live template's variants_available_qty.
+        Dead variant intentionally carries 0 on-hand here so any leak via the
+        allocation join makes available go negative (10 - 50 = -40), surfacing
+        the bug. The companion test_inactive_variant_inventory_excluded_from_rollup
+        covers the on-hand filter independently — separating the two prevents
+        symmetric-leak masking (where +50 on-hand and +50 alloc cancel)."""
+        from app.models.production_order import ProductionOrder
+
+        template = make_product(sku="ROLLUP-INACT-ALLOC-TMPL", is_template=True)
+        live_variant = make_product(
+            sku="ROLLUP-INACT-ALLOC-TMPL-LIVE", parent_product_id=template.id
+        )
+        dead_variant = make_product(
+            sku="ROLLUP-INACT-ALLOC-TMPL-DEAD",
+            parent_product_id=template.id,
+            active=False,
+        )
+        _make_inventory(db, live_variant.id, on_hand=Decimal("10"))
+        _make_inventory(db, dead_variant.id, on_hand=Decimal("0"))
+
+        # Create a parent FG and a BOM consuming the dead variant
+        consumer = make_product(sku="ROLLUP-INACT-CONSUMER")
+        make_bom(
+            consumer.id,
+            lines=[
+                {"component_id": dead_variant.id, "quantity": Decimal("1")},
+            ],
+        )
+        po = ProductionOrder(
+            code="PO-INACT-TEST-0001",
+            product_id=consumer.id,
+            quantity_ordered=Decimal("50"),
+            quantity_completed=Decimal("0"),
+            quantity_scrapped=Decimal("0"),
+            source="manual",
+            status="released",
+            priority=3,
+            created_by="test@filaops.dev",
+        )
+        db.add(po)
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ROLLUP-INACT-ALLOC-TMPL")
+        row = next(i for i in items if i["sku"] == "ROLLUP-INACT-ALLOC-TMPL")
+
+        # Only live variant counts: 10 on hand, 0 allocated → 10 available
+        assert row["variants_on_hand_qty"] == 10
+        assert row["variants_available_qty"] == 10
+
+
+# =============================================================================
 # bulk_update_items
 # =============================================================================
 
