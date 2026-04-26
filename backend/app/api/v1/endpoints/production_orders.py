@@ -40,6 +40,7 @@ from app.schemas.production_order import (
     QCInspectionRequest,
     QCInspectionResponse,
     OperationMaterialResponse,
+    SwapMaterialVariantRequest,
     OperationScrapRequest,
     StatusTransitionsResponse,
     QCStatusesResponse,
@@ -112,6 +113,7 @@ def build_production_order_response(order: ProductionOrder, db: Session) -> Prod
                         component_id=mat.component_id,
                         component_sku=component.sku if component else None,
                         component_name=component.name if component else None,
+                        component_is_template=bool(component.is_template) if component else False,
                         quantity_required=mat.quantity_required,
                         quantity_allocated=mat.quantity_allocated or Decimal(0),
                         quantity_consumed=mat.quantity_consumed or Decimal(0),
@@ -948,6 +950,7 @@ async def update_operation(
                 component_id=mat.component_id,
                 component_sku=component.sku if component else None,
                 component_name=component.name if component else None,
+                component_is_template=bool(component.is_template) if component else False,
                 quantity_required=mat.quantity_required,
                 quantity_allocated=mat.quantity_allocated or Decimal(0),
                 quantity_consumed=mat.quantity_consumed or Decimal(0),
@@ -1211,3 +1214,41 @@ async def assign_spool_to_order(
     db.commit()
 
     return result
+
+
+@router.patch(
+    "/{order_id}/materials/{material_id}/component",
+    response_model=OperationMaterialResponse,
+)
+async def swap_material_variant_endpoint(
+    order_id: int,
+    material_id: int,
+    request: SwapMaterialVariantRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> OperationMaterialResponse:
+    """Workstream B0: swap a PO operation material's component to a variant.
+
+    Tactical override for the case where a PO's BOM specifies a template that has
+    0 own-stock but variants have stock. Operator picks the variant they want to
+    consume from instead of the template.
+    """
+    mat = production_order_service.swap_material_variant(
+        db, order_id, material_id, request.new_component_id, request.reason,
+    )
+    db.commit()
+    db.refresh(mat)
+
+    component = db.query(Product).filter(Product.id == mat.component_id).first()
+    return OperationMaterialResponse(
+        id=mat.id,
+        component_id=mat.component_id,
+        component_sku=component.sku if component else None,
+        component_name=component.name if component else None,
+        component_is_template=bool(component.is_template) if component else False,
+        quantity_required=mat.quantity_required,
+        quantity_allocated=mat.quantity_allocated or Decimal(0),
+        quantity_consumed=mat.quantity_consumed or Decimal(0),
+        unit=mat.unit,
+        status=mat.status or "pending",
+    )

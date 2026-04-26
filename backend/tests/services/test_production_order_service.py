@@ -2570,3 +2570,157 @@ class TestProductionOrderLifecycle:
                 notes=f"Cancelled from {status}",
             )
             assert cancelled.status == "cancelled"
+
+
+# =============================================================================
+# Workstream B0: variant swap on PO operation materials
+# =============================================================================
+
+def _make_template_with_variant(db, make_product, variant_qty=20):
+    """Build a template product + one variant with on_hand inventory."""
+    template = make_product(
+        sku=f"TMPL-{datetime.now(timezone.utc).timestamp()}",
+        item_type="component",
+        is_template=True,
+    )
+    variant = make_product(
+        sku=f"{template.sku}-V1",
+        item_type="component",
+        parent_product_id=template.id,
+    )
+    inv = Inventory(
+        product_id=variant.id,
+        location_id=1,
+        on_hand_quantity=Decimal(variant_qty),
+    )
+    db.add(inv)
+    db.flush()
+    return template, variant
+
+
+def _make_po_with_pending_material(db, make_product, finished_good, component, *, status="draft"):
+    """Build a PO with a single pending operation material consuming `component`."""
+    order = _make_production_order(db, finished_good, status=status)
+    routing, rop = _make_routing_with_operation(db, finished_good)
+    op = ProductionOrderOperation(
+        production_order_id=order.id,
+        routing_operation_id=rop.id,
+        work_center_id=1,
+        sequence=10,
+        operation_code="PRINT",
+        operation_name="Print",
+        status="pending",
+        planned_setup_minutes=Decimal("5"),
+        planned_run_minutes=Decimal("10"),
+    )
+    db.add(op)
+    db.flush()
+
+    mat = ProductionOrderOperationMaterial(
+        production_order_operation_id=op.id,
+        component_id=component.id,
+        quantity_required=Decimal("2"),
+        unit="EA",
+        status="pending",
+    )
+    db.add(mat)
+    db.flush()
+    return order, mat
+
+
+class TestSwapMaterialVariant:
+    """B0 — operator swaps a PO operation material's component to a variant.
+
+    Unblocks the case where a BOM specifies a template (e.g. FG-003 with 0 own-stock)
+    but variants have stock (e.g. FG-003-PLA_BASIC-BLK with 20 EA). Without this swap,
+    the PO is permanently blocked by 'material shortage' even though stock exists.
+    """
+
+    def test_happy_path_pending_material_to_variant(
+        self, db, make_product, finished_good
+    ):
+        template, variant = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+
+        result = svc.swap_material_variant(
+            db, order.id, mat.id, variant.id, reason="BLK in stock"
+        )
+
+        assert result.component_id == variant.id
+        assert result.quantity_required == Decimal("2")  # qty unchanged
+        assert result.unit == "EA"
+        assert result.status == "pending"
+
+    def test_swap_to_self_is_noop_no_op(self, db, make_product, finished_good):
+        """Swapping to the current component (e.g. cancel/reset) returns successfully."""
+        template, _ = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+
+        result = svc.swap_material_variant(
+            db, order.id, mat.id, template.id, reason="reset"
+        )
+        assert result.component_id == template.id
+
+    def test_rejects_non_variant_target(self, db, make_product, finished_good):
+        """Cannot swap to a product that is not a variant of the current component."""
+        template, _ = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        unrelated = make_product(sku="UNRELATED-001", item_type="component")
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, unrelated.id, reason="bad")
+        assert exc.value.status_code == 400
+        assert "variant" in exc.value.detail.lower()
+
+    def test_rejects_inactive_target(self, db, make_product, finished_good):
+        template, variant = _make_template_with_variant(db, make_product)
+        variant.active = False
+        db.flush()
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 400
+        assert "active" in exc.value.detail.lower()
+
+    def test_rejects_allocated_status(self, db, make_product, finished_good):
+        """Allocated materials cannot be swapped — release allocation first."""
+        template, variant = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        mat.status = "allocated"
+        mat.quantity_allocated = Decimal("2")
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 400
+        assert "pending" in exc.value.detail.lower()
+
+    def test_rejects_consumed_status(self, db, make_product, finished_good):
+        """Consumed materials cannot be swapped — already inventory transactions exist."""
+        template, variant = _make_template_with_variant(db, make_product)
+        order, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        mat.status = "consumed"
+        mat.quantity_consumed = Decimal("2")
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 400
+
+    def test_rejects_material_belonging_to_different_order(
+        self, db, make_product, finished_good
+    ):
+        template, variant = _make_template_with_variant(db, make_product)
+        order_a, mat = _make_po_with_pending_material(db, make_product, finished_good, template)
+        order_b = _make_production_order(db, finished_good)
+
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order_b.id, mat.id, variant.id, reason="bad")
+        assert exc.value.status_code == 404
+
+    def test_rejects_unknown_material(self, db, finished_good):
+        order = _make_production_order(db, finished_good)
+        with pytest.raises(HTTPException) as exc:
+            svc.swap_material_variant(db, order.id, 999_999, 1, reason="bad")
+        assert exc.value.status_code == 404

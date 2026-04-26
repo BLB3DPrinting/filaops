@@ -79,6 +79,15 @@ export default function ProductionOrderModal({
   const [availableSpools, setAvailableSpools] = useState([]);
   const [spoolLoading, setSpoolLoading] = useState(false);
 
+  // Workstream B0: variant swap state. variantPickerFor = { materialId, templateId }
+  // when the operator is choosing a variant to substitute for a template-component
+  // material. Tactical override for templates whose own-stock is 0 but variants
+  // have stock — does not change BOM, only mutates this PO's material row.
+  const [variantPickerFor, setVariantPickerFor] = useState(null);
+  const [availableVariants, setAvailableVariants] = useState([]);
+  const [variantLoading, setVariantLoading] = useState(false);
+  const [variantSwapReason, setVariantSwapReason] = useState("");
+
   // Schedule modal state (for pending ops)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [operationToSchedule, setOperationToSchedule] = useState(null);
@@ -155,6 +164,55 @@ export default function ProductionOrderModal({
       }
     } catch { /* ignore */ }
     setSpoolLoading(false);
+  };
+
+  const openVariantPicker = async (materialId, templateId) => {
+    setVariantPickerFor({ materialId, templateId });
+    setAvailableVariants([]);
+    setVariantSwapReason("");
+    setVariantLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/items/${templateId}/variants`,
+        { credentials: "include" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableVariants(Array.isArray(data) ? data : data.items || []);
+      }
+    } catch { /* ignore */ }
+    setVariantLoading(false);
+  };
+
+  const swapVariant = async (newComponentId) => {
+    if (!variantPickerFor || variantLoading) return;
+    try {
+      setVariantLoading(true);
+      const res = await fetch(
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/materials/${variantPickerFor.materialId}/component`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            new_component_id: newComponentId,
+            reason: variantSwapReason || null,
+          }),
+        }
+      );
+      if (res.ok) {
+        setVariantPickerFor(null);
+        setVariantSwapReason("");
+        await fetchOperations();
+        if (onUpdated) onUpdated();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setError(err.detail || "Failed to swap variant");
+      }
+    } catch (e) {
+      setError(e.message || "Failed to swap variant");
+    }
+    setVariantLoading(false);
   };
 
   const fetchOperations = async () => {
@@ -778,6 +836,16 @@ export default function ProductionOrderModal({
                           >
                             {mat.status}
                           </span>
+                          {mat.component_id && mat.component_is_template && mat.status === "pending" && (
+                            <button
+                              onClick={() => openVariantPicker(mat.id, mat.component_id)}
+                              className="text-xs px-2 py-0.5 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-200 transition-colors"
+                              title={`${mat.component_sku || 'Component'} is a template — pick a variant to consume from instead`}
+                              aria-label={`Swap ${mat.component_sku || 'component'} to a variant`}
+                            >
+                              ↘ Swap Variant
+                            </button>
+                          )}
                           {mat.component_id && (
                             <button
                               onClick={() => openSpoolPicker(mat.component_id)}
@@ -832,6 +900,60 @@ export default function ProductionOrderModal({
                         {spool.supplier_lot_number && (
                           <span className="ml-2 text-gray-500">Lot: {spool.supplier_lot_number}</span>
                         )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Variant Picker (Workstream B0) */}
+          {variantPickerFor && (
+            <div className="bg-gray-800 border border-blue-700/40 rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-medium text-white">
+                  Pick variant to consume
+                  <span className="ml-2 text-xs text-gray-400 font-normal">
+                    (overrides the BOM template for this PO only)
+                  </span>
+                </h4>
+                <button
+                  onClick={() => { setVariantPickerFor(null); setVariantSwapReason(""); }}
+                  className="text-gray-400 hover:text-white text-sm"
+                  aria-label="Cancel variant swap"
+                >
+                  ✕
+                </button>
+              </div>
+              <input
+                type="text"
+                value={variantSwapReason}
+                onChange={(e) => setVariantSwapReason(e.target.value)}
+                placeholder="Reason (optional, logged for audit)"
+                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+              {variantLoading ? (
+                <div className="text-gray-400 text-sm">Loading variants…</div>
+              ) : availableVariants.length === 0 ? (
+                <div className="text-gray-500 text-sm">
+                  This template has no variants yet. Create some via the items page first.
+                </div>
+              ) : (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {availableVariants.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => swapVariant(v.id)}
+                      disabled={variantLoading || !v.active}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-700 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-white text-left">
+                        {v.sku}
+                        <span className="text-gray-500 ml-2">{v.name}</span>
+                      </span>
+                      <span className={(v.on_hand_qty ?? 0) > 0 ? "text-green-400" : "text-red-400"}>
+                        {(v.on_hand_qty ?? 0).toFixed(0)} on hand
                       </span>
                     </button>
                   ))}

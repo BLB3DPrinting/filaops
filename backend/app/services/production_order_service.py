@@ -1630,6 +1630,97 @@ def get_cost_breakdown(db: Session, order_id: int) -> dict:
 
 
 # =============================================================================
+# Workstream B0: variant swap on PO operation materials
+# =============================================================================
+
+def swap_material_variant(
+    db: Session,
+    order_id: int,
+    material_id: int,
+    new_component_id: int,
+    reason: str | None = None,
+) -> ProductionOrderOperationMaterial:
+    """
+    Swap a PO operation material's component to a variant of the current component.
+
+    Tactical override (Workstream B0): when a PO's BOM specifies a template product
+    that has 0 own-stock but variants have stock, the operator can pick a variant
+    to consume from instead. The swap is permitted only while the material is still
+    pending (no allocation or consumption yet).
+
+    Validation rules:
+      - Order must exist
+      - Material must exist AND belong to the given order
+      - Material status must be 'pending'
+      - new_component_id must reference an active product that is either:
+          (a) equal to the current component_id (no-op, allowed for cancel/reset)
+          (b) a variant of the current component (parent_product_id == current_component_id)
+
+    Returns the updated material row.
+    """
+    get_production_order(db, order_id)  # Validates order exists; raises 404
+
+    mat = (
+        db.query(ProductionOrderOperationMaterial)
+        .join(
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial.production_order_operation_id
+            == ProductionOrderOperation.id,
+        )
+        .filter(
+            ProductionOrderOperationMaterial.id == material_id,
+            ProductionOrderOperation.production_order_id == order_id,
+        )
+        .first()
+    )
+    if not mat:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Material {material_id} not found on production order {order_id}",
+        )
+
+    if mat.status != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot swap variant: material status is '{mat.status}', "
+                "must be 'pending' (release allocation first if applicable)"
+            ),
+        )
+
+    new_component = db.query(Product).filter(Product.id == new_component_id).first()
+    if not new_component:
+        raise HTTPException(status_code=404, detail=f"Product {new_component_id} not found")
+    if not new_component.active:
+        raise HTTPException(status_code=400, detail="Target component is not active")
+
+    # Same component → no-op (still valid, lets UI use this for cancel/reset)
+    if new_component_id == mat.component_id:
+        return mat
+
+    if new_component.parent_product_id != mat.component_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Target {new_component.sku} is not a variant of current component "
+                f"{mat.component_id} (expected parent_product_id={mat.component_id}, "
+                f"got {new_component.parent_product_id})"
+            ),
+        )
+
+    old_component_id = mat.component_id
+    mat.component_id = new_component_id
+    db.flush()
+
+    logger.info(
+        "PO %s op-material %s variant swap: component_id %s -> %s (reason: %s)",
+        order_id, material_id, old_component_id, new_component_id, reason or "(none)",
+    )
+
+    return mat
+
+
+# =============================================================================
 # Spool Management
 # =============================================================================
 

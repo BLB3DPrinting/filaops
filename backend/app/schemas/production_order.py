@@ -155,6 +155,7 @@ class OperationMaterialResponse(BaseModel):
     component_id: int
     component_sku: Optional[str] = None
     component_name: Optional[str] = None
+    component_is_template: bool = False  # Workstream B0: gates the variant-swap UI
     quantity_required: Decimal
     quantity_allocated: Decimal = Decimal("0")
     quantity_consumed: Decimal = Decimal("0")
@@ -163,6 +164,14 @@ class OperationMaterialResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SwapMaterialVariantRequest(BaseModel):
+    """Workstream B0: swap a PO operation material's component to a variant
+    of the current component. Used as a tactical override when the BOM specifies
+    a template that has 0 own-stock but variants have stock."""
+    new_component_id: int
+    reason: Optional[str] = None
 
 
 # ============================================================================
