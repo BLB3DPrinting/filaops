@@ -173,10 +173,11 @@ describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
     expect(fractional.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('renders material template rollup with "g" unit and ×1000 scaling on AVAILABLE only', () => {
-    // Material template: on_hand stays in grams (raw), available is in KG (scaled ×1000).
-    // The variants_on_hand_qty is the on-hand sum (already grams), variants_available_qty
-    // is the available sum (KG-equivalent) — same convention as the per-item fields.
+  it('renders material template rollup with "g" unit and no scaling on either column', () => {
+    // Both variants_on_hand_qty AND variants_available_qty come back from the
+    // backend already in grams (computed as raw Inventory.on_hand_quantity sums
+    // and BOMLine.quantity allocations — no KG conversion). Rollup display must
+    // not multiply by 1000 on either column.
     const materialTemplate = {
       ...templateRow,
       id: 100,
@@ -185,22 +186,66 @@ describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
       item_type: 'material',
       material_type_id: 5,
       unit: 'G',
-      variants_on_hand_qty: 800, // grams, render as-is
-      variants_available_qty: 0.7, // KG, render as 700 g
+      variants_on_hand_qty: 800,        // grams — render "800"
+      variants_available_qty: 700,      // grams — render "700" (NOT 700,000)
     }
     render(
       <MockLocaleProvider currency="USD" locale="en-US">
         <ItemsTable {...baseProps} items={[materialTemplate]} />
       </MockLocaleProvider>
     )
-    // ON-HAND: 800 (no scaling) with 'g' unit
     expect(screen.getByText('800')).toBeInTheDocument()
-    // AVAILABLE: 700 (0.7 × 1000) with 'g' unit
     expect(screen.getByText('700')).toBeInTheDocument()
-    // 'g' unit appears at least twice (on-hand + available + allocated cells if any)
+    // Rollup must not scale: 700,000 would be the buggy ×1000 output
+    expect(screen.queryByText('700,000')).not.toBeInTheDocument()
+    // 'g' unit appears for ON-HAND, RESERVED, AVAILABLE rollup cells
     const gUnits = screen.getAllByText('g')
     expect(gUnits.length).toBeGreaterThanOrEqual(2)
-    // 'EA' should NOT appear for this material template
     expect(screen.queryByText('EA')).not.toBeInTheDocument()
+  })
+
+  it('renders Reserved rollup as on_hand − available for templates instead of "-"', () => {
+    // Without this, a template with stock and allocations shows the math gap:
+    // On Hand 40, Available 30, Reserved should be 10 (but used to render "-").
+    const reservedRow = {
+      ...templateRow,
+      id: 101,
+      sku: 'FG-RESERVED-TMPL',
+      variant_count: 4,
+      variants_on_hand_qty: 40,
+      variants_available_qty: 30,  // 10 reserved across variants
+    }
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} items={[reservedRow]} />
+      </MockLocaleProvider>
+    )
+    expect(screen.getByText('40')).toBeInTheDocument()  // on-hand rollup
+    expect(screen.getByText('30')).toBeInTheDocument()  // available rollup
+    expect(screen.getByText('10')).toBeInTheDocument()  // reserved derived
+    expect(
+      screen.getByLabelText(/reserved rolled up from 4 variants/i),
+    ).toBeInTheDocument()
+  })
+
+  it('renders Reserved as 0 for templates with stock but no allocations', () => {
+    const noAllocRow = {
+      ...templateRow,
+      id: 102,
+      sku: 'FG-NOALLOC-TMPL',
+      variant_count: 2,
+      variants_on_hand_qty: 12,
+      variants_available_qty: 12,
+    }
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} items={[noAllocRow]} />
+      </MockLocaleProvider>
+    )
+    // Reserved = 12 - 12 = 0 → renders "0", not "-"
+    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText(/reserved rolled up from 2 variants/i),
+    ).toBeInTheDocument()
   })
 })

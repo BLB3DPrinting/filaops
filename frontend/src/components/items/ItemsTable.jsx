@@ -371,8 +371,32 @@ export default function ItemsTable({
                 )}
               </td>
               <td className="py-3 px-4 text-right text-yellow-400">
-                {item.allocated_qty != null &&
-                parseFloat(item.allocated_qty) > 0 ? (
+                {item.is_template &&
+                item.variants_on_hand_qty != null &&
+                item.variants_available_qty != null ? (
+                  // Reserved rollup: derived from on_hand − available so the row
+                  // math reconciles. variants_*_qty come back in matching units
+                  // (both already in grams for materials, no scaling), so the
+                  // subtraction preserves the convention.
+                  (() => {
+                    const reserved =
+                      parseFloat(item.variants_on_hand_qty) -
+                      parseFloat(item.variants_available_qty);
+                    const copy = rollupCopy("Reserved", item.variant_count);
+                    return (
+                      <span title={copy.title}>
+                        <QtyCell formatted={formatQtyWithUnit(item, reserved)} />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
+                ) : item.allocated_qty != null &&
+                  parseFloat(item.allocated_qty) > 0 ? (
                   <QtyCell
                     formatted={formatQtyWithUnit(item, item.allocated_qty, { scaleMaterial: true })}
                   />
@@ -394,7 +418,7 @@ export default function ItemsTable({
                         title={copy.title}
                       >
                         <QtyCell
-                          formatted={formatQtyWithUnit(item, item.variants_available_qty, { scaleMaterial: true })}
+                          formatted={formatQtyWithUnit(item, item.variants_available_qty)}
                         />
                         <span
                           className="text-blue-400 text-xs ml-1"
