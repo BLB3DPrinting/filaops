@@ -136,6 +136,17 @@ export default function ProductionOrderModal({
     fetchWorkCenters();
   }, []);
 
+  // Workstream B0: abort any in-flight variant-list fetch on unmount so the
+  // response can't write into state after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (variantFetchControllerRef.current) {
+        variantFetchControllerRef.current.abort();
+        variantFetchControllerRef.current = null;
+      }
+    };
+  }, []);
+
   // Fetch resources when work center changes
   useEffect(() => {
     if (selectedWorkCenter) {
@@ -213,9 +224,17 @@ export default function ProductionOrderModal({
       if (res.ok) {
         const data = await res.json();
         setAvailableVariants(Array.isArray(data) ? data : data.items || []);
+      } else {
+        // Surface real failures instead of silently rendering "no variants".
+        const err = await res.json().catch(() => ({}));
+        setError(normalizeErrorDetail(err.detail, "Failed to load variants"));
       }
     } catch (e) {
-      if (e.name === "AbortError") return;  // expected on supersession
+      if (e.name === "AbortError") return;  // expected on supersession or unmount
+      // Genuine network/parse error on the latest request — show it.
+      if (variantFetchControllerRef.current === controller) {
+        setError(normalizeErrorDetail(e?.message, "Failed to load variants"));
+      }
     } finally {
       // Only clear loading if this is still the latest request.
       if (variantFetchControllerRef.current === controller) {
@@ -237,7 +256,7 @@ export default function ProductionOrderModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             new_component_id: newComponentId,
-            reason: variantSwapReason || null,
+            reason: variantSwapReason.trim() || null,
           }),
         }
       );
@@ -643,19 +662,7 @@ export default function ProductionOrderModal({
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        const detail = data?.detail;
-        const message =
-          typeof detail === "string"
-            ? detail
-            : Array.isArray(detail)
-              ? detail
-                  .map((d) => (typeof d === "string" ? d : d?.msg))
-                  .filter(Boolean)
-                  .join("; ")
-              : detail
-                ? JSON.stringify(detail)
-                : "Failed to refresh routing";
-        throw new Error(message);
+        throw new Error(normalizeErrorDetail(data?.detail, "Failed to refresh routing"));
       }
       await fetchOperations();
       onUpdated?.();
@@ -960,7 +967,16 @@ export default function ProductionOrderModal({
                   </span>
                 </h4>
                 <button
-                  onClick={() => { setVariantPickerFor(null); setVariantSwapReason(""); }}
+                  onClick={() => {
+                    // Abort the in-flight variant fetch so the response
+                    // can't write into a closed picker's state.
+                    if (variantFetchControllerRef.current) {
+                      variantFetchControllerRef.current.abort();
+                      variantFetchControllerRef.current = null;
+                    }
+                    setVariantPickerFor(null);
+                    setVariantSwapReason("");
+                  }}
                   className="text-gray-400 hover:text-white text-sm"
                   aria-label="Cancel variant swap"
                 >
@@ -971,6 +987,7 @@ export default function ProductionOrderModal({
                 type="text"
                 value={variantSwapReason}
                 onChange={(e) => setVariantSwapReason(e.target.value)}
+                maxLength={500}
                 placeholder="Reason (optional, logged for audit)"
                 className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
