@@ -30,7 +30,8 @@ const getItemTypeStyle = (type, hasFilament = false) => {
 
 /**
  * Format a quantity value with the right unit for an item.
- * Materials display in grams; non-materials use item.unit (default "EA").
+ * Materials display in grams (integer); non-materials use item.unit (default
+ * "EA") and preserve fractional precision via toLocaleString.
  *
  * `scaleMaterial` exists because on_hand_qty is stored in grams already
  * (raw inventory), while available_qty / allocated_qty come back in the
@@ -43,8 +44,11 @@ function formatQtyWithUnit(item, qty, { scaleMaterial = false } = {}) {
   const isMaterial = !!item?.material_type_id;
   const num = parseFloat(qty);
   const value = isMaterial && scaleMaterial ? num * 1000 : num;
+  // Materials are always whole grams in display. Non-materials preserve any
+  // fractional EA / piece quantities entered by the user (e.g. 2.5 EA stays "2.5").
+  const display = isMaterial ? value.toFixed(0) : value.toLocaleString();
   const unit = isMaterial ? "g" : (item?.unit || "EA");
-  return { display: value.toFixed(0), unit };
+  return { display, unit };
 }
 
 function QtyCell({ formatted, fallback = "-" }) {
@@ -55,6 +59,27 @@ function QtyCell({ formatted, fallback = "-" }) {
       <span className="text-gray-500 text-xs ml-1">{formatted.unit}</span>
     </>
   );
+}
+
+/**
+ * Build tooltip + aria-label copy for a variant rollup cell.
+ * `kind` is "On-hand" or "Available". Defensive: when `count` is somehow 0
+ * (shouldn't happen since the rollup cell only renders when at least one
+ * active variant exists), we fall back to neutral copy rather than the
+ * awkward "Sum across 0 variants".
+ */
+function rollupCopy(kind, count) {
+  const c = count ?? 0;
+  if (c <= 0) {
+    return {
+      title: `${kind} variant rollup`,
+      ariaLabel: `${kind} variant rollup`,
+    };
+  }
+  return {
+    title: `Sum across ${c} variants`,
+    ariaLabel: `${kind} rolled up from ${c} variants`,
+  };
 }
 
 function SortIndicator({ columnKey, sortConfig }) {
@@ -315,20 +340,22 @@ export default function ItemsTable({
                   // carry their own inventory, so we replace the always-zero own-qty
                   // cell with the SUM across child variants. If templates ever gain
                   // their own stock, revisit this — we may need to show both values.
-                  <span
-                    className="text-right px-2 py-1 text-gray-300"
-                    title={`Sum across ${item.variant_count ?? 0} variants`}
-                  >
-                    <QtyCell
-                      formatted={formatQtyWithUnit(item, item.variants_on_hand_qty)}
-                    />
-                    <span
-                      className="text-blue-400 text-xs ml-1"
-                      aria-label={`On-hand rolled up from ${item.variant_count ?? 0} variants`}
-                    >
-                      ↘
-                    </span>
-                  </span>
+                  (() => {
+                    const copy = rollupCopy("On-hand", item.variant_count);
+                    return (
+                      <span className="px-2 py-1 text-gray-300" title={copy.title}>
+                        <QtyCell
+                          formatted={formatQtyWithUnit(item, item.variants_on_hand_qty)}
+                        />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
                 ) : (
                   <button
                     onClick={() => onStartEditQty(item)}
@@ -355,24 +382,29 @@ export default function ItemsTable({
               </td>
               <td className="py-3 px-4 text-right">
                 {item.is_template && item.variants_available_qty != null ? (
-                  <span
-                    className={
-                      parseFloat(item.variants_available_qty) <= 0
-                        ? "text-red-400"
-                        : "text-green-400"
-                    }
-                    title={`Sum across ${item.variant_count ?? 0} variants`}
-                  >
-                    <QtyCell
-                      formatted={formatQtyWithUnit(item, item.variants_available_qty, { scaleMaterial: true })}
-                    />
-                    <span
-                      className="text-blue-400 text-xs ml-1"
-                      aria-label={`Available rolled up from ${item.variant_count ?? 0} variants`}
-                    >
-                      ↘
-                    </span>
-                  </span>
+                  (() => {
+                    const copy = rollupCopy("Available", item.variant_count);
+                    return (
+                      <span
+                        className={
+                          parseFloat(item.variants_available_qty) <= 0
+                            ? "text-red-400"
+                            : "text-green-400"
+                        }
+                        title={copy.title}
+                      >
+                        <QtyCell
+                          formatted={formatQtyWithUnit(item, item.variants_available_qty, { scaleMaterial: true })}
+                        />
+                        <span
+                          className="text-blue-400 text-xs ml-1"
+                          aria-label={copy.ariaLabel}
+                        >
+                          ↘
+                        </span>
+                      </span>
+                    );
+                  })()
                 ) : (
                 <span
                   className={

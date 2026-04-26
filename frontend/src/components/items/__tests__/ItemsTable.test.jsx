@@ -148,6 +148,31 @@ describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
     expect(screen.queryByLabelText(/rolled up from/i)).not.toBeInTheDocument()
   })
 
+  it('preserves fractional non-material quantities (e.g. 2.5 EA) instead of rounding to 3', () => {
+    // Regression for the toFixed(0)-everywhere bug: non-material units must keep decimals.
+    const fractionalRow = {
+      ...item,
+      id: 200,
+      sku: 'COMP-FRAC-001',
+      name: 'Fractional Component',
+      item_type: 'component',
+      material_type_id: null, // explicitly non-material
+      unit: 'EA',
+      on_hand_qty: 2.5,
+      available_qty: 2.5,
+    }
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable {...baseProps} items={[fractionalRow]} />
+      </MockLocaleProvider>
+    )
+    // 2.5 EA must NOT round to "3"
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+    // Both ON-HAND and AVAILABLE cells render the fractional value (toLocaleString)
+    const fractional = screen.getAllByText('2.5')
+    expect(fractional.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('renders material template rollup with "g" unit and ×1000 scaling on AVAILABLE only', () => {
     // Material template: on_hand stays in grams (raw), available is in KG (scaled ×1000).
     // The variants_on_hand_qty is the on-hand sum (already grams), variants_available_qty

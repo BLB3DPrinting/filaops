@@ -777,8 +777,11 @@ class TestListItemsVariantsRollup:
     ):
         """Soft-deleted variants with allocations against open POs must not
         depress the live template's variants_available_qty.
-        Active variant has 10 on hand, dead variant has 50 on hand AND a 50-qty
-        allocation; if the inactive filter leaks, available would compute wrong."""
+        Dead variant intentionally carries 0 on-hand here so any leak via the
+        allocation join makes available go negative (10 - 50 = -40), surfacing
+        the bug. The companion test_inactive_variant_inventory_excluded_from_rollup
+        covers the on-hand filter independently — separating the two prevents
+        symmetric-leak masking (where +50 on-hand and +50 alloc cancel)."""
         from app.models.production_order import ProductionOrder
 
         template = make_product(sku="ROLLUP-INACT-ALLOC-TMPL", is_template=True)
@@ -791,7 +794,7 @@ class TestListItemsVariantsRollup:
             active=False,
         )
         _make_inventory(db, live_variant.id, on_hand=Decimal("10"))
-        _make_inventory(db, dead_variant.id, on_hand=Decimal("50"))
+        _make_inventory(db, dead_variant.id, on_hand=Decimal("0"))
 
         # Create a parent FG and a BOM consuming the dead variant
         consumer = make_product(sku="ROLLUP-INACT-CONSUMER")
