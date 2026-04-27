@@ -102,8 +102,16 @@ class MaterialColorResolver:
         because we don't know the original RoutingOperationMaterial.id. Read-side
         callers must accept this sentinel and not persist it back. Write-side code
         that creates v2 records uses the actual routing_operation_material_id.
+
+        The synthesized label is hardcoded to "Color" because the legacy flat shape
+        doesn't carry a label field. A name-derived label (e.g., "PLA — Black")
+        would require a DB query, which this method deliberately avoids in order to
+        stay pure and side-effect-free.
         """
-        if variant_metadata_legacy.get("schema_version") == 2:
+        schema_ver = variant_metadata_legacy.get("schema_version")
+        if schema_ver is not None and schema_ver != 1:
+            # Unknown or future schema_version (>= 3) — do not silently synthesize.
+            # Absent and explicit `1` are the only forms we accept as legacy.
             return None
         mat_type_id = variant_metadata_legacy.get("material_type_id")
         color_id = variant_metadata_legacy.get("color_id")

@@ -64,16 +64,29 @@ def test_synthesize_legacy_lifts_flat_shape_to_v2():
     assert out is not None
     assert out["schema_version"] == 2
     assert "axis_selections" in out
-    sel = next(iter(out["axis_selections"].values()))
+    assert "__legacy__" in out["axis_selections"]
+    sel = out["axis_selections"]["__legacy__"]
     assert sel["type"] == "material_color"
     assert sel["value"]["material_type_id"] == 7
     assert sel["value"]["color_id"] == 12
+    assert out["axis_count"] == 1
 
 
 def test_synthesize_legacy_returns_none_for_already_v2():
     r = registry.get("material_color")
     v2 = {"schema_version": 2, "axis_selections": {}}
     assert r.synthesize_legacy(variant_metadata_legacy=v2) is None
+
+
+def test_synthesize_legacy_returns_none_for_future_schema_version():
+    """schema_version >= 3 must not silently fall through to synthesis."""
+    r = registry.get("material_color")
+    future = {
+        "schema_version": 3,
+        "material_type_id": 7,
+        "color_id": 12,
+    }
+    assert r.synthesize_legacy(variant_metadata_legacy=future) is None
 
 
 def test_synthesize_legacy_returns_none_for_empty_or_missing_keys():
