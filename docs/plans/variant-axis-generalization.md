@@ -14,10 +14,10 @@
 
 ### Why this exists
 On 2026-04-25, FG-004 (Zorble Keychain) live-reproduced two gaps:
-- **Variant matrix creation:** `variant_service._find_material_product` (variant_service.py:28) is hardcoded to `material_type_id + color_id`. Templates whose `is_variable` line is a *component* (not a material+color) get "No available material/color combinations found."
+- **Variant matrix creation:** `variant_service._find_material_product` is hardcoded to `material_type_id + color_id`. For templates whose `is_variable` line is a *component* (not a material+color), the `/variant-matrix` endpoint returns an empty `available_combos`, and `VariantMatrixModal` surfaces that as "No available material/color combinations found."
 - **Demand-side consumption:** PO-2026-0021 making 5x `FG-003_test_assy` was blocked with "material shortage: FG-003" despite 40 EA across BLK+BLU variants — `production_order_service` walks BOM lines and queries the template's own inventory directly, missing the rollup.
 
-Workstream A (PR #559) shipped the inventory rollup view (template rows show summed variant on-hand). B0 (PR #560) shipped the tactical PO operation-material variant swap (`swap_material_variant` in production_order_service.py:1636). Standard_cost auto-sync (PR #562) closed a related test gap. **A, B0, and #562 are all merged to main as of 2026-04-26.** Cost cascade is parked at issue #561.
+Workstream A (PR #559) shipped the inventory rollup view (template rows show summed variant on-hand). B0 (PR #560) shipped the tactical PO operation-material variant swap (`swap_material_variant` in `production_order_service.py`). Standard_cost auto-sync (PR #562) closed a related test gap. **A, B0, and #562 are all merged to main as of 2026-04-26.** Cost cascade is parked at issue #561.
 
 ### What this plan covers
 - **B.1** — service-layer generalization: axis-type registry, resolver, back-compat synthesis of legacy `{material_type_id, color_id}` metadata into the new `axis_selections` shape, on read.
@@ -38,6 +38,12 @@ Workstream A (PR #559) shipped the inventory rollup view (template rows show sum
 ## 2. Locked Decisions (verbatim from `project_variant_consumption_rollup.md`)
 
 > **Do not re-litigate. These came out of the 2026-04-25 design conversation.**
+>
+> **Note on memory references:** Several sections of this plan cite operator-side
+> memory files — `project_variant_consumption_rollup.md`, `pattern_rollup_terminology.md`,
+> `feedback_worktree_isolation.md`, `project_variant_matrix.md`. These live in the
+> operator's auto-loaded agent memory store, not in this repo. They are referenced
+> as load-bearing context for any agent executing this plan, not as missing repo docs.
 
 - **Mixed axis types in v1:** YES. A template can have one variable line of type `material_color` and another of type `component_template` simultaneously. Resolver dispatches per-axis-type via a registry pattern, not if/else.
 - **Recursive variants:** YES, but config-on-PO, NOT lazy variant creation. Customer picks ball color AND ball's filament finish independently → SO line carries recursive `variant_configuration` (same shape as `variant_metadata.axis_selections`, just nested). At PO release, resolver walks the tree and substitutes leaf variants per-axis at consume time. Do not auto-mint `FG-004-BLK-RED`-style SKUs at PO release.
@@ -51,7 +57,7 @@ Workstream A (PR #559) shipped the inventory rollup view (template rows show sum
 ### Three rules that MUST hold across B and C
 1. **Resolver must NOT branch on `item_type`.** Works identically for manufactured, component, and supply (purchased) templates. Resolver query is `parent_product_id = template.id AND active`.
 2. **Variant differentiator is free-form, read from `variant_metadata`.** UI must not hardcode "Color." Backend returns the label; frontend renders it.
-3. **Fixed BOM lines are first-class.** A 5-line template (1 variable, 4 fixed) is still 5 lines per variant. Variant clone copies the 4 fixed lines verbatim and substitutes the 1 variable. Preserve current `sync_routing_to_variants` semantics (variant_service.py:407–545).
+3. **Fixed BOM lines are first-class.** A 5-line template (1 variable, 4 fixed) is still 5 lines per variant. Variant clone copies the 4 fixed lines verbatim and substitutes the 1 variable. Preserve current `sync_routing_to_variants` semantics in `variant_service.py`.
 
 ### Coverage matrix (one passing test per row, target lives in C.1 test suite)
 
@@ -72,10 +78,12 @@ Workstream A (PR #559) shipped the inventory rollup view (template rows show sum
 
 ### 3.1 `Product.variant_metadata` (existing JSONB column, recursion-aware shape from B.1 onwards)
 
+The dictionary key `<routing_operation_material_id>` refers to `RoutingOperationMaterial.id` (the globally-unique primary key of the variable BOM line on the template's routing), **not** a template-scoped local index.
+
 ```jsonc
 {
   "axis_selections": {
-    "<template_routing_material_id>": {
+    "<routing_operation_material_id>": {
       "type": "material_color | component_template",
       "label": "Color",                   // free-form differentiator label
       "value": {
@@ -151,7 +159,7 @@ Counted in `compute_axis_count(meta) -> int` walking nested `value` dicts. Soft 
 ## 4. Workstream B.1 — Service-layer generalization
 
 **Branch:** `feat/variant-axis-registry-b1`
-**Worktree:** `C:\repos\filaops-variant-b1` (cut fresh from current `main`)
+**Worktree:** `<your-worktree-root>/filaops-variant-b1` (cut fresh from current `main`)
 **PR target:** ~6–8 files changed, all backend, no migration, no schema change
 
 ### Files
@@ -164,11 +172,11 @@ Counted in `compute_axis_count(meta) -> int` walking nested `value` dicts. Soft 
 - `scripts/verify_variant_synthesis.py` — pre-merge correctness guard (~30 lines). Loads every `is_template=True` product in the connected DB, walks each variant, asserts `legacy_resolve(meta) == registry_resolve(meta)`. Run against dev DB before merge; CI runs against `filaops_test` fixtures. This is the strongest correctness check in the workstream — if it fails, do not merge.
 - `backend/tests/services/test_variant_axis_registry.py` — registry contract tests.
 - `backend/tests/services/test_variant_axis_material_color.py` — back-compat synthesis + resolution tests using existing dev fixtures.
-- `backend/tests/services/test_variant_axis_component_template.py` — FG-004 / COMP-005 style fixtures, multi-axis, recursive 2-deep, **plus a perf assertion: a 6-deep recursive resolve completes in <100 ms against the existing dev DB fixture sizes** (cheap quadratic-blowup canary; satisfies the §8 O(N²) risk flag).
+- `backend/tests/services/test_variant_axis_component_template.py` — FG-004 / COMP-005 style fixtures, multi-axis, recursive 2-deep, **plus a perf canary for a 6-deep recursive resolve: logs elapsed wall-clock time and only enforces a hard threshold when the `VARIANT_AXIS_PERF_THRESHOLD_MS` env var is set (default unset = log-only)**. CI runs in log-only mode to avoid wall-clock flakiness across runners; local benchmarks set the env var to enforce a target (suggested <100 ms on dev hardware). Catches O(N²) blowup without making the suite flaky.
 
 **Modify:**
-- `backend/app/services/variant_service.py` — add `read_axis_selections()` helper, refactor `_find_material_product` and `create_variant` to delegate to registry; preserve existing function signatures (callers untouched). `sync_routing_to_variants` (lines 407–545) uses the new resolver to find target component for each variable line — material_color path returns identical product to today.
-- `backend/app/services/production_order_service.py` — refactor the child-of-current check inside `swap_material_variant` (line 1636) to delegate to the registry's component_template resolver. Accepted inputs unchanged: a swap is still permitted only when the new component is an active child of the current `component_id`. The 8 existing B0 tests stay green as the refactor guard.
+- `backend/app/services/variant_service.py` — add `read_axis_selections()` helper, refactor `_find_material_product` and `create_variant` to delegate to registry; preserve existing function signatures (callers untouched). `sync_routing_to_variants` uses the new resolver to find target component for each variable line — material_color path returns identical product to today.
+- `backend/app/services/production_order_service.py` — refactor the child-of-current check inside `swap_material_variant` to delegate to the registry's component_template resolver. Accepted inputs unchanged: a swap is still permitted only when the new component is an active child of the current `component_id`. The 8 existing B0 tests stay green as the refactor guard.
 - `backend/app/services/item_service.py` — wherever `variant_count_map` / `variants_on_hand_map` / `variants_available_map` are computed (PR #559's blocks), no logic change; just ensure helpers don't assume material+color shape on `variant_metadata` reads.
 
 **Do NOT touch in B.1:**
@@ -214,7 +222,7 @@ Counted in `compute_axis_count(meta) -> int` walking nested `value` dicts. Soft 
 **Modify:**
 - `frontend/src/components/items/VariantMatrixModal.jsx` — replace the hardcoded `uniqueMaterials × uniqueColors` derived state and the inline grid table with a `<VariantAxisGrid axes={matrixData.axes} ... />`. Bulk-create handler now POSTs `axis_selections` payload instead of `material_type_id + color_id`.
 - `backend/app/api/v1/endpoints/items.py` (or wherever `/api/v1/items/{id}/variant-matrix` lives) — response shape becomes `{ axes: [{type, label, options}], existing: [...] }` instead of `{ available_combos: [...] }`. Maintain the legacy field as deprecated alias for one PR cycle, removed in C.1.
-- `backend/app/services/variant_service.py` (small) — new `build_matrix_payload(template)` that walks the template's variable BOM lines and asks each axis type's resolver for `list_options`.
+- `backend/app/services/variant_service.py` — (a) add `build_matrix_payload(template)` that walks the template's variable BOM lines and asks each axis type's resolver for `list_options`. **(b) Switch `create_variant`'s write path to emit `schema_version=2` `axis_selections` shape when the request supplies an `axis_selections` payload.** This is required because `component_template` variants cannot be represented in the legacy flat `{material_type_id, color_id}` shape, so the read-only synthesis from §3.4 isn't enough — B.2 is where the write path crosses over to v2. The deprecated POST shape continues to write the legacy flat shape for one PR cycle so existing material+color callers keep working; the read path remains back-compat via §3.4 synthesis throughout.
 - `backend/app/api/v1/endpoints/items.py` (POST `/items/{id}/variants`) — accept `axis_selections` body; map to `create_variant` call. Old body shape `{material_type_id, color_id}` accepted via shim for one PR cycle.
 
 ### Test plan
@@ -247,14 +255,14 @@ Counted in `compute_axis_count(meta) -> int` walking nested `value` dicts. Soft 
 - `backend/tests/integration/test_so_to_po_cto.py` — end-to-end: SO line with FG-004 + 2-axis configuration → SO→PO convert → PO has correct substituted component_ids on its operation materials.
 
 **Modify:**
-- `backend/app/models/sales_order.py` (line 180+) — add `configuration = Column(JSONB, nullable=True)` to `SalesOrderLine`.
+- `backend/app/models/sales_order.py` — add `configuration = Column(JSONB, nullable=True)` to `SalesOrderLine`.
 - `backend/app/models/quote.py` — add `configuration` to `QuoteLine`.
-- `backend/app/schemas/sales_order.py` — add `configuration: Optional[dict] = None` to create/update/response schemas (lines 21, 164, 189, 214 area).
+- `backend/app/schemas/sales_order.py` — add `configuration: Optional[dict] = None` to the create / update / response schemas for `SalesOrderLine`.
 - `backend/app/schemas/quote.py` — same.
 - `backend/app/services/sales_order_service.py` — accept `configuration` on line create/update; call `validate_configuration` if line product is `is_template=True`.
 - `backend/app/services/quote_service.py` — same.
 - `backend/app/services/sales_order_service.py` (SO→PO conversion path, wherever `production_order_service.create_production_order` is called from a SO line) — call `freeze_configuration` then `apply_configuration_to_po` after PO creation.
-- `backend/app/services/production_order_service.py` — wrap the existing `swap_material_variant` (line 1636) into a batch helper `apply_axis_selections(po, axis_selections)` that the C.1 conversion path calls. Single transaction, all-or-nothing per Three Rules.
+- `backend/app/services/production_order_service.py` — wrap the existing `swap_material_variant` into a batch helper `apply_axis_selections(po, axis_selections)` that the C.1 conversion path calls. Single transaction, all-or-nothing per Three Rules.
 - `backend/app/api/v1/endpoints/items.py` — REMOVE the deprecated legacy `/variant-matrix` response alias and POST shim from B.2 (one-cycle deprecation expires here).
 
 **Out of scope for C.1 (already covered in §1 non-goals, repeated for emphasis):**
@@ -286,7 +294,7 @@ Counted in `compute_axis_count(meta) -> int` walking nested `value` dicts. Soft 
 
 ## 7. Sequencing & Dependencies
 
-```
+```text
 main (post-PR #562)
   │
   └── B.1 (registry + resolver + synthesis)        ← merge to main
@@ -311,7 +319,7 @@ main (post-PR #562)
 |---|---|---|
 | Back-compat synthesis returns a different component than legacy `_find_material_product` for some edge case (deactivated material product, archived color) | Medium | B.1 includes `scripts/verify_variant_synthesis.py` (listed in §4 Create) — loads every existing `is_template=True` product, walks each variant, asserts `legacy_resolve(meta) == registry_resolve(meta)`. Run pre-merge against dev DB with PR #559 fixtures + manual FG-003/FG-004 variants. |
 | `swap_material_variant` refactor (B.1) breaks the B0 invariant that the new component must be a child of the current `component_id` | Low | The 8 existing B0 tests explicitly cover sibling-template rejection and child-only acceptance — leave them as the refactor guard. The check semantics are unchanged; only the implementation moves into the registry. |
-| Mixed-axis template's sync_routing_to_variants (variant_service.py:407–545) silently picks one axis when target_material is ambiguous | High if untested | B.1 adds a test that builds a mixed-axis variant and asserts each variable line's resolved component matches its own axis selection. Current code's `mat_type_id, color_id_meta` flat lookup must be replaced with per-line axis lookup. |
+| Mixed-axis template's `sync_routing_to_variants` silently picks one axis when target_material is ambiguous | High if untested | B.1 adds a test that builds a mixed-axis variant and asserts each variable line's resolved component matches its own axis selection. Current code's `mat_type_id, color_id_meta` flat lookup must be replaced with per-line axis lookup. |
 | Alembic migration in C.1 collides with another in-flight branch | Low | Run `alembic heads` before generating; if multiple heads, write a merge migration first (per memory, prior alembic 069/070 merge precedent). |
 | C.1 SO→PO freeze captures stale axis options if user edits SO line between submit and conversion | Medium | `freeze_configuration` runs at conversion, not submit. Re-validate at conversion time; reject if any axis option no longer resolves. |
 | Recursion depth makes resolver O(N²) on pathological 6-axis recursive templates | Low | Hard cap of 6 across full depth (per locked decisions §2). B.1's perf-canary test asserts <100 ms for a 6-deep recursive resolve against dev fixture sizes (see §4). Add a recursion-depth assertion in resolver. |
@@ -332,7 +340,7 @@ main (post-PR #562)
 - **Cost cascade on PO receipt (issue #561).** Distinct subsystem (cost rollup ≠ inventory rollup per `pattern_rollup_terminology.md`). Independent triage.
 - **Phase 3 of `project_variant_matrix.md`** (checkbox→text-input UX in matrix grid). Distinct workstream; coordinate at sequencing time but no shared code.
 - **Lazy variant SKU minting at PO release.** Explicitly forbidden per locked decisions (defeats no-proliferation goal).
-- **Axis grouping (matched-set products like "ball color = holder color").** Schema preserves room (`axis_selections` keyed by `template_routing_material_id` so an `axis_group_id` slots in later); no v1 work.
+- **Axis grouping (matched-set products like "ball color = holder color").** Schema preserves room (`axis_selections` keyed by `routing_operation_material_id` so an `axis_group_id` slots in later); no v1 work.
 - **Variable quantity / optional-line axes.** Registry leaves room (per-axis-type resolver); no v1 work.
 - **Persisting v2 schema_version on existing variant rows.** B.1 reads through synthesis. C.1 may include a tail-end one-shot migration; the bulk write of v2 metadata is itself optional and can defer to a later PR.
 
