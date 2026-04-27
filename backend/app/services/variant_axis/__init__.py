@@ -5,3 +5,4 @@ a module here and importing it from this file's bottom.
 """
 from app.services.variant_axis import registry  # noqa: F401
 from app.services.variant_axis import material_color  # noqa: F401  registers MaterialColorResolver
+from app.services.variant_axis import component_template  # noqa: F401  registers ComponentTemplateResolver
