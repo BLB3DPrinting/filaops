@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API_URL } from "../../config/api";
 import { formatDuration, formatDate } from "../../utils/formatting";
 import { PRODUCTION_ORDER_BADGE_CONFIGS } from "../../lib/statusColors.js";
@@ -6,6 +6,26 @@ import Modal from "../Modal";
 import OperationCard from "./OperationCard";
 import SkipOperationModal from "./SkipOperationModal";
 import ShortageModal from "./ShortageModal";
+
+/**
+ * Normalize a FastAPI error detail into a renderable string.
+ * `detail` can be a string, an array (pydantic validation errors), or an
+ * arbitrary object. Calling setError(detail) directly with the latter two
+ * shapes produces "[object Object]" on screen.
+ */
+function normalizeErrorDetail(detail, fallback) {
+  if (detail == null) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d)))
+      .join("; ");
+  }
+  if (typeof detail === "object") {
+    return detail.msg || detail.message || JSON.stringify(detail);
+  }
+  return String(detail);
+}
 
 /**
  * Status badge component
@@ -79,6 +99,19 @@ export default function ProductionOrderModal({
   const [availableSpools, setAvailableSpools] = useState([]);
   const [spoolLoading, setSpoolLoading] = useState(false);
 
+  // Workstream B0: variant swap state. variantPickerFor = { materialId, templateId }
+  // when the operator is choosing a variant to substitute for a template-component
+  // material. Tactical override for templates whose own-stock is 0 but variants
+  // have stock — does not change BOM, only mutates this PO's material row.
+  const [variantPickerFor, setVariantPickerFor] = useState(null);
+  const [availableVariants, setAvailableVariants] = useState([]);
+  const [variantLoading, setVariantLoading] = useState(false);
+  const [variantSwapReason, setVariantSwapReason] = useState("");
+  // Tracks the in-flight variant-list AbortController so a quick second click
+  // on a different material aborts the older request and prevents a slow
+  // earlier response from clobbering a faster later one.
+  const variantFetchControllerRef = useRef(null);
+
   // Schedule modal state (for pending ops)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [operationToSchedule, setOperationToSchedule] = useState(null);
@@ -101,6 +134,17 @@ export default function ProductionOrderModal({
   // Fetch work centers for scheduling
   useEffect(() => {
     fetchWorkCenters();
+  }, []);
+
+  // Workstream B0: abort any in-flight variant-list fetch on unmount so the
+  // response can't write into state after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (variantFetchControllerRef.current) {
+        variantFetchControllerRef.current.abort();
+        variantFetchControllerRef.current = null;
+      }
+    };
   }, []);
 
   // Fetch resources when work center changes
@@ -155,6 +199,80 @@ export default function ProductionOrderModal({
       }
     } catch { /* ignore */ }
     setSpoolLoading(false);
+  };
+
+  const openVariantPicker = async (materialId, templateId) => {
+    // Abort any in-flight variant-list fetch from a prior click — guards
+    // against the slow-response-clobbers-fast-response race.
+    if (variantFetchControllerRef.current) {
+      variantFetchControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    variantFetchControllerRef.current = controller;
+
+    setVariantPickerFor({ materialId, templateId });
+    setAvailableVariants([]);
+    setVariantSwapReason("");
+    setVariantLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/items/${templateId}/variants`,
+        { credentials: "include", signal: controller.signal }
+      );
+      // If a newer request started, this response is stale — silently drop it.
+      if (variantFetchControllerRef.current !== controller) return;
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableVariants(Array.isArray(data) ? data : data.items || []);
+      } else {
+        // Surface real failures instead of silently rendering "no variants".
+        const err = await res.json().catch(() => ({}));
+        setError(normalizeErrorDetail(err.detail, "Failed to load variants"));
+      }
+    } catch (e) {
+      if (e.name === "AbortError") return;  // expected on supersession or unmount
+      // Genuine network/parse error on the latest request — show it.
+      if (variantFetchControllerRef.current === controller) {
+        setError(normalizeErrorDetail(e?.message, "Failed to load variants"));
+      }
+    } finally {
+      // Only clear loading if this is still the latest request.
+      if (variantFetchControllerRef.current === controller) {
+        setVariantLoading(false);
+        variantFetchControllerRef.current = null;
+      }
+    }
+  };
+
+  const swapVariant = async (newComponentId) => {
+    if (!variantPickerFor || variantLoading) return;
+    try {
+      setVariantLoading(true);
+      const res = await fetch(
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/materials/${variantPickerFor.materialId}/component`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            new_component_id: newComponentId,
+            reason: variantSwapReason.trim() || null,
+          }),
+        }
+      );
+      if (res.ok) {
+        setVariantPickerFor(null);
+        setVariantSwapReason("");
+        await fetchOperations();
+        if (onUpdated) onUpdated();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setError(normalizeErrorDetail(err.detail, "Failed to swap variant"));
+      }
+    } catch (e) {
+      setError(normalizeErrorDetail(e.message, "Failed to swap variant"));
+    }
+    setVariantLoading(false);
   };
 
   const fetchOperations = async () => {
@@ -544,19 +662,7 @@ export default function ProductionOrderModal({
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        const detail = data?.detail;
-        const message =
-          typeof detail === "string"
-            ? detail
-            : Array.isArray(detail)
-              ? detail
-                  .map((d) => (typeof d === "string" ? d : d?.msg))
-                  .filter(Boolean)
-                  .join("; ")
-              : detail
-                ? JSON.stringify(detail)
-                : "Failed to refresh routing";
-        throw new Error(message);
+        throw new Error(normalizeErrorDetail(data?.detail, "Failed to refresh routing"));
       }
       await fetchOperations();
       onUpdated?.();
@@ -778,6 +884,16 @@ export default function ProductionOrderModal({
                           >
                             {mat.status}
                           </span>
+                          {mat.component_id && mat.component_is_template && mat.status === "pending" && (
+                            <button
+                              onClick={() => openVariantPicker(mat.id, mat.component_id)}
+                              className="text-xs px-2 py-0.5 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-200 transition-colors"
+                              title={`${mat.component_sku || 'Component'} is a template — pick a variant to consume from instead`}
+                              aria-label={`Swap ${mat.component_sku || 'component'} to a variant`}
+                            >
+                              ↘ Swap Variant
+                            </button>
+                          )}
                           {mat.component_id && (
                             <button
                               onClick={() => openSpoolPicker(mat.component_id)}
@@ -832,6 +948,70 @@ export default function ProductionOrderModal({
                         {spool.supplier_lot_number && (
                           <span className="ml-2 text-gray-500">Lot: {spool.supplier_lot_number}</span>
                         )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Variant Picker (Workstream B0) */}
+          {variantPickerFor && (
+            <div className="bg-gray-800 border border-blue-700/40 rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-medium text-white">
+                  Pick variant to consume
+                  <span className="ml-2 text-xs text-gray-400 font-normal">
+                    (overrides the BOM template for this PO only)
+                  </span>
+                </h4>
+                <button
+                  onClick={() => {
+                    // Abort the in-flight variant fetch so the response
+                    // can't write into a closed picker's state.
+                    if (variantFetchControllerRef.current) {
+                      variantFetchControllerRef.current.abort();
+                      variantFetchControllerRef.current = null;
+                    }
+                    setVariantPickerFor(null);
+                    setVariantSwapReason("");
+                  }}
+                  className="text-gray-400 hover:text-white text-sm"
+                  aria-label="Cancel variant swap"
+                >
+                  ✕
+                </button>
+              </div>
+              <input
+                type="text"
+                value={variantSwapReason}
+                onChange={(e) => setVariantSwapReason(e.target.value)}
+                maxLength={500}
+                placeholder="Reason (optional, logged for audit)"
+                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+              {variantLoading ? (
+                <div className="text-gray-400 text-sm">Loading variants…</div>
+              ) : availableVariants.length === 0 ? (
+                <div className="text-gray-500 text-sm">
+                  This template has no variants yet. Create some via the items page first.
+                </div>
+              ) : (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {availableVariants.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => swapVariant(v.id)}
+                      disabled={variantLoading || !v.active}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-700 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-white text-left">
+                        {v.sku}
+                        <span className="text-gray-500 ml-2">{v.name}</span>
+                      </span>
+                      <span className={(v.on_hand_qty ?? 0) > 0 ? "text-green-400" : "text-red-400"}>
+                        {(v.on_hand_qty ?? 0).toFixed(0)} on hand
                       </span>
                     </button>
                   ))}
