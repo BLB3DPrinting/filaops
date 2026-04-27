@@ -64,9 +64,18 @@ def test_synthesize_legacy_always_returns_none(db):
     assert r.synthesize_legacy(variant_metadata_legacy={"anything": 1}) is None
 
 
-def test_resolver_does_not_branch_on_item_type(db, manufactured_template_with_children, supply_template_with_children):
-    """Same resolver works for manufactured AND supply templates — Rule 1 from §2."""
+def test_resolver_does_not_branch_on_item_type(
+    db,
+    manufactured_template_with_children,
+    supply_template_with_children,
+    component_template_with_children,
+):
+    """Same resolver works for manufactured, component, AND supply templates — Rule 1 from §2.
+
+    The strategic plan explicitly calls out all three item_types must work
+    identically through the same resolver code path, with no branching.
+    """
     r = registry.get("component_template")
-    for fixt in (manufactured_template_with_children, supply_template_with_children):
+    for fixt in (manufactured_template_with_children, supply_template_with_children, component_template_with_children):
         opts = r.list_options(db, template=fixt["template"], routing_material=fixt["variable_material"])
         assert len(opts) == fixt["expected_count"]

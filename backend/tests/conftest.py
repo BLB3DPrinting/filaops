@@ -1202,3 +1202,98 @@ def supply_template_with_children(db, make_product, make_work_center):
         "variable_material": variable_material,
         "expected_count": 2,
     }
+
+
+@pytest.fixture
+def component_template_with_children(db, make_product, make_work_center):
+    """Fixture for Rule-1 test: COMP template with item_type='component'
+    (a discrete component / sub-part) and 2 active children.
+
+    Used to pin Rule 1 for the 'component' item_type variant of the resolver.
+
+    Returns:
+        {
+            "template": Product (is_template=True, item_type='component'),
+            "variable_material": RoutingOperationMaterial (is_variable=True),
+            "expected_count": 2,
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template: item_type='component' ---
+    comp_template = make_product(
+        sku=f"COMP-RULE1-{uid}",
+        name=f"Rule1 Comp Template {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 2 active children ---
+    for i in range(2):
+        make_product(
+            sku=f"COMP-RULE1-{uid}-V{i}",
+            name=f"Rule1 Comp Child {uid} {i}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG-RULE1-{uid}",
+        name=f"Rule1 FG {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"Assembly WC COMP {uid}", code=f"WC-COMP-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-COMP-{uid}",
+        name=f"Routing COMP {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_count": 2,
+    }
