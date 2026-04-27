@@ -631,3 +631,184 @@ def finished_good(make_product):
         procurement_type="make",
         name="Test Widget (FG)",
     )
+
+
+# =============================================================================
+# Variant-axis fixtures (Task 2 — MaterialColorResolver)
+# =============================================================================
+
+@pytest.fixture
+def material_type_pla(db):
+    """A MaterialType with a unique test-only code to avoid seed-data collisions."""
+    from app.models.material import MaterialType
+
+    uid = _uid()
+    mt = MaterialType(
+        code=f"PLA_BASIC_TEST_{uid}",
+        name="PLA Basic Test",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(mt)
+    db.flush()
+    return mt
+
+
+@pytest.fixture
+def color_black(db):
+    """A Color with a unique test-only code to avoid seed-data collisions."""
+    from app.models.material import Color
+
+    uid = _uid()
+    color = Color(
+        code=f"BLK_TEST_{uid}",
+        name="Black Test",
+        hex_code="#000000",
+    )
+    db.add(color)
+    db.flush()
+    return color
+
+
+@pytest.fixture
+def supply_product_pla_black(db, make_product, material_type_pla, color_black):
+    """Active supply Product linked to the PLA Basic Test material_type + Black Test color."""
+    uid = _uid()
+    return make_product(
+        sku=f"SUP-PLA-BLK-TEST-{uid}",
+        name=f"PLA Basic Black Filament Test {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=material_type_pla.id,
+        color_id=color_black.id,
+    )
+
+
+@pytest.fixture
+def fg004_template_with_material_color_axis(db, make_product, make_work_center):
+    """Fixture returning a dict used by test_list_options_returns_one_per_materialcolor_row.
+
+    Creates:
+      - 1 MaterialType (pla_for_fg) with a unique code
+      - 3 Colors with unique codes
+      - 3 MaterialColor rows (junction)
+      - 3 supply Products (one per combo)
+      - 1 finished-good template Product
+      - 1 Routing → 1 RoutingOperation → 1 RoutingOperationMaterial (is_variable=True)
+        whose component_id points at one of the supply products
+
+    Returns:
+      {
+          "template": Product,
+          "variable_material": RoutingOperationMaterial,
+          "expected_combo_count": 3,
+      }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- MaterialType ---
+    pla_for_fg = MaterialType(
+        code=f"PLA_FG_{uid}",
+        name=f"PLA FG Test {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(pla_for_fg)
+    db.flush()
+
+    # --- Colors + MaterialColor rows + supply Products ---
+    color_codes = [f"FG_C1_{uid}", f"FG_C2_{uid}", f"FG_C3_{uid}"]
+    supply_products = []
+    for i, code in enumerate(color_codes):
+        c = Color(code=code, name=f"FG Color {i+1} {uid}", hex_code=f"#0{i}0{i}0{i}")
+        db.add(c)
+        db.flush()
+
+        mc = MaterialColor(material_type_id=pla_for_fg.id, color_id=c.id)
+        db.add(mc)
+        db.flush()
+
+        sp = make_product(
+            sku=f"SUP-FG-{code}",
+            name=f"Supply FG {code}",
+            item_type="supply",
+            unit="G",
+            purchase_uom="KG",
+            purchase_factor=Decimal("1000"),
+            cost_method="average",
+            average_cost=Decimal("0.02"),
+            is_raw_material=True,
+            active=True,
+            material_type_id=pla_for_fg.id,
+            color_id=c.id,
+        )
+        supply_products.append(sp)
+
+    # --- Finished-good template ---
+    template = make_product(
+        sku=f"FG004-TMPL-{uid}",
+        name=f"FG004 Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+    )
+
+    # --- Work center (required by RoutingOperation) ---
+    wc = make_work_center(name=f"FDM Pool {uid}", code=f"WC-FDM-{uid}")
+
+    # --- Routing ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-FG004-{uid}",
+        name=f"Routing FG004 {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    # --- RoutingOperation ---
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="PRINT",
+        operation_name="Print",
+        run_time_minutes=Decimal("150"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    # --- RoutingOperationMaterial (variable = True, component = first supply product) ---
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=supply_products[0].id,
+        quantity=Decimal("37"),
+        unit="G",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_combo_count": len(color_codes),  # 3
+    }
