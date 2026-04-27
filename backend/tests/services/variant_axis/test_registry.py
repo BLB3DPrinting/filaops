@@ -30,3 +30,17 @@ def test_all_types_returns_registered_names():
     finally:
         registry._REGISTRY.pop("a_test", None)
         registry._REGISTRY.pop("b_test", None)
+
+
+def test_protocol_requires_three_methods():
+    """AxisTypeResolver must expose list_options, resolve_to_component, synthesize_legacy."""
+    from app.services.variant_axis.registry import AxisTypeResolver
+    expected = {"list_options", "resolve_to_component", "synthesize_legacy", "type_name"}
+    assert expected.issubset(set(dir(AxisTypeResolver)))
+
+
+def test_axis_option_dataclass_shape():
+    from app.services.variant_axis.types import AxisOption
+    opt = AxisOption(value={"k": 1}, label="L", preview_sku="X-1", preview_name="X 1")
+    assert opt.value == {"k": 1}
+    assert opt.label == "L"
