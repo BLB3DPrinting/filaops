@@ -38,6 +38,9 @@ class MaterialColorResolver:
             db.query(MaterialColor, MaterialType, Color)
             .join(MaterialType, MaterialColor.material_type_id == MaterialType.id)
             .join(Color, MaterialColor.color_id == Color.id)
+            # TODO(pre-existing): MaterialColor.active is not filtered here, matching legacy
+            # behavior in variant_service.get_variant_matrix. Adding the filter is a
+            # deliberate behavior change and should be a separate PR.
             .filter(MaterialColor.material_type_id == component.material_type_id)
             .all()
         )
@@ -53,7 +56,7 @@ class MaterialColorResolver:
                 label=f"{mt.name} — {c.name}",
                 preview_sku=f"{template.sku}-{mt.code}-{c.code}"[:50],
                 preview_name=f"{template.name} - {mt.name} {c.name}"[:255],
-                extras={"color_hex": c.hex_code},
+                extras={"color_hex": c.hex_code or ""},
             )
             for (_mc, mt, c) in rows
         ]
@@ -90,12 +93,38 @@ class MaterialColorResolver:
         return product
 
     def synthesize_legacy(self, *, variant_metadata_legacy: dict) -> dict | None:
-        """Lift legacy {material_type_id, color_id, ...} into v2 axis_selections.
+        """Lift legacy {material_type_id, color_id, ...} flat shape into v2 axis_selections.
 
-        Implementation deferred to Task 3. Return None for now — Task 3 adds
-        the actual lift and a round-trip test.
+        Returns None if the input is already v2 or doesn't carry both keys (the
+        synthesis sentinel — caller treats absent as no-op, not as error).
+
+        The synthesized record uses key '__legacy__' for the axis_selections entry
+        because we don't know the original RoutingOperationMaterial.id. Read-side
+        callers must accept this sentinel and not persist it back. Write-side code
+        that creates v2 records uses the actual routing_operation_material_id.
         """
-        return None  # placeholder; Task 3 fills in
+        if variant_metadata_legacy.get("schema_version") == 2:
+            return None
+        mat_type_id = variant_metadata_legacy.get("material_type_id")
+        color_id = variant_metadata_legacy.get("color_id")
+        if mat_type_id is None or color_id is None:
+            return None
+        return {
+            "schema_version": 2,
+            "axis_selections": {
+                "__legacy__": {
+                    "type": "material_color",
+                    "label": "Color",
+                    "value": {
+                        "material_type_id": mat_type_id,
+                        "color_id": color_id,
+                        "material_type_code": variant_metadata_legacy.get("material_type_code"),
+                        "color_code": variant_metadata_legacy.get("color_code"),
+                    },
+                }
+            },
+            "axis_count": 1,
+        }
 
 
 registry.register(MaterialColorResolver())
