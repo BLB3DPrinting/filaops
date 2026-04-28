@@ -21,6 +21,8 @@ from app.services.item_service import (
     get_item,
     calculate_item_cost,
 )
+from app.services.variant_axis import registry as axis_registry
+from app.services.variant_axis.reader import read_axis_selections
 
 logger = get_logger(__name__)
 
@@ -28,12 +30,11 @@ logger = get_logger(__name__)
 def _find_material_product(db: Session, material_type_id: int, color_id: int) -> Product:
     """Find the supply Product for a material+color combo.
 
-    Now a thin shim over MaterialColorResolver.resolve_to_component to keep
+    Thin shim over MaterialColorResolver.resolve_to_component to keep
     the existing call sites in this module working. The resolver is the
     canonical source of the lookup logic.
     """
-    from app.services.variant_axis import registry
-    return registry.get("material_color").resolve_to_component(
+    return axis_registry.get("material_color").resolve_to_component(
         db, value={"material_type_id": material_type_id, "color_id": color_id}
     )
 
@@ -448,21 +449,31 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
     for variant in variants:
         savepoint = db.begin_nested()
         try:
-            # Resolve this variant's target material from stored metadata
-            meta = variant.variant_metadata or {}
-            mat_type_id = meta.get("material_type_id")
-            color_id_meta = meta.get("color_id")
-            target_material = None
-            if mat_type_id and color_id_meta:
-                target_material = (
-                    db.query(Product)
-                    .filter(
-                        Product.material_type_id == mat_type_id,
-                        Product.color_id == color_id_meta,
-                        Product.active.is_(True),
+            # Resolve each variable line's target via the registry.
+            # read_axis_selections lifts legacy flat metadata into v2 shape on the fly.
+            meta_v2 = read_axis_selections(variant.variant_metadata)
+            axis_selections = meta_v2.get("axis_selections", {})
+
+            # Map: routing_operation_material_id (int) -> resolved Product
+            # Special key '__legacy_target__' = single fallback target for legacy single-axis variants
+            resolved_per_line: dict = {}
+            for sel_key, sel in axis_selections.items():
+                try:
+                    resolver = axis_registry.get(sel["type"])
+                    target = resolver.resolve_to_component(db, value=sel["value"])
+                except (KeyError, HTTPException) as e:
+                    logger.warning(
+                        "Variant %s: cannot resolve axis %s (type=%s): %s",
+                        variant.sku, sel_key, sel.get("type"), e,
                     )
-                    .first()
-                )
+                    continue
+                if sel_key == "__legacy__":
+                    resolved_per_line["__legacy_target__"] = target
+                else:
+                    try:
+                        resolved_per_line[int(sel_key)] = target
+                    except ValueError:
+                        pass
 
             # Get or create variant routing
             variant_routing = (
@@ -510,15 +521,16 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
                 db.flush()
 
                 for t_mat in op_materials[t_op.id]:
-                    # Swap is_variable materials to this variant's target
-                    if t_mat.is_variable and not target_material:
+                    # Per-line resolution: prefer keyed match, fall back to legacy single-target
+                    target = resolved_per_line.get(t_mat.id) or resolved_per_line.get("__legacy_target__")
+                    if t_mat.is_variable and not target:
                         logger.warning(
-                            "Variable material on op %s (component_id=%s) has no target for variant %s",
+                            "Variable material on op %s (component_id=%s) has no resolved target for variant %s",
                             t_op.operation_code, t_mat.component_id, variant.sku,
                         )
                     component_id = (
-                        target_material.id
-                        if t_mat.is_variable and target_material
+                        target.id
+                        if t_mat.is_variable and target
                         else t_mat.component_id
                     )
                     new_mat = RoutingOperationMaterial(

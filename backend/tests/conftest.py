@@ -1297,3 +1297,259 @@ def component_template_with_children(db, make_product, make_work_center):
         "variable_material": variable_material,
         "expected_count": 2,
     }
+
+
+# =============================================================================
+# Variant-axis fixtures (Task 8 -- mixed-axis sync_routing_to_variants)
+# =============================================================================
+
+@pytest.fixture
+def mixed_axis_template_with_one_variant(db, make_product, make_work_center):
+    """Fixture: FG template with 4 routing material lines (2 variable, 2 fixed)
+    and one variant with v2 axis_selections metadata keyed by
+    RoutingOperationMaterial.id.
+
+    Line layout:
+      rom_a  is_variable=True   component=pla_placeholder  axis=material_color
+      rom_b  is_variable=True   component=comp_x template  axis=component_template
+      rom_c  is_variable=False  component=fixed_1           preserved verbatim
+      rom_d  is_variable=False  component=fixed_2           preserved verbatim
+
+    Returns:
+        {
+            "template": Product,
+            "variant": Product,
+            "expected_color_target_id": int,     # pla_blk_supply.id
+            "expected_component_target_id": int, # chosen_child.id
+            "fixed_component_ids": [int, int],   # [fixed_1.id, fixed_2.id]
+        }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # 1. Material+color setup
+    pla_material_type = MaterialType(
+        code=f"PLA_MX_{uid}",
+        name=f"PLA Mixed-Axis Test {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(pla_material_type)
+    db.flush()
+
+    black_color = Color(
+        code=f"BLK_MX_{uid}",
+        name=f"Black Mixed-Axis Test {uid}",
+        hex_code="#000000",
+    )
+    db.add(black_color)
+    db.flush()
+
+    mc_junction = MaterialColor(
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+    db.add(mc_junction)
+    db.flush()
+
+    # The supply product the material_color axis resolves to
+    pla_blk_supply = make_product(
+        sku=f"PLA-BLK-MX-{uid}",
+        name=f"PLA Black Mixed-Axis Supply {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+
+    # Placeholder: template variable line points at this
+    pla_placeholder = make_product(
+        sku=f"PLA-PLACEHOLDER-MX-{uid}",
+        name=f"PLA Placeholder Mixed-Axis {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+
+    # 2. Component-template setup
+    comp_x_template = make_product(
+        sku=f"COMP-X-TMPL-MX-{uid}",
+        name=f"COMP-X Template Mixed-Axis {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    children = []
+    for i in range(3):
+        child = make_product(
+            sku=f"COMP-X-V{i+1:02d}-MX-{uid}",
+            name=f"COMP-X Variant {i+1} Mixed-Axis {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_x_template.id,
+        )
+        children.append(child)
+    chosen_child = children[1]  # deterministic pick
+
+    # 3. Fixed-line products
+    fixed_1 = make_product(
+        sku=f"FIXED-1-MX-{uid}",
+        name=f"Fixed Component 1 Mixed-Axis {uid}",
+        item_type="supply",
+        unit="EA",
+        active=True,
+    )
+    fixed_2 = make_product(
+        sku=f"FIXED-2-MX-{uid}",
+        name=f"Fixed Component 2 Mixed-Axis {uid}",
+        item_type="supply",
+        unit="EA",
+        active=True,
+    )
+
+    # 4. FG template
+    template = make_product(
+        sku=f"FG-MX-TMPL-{uid}",
+        name=f"FG Mixed-Axis Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # 5. Routing: 1 operation, 4 material lines
+    wc = make_work_center(name=f"Mixed-Axis WC {uid}", code=f"WC-MX-{uid}")
+
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-MX-{uid}",
+        name=f"Routing Mixed-Axis {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="PRINT-MX",
+        operation_name="Print Mixed-Axis",
+        run_time_minutes=Decimal("150"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    # rom_a: material_color variable line
+    rom_a = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=pla_placeholder.id,
+        quantity=Decimal("37"),
+        unit="G",
+        is_variable=True,
+    )
+    db.add(rom_a)
+    db.flush()
+
+    # rom_b: component_template variable line
+    rom_b = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_x_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(rom_b)
+    db.flush()
+
+    # rom_c: fixed line
+    rom_c = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=fixed_1.id,
+        quantity=Decimal("2"),
+        unit="EA",
+        is_variable=False,
+    )
+    db.add(rom_c)
+    db.flush()
+
+    # rom_d: fixed line
+    rom_d = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=fixed_2.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=False,
+    )
+    db.add(rom_d)
+    db.flush()
+
+    # 6. Variant with v2 axis_selections metadata keyed by rom.id
+    variant = make_product(
+        sku=f"FG-MX-VAR-BLK-{uid}",
+        name=f"FG Mixed-Axis Variant BLK {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=False,
+        active=True,
+        parent_product_id=template.id,
+    )
+    variant.variant_metadata = {
+        "schema_version": 2,
+        "axis_selections": {
+            str(rom_a.id): {
+                "type": "material_color",
+                "label": "Color",
+                "value": {
+                    "material_type_id": pla_material_type.id,
+                    "color_id": black_color.id,
+                },
+            },
+            str(rom_b.id): {
+                "type": "component_template",
+                "label": "Variant",
+                "value": {
+                    "component_id": chosen_child.id,
+                },
+            },
+        },
+        "axis_count": 2,
+    }
+    db.flush()
+
+    return {
+        "template": template,
+        "variant": variant,
+        "expected_color_target_id": pla_blk_supply.id,
+        "expected_component_target_id": chosen_child.id,
+        "fixed_component_ids": [fixed_1.id, fixed_2.id],
+    }
