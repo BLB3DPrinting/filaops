@@ -26,22 +26,16 @@ logger = get_logger(__name__)
 
 
 def _find_material_product(db: Session, material_type_id: int, color_id: int) -> Product:
-    """Find the supply Product that represents a specific material+color combo."""
-    product = (
-        db.query(Product)
-        .filter(
-            Product.material_type_id == material_type_id,
-            Product.color_id == color_id,
-            Product.active.is_(True),
-        )
-        .first()
+    """Find the supply Product for a material+color combo.
+
+    Now a thin shim over MaterialColorResolver.resolve_to_component to keep
+    the existing call sites in this module working. The resolver is the
+    canonical source of the lookup logic.
+    """
+    from app.services.variant_axis import registry
+    return registry.get("material_color").resolve_to_component(
+        db, value={"material_type_id": material_type_id, "color_id": color_id}
     )
-    if not product:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active product found for material_type_id={material_type_id}, color_id={color_id}",
-        )
-    return product
 
 
 def _get_variable_material_ids(db: Session, template: Product) -> set[int]:
