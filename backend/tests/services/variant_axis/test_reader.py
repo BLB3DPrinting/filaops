@@ -3,7 +3,7 @@
 Always returns a v2 dict, lifting legacy shape via material_color.synthesize_legacy.
 Variants written before B.1 lack schema_version → treat absent as v1.
 """
-from app.services.variant_axis.reader import read_axis_selections, compute_axis_count
+from app.services.variant_axis.reader import read_axis_selections, compute_axis_count, enforce_axis_cap
 
 
 def test_read_v2_passthrough_unchanged():
@@ -64,3 +64,39 @@ def test_compute_axis_count_recursive_2_deep():
         },
     }
     assert compute_axis_count(sel) == 2  # 1 outer + 1 inner
+
+
+import pytest
+from fastapi import HTTPException
+
+SOFT = 4
+HARD = 6
+
+
+def _build_n_axis_meta(n: int) -> dict:
+    return {
+        "schema_version": 2,
+        "axis_selections": {
+            str(i): {"type": "material_color", "label": "x", "value": {"material_type_id": 1, "color_id": i}}
+            for i in range(n)
+        },
+    }
+
+
+def test_enforce_axis_cap_under_soft_no_warning(caplog):
+    enforce_axis_cap(_build_n_axis_meta(2))
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_enforce_axis_cap_at_soft_warns(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING):
+        enforce_axis_cap(_build_n_axis_meta(SOFT + 1))
+    assert any("axis count" in r.message.lower() for r in caplog.records)
+
+
+def test_enforce_axis_cap_above_hard_raises():
+    with pytest.raises(HTTPException) as exc:
+        enforce_axis_cap(_build_n_axis_meta(HARD + 1))
+    assert exc.value.status_code == 400
+    assert "axis cap" in exc.value.detail.lower()

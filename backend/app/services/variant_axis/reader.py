@@ -4,6 +4,9 @@ Lifts legacy flat shape into v2 axis_selections via the material_color
 resolver's synthesizer. Never persists synthesized output (B.1 is read-only;
 write-path crossover is B.2's responsibility).
 """
+from fastapi import HTTPException
+
+from app.logging_config import get_logger
 from app.services.variant_axis import registry
 
 
@@ -41,3 +44,29 @@ def compute_axis_count(meta_v2: dict) -> int:
         if isinstance(nested, dict):
             total += compute_axis_count({"axis_selections": nested})
     return total
+
+
+logger = get_logger(__name__)
+
+AXIS_CAP_SOFT = 4
+AXIS_CAP_HARD = 6
+
+
+def enforce_axis_cap(meta_v2: dict) -> int:
+    """Walk axis_selections, count depth-aware, warn at soft cap, raise 400 above hard.
+
+    Returns the computed axis_count for callers that want to surface it
+    (e.g. /variant-matrix response → axis_count_warning: true when ≥ soft).
+    """
+    n = compute_axis_count(meta_v2)
+    if n > AXIS_CAP_HARD:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"axis cap exceeded: {n} axes across recursion depth "
+                f"(hard cap = {AXIS_CAP_HARD})"
+            ),
+        )
+    if n > AXIS_CAP_SOFT:
+        logger.warning("variant axis count %d exceeds soft cap %d", n, AXIS_CAP_SOFT)
+    return n
