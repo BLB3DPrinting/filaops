@@ -1372,7 +1372,9 @@ def mixed_axis_template_with_one_variant(db, make_product, make_work_center):
         color_id=black_color.id,
     )
 
-    # Placeholder: template variable line points at this
+    # Placeholder: template variable line points at this.
+    # active=False so the material_color resolver's active=True filter excludes it,
+    # leaving pla_blk_supply as the only valid match and eliminating fixture-order fragility.
     pla_placeholder = make_product(
         sku=f"PLA-PLACEHOLDER-MX-{uid}",
         name=f"PLA Placeholder Mixed-Axis {uid}",
@@ -1383,7 +1385,7 @@ def mixed_axis_template_with_one_variant(db, make_product, make_work_center):
         cost_method="average",
         average_cost=Decimal("0.02"),
         is_raw_material=True,
-        active=True,
+        active=False,
         material_type_id=pla_material_type.id,
         color_id=black_color.id,
     )

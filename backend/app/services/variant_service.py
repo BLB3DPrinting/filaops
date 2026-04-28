@@ -473,7 +473,10 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
                     try:
                         resolved_per_line[int(sel_key)] = target
                     except ValueError:
-                        pass
+                        logger.warning(
+                            "Variant %s: non-integer axis key %r ignored",
+                            variant.sku, sel_key,
+                        )
 
             # Get or create variant routing
             variant_routing = (
