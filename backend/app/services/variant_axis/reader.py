@@ -9,6 +9,11 @@ from fastapi import HTTPException
 from app.logging_config import get_logger
 from app.services.variant_axis import registry
 
+logger = get_logger(__name__)
+
+AXIS_CAP_SOFT = 4
+AXIS_CAP_HARD = 6
+
 
 def read_axis_selections(meta: dict | None) -> dict:
     """Return a v2 axis_selections dict.
@@ -27,6 +32,11 @@ def read_axis_selections(meta: dict | None) -> dict:
     try:
         mc = registry.get("material_color")
     except KeyError:
+        logger.warning(
+            "material_color resolver not registered — legacy variant_metadata "
+            "cannot be synthesized; returning empty envelope. Check that "
+            "app.services.variant_axis.material_color is imported at startup."
+        )
         return {"schema_version": 2, "axis_selections": {}, "axis_count": 0}
     synthesized = mc.synthesize_legacy(variant_metadata_legacy=meta)
     if synthesized is not None:
@@ -44,12 +54,6 @@ def compute_axis_count(meta_v2: dict) -> int:
         if isinstance(nested, dict):
             total += compute_axis_count({"axis_selections": nested})
     return total
-
-
-logger = get_logger(__name__)
-
-AXIS_CAP_SOFT = 4
-AXIS_CAP_HARD = 6
 
 
 def enforce_axis_cap(meta_v2: dict) -> int:

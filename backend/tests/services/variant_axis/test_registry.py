@@ -36,7 +36,8 @@ def test_protocol_requires_three_methods():
     """AxisTypeResolver must expose list_options, resolve_to_component, synthesize_legacy."""
     from app.services.variant_axis.registry import AxisTypeResolver
     expected = {"list_options", "resolve_to_component", "synthesize_legacy", "type_name"}
-    assert expected.issubset(set(dir(AxisTypeResolver)))
+    actual = set(dir(AxisTypeResolver))
+    assert expected.issubset(actual), f"missing: {expected - actual}"
 
 
 def test_axis_option_dataclass_shape():
@@ -44,3 +45,24 @@ def test_axis_option_dataclass_shape():
     opt = AxisOption(value={"k": 1}, label="L", preview_sku="X-1", preview_name="X 1")
     assert opt.value == {"k": 1}
     assert opt.label == "L"
+
+
+def test_axis_option_is_immutable():
+    """AxisOption is frozen=True; mutation raises FrozenInstanceError."""
+    import dataclasses
+    import pytest as _pytest
+    from app.services.variant_axis.types import AxisOption
+
+    opt = AxisOption(value={"k": 1}, label="L")
+    with _pytest.raises((dataclasses.FrozenInstanceError, AttributeError)):
+        opt.label = "M"  # type: ignore[misc]
+
+
+def test_axis_option_is_not_hashable():
+    """AxisOption.__hash__ is None — cannot be used in sets or as dict key."""
+    import pytest as _pytest
+    from app.services.variant_axis.types import AxisOption
+
+    opt = AxisOption(value={"k": 1}, label="L")
+    with _pytest.raises(TypeError):
+        hash(opt)
