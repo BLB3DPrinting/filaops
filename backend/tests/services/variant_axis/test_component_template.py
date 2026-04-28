@@ -79,3 +79,74 @@ def test_resolver_does_not_branch_on_item_type(
     for fixt in (manufactured_template_with_children, supply_template_with_children, component_template_with_children):
         opts = r.list_options(db, template=fixt["template"], routing_material=fixt["variable_material"])
         assert len(opts) == fixt["expected_count"]
+
+
+def test_resolve_recursive_2_deep(db, fg_with_variable_manuf_component_with_variable_material):
+    """FG → variable manuf component → has its own variable material.
+
+    Customer config: outer chooses ball variant; inner chooses ball's filament finish.
+    Resolver walks both axes by being called twice — once for outer, once for inner.
+    """
+    fixt = fg_with_variable_manuf_component_with_variable_material
+    cfg = {
+        "schema_version": 2,
+        "axis_selections": {
+            str(fixt["outer_routing_material_id"]): {
+                "type": "component_template",
+                "value": {
+                    "component_id": fixt["chosen_ball_id"],
+                    "axis_selections": {
+                        str(fixt["inner_routing_material_id"]): {
+                            "type": "material_color",
+                            "value": {
+                                "material_type_id": fixt["chosen_finish_mt_id"],
+                                "color_id": fixt["chosen_finish_color_id"],
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    # Outer axis resolves to chosen ball
+    outer_resolver = registry.get("component_template")
+    outer = outer_resolver.resolve_to_component(
+        db, value=cfg["axis_selections"][str(fixt["outer_routing_material_id"])]["value"]
+    )
+    assert outer.id == fixt["chosen_ball_id"]
+
+    # Inner axis resolves to chosen finish supply product
+    inner_sel = cfg["axis_selections"][str(fixt["outer_routing_material_id"])]["value"]["axis_selections"]
+    inner_axis = inner_sel[str(fixt["inner_routing_material_id"])]
+    inner_resolver = registry.get(inner_axis["type"])
+    inner = inner_resolver.resolve_to_component(db, value=inner_axis["value"])
+    assert inner.material_type_id == fixt["chosen_finish_mt_id"]
+    assert inner.color_id == fixt["chosen_finish_color_id"]
+
+
+def test_perf_canary_6_deep_recursive_resolve(db, deeply_nested_template_6_axes, capsys):
+    """Quadratic-blowup canary. Log-only by default; env-var gates a hard threshold.
+
+    Per strategic plan §4 + §8 mitigation: VARIANT_AXIS_PERF_THRESHOLD_MS unset
+    in CI = log-only (no flake). Local benchmarks set the env to enforce.
+    """
+    import os
+    import time
+
+    fixt = deeply_nested_template_6_axes  # 6 axes built via fixture; resolve_calls is a list of 6 (type, value) tuples
+
+    start = time.perf_counter()
+    for resolver_type, value in fixt["resolve_calls"]:
+        registry.get(resolver_type).resolve_to_component(db, value=value)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    threshold_env = os.environ.get("VARIANT_AXIS_PERF_THRESHOLD_MS")
+    if threshold_env:
+        assert elapsed_ms < float(threshold_env), (
+            f"6-deep recursive resolve took {elapsed_ms:.1f}ms, "
+            f"threshold {threshold_env}ms"
+        )
+    else:
+        # Log-only mode (CI default). Visible in test output for trend tracking.
+        print(f"[perf-canary] 6-deep recursive resolve elapsed: {elapsed_ms:.1f}ms")

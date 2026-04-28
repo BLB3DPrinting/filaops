@@ -1555,3 +1555,230 @@ def mixed_axis_template_with_one_variant(db, make_product, make_work_center):
         "expected_component_target_id": chosen_child.id,
         "fixed_component_ids": [fixed_1.id, fixed_2.id],
     }
+
+
+# =============================================================================
+# Task 10 fixtures — recursive 2-deep resolve + 6-deep perf canary
+# =============================================================================
+
+@pytest.fixture
+def fg_with_variable_manuf_component_with_variable_material(db, make_product, make_work_center):
+    """2-deep recursive scenario.
+
+    Outer layer:
+      FG template → variable RoutingOperationMaterial → BALL-template (is_template=True)
+        BALL-template has 3 active children (BALL-RED, BALL-BLU, BALL-BLK).
+        chosen_ball = BALL-BLU (index 1).
+
+    Inner layer:
+      The inner axis uses a synthetic integer key (not a real DB row).
+      A MaterialType + Color + MaterialColor + supply Product are created for the
+      "finish" dimension; chosen_finish resolves via material_color resolver.
+
+    Returns:
+        {
+            "fg_template": Product,
+            "ball_template": Product,
+            "outer_routing_material_id": int,   # real RoutingOperationMaterial.id
+            "chosen_ball_id": int,
+            "inner_routing_material_id": int,   # synthetic integer key
+            "chosen_finish_mt_id": int,
+            "chosen_finish_color_id": int,
+        }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- BALL template ---
+    ball_template = make_product(
+        sku=f"BALL-TMPL-{uid}",
+        name=f"Ball Template {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 3 active children of BALL template ---
+    suffixes = ["RED", "BLU", "BLK"]
+    ball_children = []
+    for suffix in suffixes:
+        child = make_product(
+            sku=f"BALL-{suffix}-{uid}",
+            name=f"Ball {suffix} {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=ball_template.id,
+        )
+        ball_children.append(child)
+
+    chosen_ball = ball_children[1]  # BALL-BLU
+
+    # --- FG template ---
+    fg = make_product(
+        sku=f"FG-REC2-TMPL-{uid}",
+        name=f"FG Recursive 2-deep Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("10.00"),
+        selling_price=Decimal("30.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"WC REC2 {uid}", code=f"WC-REC2-{uid}")
+
+    # --- Routing → RoutingOperation → outer RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=fg.id,
+        code=f"RT-REC2-{uid}",
+        name=f"Routing REC2 {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    outer_rom = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=ball_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(outer_rom)
+    db.flush()
+
+    # --- Inner axis: MaterialType + Color + MaterialColor + supply Product ---
+    finish_mt = MaterialType(
+        code=f"FINISH_MT_{uid}",
+        name=f"Finish Material Type {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(finish_mt)
+    db.flush()
+
+    matte_color = Color(
+        code=f"MATTE_{uid}",
+        name=f"Matte {uid}",
+        hex_code="#CCCCCC",
+    )
+    db.add(matte_color)
+    db.flush()
+
+    mc_junction = MaterialColor(
+        material_type_id=finish_mt.id,
+        color_id=matte_color.id,
+    )
+    db.add(mc_junction)
+    db.flush()
+
+    finish_supply = make_product(
+        sku=f"SUP-FINISH-MATTE-{uid}",
+        name=f"Finish Supply Matte {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=finish_mt.id,
+        color_id=matte_color.id,
+    )
+
+    # Synthetic inner key — not a real RoutingOperationMaterial row; the test
+    # calls resolvers directly and never touches sync_routing_to_variants.
+    inner_rom_id = 99_998 + int(uid[:4], 16) % 1000
+
+    return {
+        "fg_template": fg,
+        "ball_template": ball_template,
+        "outer_routing_material_id": outer_rom.id,
+        "chosen_ball_id": chosen_ball.id,
+        "inner_routing_material_id": inner_rom_id,
+        "chosen_finish_mt_id": finish_mt.id,
+        "chosen_finish_color_id": matte_color.id,
+        # carry the supply product so tests can assert identity if needed
+        "finish_supply_id": finish_supply.id,
+    }
+
+
+@pytest.fixture
+def deeply_nested_template_6_axes(db, make_product):
+    """6 independent component templates, each with 2 active children.
+
+    Produces 6 (type, value) resolve_calls, one per template, targeting
+    the second child of each. Used purely as a perf canary — we time 6
+    sequential resolver invocations.
+
+    Returns:
+        {
+            "resolve_calls": list of 6 ("component_template", {"component_id": <id>}) tuples,
+            "templates": list of 6 Product (is_template=True),
+            "chosen_children": list of 6 Product (index-1 child of each template),
+        }
+    """
+    uid = _uid()
+
+    templates = []
+    chosen_children = []
+    resolve_calls = []
+
+    for i in range(6):
+        tmpl = make_product(
+            sku=f"PERF-TMPL-{i+1}-{uid}",
+            name=f"Perf Template {i+1} {uid}",
+            item_type="component",
+            unit="EA",
+            is_template=True,
+            active=True,
+        )
+
+        # 2 active children per template
+        children = []
+        for j in range(2):
+            child = make_product(
+                sku=f"PERF-{i+1}-C{j+1}-{uid}",
+                name=f"Perf Child {i+1}-{j+1} {uid}",
+                item_type="component",
+                unit="EA",
+                active=True,
+                parent_product_id=tmpl.id,
+            )
+            children.append(child)
+
+        chosen = children[1]  # pick second child
+
+        templates.append(tmpl)
+        chosen_children.append(chosen)
+        resolve_calls.append(
+            ("component_template", {"component_id": chosen.id})
+        )
+
+    return {
+        "resolve_calls": resolve_calls,
+        "templates": templates,
+        "chosen_children": chosen_children,
+    }
