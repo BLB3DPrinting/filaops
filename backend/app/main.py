@@ -195,10 +195,60 @@ app.add_middleware(CorrelationIdMiddleware)
 # Security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
 
-# CORS middleware — uses settings.ALLOWED_ORIGINS directly (no wildcard fallback)
+def _load_pro_cors_origins() -> list[str]:
+    """Load PRO CORS origins from the system_settings table.
+
+    Reads `pro_portal_origins` and `pro_quoter_origins` (seeded by migration 080)
+    and returns their merged contents. Customer-facing portal/quoter SPAs hosted
+    on external domains (e.g. shop.example.com) need their origins listed here.
+
+    Falls back to the `PRO_CORS_ORIGINS` env var (comma-separated) if the DB
+    read fails or returns empty. The env fallback is a documented escape hatch
+    (v3 plan): used when PRO is uninstalled (admin UI gone), the DB is
+    unreachable at boot, or the operator wants config-as-code.
+
+    Returns an empty list if neither source provides values — Core still serves
+    same-origin portal/quoter requests fine.
+    """
+    try:
+        from app.db.session import SessionLocal
+        from app.models.system_setting import SystemSetting
+
+        with SessionLocal() as db:
+            rows = db.query(SystemSetting).filter(
+                SystemSetting.key.in_(["pro_portal_origins", "pro_quoter_origins"])
+            ).all()
+            origins: list[str] = []
+            for row in rows:
+                if isinstance(row.value, list):
+                    origins.extend(o for o in row.value if isinstance(o, str))
+            if origins:
+                return origins
+    except Exception as exc:
+        logger.warning("Could not load PRO CORS origins from DB: %s", exc)
+
+    # Escape hatch: env var fallback
+    raw = os.environ.get("PRO_CORS_ORIGINS", "")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+# CORS middleware — base origins from settings.ALLOWED_ORIGINS plus PRO origins
+# loaded from the system_settings table (or PRO_CORS_ORIGINS env fallback).
+# PRO origins are merged at boot; updates require a Core restart to apply.
+_pro_origins = _load_pro_cors_origins()
+_base_origins = list(settings.ALLOWED_ORIGINS)
+# dict.fromkeys preserves order while deduplicating
+_all_cors_origins = list(dict.fromkeys(_base_origins + _pro_origins))
+
+if _pro_origins:
+    logger.info(
+        "Loaded %d PRO CORS origin(s) merged with %d base origin(s)",
+        len(_pro_origins), len(_base_origins),
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=_all_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-API-Key"],
