@@ -13,11 +13,11 @@ All endpoints require admin authentication.
 """
 from datetime import datetime
 from typing import Annotated, Any, Callable
-
-import re
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_admin_user
@@ -32,17 +32,45 @@ router = APIRouter(prefix="/system/settings", tags=["System Settings"])
 
 
 # ============================================================================
-# Validator registry
+# Origin validation (shared with main.py CORS loader)
 # ============================================================================
 
-_ORIGIN_REGEX = re.compile(r"^https?://[^/\s]+$")
+
+def is_valid_origin(value: object) -> bool:
+    """Strict CORS-Origin shape check.
+
+    A browser ``Origin`` header is always exactly ``scheme://host[:port]`` — no
+    path, query, fragment, or userinfo. Anything else stored in our allowlist
+    can never match a real browser origin, so this function rejects:
+
+    - Non-string values
+    - Schemes other than ``http``/``https``
+    - Empty hostnames
+    - Non-empty path (including a trailing ``/``)
+    - Query strings (``?...``) or fragments (``#...``)
+    - Userinfo in netloc (``user@host``)
+
+    Used by both ``_validate_origin_list`` (PUT body validation) and
+    ``app.main._load_pro_cors_origins`` (defensive runtime filtering).
+    """
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value.strip())
+    return (
+        parsed.scheme in ("http", "https")
+        and bool(parsed.netloc)
+        and parsed.path == ""
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and "@" not in parsed.netloc
+    )
 
 
 def _validate_origin_list(value: Any) -> list[str]:
     """Validate a list of CORS origin strings.
 
-    Each origin must be `scheme://host[:port]` — no path, no trailing slash,
-    no whitespace. Returns the validated list.
+    Each origin must be ``scheme://host[:port]`` — see ``is_valid_origin``.
+    Returns the validated list (empty list is acceptable — means "no origins").
     """
     if not isinstance(value, list):
         raise ValueError("must be a list of origin strings")
@@ -51,10 +79,10 @@ def _validate_origin_list(value: Any) -> list[str]:
             raise ValueError(
                 f"origin must be a string, got {type(origin).__name__}"
             )
-        if not _ORIGIN_REGEX.match(origin):
+        if not is_valid_origin(origin):
             raise ValueError(
-                f"invalid origin {origin!r}: must be scheme + host with no path "
-                "or trailing slash"
+                f"invalid origin {origin!r}: must be scheme + host with no path, "
+                "trailing slash, query string, fragment, or userinfo"
             )
     return value
 
@@ -95,8 +123,22 @@ async def list_settings(
     current_user: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SystemSetting]:
-    """List all registered system settings (admin overview)."""
-    return db.query(SystemSetting).order_by(SystemSetting.key).all()
+    """List all registered system settings.
+
+    Filtered to keys present in ``SETTING_VALIDATORS`` so this endpoint surfaces
+    only the contracted-and-supported configuration. Unregistered rows that may
+    exist from manual DB edits or stale data are intentionally hidden from the
+    admin UI.
+    """
+    registered_keys = list(SETTING_VALIDATORS.keys())
+    if not registered_keys:
+        return []
+    return (
+        db.query(SystemSetting)
+        .filter(SystemSetting.key.in_(registered_keys))
+        .order_by(SystemSetting.key)
+        .all()
+    )
 
 
 @router.get("/{key}", response_model=SystemSettingResponse)
@@ -127,7 +169,13 @@ async def update_setting(
     current_user: Annotated[User, Depends(get_current_admin_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> SystemSetting:
-    """Update a setting's value. Validates against the registered validator."""
+    """Update a setting's value. Validates against the registered validator.
+
+    Concurrency-safe: if the row is missing (manually deleted, never seeded)
+    we attempt to insert it; on ``IntegrityError`` (another admin won the race)
+    we rollback, re-fetch, and update. Mirrors the pattern used by
+    ``get_or_create_settings`` in ``endpoints/settings.py``.
+    """
     validator = SETTING_VALIDATORS.get(key)
     if validator is None:
         raise HTTPException(
@@ -144,16 +192,34 @@ async def update_setting(
 
     setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     if setting is None:
-        # Seeded by migration, but if the row was somehow removed, re-create it.
-        setting = SystemSetting(key=key, value=validated_value)
+        # Row missing (manually deleted or never seeded) — try to insert,
+        # fall back to updating the row another concurrent request just created.
+        setting = SystemSetting(
+            key=key, value=validated_value, updated_by=current_user.email,
+        )
         db.add(setting)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            setting = (
+                db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            )
+            if setting is None:
+                # Truly impossible state — surface an error rather than guessing.
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"could not persist setting {key!r}",
+                )
+            setting.value = validated_value
+            setting.updated_by = current_user.email
+            db.commit()
     else:
         setting.value = validated_value
-    setting.updated_by = current_user.email
+        setting.updated_by = current_user.email
+        db.commit()
 
-    db.commit()
     db.refresh(setting)
-
     logger.info(
         "system setting updated: %s by %s", key, current_user.email,
         extra={"setting_key": key, "updated_by": current_user.email},
