@@ -41,13 +41,30 @@ def _disable_rate_limits():
 
 @pytest.fixture
 def seeded_settings(db):
-    """Seed the two PRO origin rows so GET endpoints have something to read."""
+    """Ensure the two PRO origin rows exist (idempotent ON CONFLICT)."""
     db.execute(
         text(
             "INSERT INTO system_settings (key, value, updated_at) VALUES "
             "(:k1, '[]'::json, now()), (:k2, '[]'::json, now()) "
             "ON CONFLICT (key) DO NOTHING"
         ),
+        {"k1": PORTAL_KEY, "k2": QUOTER_KEY},
+    )
+    db.flush()
+    yield
+
+
+@pytest.fixture
+def unseeded_settings(db):
+    """Force the two PRO origin rows to be ABSENT for tests that need empty DB.
+
+    Necessary because the CI test DB is migrated (alembic upgrade head) before
+    pytest runs, which seeds these rows via migration 080's INSERT. The
+    transaction-isolated ``db`` fixture rolls back the DELETE at test end,
+    restoring the migration-seeded state for subsequent tests.
+    """
+    db.execute(
+        text("DELETE FROM system_settings WHERE key IN (:k1, :k2)"),
         {"k1": PORTAL_KEY, "k2": QUOTER_KEY},
     )
     db.flush()
@@ -157,9 +174,10 @@ def test_get_setting_unknown_key_returns_404(client, seeded_settings):
     assert "unknown setting key" in resp.json()["detail"]
 
 
-def test_get_setting_registered_but_unseeded_returns_404(client, db):
-    # Don't seed any rows. Endpoint should distinguish "unknown key" from
-    # "registered key with no row" — the latter is the migration-not-run case.
+def test_get_setting_registered_but_unseeded_returns_404(client, unseeded_settings):
+    # Endpoint should distinguish "unknown key" (key not in SETTING_VALIDATORS)
+    # from "registered key with no row" — the latter is the migration-not-run
+    # or row-manually-deleted case.
     resp = client.get(f"{SETTINGS_URL}/{PORTAL_KEY}")
     assert resp.status_code == 404
     assert "has no row" in resp.json()["detail"]
@@ -293,10 +311,10 @@ def test_put_non_admin_returns_403(non_admin_client, seeded_settings):
     assert resp.status_code == 403
 
 
-def test_put_creates_row_when_missing(client, db):
+def test_put_creates_row_when_missing(client, unseeded_settings, db):
     """Spec: if the seeded row is missing (manually deleted, never seeded),
     PUT recreates it instead of 404ing. Mirrors get_or_create_settings."""
-    # No seeded_settings fixture here — table is empty for this key.
+    # unseeded_settings fixture deleted both PRO rows for this test.
     existing = (
         db.query(SystemSetting).filter(SystemSetting.key == PORTAL_KEY).first()
     )
