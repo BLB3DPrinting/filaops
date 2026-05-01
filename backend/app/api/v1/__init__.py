@@ -40,6 +40,7 @@ from app.api.v1.endpoints import (
     notifications,
     price_levels,
     system_settings,
+    system_license,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 
@@ -217,6 +218,9 @@ router.include_router(system.router)
 
 # System Settings (admin-editable key/value config; PR-01)
 router.include_router(system_settings.router)
+
+# System License (PRO activation + info; PR-02 — Core-only, no PRO imports)
+router.include_router(system_license.router)
 
 # Security Audit
 router.include_router(security.router)
