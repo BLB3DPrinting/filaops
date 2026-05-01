@@ -343,6 +343,15 @@ def test_put_creates_row_when_missing(client, unseeded_settings, db):
     assert resp.status_code == 200
     assert resp.json()["value"] == ["https://shop.example.com"]
 
+    # Verify the row was actually persisted (not just returned in the response).
+    # An endpoint that builds a response object but fails to commit would still
+    # produce a passing 200 + payload check; this query catches that path.
+    persisted = (
+        db.query(SystemSetting).filter(SystemSetting.key == PORTAL_KEY).first()
+    )
+    assert persisted is not None
+    assert persisted.value == ["https://shop.example.com"]
+
 
 def test_put_updates_existing_row(client, seeded_settings, db):
     """Sanity: existing row gets updated, not duplicated."""
