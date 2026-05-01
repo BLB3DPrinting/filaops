@@ -50,6 +50,9 @@ from app.models.price_level import PriceLevel
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
+# System Settings (generic key/value store for admin-editable config; PR-01)
+from app.models.system_setting import SystemSetting
+
 __all__ = [
     # Item management
     "ItemCategory",
@@ -141,4 +144,6 @@ __all__ = [
     "CloseShortRecord",
     # Price Levels
     "PriceLevel",
+    # System Settings
+    "SystemSetting",
 ]

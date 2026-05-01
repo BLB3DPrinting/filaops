@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     invoices,
     notifications,
     price_levels,
+    system_settings,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 
@@ -213,6 +214,9 @@ router.include_router(
 
 # System (version, updates, health)
 router.include_router(system.router)
+
+# System Settings (admin-editable key/value config; PR-01)
+router.include_router(system_settings.router)
 
 # Security Audit
 router.include_router(security.router)
