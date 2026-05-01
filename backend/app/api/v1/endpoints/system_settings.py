@@ -67,24 +67,32 @@ def is_valid_origin(value: object) -> bool:
 
 
 def _validate_origin_list(value: Any) -> list[str]:
-    """Validate a list of CORS origin strings.
+    """Validate and normalize a list of CORS origin strings.
 
     Each origin must be ``scheme://host[:port]`` — see ``is_valid_origin``.
-    Returns the validated list (empty list is acceptable — means "no origins").
+    Surrounding whitespace is stripped (browsers never send padding in
+    ``Origin`` headers, so unstripped values would never match), and the
+    normalized list is what gets persisted.
+
+    Returns the validated, normalized list (empty list is acceptable —
+    means "no origins").
     """
     if not isinstance(value, list):
         raise ValueError("must be a list of origin strings")
+    normalized: list[str] = []
     for origin in value:
         if not isinstance(origin, str):
             raise ValueError(
                 f"origin must be a string, got {type(origin).__name__}"
             )
-        if not is_valid_origin(origin):
+        candidate = origin.strip()
+        if not is_valid_origin(candidate):
             raise ValueError(
                 f"invalid origin {origin!r}: must be scheme + host with no path, "
                 "trailing slash, query string, fragment, or userinfo"
             )
-    return value
+        normalized.append(candidate)
+    return normalized
 
 
 SETTING_VALIDATORS: dict[str, Callable[[Any], Any]] = {

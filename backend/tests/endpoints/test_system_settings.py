@@ -259,6 +259,18 @@ def test_put_empty_list_is_valid(client, seeded_settings):
     assert resp.json()["value"] == []
 
 
+def test_put_strips_surrounding_whitespace(client, seeded_settings):
+    """Whitespace padding is normalized away — browsers never send it in
+    Origin headers, so persisting it would guarantee a CORS mismatch."""
+    payload = {"value": ["  https://shop.example.com  ", "\thttp://localhost:3000\n"]}
+    resp = client.put(f"{SETTINGS_URL}/{PORTAL_KEY}", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["value"] == [
+        "https://shop.example.com",
+        "http://localhost:3000",
+    ]
+
+
 @pytest.mark.parametrize(
     "bad_origin",
     [
