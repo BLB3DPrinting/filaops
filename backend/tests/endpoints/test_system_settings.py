@@ -138,11 +138,15 @@ def test_is_valid_origin_accepts_real_origins(value):
         "ftp://shop.example.com",               # wrong scheme
         "https://",                             # no host
         "http://",                              # no host
+        "http://:80",                           # port-only authority, no host
+        "https://example.com:99999",            # out-of-range port
+        "https://example.com:abc",              # non-numeric port
         "https://shop.example.com/",            # trailing slash
         "https://shop.example.com/path",        # has path
         "https://shop.example.com?x=1",         # query string
         "https://shop.example.com#frag",        # fragment
         "https://user@shop.example.com",        # userinfo
+        "https://user:pass@shop.example.com",   # userinfo with password
         "",                                     # empty
         "   ",                                  # whitespace-only
         None,                                   # not a string
@@ -347,10 +351,13 @@ def test_put_updates_existing_row(client, seeded_settings, db):
     )
     assert pre_count == 1
 
-    client.put(
+    resp = client.put(
         f"{SETTINGS_URL}/{PORTAL_KEY}",
         json={"value": ["https://shop.example.com"]},
     )
+    # Without this assert, a silent PUT failure would leave count at 1 and
+    # this test would falsely pass.
+    assert resp.status_code == 200
 
     post_count = (
         db.query(SystemSetting).filter(SystemSetting.key == PORTAL_KEY).count()

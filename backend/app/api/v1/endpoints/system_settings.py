@@ -45,7 +45,9 @@ def is_valid_origin(value: object) -> bool:
 
     - Non-string values
     - Schemes other than ``http``/``https``
-    - Empty hostnames
+    - Empty hostnames (incl. authorities like ``http://:80`` where only a port
+      is given — ``parsed.netloc`` is truthy but ``parsed.hostname`` is None)
+    - Out-of-range or non-numeric ports (``parsed.port`` raises ``ValueError``)
     - Non-empty path (including a trailing ``/``)
     - Query strings (``?...``) or fragments (``#...``)
     - Userinfo in netloc (``user@host``)
@@ -56,9 +58,15 @@ def is_valid_origin(value: object) -> bool:
     if not isinstance(value, str):
         return False
     parsed = urlsplit(value.strip())
+    try:
+        # Accessing .port forces stdlib to parse and validate the port number.
+        # Out-of-range (>65535) or non-numeric ports raise ValueError here.
+        _ = parsed.port
+    except ValueError:
+        return False
     return (
         parsed.scheme in ("http", "https")
-        and bool(parsed.netloc)
+        and bool(parsed.hostname)  # hostname (not just netloc) must be present
         and parsed.path == ""
         and parsed.query == ""
         and parsed.fragment == ""
