@@ -28,7 +28,7 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
     ip_address: printer?.ip_address || "",
     access_code: printer?.connection_config?.access_code || "",
     location: printer?.location || "",
-    work_center_id: printer?.work_center_id || "",
+    work_center_id: printer?.work_center_id ?? null,
     notes: printer?.notes || "",
     active: printer?.active !== false,
     filament_diameters: printer?.capabilities?.filament_diameters || [],
@@ -317,8 +317,8 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
           <div>
             <label className="block text-sm text-gray-300 mb-1">Machine Pool</label>
             <select
-              value={form.work_center_id}
-              onChange={(e) => setForm({ ...form, work_center_id: e.target.value ? parseInt(e.target.value) : "" })}
+              value={form.work_center_id ?? ""}
+              onChange={(e) => setForm({ ...form, work_center_id: e.target.value ? parseInt(e.target.value, 10) : null })}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">None</option>
