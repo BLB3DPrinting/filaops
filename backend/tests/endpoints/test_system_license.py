@@ -45,7 +45,7 @@ ACTIVATE_URL = "/api/v1/system/license/activate"
 INFO_URL = "/api/v1/system/license/info"
 DEACTIVATE_URL = "/api/v1/system/license/"
 
-VALID_KEY = "FILAOPS-PRO-bef4723f987560ea"
+VALID_KEY = "FILAOPS-PRO-test1234567890ab"
 MASK_RE = re.compile(r"^.{1,12}\*\*\*.{0,4}$")
 
 
