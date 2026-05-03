@@ -14,6 +14,10 @@ Open-source ERP for 3D print farms. Manage inventory, production, sales, purchas
 ```bash
 git clone https://github.com/Blb3D/filaops.git
 cd filaops
+cp backend/.env.example .env
+# Generate secrets (required — production startup refuses to boot without these):
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+echo "DB_PASSWORD=$(openssl rand -hex 24)" >> .env
 docker compose up -d
 # Open http://localhost — create your admin account on first visit
 ```
