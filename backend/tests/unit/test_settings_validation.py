@@ -58,6 +58,12 @@ class TestProductionPlaceholderCredentials:
         with pytest.raises(RuntimeError, match="SECRET_KEY"):
             _build("production", secret_key="  change-in-production  ")
 
+    def test_whitespace_padded_environment_still_triggers_gate(self):
+        # ENVIRONMENT="production " (trailing space) must not silently fall
+        # into the warning path — that turns the safeguard into mood lighting.
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            _build("production ", secret_key="change-in-production")
+
     def test_database_url_set_skips_db_password_check(self):
         # When DATABASE_URL overrides DB_PASSWORD, the placeholder default is
         # irrelevant — startup must not block on it.

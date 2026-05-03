@@ -194,7 +194,7 @@ class Settings(BaseSettings):
 
         names = ", ".join(offenders)
         hint = "Generate a real value with: openssl rand -hex 32"
-        if self.ENVIRONMENT.lower() == "production":
+        if self.ENVIRONMENT.strip().lower() == "production":
             raise RuntimeError(
                 f"Refusing to start in production: placeholder credential(s) "
                 f"detected for {names}. {hint}"
