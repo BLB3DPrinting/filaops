@@ -54,7 +54,7 @@ const fetchOk = (body = []) => ({
 })
 
 const lastPrinterPutBody = () => {
-  const calls = global.fetch.mock.calls
+  const calls = globalThis.fetch.mock.calls
   for (let i = calls.length - 1; i >= 0; i--) {
     const [url, opts] = calls[i]
     if (typeof url === 'string' && /\/api\/v1\/printers\/\d+/.test(url) && opts?.method === 'PUT') {
@@ -67,7 +67,7 @@ const lastPrinterPutBody = () => {
 beforeEach(() => {
   mocks.toastError.mockReset()
   mocks.toastSuccess.mockReset()
-  global.fetch = vi.fn((url) => {
+  globalThis.fetch = vi.fn((url) => {
     if (typeof url === 'string' && url.includes('/work-centers')) {
       return Promise.resolve(fetchOk([{ id: 5, name: 'Print Farm A' }]))
     }
@@ -113,7 +113,6 @@ describe('PrinterModal — work_center_id payload (issue #577)', () => {
       expect(screen.getByText('Print Farm A')).toBeInTheDocument()
     })
 
-    const select = screen.getByRole('dialog').querySelector('select[name="work_center_id"], select:has(option[value=""])')
     const wcSelect = Array.from(screen.getByRole('dialog').querySelectorAll('select')).find(
       (s) => Array.from(s.options).some((o) => o.textContent === 'None')
     )
