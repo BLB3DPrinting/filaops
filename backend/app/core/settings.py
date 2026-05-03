@@ -7,6 +7,7 @@ FilaOps ERP - Configuration Management with pydantic-settings
 - Cached singleton via get_settings()
 """
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -15,6 +16,8 @@ from decimal import Decimal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 # Read version from VERSION file (single source of truth)
 _VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "VERSION"
 _VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0.0"
@@ -22,6 +25,25 @@ _VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0
 # Calculate path to .env in backend folder (3 levels up from this file)
 # backend/app/core/settings.py -> backend/.env
 _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
+# Placeholder credential values rejected in production (audit finding F12).
+# Covers docker-compose fallbacks (changeme, change-in-production), the
+# Settings field defaults below (postgres, change-this-...), the .env.example
+# sample text (your-secret-key-here, your-secure-password-here), and "" for
+# users who clear the value but never set a real one.
+_SECRET_KEY_PLACEHOLDERS = frozenset({
+    "",
+    "change-in-production",
+    "your-secret-key-here",
+    "change-this-to-a-random-secret-key-in-production",
+})
+_DB_PASSWORD_PLACEHOLDERS = frozenset({
+    "",
+    "changeme",
+    "password",
+    "postgres",
+    "your-secure-password-here",
+})
 
 
 class Settings(BaseSettings):
@@ -95,24 +117,10 @@ class Settings(BaseSettings):
         description="Auth token delivery: 'cookie' (httpOnly) or 'header' (bearer in body). Use 'header' to rollback.",
     )
 
-    @field_validator("SECRET_KEY")
-    @classmethod
-    def warn_default_secret(cls, v: str) -> str:
-        """Fail in prod if default secret; warn in dev."""
-        if "change-this" in v.lower():
-            import warnings
-            import os
-
-            if os.getenv("ENVIRONMENT", "development").lower() == "production":
-                raise ValueError(
-                    "Default SECRET_KEY detected in production. Set a secure SECRET_KEY."
-                )
-            warnings.warn(
-                "WARNING: Using default SECRET_KEY. Do not use this in production.",
-                UserWarning,
-                stacklevel=2,
-            )
-        return v
+    # SECRET_KEY validation lives in `validate_no_placeholder_credentials`
+    # (model_validator at the bottom of the class). Both SECRET_KEY and
+    # DB_PASSWORD share one post-init check so production startup fails
+    # for either placeholder rather than only the first one Pydantic sees.
 
     # ===================
     # CORS Settings
@@ -160,6 +168,43 @@ class Settings(BaseSettings):
         if self.FRONTEND_URL and self.FRONTEND_URL not in self.ALLOWED_ORIGINS:
             # Append to the raw string since ALLOWED_ORIGINS is a property
             self.ALLOWED_ORIGINS_STR = f"{self.ALLOWED_ORIGINS_STR},{self.FRONTEND_URL}"
+        return self
+
+    @model_validator(mode="after")
+    def validate_no_placeholder_credentials(self):
+        """Reject placeholder SECRET_KEY/DB_PASSWORD in production; warn in dev.
+
+        Audit finding F12 (Portainer compatibility review): docker-compose has
+        :-defaults of `changeme` / `change-in-production`, so a fresh
+        `git clone && docker compose up -d` previously produced a "running"
+        stack with insecure credentials. This validator turns that footgun
+        into a fail-fast at config load.
+        """
+        offenders = []
+        if self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS:
+            offenders.append("SECRET_KEY")
+        # DB_PASSWORD is ignored when DATABASE_URL is set (see the
+        # `database_url` property), so don't gate startup on a stale default
+        # in that case.
+        if not self.DATABASE_URL and self.DB_PASSWORD.strip().lower() in _DB_PASSWORD_PLACEHOLDERS:
+            offenders.append("DB_PASSWORD")
+
+        if not offenders:
+            return self
+
+        names = ", ".join(offenders)
+        hint = "Generate a real value with: openssl rand -hex 32"
+        if self.ENVIRONMENT.lower() == "production":
+            raise RuntimeError(
+                f"Refusing to start in production: placeholder credential(s) "
+                f"detected for {names}. {hint}"
+            )
+        logger.warning(
+            "Insecure placeholder credential(s) detected for %s. "
+            "This is allowed in development but will block production startup. %s",
+            names,
+            hint,
+        )
         return self
 
     # ===================
