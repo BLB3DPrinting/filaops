@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
+from urllib.parse import unquote, urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -183,10 +184,28 @@ class Settings(BaseSettings):
         offenders = []
         if self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS:
             offenders.append("SECRET_KEY")
-        # DB_PASSWORD is ignored when DATABASE_URL is set (see the
-        # `database_url` property), so don't gate startup on a stale default
-        # in that case.
-        if not self.DATABASE_URL and self.DB_PASSWORD.strip().lower() in _DB_PASSWORD_PLACEHOLDERS:
+
+        # The effective DB password is whatever `database_url` will hand to
+        # SQLAlchemy at runtime: the password embedded in DATABASE_URL when
+        # set, otherwise self.DB_PASSWORD. Validating only DB_PASSWORD would
+        # leave docker-compose's `DATABASE_URL: postgresql+psycopg://...:
+        # ${DB_PASSWORD:-changeme}@db:5432/...` as an open airlock.
+        #
+        # urlsplit().password returns None when the URL has no password
+        # component (peer auth, trust auth, .pgpass, IAM auth). In that
+        # case we deliberately skip the check rather than fail-closed —
+        # passwordless auth is a legitimate production setup.
+        # `unquote` decodes percent-escapes so the validator sees the same
+        # password SQLAlchemy will actually use at connect time.
+        if self.DATABASE_URL:
+            url_password = urlsplit(self.DATABASE_URL).password
+            effective_db_password = unquote(url_password) if url_password else None
+        else:
+            effective_db_password = self.DB_PASSWORD
+        if (
+            effective_db_password is not None
+            and effective_db_password.strip().lower() in _DB_PASSWORD_PLACEHOLDERS
+        ):
             offenders.append("DB_PASSWORD")
 
         if not offenders:

@@ -6,19 +6,34 @@ must refuse to boot with placeholder SECRET_KEY/DB_PASSWORD; development
 should warn but proceed.
 """
 import logging
+from typing import Optional
 
 import pytest
 
 from app.core.settings import Settings
 
 
-def _build(environment: str, *, secret_key: str = "f" * 64, db_password: str = "real-db-pass-not-a-placeholder"):
-    """Construct a Settings instance bypassing the on-disk .env file."""
+def _build(
+    environment: str,
+    *,
+    secret_key: str = "f" * 64,
+    db_password: str = "real-db-pass-not-a-placeholder",
+    database_url: Optional[str] = None,
+):
+    """Construct a Settings instance with hermetic config.
+
+    `_env_file=None` disables the on-disk .env, but pydantic-settings still
+    reads OS environment variables. CI exports DATABASE_URL, which would
+    silently route around the DB_PASSWORD branch of the validator. Passing
+    `DATABASE_URL=database_url` (default None) explicitly overrides any
+    inherited env var so each test exercises the branch it claims to.
+    """
     return Settings(
         _env_file=None,
         ENVIRONMENT=environment,
         SECRET_KEY=secret_key,
         DB_PASSWORD=db_password,
+        DATABASE_URL=database_url,
     )
 
 
@@ -64,17 +79,49 @@ class TestProductionPlaceholderCredentials:
         with pytest.raises(RuntimeError, match="SECRET_KEY"):
             _build("production ", secret_key="change-in-production")
 
-    def test_database_url_set_skips_db_password_check(self):
-        # When DATABASE_URL overrides DB_PASSWORD, the placeholder default is
-        # irrelevant — startup must not block on it.
-        s = Settings(
-            _env_file=None,
-            ENVIRONMENT="production",
-            SECRET_KEY="f" * 64,
-            DB_PASSWORD="changeme",
-            DATABASE_URL="postgresql+psycopg://realuser:realpass@db:5432/filaops",
+
+class TestDatabaseUrlPasswordValidation:
+    """The effective DB password is whatever `database_url` hands to
+    SQLAlchemy — the URL's password when DATABASE_URL is set, else
+    DB_PASSWORD. Validating only DB_PASSWORD would leave docker-compose's
+    `DATABASE_URL: ...:${DB_PASSWORD:-changeme}@db/...` as an open airlock.
+    """
+
+    def test_url_with_placeholder_password_raises(self):
+        with pytest.raises(RuntimeError, match="DB_PASSWORD"):
+            _build(
+                "production",
+                db_password="real-not-checked-because-url-overrides",
+                database_url="postgresql+psycopg://user:changeme@db:5432/filaops",
+            )
+
+    def test_url_with_real_password_passes(self):
+        s = _build(
+            "production",
+            db_password="changeme",  # ignored — URL takes precedence
+            database_url="postgresql+psycopg://user:strongpw-actually-set@db:5432/filaops",
         )
         assert s.is_production
+
+    def test_url_without_password_skips_check(self):
+        # No password in the URL = peer auth, trust auth, .pgpass, or IAM
+        # auth. These are legitimate production configs; do NOT fail-closed.
+        s = _build(
+            "production",
+            db_password="changeme",  # not used at runtime when URL is set
+            database_url="postgresql+psycopg://user@db:5432/filaops",
+        )
+        assert s.is_production
+
+    def test_url_with_url_encoded_placeholder_password_raises(self):
+        # %63%68%61%6e%67%65%6d%65 decodes to "changeme". This proves
+        # urllib.parse end-to-end decoding works and prevents a future
+        # refactor from accidentally comparing the encoded form.
+        with pytest.raises(RuntimeError, match="DB_PASSWORD"):
+            _build(
+                "production",
+                database_url="postgresql+psycopg://user:%63%68%61%6e%67%65%6d%65@db:5432/filaops",
+            )
 
 
 class TestDevelopmentPlaceholderCredentials:
