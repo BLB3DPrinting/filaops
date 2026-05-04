@@ -32,6 +32,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from app.core.config import settings
+
 logger = logging.getLogger("app.core.license_cache")
 
 # Default location matches v3 plan. Override via ``LICENSE_CONFIG_DIR`` env
@@ -79,10 +81,10 @@ class LicenseCache:
 def get_config_dir() -> Path:
     """Return the directory holding ``license.json`` + ``install_uuid``.
 
-    Reads ``LICENSE_CONFIG_DIR`` env var on every call so tests can override
-    via ``monkeypatch.setenv``.
+    Sourced from ``settings.LICENSE_CONFIG_DIR`` so configuration stays
+    centralized in the Settings model.
     """
-    return Path(os.environ.get("LICENSE_CONFIG_DIR", _DEFAULT_CONFIG_DIR))
+    return Path(settings.LICENSE_CONFIG_DIR)
 
 
 def ensure_config_dir() -> Path:
@@ -179,6 +181,8 @@ def _atomic_write_text(path: Path, content: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, path)
     except Exception:
         # Cleanup the half-written tmp file on any failure.

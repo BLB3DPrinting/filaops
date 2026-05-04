@@ -24,7 +24,6 @@ from typing import Annotated, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_admin_user
 from app.core.config import settings
@@ -36,7 +35,6 @@ from app.core.license_cache import (
     save_license_cache,
     utc_now_iso,
 )
-from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.user import User
 
@@ -142,7 +140,6 @@ def _build_info_response(
 @router.get("/info", response_model=LicenseInfoResponse)
 async def get_license_info(
     current_user: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[Session, Depends(get_db)],
 ) -> LicenseInfoResponse:
     """Read the persisted license state. Returns Community defaults if no license."""
     install_uuid = get_install_uuid()
@@ -154,7 +151,6 @@ async def get_license_info(
 async def activate_license(
     body: LicenseActivationRequest,
     current_user: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[Session, Depends(get_db)],
 ) -> LicenseInfoResponse:
     """Validate a license key against the license server and persist the result.
 
@@ -253,7 +249,7 @@ async def activate_license(
             detail="License server returned an unexpected response.",
         )
 
-    valid = bool(data.get("valid"))
+    valid = data.get("valid") is True
     server_message = data.get("message")
     if not valid:
         # Server-rejected — most often "invalid key" or "expired". 400 because
@@ -295,7 +291,6 @@ async def activate_license(
 @router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_license(
     current_user: Annotated[User, Depends(get_current_admin_user)],
-    db: Annotated[Session, Depends(get_db)],
 ) -> None:
     """Remove the persisted license cache.
 

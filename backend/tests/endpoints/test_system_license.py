@@ -25,6 +25,7 @@ from typing import Any, Optional
 import httpx
 import pytest
 
+from app.core.config import settings
 from app.core.license_cache import (
     LICENSE_CACHE_FILENAME,
     INSTALL_UUID_FILENAME,
@@ -71,9 +72,7 @@ def _license_env(monkeypatch, tmp_path):
     - settings.LICENSE_API_KEY set to a known test value
     - settings.LICENSE_SERVER_URL pointed at a fake host
     """
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
-    from app.core.config import settings
-
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     monkeypatch.setattr(settings, "LICENSE_API_KEY", "test-api-key", raising=False)
     monkeypatch.setattr(
         settings, "LICENSE_SERVER_URL", "http://license-test.local", raising=False
@@ -222,21 +221,21 @@ def _ok_validate_response(
 
 
 def test_install_uuid_is_generated_on_first_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     u = get_install_uuid()
     assert u
     assert (tmp_path / INSTALL_UUID_FILENAME).read_text().strip() == u
 
 
 def test_install_uuid_is_stable_across_calls(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     u1 = get_install_uuid()
     u2 = get_install_uuid()
     assert u1 == u2
 
 
 def test_install_uuid_regenerates_when_file_empty(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     (tmp_path / INSTALL_UUID_FILENAME).write_text("")
     u = get_install_uuid()
     assert u
@@ -244,12 +243,12 @@ def test_install_uuid_regenerates_when_file_empty(tmp_path, monkeypatch):
 
 
 def test_load_returns_none_when_missing(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     assert load_license_cache() is None
 
 
 def test_save_then_load_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     cache = LicenseCache(
         license_key="FILAOPS-PRO-test",
         install_uuid="uuid-x",
@@ -270,7 +269,7 @@ def test_save_then_load_roundtrip(tmp_path, monkeypatch):
 def test_load_tolerates_pr03_extra_fields(tmp_path, monkeypatch):
     """Forward-compat: PR-03 will add fields like status, last_verified_at,
     nonce_history. The PR-02 reader must ignore them, not crash."""
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     extended = {
         "license_key": "FILAOPS-PRO-test",
         "install_uuid": "uuid-x",
@@ -290,13 +289,13 @@ def test_load_tolerates_pr03_extra_fields(tmp_path, monkeypatch):
 
 
 def test_load_returns_none_on_malformed_json(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     (tmp_path / LICENSE_CACHE_FILENAME).write_text("this is not json {")
     assert load_license_cache() is None
 
 
 def test_clear_is_idempotent(tmp_path, monkeypatch):
-    monkeypatch.setenv("LICENSE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     cache = LicenseCache(
         license_key="k",
         install_uuid="u",

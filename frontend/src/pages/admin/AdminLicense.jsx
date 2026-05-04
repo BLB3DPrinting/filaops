@@ -142,7 +142,7 @@ function Header() {
         <a
           href="https://filaops.blb3dprinting.com/"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="text-blue-400 hover:text-blue-300 underline"
         >
           filaops.blb3dprinting.com
