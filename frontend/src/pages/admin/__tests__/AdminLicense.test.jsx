@@ -201,6 +201,67 @@ describe('AdminLicense', () => {
     }
   })
 
+  it('shows error toast and keeps PRO state when deactivate DELETE rejects', async () => {
+    mocks.get.mockResolvedValue({
+      activated: true,
+      tier: 'professional',
+      license_key: 'FILAOPS-PRO-X',
+      install_uuid: 'install-uuid-123',
+      features: ['portal'],
+    })
+    mocks.del.mockRejectedValue(new Error('Could not reach the license server'))
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    try {
+      render(<AdminLicense />)
+      await waitFor(() => {
+        expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /Remove license/i }))
+
+      await waitFor(() => {
+        expect(mocks.toastError).toHaveBeenCalledWith(
+          'Could not reach the license server',
+        )
+      })
+      expect(mocks.del).toHaveBeenCalledWith('/api/v1/system/license/')
+      expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+      expect(mocks.toastSuccess).not.toHaveBeenCalled()
+      expect(mocks.get).toHaveBeenCalledTimes(1)
+    } finally {
+      confirmSpy.mockRestore()
+    }
+  })
+
+  it('does not call DELETE when the user cancels the confirm dialog', async () => {
+    mocks.get.mockResolvedValue({
+      activated: true,
+      tier: 'professional',
+      license_key: 'FILAOPS-PRO-X',
+      install_uuid: 'install-uuid-123',
+      features: ['portal'],
+    })
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    try {
+      render(<AdminLicense />)
+      await waitFor(() => {
+        expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /Remove license/i }))
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1)
+      expect(mocks.del).not.toHaveBeenCalled()
+      expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+      expect(mocks.toastSuccess).not.toHaveBeenCalled()
+      expect(mocks.toastError).not.toHaveBeenCalled()
+    } finally {
+      confirmSpy.mockRestore()
+    }
+  })
+
   it('Header external link to filaops.blb3dprinting.com uses target="_blank" and rel="noopener noreferrer"', async () => {
     mocks.get.mockResolvedValue({
       activated: false,
