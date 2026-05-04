@@ -227,6 +227,19 @@ async def activate_license(
                 "Verify LICENSE_API_KEY is set to the correct value."
             ),
         )
+    if 400 <= resp.status_code < 500:
+        # Any other 4xx (403/404/429/...) from the license server is an
+        # upstream/protocol problem, not a user-input problem. Return 502
+        # rather than letting the response body fall through to the
+        # ``valid=false`` path where it would be misclassified as 400.
+        logger.warning(
+            "License server returned unexpected client error %d on activation: %s",
+            resp.status_code, resp.text[:300],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"License server returned unexpected client error: {resp.status_code}",
+        )
     if resp.status_code >= 500:
         logger.error(
             "License server returned %d on activation: %s",
@@ -267,7 +280,8 @@ async def activate_license(
     # heartbeat-related fields (status, last_verified_at, etc.); for now we
     # store just enough that PRO can pick up tier + features on next boot.
     tier = str(data.get("tier") or "community").lower()
-    features = list(data.get("features") or [])
+    raw_features = data.get("features")
+    features = raw_features if isinstance(raw_features, list) else []
     expires_at = _datetime_to_iso(data.get("current_period_end"))
 
     cache = LicenseCache(
