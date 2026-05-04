@@ -305,6 +305,40 @@ class Settings(BaseSettings):
     TIER: str = Field(default="community", description="community, pro, enterprise")
 
     # ===================
+    # License Server (PR-02)
+    # ===================
+    # Where Core's activation endpoint sends the license key for validation.
+    # Defaults point at our production instance; override in dev/staging via
+    # env var. License-server API contract is documented in
+    # license-server/CLAUDE.md.
+    LICENSE_SERVER_URL: str = Field(
+        default="https://license.blb3dprinting.com",
+        description="Base URL of the FilaOps license server (no trailing slash)",
+    )
+    LICENSE_API_KEY: Optional[str] = Field(
+        default=None,
+        description=(
+            "Shared X-API-Key sent to the license server for server-to-server "
+            "auth. Required for activation; the license server rejects calls "
+            "without it. Same key across all customer deployments."
+        ),
+    )
+    LICENSE_CONFIG_DIR: str = Field(
+        default="/var/lib/filaops/config",
+        description=(
+            "Directory holding install_uuid + license.json. Override in dev "
+            "(LICENSE_CONFIG_DIR env var) when /var/lib isn't writable."
+        ),
+    )
+
+    @field_validator("LICENSE_SERVER_URL")
+    @classmethod
+    def strip_trailing_slash(cls, v: str) -> str:
+        # The endpoint module concatenates `/api/v1/validate`, so a trailing
+        # slash on the base URL would produce `//api/...` and 404.
+        return v.rstrip("/") if v else v
+
+    # ===================
     # MRP Settings (safe defaults)
     # ===================
     INCLUDE_SALES_ORDERS_IN_MRP: bool = True
