@@ -32,21 +32,36 @@ const UpdateNotification = () => {
 
     try {
       setLoading(true);
-      // Show immediate feedback
-      alert("Upgrade started!\n\nContainers are rebuilding. This page will automatically reload in 60 seconds.\n\nDo not close this window.");
-      
-      const startTime = Date.now();
-      const maxWait = 120000;
-      const pollInterval = 5000;
-      
-      // Fire upgrade request (may not get response as server restarts)
-      fetch(`${API_URL}/api/v1/admin/system/update/start`, {
+
+      // Confirm the server accepted the request before showing success.
+      // The backend validates prerequisites (admin auth, docker, git, no
+      // in-progress update) and responds before kicking off the background
+      // task that eventually restarts the server, so this fetch will return.
+      const startResponse = await fetch(`${API_URL}/api/v1/admin/system/update/start`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
-      }).catch(() => {/* Connection loss expected during upgrade */});
-      
+      });
+
+      if (!startResponse.ok) {
+        let detail = `${startResponse.status} ${startResponse.statusText}`;
+        try {
+          const data = await startResponse.json();
+          if (data?.detail) detail = data.detail;
+        } catch { /* response body was not JSON */ }
+        alert(`Failed to start upgrade:\n\n${detail}`);
+        setLoading(false);
+        return;
+      }
+
+      // Server accepted — background task is running. Show feedback and poll.
+      alert("Upgrade started!\n\nContainers are rebuilding. This page will automatically reload in 60 seconds.\n\nDo not close this window.");
+
+      const startTime = Date.now();
+      const maxWait = 120000;
+      const pollInterval = 5000;
+
       // Wait for upgrade to start
       await new Promise(resolve => setTimeout(resolve, 10000));
       
