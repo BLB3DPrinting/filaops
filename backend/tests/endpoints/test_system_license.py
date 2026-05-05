@@ -234,12 +234,26 @@ def test_install_uuid_is_stable_across_calls(tmp_path, monkeypatch):
     assert u1 == u2
 
 
-def test_install_uuid_regenerates_when_file_empty(tmp_path, monkeypatch):
+def test_install_uuid_raises_on_empty_file_corruption(tmp_path, monkeypatch):
+    """Empty install_uuid file is fatal, not silently regenerated.
+
+    Pre PR-05 (no encryption-at-rest) the safe behavior was to regenerate
+    on empty. Post PR-05 it is dangerous: a regenerated UUID derives a
+    new Fernet key, invalidating any ciphertext already sealed under the
+    original UUID. The function now polls (in case it caught a cold-start
+    writer mid-write) then raises so an operator can intervene.
+    """
+    import unittest.mock as mock
+
+    from app.core import license_cache as license_cache_mod
+
     monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     (tmp_path / INSTALL_UUID_FILENAME).write_text("")
-    u = get_install_uuid()
-    assert u
-    assert (tmp_path / INSTALL_UUID_FILENAME).read_text().strip() == u
+
+    # Shrink the poll timeout so the test does not sit on the 5s default.
+    with mock.patch.object(license_cache_mod, "_AWAIT_UUID_TIMEOUT_SECONDS", 0.05):
+        with pytest.raises(RuntimeError, match="empty after polling"):
+            get_install_uuid()
 
 
 def test_load_returns_none_when_missing(tmp_path, monkeypatch):
