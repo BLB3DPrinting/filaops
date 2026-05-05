@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -94,6 +95,44 @@ def ensure_config_dir() -> Path:
     return cfg_dir
 
 
+_AWAIT_UUID_TIMEOUT_SECONDS = 5.0
+_AWAIT_UUID_POLL_SECONDS = 0.01
+
+
+def _await_uuid_content(
+    path: Path,
+    timeout_seconds: float = _AWAIT_UUID_TIMEOUT_SECONDS,
+    poll_seconds: float = _AWAIT_UUID_POLL_SECONDS,
+) -> Optional[str]:
+    """Poll ``path`` for non-empty stripped content within a timeout.
+
+    Closes two race windows that a single read cannot:
+
+    1. Read-after-create. Between a winner's ``os.open(O_EXCL)`` succeeding
+       and its ``os.write`` completing, the file exists at size 0. A loser
+       that observes ``FileExistsError`` and reads immediately can see "".
+    2. In-flight cold-start observed via the fast path. A second caller
+       that opens the function while the first is still inside its
+       open/write window would see an existing-but-empty file and
+       (pre-fix) interpret that as corruption.
+
+    Returns the trimmed UUID as soon as it becomes non-empty, or ``None``
+    on timeout. ``FileNotFoundError`` is treated as "still pending" and
+    polling continues — defensive only; the current implementation never
+    unlinks while another caller could be reading.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            value = ""
+        if value:
+            return value
+        time.sleep(poll_seconds)
+    return None
+
+
 def get_install_uuid() -> str:
     """Return this installation's stable UUID, generating + persisting on first call.
 
@@ -102,27 +141,38 @@ def get_install_uuid() -> str:
     that each derive a Fernet key from a different UUID would persist
     ciphertext that the survivor cannot decrypt.
 
-    Concurrency: the file is created with ``O_CREAT | O_EXCL`` so only one
-    caller can win the create. Any concurrent first-caller that loses the
-    race gets ``FileExistsError`` and reads back the winner's UUID. Empty
-    files (corruption-by-truncation) are unlinked first so O_EXCL can
-    recreate.
+    Concurrency model:
+        * Cold start (file absent): the file is created with
+          ``O_CREAT | O_EXCL``. Exactly one caller's create succeeds; any
+          loser catches ``FileExistsError`` and waits via
+          ``_await_uuid_content`` for the winner's write to be visible.
+        * In-flight observation (file exists at size 0 because a winner
+          is between open and write): callers wait for content rather
+          than treating size 0 as corruption. Treating it as corruption
+          and "recovering" can clobber the winner's just-created file.
+
+    Empty-file corruption:
+        If the file is observably empty after polling, this is treated
+        as a fatal state and ``RuntimeError`` is raised. Silently
+        regenerating an empty UUID would invalidate the key any existing
+        encrypted-at-rest data was sealed with — exactly the data-loss
+        outcome this function exists to prevent. An operator must
+        restore from backup or remove the file and restart.
     """
     cfg_dir = ensure_config_dir()
     uuid_file = cfg_dir / INSTALL_UUID_FILENAME
 
-    # Fast path: file already has content.
-    try:
-        existing = uuid_file.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
-        # Empty file (corruption-by-truncation). Unlink so O_EXCL below can
-        # recreate; the unlink itself is idempotent under concurrent callers
-        # because missing_ok suppresses the lost-race FileNotFoundError.
-        logger.warning("install_uuid file is empty, regenerating")
-        uuid_file.unlink(missing_ok=True)
-    except FileNotFoundError:
-        pass
+    if uuid_file.exists():
+        settled = _await_uuid_content(uuid_file)
+        if settled:
+            return settled
+        raise RuntimeError(
+            f"install_uuid file at {uuid_file} is empty after polling for "
+            f"{_AWAIT_UUID_TIMEOUT_SECONDS}s. Refusing to regenerate — "
+            "doing so would invalidate any encrypted-at-rest data sealed "
+            "with the original key. Restore from backup or remove the "
+            "file manually before restart."
+        )
 
     new_uuid = str(uuid.uuid4())
     try:
@@ -139,9 +189,15 @@ def get_install_uuid() -> str:
         logger.info("Generated new install_uuid for this instance")
         return new_uuid
     except FileExistsError:
-        # Lost the create race to a concurrent caller. The winner has
-        # already written a UUID; read it back.
-        return uuid_file.read_text(encoding="utf-8").strip()
+        settled = _await_uuid_content(uuid_file)
+        if settled:
+            return settled
+        raise RuntimeError(
+            f"install_uuid race timeout: lost the create race at "
+            f"{uuid_file} but no content became visible within "
+            f"{_AWAIT_UUID_TIMEOUT_SECONDS}s. The winning caller may "
+            "have crashed mid-write."
+        )
 
 
 def get_license_path() -> Path:
