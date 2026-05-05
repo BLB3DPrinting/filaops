@@ -40,10 +40,11 @@ const UpdateNotification = () => {
       const pollInterval = 5000;
       
       // Fire upgrade request (may not get response as server restarts)
-      fetch(`${API_URL}/api/v1/system/updates/upgrade`, {
+      fetch(`${API_URL}/api/v1/admin/system/update/start`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       }).catch(() => {/* Connection loss expected during upgrade */});
       
       // Wait for upgrade to start
