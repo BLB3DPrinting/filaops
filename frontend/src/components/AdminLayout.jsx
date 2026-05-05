@@ -524,6 +524,7 @@ const navGroups = [
         label: "Price Levels",
         icon: AccountingIcon,
         adminOnly: true,
+        proOnly: true,
       },
     ],
   },
