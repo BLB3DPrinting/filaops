@@ -9,6 +9,7 @@ Provides:
 - Data factory fixtures for common domain objects
 """
 import os
+import tempfile
 import uuid
 import pytest
 import sys
@@ -20,6 +21,17 @@ from pathlib import Path
 # Settings are loaded at import time from env vars / .env file.
 # =============================================================================
 os.environ["DB_NAME"] = "filaops_test"
+
+# PR-05: EncryptedString-typed columns (e.g. company_settings.ai_api_key)
+# call get_install_uuid() on every write, which mkdir's LICENSE_CONFIG_DIR.
+# The prod default is /var/lib/filaops/config — not writable by CI runners,
+# and not appropriate for tests anyway. Point at a stable per-machine tmpdir
+# so the install_uuid file is reused across runs and individual tests that
+# want isolation can still monkeypatch settings.LICENSE_CONFIG_DIR to their
+# own tmp_path (as test_system_license.py and test_crypto.py already do).
+_test_license_dir = Path(tempfile.gettempdir()) / "filaops_test_license"
+_test_license_dir.mkdir(parents=True, exist_ok=True)
+os.environ["LICENSE_CONFIG_DIR"] = str(_test_license_dir)
 
 # Add the backend directory to the path so imports work correctly
 backend_dir = Path(__file__).parent.parent
