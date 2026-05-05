@@ -98,33 +98,50 @@ def get_install_uuid() -> str:
     """Return this installation's stable UUID, generating + persisting on first call.
 
     This UUID is the secret used by PRO for token encryption (PR-05). Once
-    written it must never change — deleting the file effectively re-installs
-    the instance and any encrypted data (Shopify/QBO tokens) becomes
-    unrecoverable.
+    written it must never change — under encryption-at-rest, two callers
+    that each derive a Fernet key from a different UUID would persist
+    ciphertext that the survivor cannot decrypt.
 
-    TODO(pre-existing race, surfaced by PR-05 review):
-        This is a check-then-write — two concurrent first-callers can each
-        observe the file as missing and generate different UUIDs before one
-        wins the atomic write. Under PR-05's encryption-at-rest, a request
-        that derives a Fernet key from the losing UUID would persist
-        ciphertext that no future request can decrypt. Fix is a separate PR:
-        use os.O_EXCL to fail-fast on race, or take a flock around the
-        check-then-write. Tracked as cortex_observe #50.
+    Concurrency: the file is created with ``O_CREAT | O_EXCL`` so only one
+    caller can win the create. Any concurrent first-caller that loses the
+    race gets ``FileExistsError`` and reads back the winner's UUID. Empty
+    files (corruption-by-truncation) are unlinked first so O_EXCL can
+    recreate.
     """
     cfg_dir = ensure_config_dir()
     uuid_file = cfg_dir / INSTALL_UUID_FILENAME
-    if uuid_file.exists():
+
+    # Fast path: file already has content.
+    try:
         existing = uuid_file.read_text(encoding="utf-8").strip()
         if existing:
             return existing
-        # File present but empty — treat as missing and regenerate. This
-        # covers a corrupted-by-truncation edge case.
+        # Empty file (corruption-by-truncation). Unlink so O_EXCL below can
+        # recreate; the unlink itself is idempotent under concurrent callers
+        # because missing_ok suppresses the lost-race FileNotFoundError.
         logger.warning("install_uuid file is empty, regenerating")
+        uuid_file.unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
 
     new_uuid = str(uuid.uuid4())
-    _atomic_write_text(uuid_file, new_uuid)
-    logger.info("Generated new install_uuid for this instance")
-    return new_uuid
+    try:
+        fd = os.open(
+            str(uuid_file),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            os.write(fd, new_uuid.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        logger.info("Generated new install_uuid for this instance")
+        return new_uuid
+    except FileExistsError:
+        # Lost the create race to a concurrent caller. The winner has
+        # already written a UUID; read it back.
+        return uuid_file.read_text(encoding="utf-8").strip()
 
 
 def get_license_path() -> Path:
