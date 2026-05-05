@@ -34,7 +34,7 @@ def upgrade() -> None:
     existing_tables = set(inspector.get_table_names())
 
     # ------------------------------------------------------------------
-    # 1. price_levels — additive columns
+    # 1. price_levels — additive columns + legacy-drift rename guard
     # ------------------------------------------------------------------
     pl_cols = {c["name"] for c in inspector.get_columns("price_levels")}
     if "code" not in pl_cols:
@@ -54,6 +54,16 @@ def upgrade() -> None:
                 nullable=False,
                 server_default="0",
             ),
+        )
+    # Legacy drift: a removed Core migration (041_add_price_levels_and_customers)
+    # created price_levels with column 'active' (PRO-style naming) instead of
+    # the canonical Core 'is_active'. Any DB that bypassed Core migration 078
+    # because the table already existed will have the wrong column name. Rename
+    # only when the drift is observable; this is a one-way fix and intentionally
+    # not reflected in downgrade() (un-renaming on a fresh DB would corrupt it).
+    if "active" in pl_cols and "is_active" not in pl_cols:
+        op.alter_column(
+            "price_levels", "active", new_column_name="is_active"
         )
 
     # ------------------------------------------------------------------
