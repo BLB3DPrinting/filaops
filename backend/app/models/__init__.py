@@ -47,6 +47,9 @@ from app.models.close_short_record import CloseShortRecord
 # Price Levels (Core manages definitions; PRO manages customer assignment)
 from app.models.price_level import PriceLevel
 
+# Catalogs (Core owns table definitions; PRO consumes via filaops_pro routes)
+from app.models.catalog import Catalog, CatalogProduct, CustomerCatalog
+
 # i18n / Tax Rates
 from app.models.tax_rate import TaxRate
 
@@ -144,6 +147,10 @@ __all__ = [
     "CloseShortRecord",
     # Price Levels
     "PriceLevel",
+    # Catalogs
+    "Catalog",
+    "CatalogProduct",
+    "CustomerCatalog",
     # System Settings
     "SystemSetting",
 ]
