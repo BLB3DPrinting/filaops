@@ -21,6 +21,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -76,6 +77,13 @@ class CatalogProduct(Base):
     catalog-specific price override.
     """
     __tablename__ = "catalog_products"
+    __table_args__ = (
+        UniqueConstraint(
+            "catalog_id",
+            "product_id",
+            name="uq_catalog_products_catalog_product",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     catalog_id = Column(
@@ -120,6 +128,13 @@ class CustomerCatalog(Base):
     records with account_type='customer' (not in the customers table).
     """
     __tablename__ = "customer_catalogs"
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "catalog_id",
+            name="uq_customer_catalogs_customer_catalog",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     customer_id = Column(

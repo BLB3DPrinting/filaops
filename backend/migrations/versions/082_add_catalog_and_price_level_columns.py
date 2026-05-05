@@ -3,16 +3,22 @@
 PR-06 Phase 1 (Core). Brings Core's schema in line with what PRO routes
 expect. Additive only:
 
-- price_levels: ADD COLUMN code, ADD COLUMN sort_order
-- catalogs / catalog_products / customer_catalogs: CREATE TABLE
-- pro_customer_price_levels: CREATE TABLE — junction owned by PRO,
-  declared in Core so a Core-only install has the schema available
+- price_levels: ADD COLUMN code, ADD COLUMN sort_order, plus a one-way
+  rename guard for the `active` → `is_active` legacy drift.
+- catalogs / catalog_products / customer_catalogs: CREATE TABLE if absent.
+- pro_customer_price_levels: CREATE TABLE if absent — junction owned by
+  PRO, declared in Core so a Core-only install has the schema available
   even before PRO is installed.
 
 All CREATE TABLE statements are guarded by a runtime existence check so
 the migration is idempotent against databases where PRO migrations
 002/003 already created the tables. Same idempotency pattern PRO
 migration 001 uses for gl_accounts.
+
+The junction-table UniqueConstraints are also added retroactively for
+DBs where PRO migration 003 created the tables without them — so the
+post-082 state is identical regardless of which migration created the
+table first.
 
 Revision ID: 082
 Revises: 081
@@ -65,9 +71,24 @@ def upgrade() -> None:
         op.alter_column(
             "price_levels", "active", new_column_name="is_active"
         )
+        # Defensive backfill: the legacy schema may have allowed NULLs or
+        # lacked a server default. Match the canonical Core model
+        # (Boolean, default=True, nullable=False) explicitly. Same pattern
+        # other Core migrations (077, 079) use after schema-shape changes.
+        op.execute(
+            "UPDATE price_levels SET is_active = TRUE WHERE is_active IS NULL"
+        )
+        op.alter_column(
+            "price_levels",
+            "is_active",
+            existing_type=sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("true"),
+        )
 
     # ------------------------------------------------------------------
-    # 2. catalogs
+    # 2. catalogs — UniqueConstraint("code") provides the backing index;
+    #    no need for a separate ix_catalogs_code. PK is auto-indexed too.
     # ------------------------------------------------------------------
     if "catalogs" not in existing_tables:
         op.create_table(
@@ -103,13 +124,11 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("code", name="uq_catalogs_code"),
         )
-        op.create_index("ix_catalogs_id", "catalogs", ["id"])
-        op.create_index("ix_catalogs_code", "catalogs", ["code"], unique=True)
         op.create_index("ix_catalogs_active", "catalogs", ["active"])
         op.create_index("ix_catalogs_is_public", "catalogs", ["is_public"])
 
     # ------------------------------------------------------------------
-    # 3. catalog_products
+    # 3. catalog_products — junction table; UC enforces one row per pair.
     # ------------------------------------------------------------------
     if "catalog_products" not in existing_tables:
         op.create_table(
@@ -137,13 +156,30 @@ def upgrade() -> None:
                 name="fk_catalog_products_product",
                 ondelete="CASCADE",
             ),
+            sa.UniqueConstraint(
+                "catalog_id",
+                "product_id",
+                name="uq_catalog_products_catalog_product",
+            ),
         )
-        op.create_index("ix_catalog_products_id", "catalog_products", ["id"])
         op.create_index(
             "ix_catalog_products_catalog_id", "catalog_products", ["catalog_id"]
         )
         op.create_index(
             "ix_catalog_products_product_id", "catalog_products", ["product_id"]
+        )
+    # Retro UC-add: PRO migration 003 created this table without a
+    # uniqueness constraint on (catalog_id, product_id). Add it now if
+    # missing, so the post-082 state matches the Core model regardless
+    # of who created the table first.
+    cp_uniques = {
+        c["name"] for c in inspector.get_unique_constraints("catalog_products")
+    }
+    if "uq_catalog_products_catalog_product" not in cp_uniques:
+        op.create_unique_constraint(
+            "uq_catalog_products_catalog_product",
+            "catalog_products",
+            ["catalog_id", "product_id"],
         )
 
     # ------------------------------------------------------------------
@@ -176,8 +212,12 @@ def upgrade() -> None:
                 name="fk_customer_catalogs_catalog",
                 ondelete="CASCADE",
             ),
+            sa.UniqueConstraint(
+                "customer_id",
+                "catalog_id",
+                name="uq_customer_catalogs_customer_catalog",
+            ),
         )
-        op.create_index("ix_customer_catalogs_id", "customer_catalogs", ["id"])
         op.create_index(
             "ix_customer_catalogs_customer_id",
             "customer_catalogs",
@@ -187,6 +227,16 @@ def upgrade() -> None:
             "ix_customer_catalogs_catalog_id",
             "customer_catalogs",
             ["catalog_id"],
+        )
+    # Retro UC-add for the same reason as catalog_products above.
+    cc_uniques = {
+        c["name"] for c in inspector.get_unique_constraints("customer_catalogs")
+    }
+    if "uq_customer_catalogs_customer_catalog" not in cc_uniques:
+        op.create_unique_constraint(
+            "uq_customer_catalogs_customer_catalog",
+            "customer_catalogs",
+            ["customer_id", "catalog_id"],
         )
 
     # ------------------------------------------------------------------
@@ -225,11 +275,6 @@ def upgrade() -> None:
             ),
         )
         op.create_index(
-            "ix_pro_customer_price_levels_id",
-            "pro_customer_price_levels",
-            ["id"],
-        )
-        op.create_index(
             "ix_pro_customer_price_levels_customer_id",
             "pro_customer_price_levels",
             ["customer_id"],
@@ -242,9 +287,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Reverse the additive changes. Each drop is guarded so a partial
-    downgrade (e.g., after a partial upgrade against a DB that already
-    had some tables) doesn't fail."""
+    """Reverse the additive changes.
+
+    Asymmetry note: this migration may run on DBs where some tables already
+    existed (created by PRO migration 002/003 before 082 ran). The downgrade
+    drops those tables anyway — if you're rolling Core back past 082, the
+    PRO migrations are also out of scope, so removing the schema is correct.
+    Index drops use ``if_exists=True`` to tolerate cases where indexes were
+    created with different names by PRO migrations.
+    """
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     existing_tables = set(inspector.get_table_names())
@@ -253,47 +304,55 @@ def downgrade() -> None:
         op.drop_index(
             "ix_pro_customer_price_levels_level_id",
             table_name="pro_customer_price_levels",
+            if_exists=True,
         )
         op.drop_index(
             "ix_pro_customer_price_levels_customer_id",
             table_name="pro_customer_price_levels",
-        )
-        op.drop_index(
-            "ix_pro_customer_price_levels_id",
-            table_name="pro_customer_price_levels",
+            if_exists=True,
         )
         op.drop_table("pro_customer_price_levels")
 
     if "customer_catalogs" in existing_tables:
         op.drop_index(
-            "ix_customer_catalogs_catalog_id", table_name="customer_catalogs"
+            "ix_customer_catalogs_catalog_id",
+            table_name="customer_catalogs",
+            if_exists=True,
         )
         op.drop_index(
-            "ix_customer_catalogs_customer_id", table_name="customer_catalogs"
+            "ix_customer_catalogs_customer_id",
+            table_name="customer_catalogs",
+            if_exists=True,
         )
-        op.drop_index("ix_customer_catalogs_id", table_name="customer_catalogs")
         op.drop_table("customer_catalogs")
 
     if "catalog_products" in existing_tables:
         op.drop_index(
-            "ix_catalog_products_product_id", table_name="catalog_products"
+            "ix_catalog_products_product_id",
+            table_name="catalog_products",
+            if_exists=True,
         )
         op.drop_index(
-            "ix_catalog_products_catalog_id", table_name="catalog_products"
+            "ix_catalog_products_catalog_id",
+            table_name="catalog_products",
+            if_exists=True,
         )
-        op.drop_index("ix_catalog_products_id", table_name="catalog_products")
         op.drop_table("catalog_products")
 
     if "catalogs" in existing_tables:
-        op.drop_index("ix_catalogs_is_public", table_name="catalogs")
-        op.drop_index("ix_catalogs_active", table_name="catalogs")
-        op.drop_index("ix_catalogs_code", table_name="catalogs")
-        op.drop_index("ix_catalogs_id", table_name="catalogs")
+        op.drop_index(
+            "ix_catalogs_is_public", table_name="catalogs", if_exists=True
+        )
+        op.drop_index(
+            "ix_catalogs_active", table_name="catalogs", if_exists=True
+        )
         op.drop_table("catalogs")
 
     pl_cols = {c["name"] for c in inspector.get_columns("price_levels")}
     if "sort_order" in pl_cols:
         op.drop_column("price_levels", "sort_order")
     if "code" in pl_cols:
-        op.drop_index("ix_price_levels_code", table_name="price_levels")
+        op.drop_index(
+            "ix_price_levels_code", table_name="price_levels", if_exists=True
+        )
         op.drop_column("price_levels", "code")
