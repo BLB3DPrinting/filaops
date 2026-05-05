@@ -97,7 +97,7 @@ def ensure_config_dir() -> Path:
 def get_install_uuid() -> str:
     """Return this installation's stable UUID, generating + persisting on first call.
 
-    This UUID is the secret used by PRO for token encryption (PR-06). Once
+    This UUID is the secret used by PRO for token encryption (PR-05). Once
     written it must never change — deleting the file effectively re-installs
     the instance and any encrypted data (Shopify/QBO tokens) becomes
     unrecoverable.
