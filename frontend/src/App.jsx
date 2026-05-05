@@ -60,6 +60,9 @@ const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
 const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
 const AdminPriceLevels = lazy(() => import("./pages/admin/AdminPriceLevels"));
 const AdminLicense = lazy(() => import("./pages/admin/AdminLicense"));
+const AdminIntegrations = lazy(
+  () => import("./pages/admin/AdminIntegrations"),
+);
 const AdminAccessRequests = lazy(
   () => import("./pages/admin/AdminAccessRequests"),
 );
@@ -401,6 +404,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminLicense />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="integrations"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <AdminIntegrations />
                         </Suspense>
                       }
                     />

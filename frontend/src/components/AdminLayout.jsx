@@ -565,6 +565,12 @@ const navGroups = [
         adminOnly: true,
       },
       {
+        path: "/admin/integrations",
+        label: "Integrations",
+        icon: SettingsIcon,
+        adminOnly: true,
+      },
+      {
         path: "/admin/security",
         label: "Security Audit",
         icon: QualityIcon,
