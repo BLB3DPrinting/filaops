@@ -173,7 +173,7 @@ def sqlite_engine():
         "secrets_test",
         metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),
-        Column("token", EncryptedString(length=500), nullable=True),
+        Column("token", EncryptedString, nullable=True),
     )
     metadata.create_all(engine)
     return engine, table
@@ -193,20 +193,35 @@ def test_encrypted_string_round_trip(sqlite_engine):
         assert row == plaintext
 
     # Read raw column bypassing the type decorator: should be ciphertext.
-    # Use a fresh connection with a metadata that types the column as plain String.
-    from sqlalchemy import String as _PlainString
+    # Underlying impl is now Text, so the raw view types it as plain Text too.
+    from sqlalchemy import Text as _PlainText
 
     raw_meta = MetaData()
     raw_table = Table(
         "secrets_test",
         raw_meta,
         Column("id", Integer, primary_key=True),
-        Column("token", _PlainString(500)),
+        Column("token", _PlainText()),
     )
     with engine.connect() as conn:
         raw = conn.execute(select(raw_table.c.token)).scalar_one()
         assert raw != plaintext
         assert raw.startswith("gAAAAA")  # Fernet token signature
+
+
+def test_encrypted_string_handles_long_plaintext(sqlite_engine):
+    """Text-backed impl accepts long plaintext that VARCHAR(500) wouldn't fit
+    after Fernet expansion. Guards against the PR-05 sizing-trap regression
+    flagged by reviewers."""
+    engine, table = sqlite_engine
+    # 1500 chars — would produce ~2300+ bytes of Fernet ciphertext, well past
+    # any reasonable VARCHAR cap.
+    plaintext = "x" * 1500
+
+    with Session(engine) as session:
+        session.execute(insert(table).values(token=plaintext))
+        session.commit()
+        assert session.execute(select(table.c.token)).scalar_one() == plaintext
 
 
 def test_encrypted_string_none_passthrough(sqlite_engine):
@@ -229,66 +244,85 @@ def test_encrypted_string_empty_string_passthrough(sqlite_engine):
         assert row == ""
 
 
-def test_encrypted_string_migration_grace_plaintext(sqlite_engine, caplog):
-    """Migration grace: a row that contains plaintext (from before encryption
-    was added) must read back as the raw value — not crash — and emit a
-    warning log so operators know to re-save it."""
-    engine, table = sqlite_engine
-    legacy_plaintext = "legacy-plaintext-api-key"
+def _seed_raw(engine, value):
+    """Insert *value* into the test table bypassing the TypeDecorator.
 
-    # Bypass the TypeDecorator on insert by binding to a plain-String view
-    from sqlalchemy import String as _PlainString
+    Used to simulate two distinct corruption modes: legacy plaintext (which
+    won't have a Fernet prefix) and Fernet-shaped-but-undecryptable (which
+    will, but won't decode under the active key)."""
+    from sqlalchemy import Text as _PlainText
 
     raw_meta = MetaData()
     raw_table = Table(
         "secrets_test",
         raw_meta,
         Column("id", Integer, primary_key=True),
-        Column("token", _PlainString(500)),
+        Column("token", _PlainText()),
     )
     with engine.connect() as conn:
-        conn.execute(insert(raw_table).values(token=legacy_plaintext))
+        conn.execute(insert(raw_table).values(token=value))
         conn.commit()
 
-    # Now read through the EncryptedString-typed table — should return raw,
-    # log a warning, NOT raise.
+
+def test_encrypted_string_migration_grace_plaintext(sqlite_engine, caplog):
+    """Migration grace: a row that contains legacy plaintext (no Fernet
+    prefix) must read back as the raw value with a warning. The next save
+    will re-encrypt it."""
+    engine, table = sqlite_engine
+    legacy_plaintext = "legacy-plaintext-api-key"  # no "gAAAAA" prefix
+    _seed_raw(engine, legacy_plaintext)
+
     with caplog.at_level(logging.WARNING, logger="app.core.crypto"):
         with Session(engine) as session:
             row = session.execute(select(table.c.token)).scalar_one()
 
     assert row == legacy_plaintext
     assert any(
-        "Token decryption failed" in rec.message for rec in caplog.records
+        "lacks Fernet prefix" in rec.message for rec in caplog.records
     ), "expected a migration-grace warning to be logged"
 
 
-def test_encrypted_string_corrupted_ciphertext_returns_raw(sqlite_engine, caplog):
-    """A row containing garbage that decrypts to InvalidToken should be
-    returned raw with a warning — never raise into the application."""
+def test_encrypted_string_corrupted_fernet_returns_none(sqlite_engine, caplog):
+    """A Fernet-shaped value that fails to decrypt (corrupted ciphertext,
+    install_uuid drift) must NOT be returned as raw — that would hand the
+    application a ciphertext blob masquerading as a plaintext key. Return
+    None and log an error instead, so the app surfaces "not configured"
+    rather than misuse the value. This is the behavior change requested by
+    PR-05 review."""
     engine, table = sqlite_engine
-    garbage = "this-is-not-a-fernet-token-at-all"
+    # Looks like a Fernet token (right prefix) but the body is junk.
+    fake_fernet = "gAAAAAabc-not-real-ciphertext-but-prefix-matches"
+    _seed_raw(engine, fake_fernet)
 
-    from sqlalchemy import String as _PlainString
-
-    raw_meta = MetaData()
-    raw_table = Table(
-        "secrets_test",
-        raw_meta,
-        Column("id", Integer, primary_key=True),
-        Column("token", _PlainString(500)),
-    )
-    with engine.connect() as conn:
-        conn.execute(insert(raw_table).values(token=garbage))
-        conn.commit()
-
-    with caplog.at_level(logging.WARNING, logger="app.core.crypto"):
+    with caplog.at_level(logging.ERROR, logger="app.core.crypto"):
         with Session(engine) as session:
             row = session.execute(select(table.c.token)).scalar_one()
 
-    assert row == garbage
+    assert row is None, "corrupted Fernet ciphertext should NOT be returned raw"
     assert any(
-        "Token decryption failed" in rec.message for rec in caplog.records
-    )
+        "failed to decrypt" in rec.message for rec in caplog.records
+    ), "expected an error log for Fernet-shaped-but-undecryptable input"
+
+
+def test_encrypted_string_propagates_install_uuid_missing(
+    sqlite_engine, monkeypatch
+):
+    """If install_uuid is unavailable at read time, _derive_key raises
+    RuntimeError. The TypeDecorator must NOT swallow it — operational
+    failures need to be loud, not masked as 'not configured'."""
+    engine, table = sqlite_engine
+
+    # First, write a real Fernet token under the normal install_uuid.
+    plaintext = "configured-key"
+    with Session(engine) as session:
+        session.execute(insert(table).values(token=plaintext))
+        session.commit()
+
+    # Now break the install_uuid resolution and try to read.
+    monkeypatch.setattr(crypto, "get_install_uuid", lambda: "")
+    with pytest.raises(RuntimeError, match="install_uuid not available"):
+        with Session(engine) as session:
+            session.execute(select(table.c.token)).scalar_one()
 
 
 def test_encrypted_string_overwrite_re_encrypts(sqlite_engine):
@@ -297,14 +331,14 @@ def test_encrypted_string_overwrite_re_encrypts(sqlite_engine):
     naturally on the next user save."""
     engine, table = sqlite_engine
 
-    from sqlalchemy import String as _PlainString, update
+    from sqlalchemy import Text as _PlainText, update
 
     raw_meta = MetaData()
     raw_table = Table(
         "secrets_test",
         raw_meta,
         Column("id", Integer, primary_key=True),
-        Column("token", _PlainString(500)),
+        Column("token", _PlainText()),
     )
 
     # Seed plaintext directly

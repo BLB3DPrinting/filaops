@@ -33,8 +33,12 @@ export default function AdminIntegrations() {
       } else {
         setAiStatus("not_configured");
       }
-    } catch {
-      setAiStatus("not_configured");
+    } catch (err) {
+      // A network or server error is NOT the same as "not configured" —
+      // treating them the same hides real problems and makes the "error"
+      // badge state unreachable. Log + surface an explicit error state.
+      console.error("Failed to fetch AI integration status:", err);
+      setAiStatus("error");
     }
   }, [api]);
 

@@ -324,6 +324,25 @@ const AccountingIcon = () => (
   </svg>
 );
 
+// Two interlocking links — distinct from the cog used by Settings/Scrap
+// Reasons so the collapsed sidebar reads as "connections," not "more gears."
+const IntegrationsIcon = () => (
+  <svg
+    className="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
+    />
+  </svg>
+);
+
 const SettingsIcon = () => (
   <svg
     className="w-5 h-5"
@@ -567,7 +586,7 @@ const navGroups = [
       {
         path: "/admin/integrations",
         label: "Integrations",
-        icon: SettingsIcon,
+        icon: IntegrationsIcon,
         adminOnly: true,
       },
       {

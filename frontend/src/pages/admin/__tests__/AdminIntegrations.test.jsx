@@ -93,14 +93,20 @@ describe('AdminIntegrations', () => {
     })
   })
 
-  it('AI card falls back to "Not configured" when the GET fails', async () => {
+  it('AI card surfaces "Error" badge when the GET fails (not silently "not configured")', async () => {
+    // Suppress the deliberate console.error from the catch block so the test
+    // log stays clean — we still assert the error was logged below.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocks.get.mockRejectedValue(new Error('boom'))
     render(<AdminIntegrations />)
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     await waitFor(() => {
-      expect(within(aiCard).getByText('Not configured')).toBeInTheDocument()
+      expect(within(aiCard).getByText('Error')).toBeInTheDocument()
     })
+    expect(within(aiCard).queryByText('Not configured')).not.toBeInTheDocument()
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 
   it('Shopify card renders coming-soon placeholder with feature bullets', async () => {

@@ -101,6 +101,15 @@ def get_install_uuid() -> str:
     written it must never change — deleting the file effectively re-installs
     the instance and any encrypted data (Shopify/QBO tokens) becomes
     unrecoverable.
+
+    TODO(pre-existing race, surfaced by PR-05 review):
+        This is a check-then-write — two concurrent first-callers can each
+        observe the file as missing and generate different UUIDs before one
+        wins the atomic write. Under PR-05's encryption-at-rest, a request
+        that derives a Fernet key from the losing UUID would persist
+        ciphertext that no future request can decrypt. Fix is a separate PR:
+        use os.O_EXCL to fail-fast on race, or take a flock around the
+        check-then-write. Tracked as cortex_observe #50.
     """
     cfg_dir = ensure_config_dir()
     uuid_file = cfg_dir / INSTALL_UUID_FILENAME
