@@ -471,14 +471,20 @@ def test_install_hash_mismatch_marks_state_error_and_skips_pip(
     assert len(mock_pip_success.calls) == 0  # type: ignore[attr-defined]
 
 
-def test_install_proceeds_when_server_omits_hash_header(
+def test_install_fails_closed_when_hash_header_missing(
     client,
     with_license,
     mock_pro_not_installed,
     mock_license_server,
     mock_pip_success,
 ):
-    """Forward-compat: missing ``X-Wheel-SHA256`` is treated as no-op verify."""
+    """Refuse to install when X-Wheel-SHA256 is missing.
+
+    The PR-04 license-server endpoint always sets this header. Missing it
+    means a server regression, a stripped proxy header, or a man-in-the-
+    middle — never "older server build" (the endpoint is brand-new). Fail
+    closed; the integrity gate is the whole point of the verify phase.
+    """
     resp_no_hash = _MockResponse(
         200,
         content=WHEEL_BYTES,
@@ -488,7 +494,114 @@ def test_install_proceeds_when_server_omits_hash_header(
 
     client.post(INSTALL_URL)
     body = client.get(STATUS_URL).json()
+    assert body["state"] == "error"
+    assert (
+        "x-wheel-sha256" in body["error"].lower()
+        or "header" in body["error"].lower()
+    )
+    # pip never invoked when integrity verification fails closed
+    assert len(mock_pip_success.calls) == 0  # type: ignore[attr-defined]
+
+
+def test_install_sanitizes_filename_against_path_traversal(
+    client,
+    with_license,
+    mock_pro_not_installed,
+    mock_license_server,
+    mock_pip_success,
+):
+    """A Content-Disposition filename containing path separators must be
+    reduced to its basename before being joined with dest_dir.
+
+    Defense-in-depth against a compromised license server returning
+    "../../etc/something.whl" and escaping the temp install directory.
+    """
+    evil_resp = _MockResponse(
+        200,
+        content=WHEEL_BYTES,
+        headers={
+            "X-Wheel-SHA256": WHEEL_SHA256,
+            "Content-Disposition": 'attachment; filename="../../etc/passwd.whl"',
+        },
+    )
+    mock_license_server(evil_resp)
+
+    client.post(INSTALL_URL)
+    body = client.get(STATUS_URL).json()
+    # Sanitization stripped path components → basename "passwd.whl" remains,
+    # passes the .whl suffix check, install proceeds normally.
     assert body["state"] == "restart_required"
+
+    calls = mock_pip_success.calls  # type: ignore[attr-defined]
+    assert len(calls) == 1
+    wheel_arg = calls[0]["args"][4]
+    # The path passed to pip must be inside dest_dir, not above it.
+    assert "../" not in wheel_arg
+    assert "..\\" not in wheel_arg
+    assert wheel_arg.endswith("passwd.whl")  # basename preserved
+
+
+def test_install_rejects_non_whl_filename(
+    client,
+    with_license,
+    mock_pro_not_installed,
+    mock_license_server,
+    mock_pip_success,
+):
+    """Reject a filename that doesn't end with ``.whl``.
+
+    Combined with the path-traversal sanitization, this prevents a
+    compromised server from steering pip toward an arbitrary file type.
+    """
+    bad_resp = _MockResponse(
+        200,
+        content=WHEEL_BYTES,
+        headers={
+            "X-Wheel-SHA256": WHEEL_SHA256,
+            "Content-Disposition": 'attachment; filename="evil.txt"',
+        },
+    )
+    mock_license_server(bad_resp)
+
+    client.post(INSTALL_URL)
+    body = client.get(STATUS_URL).json()
+    assert body["state"] == "error"
+    assert (
+        "wheel" in body["error"].lower()
+        or "filename" in body["error"].lower()
+        or "non-wheel" in body["error"].lower()
+    )
+    assert len(mock_pip_success.calls) == 0  # type: ignore[attr-defined]
+
+
+def test_install_marks_state_downloading_synchronously_before_background_task(
+    client, with_license, mock_pro_not_installed, monkeypatch
+):
+    """The trigger MUST set state=downloading synchronously before add_task.
+
+    Regression guard for the race CodeRabbit flagged: if the trigger leaves
+    state at "idle" until the bg task fires, an immediate /status poll sees
+    "idle" and useProInstaller stops polling on a real install. Also closes
+    the concurrent-POST window where two near-simultaneous requests both
+    pass the busy-state check.
+
+    Test stubs the bg task to a no-op so any state change observed via
+    /status must have come from the trigger, not the pipeline.
+    """
+    import app.api.v1.endpoints.admin.pro_install as mod
+
+    async def noop():
+        pass
+
+    monkeypatch.setattr(mod, "_do_pro_install", noop)
+
+    resp = client.post(INSTALL_URL)
+    assert resp.status_code == 200
+
+    body = client.get(STATUS_URL).json()
+    assert body["state"] == "downloading"
+    assert body["started_at"] is not None
+    assert body["error"] is None
 
 
 def test_install_pip_failure_marks_state_error(

@@ -50,6 +50,11 @@ export function useProInstaller() {
   // Tracks whether the component is still mounted so async work doesn't
   // call setState after unmount (React will warn otherwise).
   const mountedRef = useRef(true);
+  // Guards against overlapping polls. setInterval doesn't await — if a
+  // /status response takes longer than POLL_INTERVAL_MS, the next tick
+  // would queue a concurrent request, leading to extra load and out-of-
+  // order setState. Skip the tick when one is already in flight.
+  const inFlightRef = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current !== null) {
@@ -60,6 +65,11 @@ export function useProInstaller() {
   }, []);
 
   const fetchStatus = useCallback(async () => {
+    // Drop overlapping polls — see inFlightRef declaration. The 2s cadence
+    // is best-effort, not a hard guarantee; missing one tick is preferable
+    // to corrupting state with out-of-order responses.
+    if (inFlightRef.current) return null;
+    inFlightRef.current = true;
     try {
       const data = await api.get(STATUS_URL);
       if (!mountedRef.current) return null;
@@ -80,6 +90,8 @@ export function useProInstaller() {
         error: err?.message || "Failed to fetch install status",
       }));
       return null;
+    } finally {
+      inFlightRef.current = false;
     }
   }, [api, stopPolling]);
 

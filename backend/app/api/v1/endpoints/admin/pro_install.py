@@ -175,7 +175,15 @@ async def _download_wheel(
     cd = resp.headers.get("Content-Disposition", "")
     cd_match = re.search(r'filename="?([^"]+)"?', cd)
     if cd_match:
-        filename = cd_match.group(1)
+        # Strip path components — defense-in-depth against a server (compromised
+        # or buggy) returning "../../something.whl" and escaping dest_dir. The
+        # license-server endpoint is server-to-server-authenticated, but the
+        # cost of `Path.name` is one call so there's no reason to trust it.
+        filename = Path(cd_match.group(1)).name
+    if not filename.endswith(".whl"):
+        raise InstallError(
+            f"License server returned a non-wheel filename: {filename!r}"
+        )
 
     wheel_path = dest_dir / filename
     wheel_path.write_bytes(resp.content)
@@ -190,14 +198,12 @@ async def _do_pro_install() -> None:
     running even when PRO install fails (Layer-0 non-regression constraint).
     """
     try:
-        # Phase 1: Download
-        _install_status["state"] = "downloading"
-        _install_status["progress"] = "Downloading PRO package from license server..."
-        _install_status["error"] = None
-        _install_status["started_at"] = _now_iso()
-        _install_status["completed_at"] = None
-        _install_status["installed_version"] = None
-
+        # Phase 1: Download.
+        # State + started_at + cleared error fields are set synchronously by
+        # the trigger endpoint (start_pro_install) so a /status poll that
+        # races the bg task firing sees "downloading", not "idle". Don't
+        # overwrite started_at here — that would re-stamp the install with
+        # the bg task's wake time instead of the user's click.
         cache = load_license_cache()
         if cache is None:
             # Defensive: the trigger endpoint already checks this, but the
@@ -221,16 +227,24 @@ async def _do_pro_install() -> None:
         # Phase 2: Verify
         _install_status["state"] = "verifying"
         _install_status["progress"] = "Verifying package integrity..."
-        if expected_hash:
-            actual_hash = _compute_sha256(wheel_path)
-            if actual_hash.lower() != expected_hash.lower():
-                # Refuse to install a wheel whose hash doesn't match the
-                # server's declared digest. The wheel is left on disk for
-                # post-mortem inspection but never reaches pip.
-                raise InstallError(
-                    f"Wheel hash mismatch: expected {expected_hash[:16]}..., "
-                    f"got {actual_hash[:16]}..."
-                )
+        if not expected_hash:
+            # Fail closed. The PR-04 license-server endpoint always sets
+            # X-Wheel-SHA256; missing it means a server regression or a
+            # stripping proxy upstream — both are conditions where silent
+            # install would defeat the integrity gate.
+            raise InstallError(
+                "License server did not provide X-Wheel-SHA256 header. "
+                "Refusing to install an unverified wheel."
+            )
+        actual_hash = _compute_sha256(wheel_path)
+        if actual_hash.lower() != expected_hash.lower():
+            # Refuse to install a wheel whose hash doesn't match the
+            # server's declared digest. The wheel is left on disk for
+            # post-mortem inspection but never reaches pip.
+            raise InstallError(
+                f"Wheel hash mismatch: expected {expected_hash[:16]}..., "
+                f"got {actual_hash[:16]}..."
+            )
 
         # Phase 3: Install
         _install_status["state"] = "installing"
@@ -332,9 +346,24 @@ async def start_pro_install(
             ),
         )
 
-    # Reset error fields so a retry-from-error has a clean slate.
-    _install_status["state"] = "idle"
-    _install_status["error"] = None
+    # Mark in-flight SYNCHRONOUSLY before scheduling the bg task. Two reasons:
+    #   1. A /status poll between this return and the bg task firing must
+    #      see "downloading", not "idle" — otherwise useProInstaller stops
+    #      polling on a real install (its IN_PROGRESS_STATES check excludes
+    #      idle).
+    #   2. Closes the concurrent-POST race: a second request that arrives
+    #      before the bg task starts hits the busy-state check and gets 409
+    #      instead of scheduling a duplicate install.
+    _install_status.update(
+        {
+            "state": "downloading",
+            "progress": "Downloading PRO package from license server...",
+            "error": None,
+            "installed_version": None,
+            "started_at": _now_iso(),
+            "completed_at": None,
+        }
+    )
 
     background_tasks.add_task(_do_pro_install)
     logger.info("PRO install triggered by %s", current_user.email)
