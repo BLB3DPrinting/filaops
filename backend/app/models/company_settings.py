@@ -9,6 +9,7 @@ Stores company-wide settings including:
 """
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime, LargeBinary, func
 
+from app.core.crypto import EncryptedString
 from app.db.base import Base
 
 
@@ -76,8 +77,11 @@ class CompanySettings(Base):
     # AI Configuration (for invoice parsing, etc.)
     # Provider: 'anthropic', 'ollama', or None (disabled)
     ai_provider = Column(String(20), nullable=True)
-    # API key for Anthropic (stored - consider encryption in production)
-    ai_api_key = Column(String(500), nullable=True)
+    # API key for Anthropic — encrypted at rest via Fernet+HKDF (PR-05).
+    # Stored as TEXT (no length cap) since Fernet ciphertext is ~1.5x the
+    # plaintext plus ~57 bytes of overhead. Migration 081 widened this column
+    # from VARCHAR(500) so longer integration secrets in PR-06+ also fit.
+    ai_api_key = Column(EncryptedString, nullable=True)
     # Ollama URL (default: http://localhost:11434)
     ai_ollama_url = Column(String(255), nullable=True, default="http://localhost:11434")
     # Ollama model name (default: llama3.2)

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { API_URL } from "../../config/api";
 import { useToast } from "../../components/Toast";
@@ -7,7 +8,6 @@ import { getCurrentVersion, getCurrentVersionSync, formatVersion } from "../../u
 import { formatPhoneNumber, timezoneOptions } from "../../components/settings/constants";
 import { currencyOptions, localeOptions } from "../../components/settings/i18nConstants";
 import { useLocale } from "../../contexts/LocaleContext";
-import AiSettingsSection from "../../components/settings/AiSettingsSection";
 import LicenseSection from "../../components/LicenseSection";
 import { useApp } from "../../contexts/AppContext";
 
@@ -875,8 +875,26 @@ const AdminSettings = () => {
           </div>
         </div>
 
-        {/* AI Configuration */}
-        <AiSettingsSection />
+        {/* AI Configuration moved to /admin/integrations in PR-05.
+            Operators with bookmarks/muscle memory pointing here would
+            otherwise think the section disappeared — leave a small
+            sign-post pointing to the new home. */}
+        <div className="bg-gray-800 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-2">
+            AI Configuration
+          </h2>
+          <p className="text-sm text-gray-400">
+            AI provider setup (Anthropic, Ollama) moved to the new{" "}
+            <Link
+              to="/admin/integrations"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              Integrations
+            </Link>
+            {" "}page, where it lives alongside Shopify, QuickBooks, and other
+            connector configuration. API keys are now encrypted at rest.
+          </p>
+        </div>
 
         {/* License & Subscription */}
         <LicenseSection />
