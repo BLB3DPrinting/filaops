@@ -5,6 +5,7 @@ import { createApiClient } from "./lib/apiClient";
 import { API_URL } from "./config/api";
 import { AppProvider } from "./contexts/AppContext";
 import { LocaleProvider } from "./contexts/LocaleContext";
+import { useFeatureFlags } from "./hooks/useFeatureFlags";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ApiErrorToaster from "./components/ApiErrorToaster";
 import AdminLayout from "./components/AdminLayout";
@@ -85,6 +86,17 @@ function PageLoader() {
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
     </div>
   );
+}
+
+// Route-level gate for PRO-only pages. Nav entries already filter out
+// proOnly items in AdminLayout, so this only fires when a user navigates
+// to the URL directly. Redirects to the License page so the upgrade path
+// is one click away.
+function ProGate({ children }) {
+  const { isPro, loading } = useFeatureFlags();
+  if (loading) return <PageLoader />;
+  if (!isPro) return <Navigate to="/admin/license" replace />;
+  return children;
 }
 
 export default function App() {
@@ -395,7 +407,9 @@ export default function App() {
                       path="price-levels"
                       element={
                         <Suspense fallback={<PageLoader />}>
-                          <AdminPriceLevels />
+                          <ProGate>
+                            <AdminPriceLevels />
+                          </ProGate>
                         </Suspense>
                       }
                     />
