@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
+import { useProInstaller } from "../../hooks/useProInstaller";
 import { useToast } from "../../components/Toast";
 
 /**
@@ -13,6 +15,8 @@ import { useToast } from "../../components/Toast";
 export default function AdminLicense() {
   const api = useApi();
   const toast = useToast();
+  const { isPro } = useFeatureFlags();
+  const { installState, startInstall, resetInstall } = useProInstaller();
 
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -105,6 +109,10 @@ export default function AdminLicense() {
   const isActivated = !!info?.activated;
   const tier = info?.tier || "community";
   const features = info?.features || [];
+  // Show the install section only when the license is activated but PRO
+  // hasn't been loaded into the running Python process. After restart,
+  // useFeatureFlags().isPro flips to true and this block disappears.
+  const needsInstall = isActivated && !isPro;
 
   return (
     <div className="space-y-6">
@@ -118,6 +126,14 @@ export default function AdminLicense() {
         onDeactivate={handleDeactivate}
         deactivating={deactivating}
       />
+
+      {needsInstall && (
+        <ProInstallSection
+          installState={installState}
+          onInstall={startInstall}
+          onReset={resetInstall}
+        />
+      )}
 
       {!isActivated && (
         <ActivateForm
@@ -304,6 +320,147 @@ function ActivateForm({ licenseKey, onChange, onSubmit, submitting, error }) {
         </span>
       </div>
     </form>
+  );
+}
+
+function ProInstallSection({ installState, onInstall, onReset }) {
+  const { state, progress, error, installed_version: installedVersion } = installState;
+  const isBusy = state === "downloading" || state === "verifying" || state === "installing";
+  const isError = state === "error";
+  const isDone = state === "restart_required";
+
+  const stateLabel = {
+    downloading: "Downloading PRO package…",
+    verifying: "Verifying package integrity…",
+    installing: "Installing PRO package…",
+  }[state];
+
+  return (
+    <div
+      data-testid="pro-install-section"
+      className="bg-gray-800/40 border border-gray-700 rounded-lg p-6 space-y-4"
+    >
+      <div className="space-y-1">
+        <div className="text-xs text-gray-500 uppercase tracking-wide">
+          PRO Installation
+        </div>
+        <h2 className="text-lg font-semibold text-white">Install PRO Package</h2>
+        <p className="text-sm text-gray-400">
+          Your license is active, but the PRO package isn't loaded yet. Install
+          it from the FilaOps license server to unlock Professional features.
+        </p>
+      </div>
+
+      {state === "idle" && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onInstall}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          >
+            Install PRO
+          </button>
+          <span className="text-xs text-gray-500">
+            Downloads the wheel from the license server and installs it locally.
+            No terminal access required.
+          </span>
+        </div>
+      )}
+
+      {isBusy && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="bg-blue-500/10 border border-blue-500/30 rounded-md px-4 py-3 flex items-center gap-3"
+        >
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400 flex-shrink-0" />
+          <div className="text-sm text-blue-200">
+            <div className="font-medium">{stateLabel}</div>
+            {progress && progress !== stateLabel && (
+              <div className="text-xs text-blue-300/80 mt-0.5">{progress}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isDone && (
+        <div className="space-y-3">
+          <div
+            role="status"
+            className="bg-emerald-500/10 border border-emerald-500/30 rounded-md px-4 py-3 text-sm text-emerald-200"
+          >
+            <div className="font-medium">
+              PRO installed successfully
+              {installedVersion ? ` (v${installedVersion})` : ""}.
+            </div>
+            <div className="text-xs text-emerald-300/80 mt-1">
+              Restart Core to activate PRO features. Core will continue to run
+              in Community mode until you restart.
+            </div>
+          </div>
+          <RestartInstructions />
+        </div>
+      )}
+
+      {isError && (
+        <div className="space-y-3">
+          <div
+            role="alert"
+            className="bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3 text-sm text-red-300"
+          >
+            <div className="font-medium">Installation failed</div>
+            <div className="text-xs text-red-300/80 mt-1 break-words">
+              {error || "Unknown error"}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                onReset();
+                onInstall();
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={onReset}
+              className="text-sm text-gray-400 hover:text-gray-200 underline transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RestartInstructions() {
+  // Deployment-agnostic on purpose: customers run Core via Docker, pip, or
+  // a future .exe installer. We list the common shapes rather than guess.
+  return (
+    <div className="text-xs text-gray-400 space-y-1">
+      <div className="font-medium text-gray-300 uppercase tracking-wide">
+        How to restart
+      </div>
+      <ul className="list-disc pl-5 space-y-0.5">
+        <li>
+          <span className="font-medium text-gray-300">Docker:</span>{" "}
+          <code className="font-mono text-gray-200">docker compose restart backend</code>
+        </li>
+        <li>
+          <span className="font-medium text-gray-300">systemd:</span>{" "}
+          <code className="font-mono text-gray-200">sudo systemctl restart filaops</code>
+        </li>
+        <li>
+          <span className="font-medium text-gray-300">Manual:</span> stop and
+          re-start the Python process running uvicorn / Core
+        </li>
+      </ul>
+    </div>
   );
 }
 
