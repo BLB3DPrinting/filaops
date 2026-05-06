@@ -2,7 +2,7 @@
 Catalog models for B2B product visibility control.
 
 Catalogs allow admins to:
-- Create product groupings (e.g., "Public", "KOA Custom", "Wholesale Partners")
+- Create product groupings (e.g., "Public", "Wholesale", "VIP")
 - Assign products to one or more catalogs
 - Assign customers to one or more catalogs
 - Portal shows products from customer's assigned catalogs + public catalogs
@@ -35,8 +35,8 @@ class Catalog(Base):
 
     Examples:
     - PUBLIC: Default catalog, visible to all customers
-    - KOA-CUSTOM: Custom products only for KOA Kampgrounds
     - WHOLESALE: Products available to wholesale partners
+    - VIP: Special pricing for VIP-tier accounts
     """
     __tablename__ = "catalogs"
 
