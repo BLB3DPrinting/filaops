@@ -3,8 +3,8 @@ uvicorn[standard]>=0.46.0
 sqlalchemy>=2.0
 alembic>=1.13
 psycopg[binary]>=3.3.4
-pydantic>=2.13.3
-pydantic-settings>=2.14.0
+pydantic>=2.13.4
+pydantic-settings>=2.14.1
 python-dotenv>=1
 
 email-validator==2.*
