@@ -79,6 +79,20 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class PortalLoginRequest(BaseModel):
+    """JSON login body for the portal customer flow (Quoter SPA, B2B portal).
+
+    Distinct from the admin login endpoint (``/auth/login``) which takes
+    OAuth2 form data (``username`` field). The Quoter SPA's
+    ``Account.jsx`` posts JSON with an ``email`` field, which this schema
+    matches. Password is required but length is not validated on login
+    (validation lives on registration); we don't want to leak password
+    policy details to login attempts.
+    """
+    email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
 class UserWithTokens(UserResponse):
     """Schema for user registration response (includes tokens)"""
     access_token: str

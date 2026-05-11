@@ -27,6 +27,7 @@ from app.schemas.auth import (
     PasswordResetApprovalResponse,
     PasswordResetComplete,
     PasswordResetStatus,
+    PortalLoginRequest,
 )
 import secrets
 from app.core.config import settings
@@ -257,6 +258,193 @@ async def login_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Login failed due to an internal error"
         )
+
+
+# ============================================================================
+# PORTAL CUSTOMER AUTH (Quoter SPA, B2B portal)
+# ============================================================================
+#
+# Sibling endpoints to /auth/register + /auth/login above. NOT replacements:
+#   /auth/register + /auth/login    serve admin/staff via OAuth2 form data
+#   /auth/portal/register + /login  serve customer-facing SPAs via JSON
+#
+# Both write/read the same User table. account_type distinguishes them:
+#   - portal/register always creates account_type="customer"
+#     (UserRegister body has no account_type field; can't be escalated)
+#   - portal/login authenticates ONLY account_type="customer" users.
+#     Admin users get the same 401-with-generic-message that wrong-password
+#     attempts get — no enumeration of which accounts are admin vs customer.
+#
+# Tokens (JWT cookies or bearer) interoperate: a portal-customer token
+# satisfies get_current_user on any route gated by user-only auth (e.g.
+# PRO /quotes/*, which is license_gated, not admin_gated). It does NOT
+# satisfy get_current_admin_user — that still requires account_type="admin".
+#
+# Built 2026-05-11 to close the Quoter SPA login gap: the SPA was
+# calling /auth/portal/login + /auth/portal/register against URLs that
+# didn't exist, returning 404 to the user. See chat history + the install
+# runbook draft for the full context.
+
+
+@router.post("/portal/register", status_code=status.HTTP_201_CREATED)
+@limiter.limit("3/minute")  # type: ignore
+async def register_portal_customer(
+    request: Request,
+    response: Response,
+    user_data: UserRegister,
+    db: Session = Depends(get_db),
+):
+    """Register a portal customer account from a public-facing SPA.
+
+    Identical to ``/auth/register`` except:
+      - This is the customer-flow entry point (e.g. quote.<customer>.com).
+      - The account_type is hardcoded to ``"customer"`` regardless of body
+        content (UserRegister has no account_type field; admin escalation
+        is impossible at this layer).
+      - Cookie / bearer token behavior is the same: respects AUTH_MODE.
+    """
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+
+    password_hashed = hash_password(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        password_hash=password_hashed,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
+        company_name=user_data.company_name,
+        phone=user_data.phone,
+        status="active",
+        account_type="customer",  # explicit, not user-controlled
+        email_verified=False,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    access_token = create_access_token(new_user.id)  # type: ignore[arg-type]
+    refresh_token = create_refresh_token(new_user.id)  # type: ignore[arg-type]
+
+    token_hash = hash_refresh_token(refresh_token)
+    refresh_token_record = RefreshToken(
+        user_id=new_user.id,
+        token_hash=token_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(refresh_token_record)
+    db.commit()
+
+    user_dict = UserResponse.model_validate(new_user).model_dump()
+
+    if _USE_COOKIES:
+        set_auth_cookies(response, access_token, refresh_token)
+        return {**user_dict, "token_type": "cookie"}
+
+    return {
+        **user_dict,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+
+@router.post("/portal/login")
+@limiter.limit("5/minute")  # type: ignore
+async def login_portal_customer(
+    request: Request,
+    response: Response,
+    body: PortalLoginRequest,
+    db: Session = Depends(get_db),
+):
+    """Portal customer login (JSON body, not OAuth2 form).
+
+    Filters to account_type="customer" so admin users cannot authenticate
+    via the public-facing customer flow. The 401 message is intentionally
+    identical for "no such user", "wrong password", and "is an admin" —
+    that prevents the endpoint from being used to enumerate admin
+    accounts. Admins log in via ``/auth/login`` exclusively.
+    """
+    user = db.query(User).filter(User.email == body.email).first()
+
+    # Generic 401 for: no user, admin user, wrong password — same response.
+    # Prevents account-type / existence enumeration via the customer endpoint.
+    if not user or user.account_type != "customer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        password_valid = verify_password(body.password, user.password_hash)  # type: ignore[arg-type]
+    except Exception as e:
+        logger.error(f"Password verification error for user {user.id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication error. Please contact support.",
+        )
+
+    if not password_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive",
+        )
+
+    # Transparent rehash (matches /auth/login)
+    if needs_rehash(body.password, user.password_hash):  # type: ignore[arg-type]
+        user.password_hash = hash_password(body.password)  # type: ignore[assignment]
+
+    user.last_login_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+    db.commit()
+    db.refresh(user)
+
+    access_token = create_access_token(user.id)  # type: ignore[arg-type]
+    refresh_token = create_refresh_token(user.id)  # type: ignore[arg-type]
+
+    token_hash = hash_refresh_token(refresh_token)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    refresh_token_record = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(refresh_token_record)
+
+    # Purge expired/revoked tokens for this user (matches /auth/login pattern)
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        (RefreshToken.revoked.is_(True))
+        | (RefreshToken.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)),
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    user_dict = UserResponse.model_validate(user).model_dump()
+
+    if _USE_COOKIES:
+        set_auth_cookies(response, access_token, refresh_token)
+        return {**user_dict, "message": "Login successful", "token_type": "cookie"}
+
+    return {
+        **user_dict,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
 
 
 # ============================================================================

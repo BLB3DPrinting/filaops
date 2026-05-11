@@ -16,7 +16,6 @@ Covers:
 - POST /api/v1/auth/password-reset/complete
 """
 import pytest
-from unittest.mock import patch, MagicMock
 
 BASE_URL = "/api/v1/auth"
 
@@ -540,3 +539,175 @@ class TestCookieMode:
         data = resp.json()
         assert data["token_type"] == "cookie"
         assert "access_token" not in data
+
+
+# =============================================================================
+# POST /api/v1/auth/portal/register  +  POST /api/v1/auth/portal/login
+# =============================================================================
+# Customer-facing auth for the Quoter SPA and B2B portal. Sibling endpoints
+# to /auth/register + /auth/login. Key differences:
+#   - JSON body (not OAuth2 form)
+#   - account_type always "customer" on register; filtered to "customer" on login
+#   - Admin accounts CANNOT authenticate via portal/login (same 401 as wrong
+#     password — no enumeration of which accounts are admin)
+
+@pytest.fixture
+def admin_user(db):
+    """An admin-type user, for proving the portal/login endpoint refuses them."""
+    import uuid
+    from app.models.user import User
+    from app.core.security import hash_password
+
+    unique = uuid.uuid4().hex[:8]
+    user = User(
+        email=f"admin-{unique}@filaops.dev",
+        password_hash=hash_password("AdminPass123!"),
+        first_name="Admin",
+        last_name="User",
+        account_type="admin",
+        status="active",
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+class TestPortalRegister:
+
+    def test_portal_register_creates_customer_account(self, unauthed_client, db):
+        import uuid
+        from app.models.user import User
+
+        email = f"portal-{uuid.uuid4().hex[:8]}@example.com"
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/register",
+            json={
+                "email": email,
+                "password": "SecurePass123!",
+                "first_name": "Portal",
+                "last_name": "Customer",
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["email"] == email
+        assert data["account_type"] == "customer"
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+        # Verify the user landed in the DB with account_type=customer specifically.
+        # A future regression where the body let a caller escalate account_type
+        # would fail this assertion.
+        persisted = db.query(User).filter(User.email == email).first()
+        assert persisted is not None
+        assert persisted.account_type == "customer"
+
+    def test_portal_register_ignores_account_type_in_body(self, unauthed_client, db):
+        """Even if a caller sneaks `account_type` into the JSON body, it must NOT
+        escalate to admin. UserRegister has no account_type field; the endpoint
+        hardcodes ``"customer"``. This test pins that contract."""
+        import uuid
+        from app.models.user import User
+
+        email = f"escalate-{uuid.uuid4().hex[:8]}@example.com"
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/register",
+            json={
+                "email": email,
+                "password": "SecurePass123!",
+                "account_type": "admin",  # ignored by Pydantic; pin behavior
+            },
+        )
+        assert resp.status_code == 201
+        persisted = db.query(User).filter(User.email == email).first()
+        assert persisted.account_type == "customer"
+
+    def test_portal_register_duplicate_email(self, unauthed_client, registered_user):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/register",
+            json={"email": registered_user.email, "password": "SecurePass123!"},
+        )
+        assert resp.status_code == 400
+
+    def test_portal_register_weak_password(self, unauthed_client):
+        """Password policy comes from UserRegister.validate_password_strength
+        and is inherited by the portal endpoint for free."""
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/register",
+            json={"email": "weak@example.com", "password": "short"},
+        )
+        assert resp.status_code == 422
+
+    def test_portal_register_invalid_email(self, unauthed_client):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/register",
+            json={"email": "not-an-email", "password": "SecurePass123!"},
+        )
+        assert resp.status_code == 422
+
+
+class TestPortalLogin:
+
+    def test_portal_login_success(self, unauthed_client, registered_user):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": registered_user.email, "password": "TestPass123!"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["email"] == registered_user.email
+        assert data["account_type"] == "customer"
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+    def test_portal_login_wrong_password(self, unauthed_client, registered_user):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": registered_user.email, "password": "WrongPass456!"},
+        )
+        assert resp.status_code == 401
+        assert "email or password" in resp.json()["detail"].lower()
+
+    def test_portal_login_no_such_user(self, unauthed_client):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": "nobody@example.com", "password": "WhateverPass1!"},
+        )
+        assert resp.status_code == 401
+        # Generic message — no enumeration of which emails exist
+        assert "email or password" in resp.json()["detail"].lower()
+
+    def test_portal_login_refuses_admin_account(self, unauthed_client, admin_user):
+        """SECURITY: admin accounts must NOT authenticate via the portal endpoint.
+        Returns the same generic 401 as a wrong password — no enumeration of
+        which emails belong to admins vs customers."""
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": admin_user.email, "password": "AdminPass123!"},
+        )
+        assert resp.status_code == 401
+        assert "email or password" in resp.json()["detail"].lower()
+
+    def test_portal_login_inactive_customer_returns_403(self, unauthed_client, inactive_user):
+        """An inactive customer should get a different signal (403) than a
+        wrong-credentials attempt (401) so the customer-facing UI can show a
+        'contact support' message rather than a 'wrong password' message."""
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": inactive_user.email, "password": "TestPass123!"},
+        )
+        assert resp.status_code == 403
+
+    def test_portal_login_missing_password(self, unauthed_client):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": "missing@example.com"},
+        )
+        assert resp.status_code == 422
+
+    def test_portal_login_invalid_email_format(self, unauthed_client):
+        resp = unauthed_client.post(
+            f"{BASE_URL}/portal/login",
+            json={"email": "not-an-email", "password": "WhateverPass1!"},
+        )
+        assert resp.status_code == 422
