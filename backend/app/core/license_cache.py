@@ -94,16 +94,28 @@ class LicenseCache:
     def from_dict(cls, data: dict) -> "LicenseCache":
         """Construct a LicenseCache from JSON, deriving defaults for legacy files.
 
-        If ``data`` is a pre-PR-03 cache file (missing ``status``,
-        ``last_verified_at``, ``last_server_timestamp``, or ``grace_until``),
-        the missing fields are derived from ``activated_at`` so the
-        returned object remains parseable by PRO's verifier without a
-        crash. The on-disk file is unchanged — call ``save_license_cache``
-        on the returned object to persist the upgraded shape.
+        Pre-PR-03 cache files lack ``status``, ``last_verified_at``,
+        ``last_server_timestamp``, and ``grace_until``. For those fields,
+        defaults are anchored at the **current** time, not at
+        ``activated_at``. A Core that's been installed for weeks may
+        otherwise emerge from an in-place PR-03 upgrade with a
+        ``grace_until`` already in the past — PRO's ``evaluate_license``
+        would then see an expired grace window the instant the upgrade
+        runs (the exact failure mode the upgrade is meant to fix). The
+        first PRO heartbeat (~6 hours after boot) overwrites both fields
+        with server-signed values, so the upgrade-time anchor is in
+        effect for at most one heartbeat interval.
+
+        The on-disk file is unchanged — callers that want to persist
+        the upgraded shape must call ``save_license_cache`` on the
+        returned object.
         """
         activated_at = data["activated_at"]
-        last_verified_at = data.get("last_verified_at") or activated_at
-        grace_until = data.get("grace_until") or _compute_grace_until(activated_at)
+        # For legacy files, anchor the upgrade window at "now" rather
+        # than at activated_at (see class docstring).
+        upgrade_anchor_iso = utc_now_iso()
+        last_verified_at = data.get("last_verified_at") or upgrade_anchor_iso
+        grace_until = data.get("grace_until") or _compute_grace_until(last_verified_at)
         return cls(
             license_key=data["license_key"],
             install_uuid=data["install_uuid"],
@@ -118,21 +130,21 @@ class LicenseCache:
         )
 
 
-def _compute_grace_until(activated_at_iso: str) -> str:
-    """Return ``activated_at + GRACE_DAYS days`` as an ISO 8601 string.
+def _compute_grace_until(anchor_iso: str) -> str:
+    """Return ``anchor + GRACE_DAYS days`` as an ISO 8601 string.
 
-    Used as a fallback when loading a pre-PR-03 cache that has no
-    ``grace_until`` field. New activations compute this from the actual
-    activation moment in ``activate_license``; this helper exists only so
-    legacy files load with a valid (if conservative) grace window.
+    On malformed input, returns ``EPOCH_ZERO_ISO`` so PRO's
+    ``evaluate_license`` treats the cache as already past its grace
+    window (``now < grace_until`` is False → deny with
+    ``grace_period_expired``). Failing closed on a parse error is
+    deliberate: granting a fresh ``GRACE_DAYS`` window on garbage input
+    would silently extend access during corruption or tampering. The
+    operator sees a clean denial rather than a covertly-renewed grace.
     """
     try:
-        anchor = datetime.fromisoformat(activated_at_iso)
+        anchor = datetime.fromisoformat(anchor_iso)
     except ValueError:
-        # Malformed activated_at — fall back to "no grace window".
-        # PRO's evaluate_license will treat an unparseable grace_until as
-        # equivalent to expired; better than crashing with a TypeError.
-        anchor = datetime.now(timezone.utc)
+        return EPOCH_ZERO_ISO
     return (anchor + timedelta(days=GRACE_DAYS)).isoformat()
 
 

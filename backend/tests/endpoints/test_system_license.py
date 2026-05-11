@@ -319,33 +319,63 @@ def test_load_tolerates_pr03_extra_fields(tmp_path, monkeypatch):
     assert loaded.license_key == "FILAOPS-PRO-test"
 
 
-def test_load_pr02_file_derives_pr03_defaults_from_activated_at(
-    tmp_path, monkeypatch
-):
-    """A pre-PR-03 cache (6 fields on disk) loads cleanly with computed
-    defaults for the four new fields. last_verified_at falls back to
-    activated_at so PRO's grace math has a real anchor; last_server_timestamp
-    falls back to epoch zero so the first heartbeat passes monotonicity."""
+def test_load_pr02_file_anchors_grace_at_upgrade_time(tmp_path, monkeypatch):
+    """A pre-PR-03 cache (6 fields on disk) loads cleanly with the four new
+    fields filled in. ``last_verified_at`` is anchored to load time (not
+    ``activated_at``) so a Core that's been installed for months doesn't
+    emerge from the upgrade with an already-expired grace window —
+    addressed in PR-600 review feedback. ``last_server_timestamp`` falls
+    back to epoch zero so PRO's first heartbeat passes monotonicity."""
+    from datetime import timezone
+
     monkeypatch.setattr(settings, "LICENSE_CONFIG_DIR", str(tmp_path), raising=False)
     pr02_file = {
         "license_key": "FILAOPS-PRO-test",
         "install_uuid": "uuid-x",
         "tier": "professional",
         "features": ["catalogs"],
-        "activated_at": "2026-05-01T00:00:00+00:00",
+        # Deliberately old activated_at: simulates an in-place upgrade of
+        # a Core that's been installed for weeks.
+        "activated_at": "2026-04-01T00:00:00+00:00",
         "expires_at": "2027-01-01T00:00:00+00:00",
     }
     (tmp_path / LICENSE_CACHE_FILENAME).write_text(json.dumps(pr02_file))
 
+    before = datetime.now(timezone.utc)
     loaded = load_license_cache()
+    after = datetime.now(timezone.utc)
+
     assert loaded is not None
     assert loaded.status == "active"
-    assert loaded.last_verified_at == "2026-05-01T00:00:00+00:00"
+    # activated_at preserved verbatim
+    assert loaded.activated_at == "2026-04-01T00:00:00+00:00"
+    # last_verified_at anchored at load time, NOT at activated_at
+    parsed_lv = datetime.fromisoformat(loaded.last_verified_at)
+    assert before <= parsed_lv <= after
+    # grace_until is last_verified_at + GRACE_DAYS — and crucially in the future
+    parsed_grace = datetime.fromisoformat(loaded.grace_until)
+    assert (parsed_grace - parsed_lv).days == GRACE_DAYS
+    assert parsed_grace > datetime.now(timezone.utc)
     assert loaded.last_server_timestamp == EPOCH_ZERO_ISO
-    # grace_until is activated_at + GRACE_DAYS
-    expected_grace = datetime.fromisoformat("2026-05-01T00:00:00+00:00")
-    actual_grace = datetime.fromisoformat(loaded.grace_until)
-    assert (actual_grace - expected_grace).days == GRACE_DAYS
+
+
+def test_compute_grace_until_fails_closed_on_malformed_anchor(tmp_path, monkeypatch):
+    """Address PR-600 Copilot review: malformed anchor must NOT produce a
+    fresh GRACE_DAYS window — that would silently extend access during
+    corruption or tampering. ``_compute_grace_until`` returns EPOCH_ZERO_ISO
+    so PRO denies with grace_period_expired (fail-closed)."""
+    from app.core.license_cache import _compute_grace_until
+
+    # Valid anchor → normal grace window
+    valid = _compute_grace_until("2026-05-01T00:00:00+00:00")
+    valid_dt = datetime.fromisoformat(valid)
+    expected = datetime.fromisoformat("2026-05-01T00:00:00+00:00")
+    assert (valid_dt - expected).days == GRACE_DAYS
+
+    # Malformed inputs all return epoch zero (fail-closed)
+    assert _compute_grace_until("") == EPOCH_ZERO_ISO
+    assert _compute_grace_until("not-a-timestamp") == EPOCH_ZERO_ISO
+    assert _compute_grace_until("2026/05/01") == EPOCH_ZERO_ISO
 
 
 def test_is_pr02_shape_detects_missing_pr03_fields():
@@ -390,7 +420,11 @@ def test_info_auto_upgrades_pr02_file_to_pr03_shape(client, _license_env):
     after = json.loads(path.read_text())
     assert is_pr02_shape(after) is False
     assert after["status"] == "active"
-    assert after["last_verified_at"] == "2026-05-01T00:00:00+00:00"
+    # last_verified_at anchored at upgrade time, not the stale activated_at —
+    # verifies the in-place upgrade can't produce an already-expired grace
+    # window for a Core that was installed months ago.
+    parsed_lv = datetime.fromisoformat(after["last_verified_at"])
+    assert parsed_lv > datetime.fromisoformat("2026-05-01T00:00:00+00:00")
     assert after["last_server_timestamp"] == EPOCH_ZERO_ISO
     assert "grace_until" in after
 
