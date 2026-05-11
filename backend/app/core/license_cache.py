@@ -290,17 +290,27 @@ def get_license_path() -> Path:
 
 def load_license_cache() -> Optional[LicenseCache]:
     """Read the persisted LicenseCache. Returns None if missing or unreadable."""
+    cache, _ = load_license_cache_with_raw()
+    return cache
+
+
+def load_license_cache_with_raw() -> tuple[Optional[LicenseCache], Optional[dict]]:
+    """Read the cache and return ``(cache, raw_dict)`` so callers that need
+    the on-disk shape (e.g. ``is_pr02_shape`` upgrade detection) can inspect
+    it without re-reading the file. Returns ``(None, None)`` if the file
+    is missing or unreadable.
+    """
     path = get_license_path()
     if not path.exists():
-        return None
+        return None, None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return LicenseCache.from_dict(data)
+        return LicenseCache.from_dict(data), data
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         # An unreadable file is treated like "no license" — safer than
         # crashing on a malformed cache.
         logger.warning("license.json present but unreadable: %s", exc)
-        return None
+        return None, None
 
 
 def save_license_cache(cache: LicenseCache) -> None:

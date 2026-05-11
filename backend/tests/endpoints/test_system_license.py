@@ -431,9 +431,11 @@ def test_info_auto_upgrades_pr02_file_to_pr03_shape(client, _license_env):
 
 def test_info_does_not_resave_pr03_file(client, _license_env):
     """Idempotency check: an already-PR-03 file is not rewritten on every
-    /info call. We check by capturing mtime before and after the second
-    call (the first call may legitimately touch the file if it was created
-    via save_license_cache; the second one must not)."""
+    /info call. Compares file bytes rather than mtime — the assertion we
+    actually care about is "the bytes on disk did not change", and byte
+    equality is robust against coarse-mtime filesystems (FAT, some
+    bind-mounted Docker volumes) where two near-simultaneous writes
+    could share a tick and falsely compare equal."""
     cache = LicenseCache(
         license_key=VALID_KEY,
         install_uuid="uuid-stable",
@@ -449,12 +451,12 @@ def test_info_does_not_resave_pr03_file(client, _license_env):
     save_license_cache(cache)
     path = _license_env / LICENSE_CACHE_FILENAME
 
-    client.get(INFO_URL)  # may or may not touch
-    mtime_after_first = path.stat().st_mtime_ns
     client.get(INFO_URL)
-    mtime_after_second = path.stat().st_mtime_ns
+    bytes_after_first = path.read_bytes()
+    client.get(INFO_URL)
+    bytes_after_second = path.read_bytes()
 
-    assert mtime_after_first == mtime_after_second
+    assert bytes_after_first == bytes_after_second
 
 
 def test_load_returns_none_on_malformed_json(tmp_path, monkeypatch):

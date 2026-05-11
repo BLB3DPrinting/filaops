@@ -25,7 +25,6 @@ shapes in ``license-server/app/schemas/license.py``.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
@@ -41,9 +40,8 @@ from app.core.license_cache import (
     LicenseCache,
     clear_license_cache,
     get_install_uuid,
-    get_license_path,
     is_pr02_shape,
-    load_license_cache,
+    load_license_cache_with_raw,
     save_license_cache,
 )
 from app.logging_config import get_logger
@@ -161,38 +159,26 @@ async def get_license_info(
     shape and no-op.
     """
     install_uuid = get_install_uuid()
-    cache = load_license_cache()
-    if cache is not None:
-        _upgrade_pr02_file_if_present(cache)
+    cache, raw = load_license_cache_with_raw()
+    if cache is not None and raw is not None and is_pr02_shape(raw):
+        _upgrade_pr02_file(cache)
     return _build_info_response(cache, install_uuid)
 
 
-def _upgrade_pr02_file_if_present(cache: LicenseCache) -> None:
-    """Re-save the cache in PR-03 shape if the on-disk file is PR-02.
+def _upgrade_pr02_file(cache: LicenseCache) -> None:
+    """Re-save the cache in PR-03 shape.
 
-    Detection reads the raw JSON to check for the four PR-03 keys; any
-    error during detection or re-save is logged and swallowed so a
-    transient filesystem hiccup never breaks ``/info``. The cache value
-    in memory is already PR-03 shape (``LicenseCache.from_dict`` filled
-    in defaults), so the worst case is that the file is upgraded on a
-    later call.
+    Caller has already verified the on-disk file is PR-02 (via the raw
+    dict returned by ``load_license_cache_with_raw``). Any save error is
+    logged and swallowed so a transient filesystem hiccup never breaks
+    ``/info``; the cache value in memory is already PR-03 shape (filled
+    in by ``LicenseCache.from_dict``), so the worst case is that the
+    file gets upgraded on a later call.
     """
-    path = get_license_path()
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        logger.debug("Skipping PR-02 upgrade check (cannot read raw file): %s", exc)
-        return
-    if not is_pr02_shape(raw):
-        return
     try:
         save_license_cache(cache)
         logger.info("Upgraded license.json from PR-02 to PR-03 shape")
     except OSError as exc:
-        # Non-fatal — in-memory cache works; the file just stays in PR-02
-        # shape until the next /activate writes it fresh. PRO's reader
-        # would still crash in that interval, but a single upgrade attempt
-        # failing is rare enough that retry-on-next-call is acceptable.
         logger.warning("Could not upgrade license.json to PR-03 shape: %s", exc)
 
 
