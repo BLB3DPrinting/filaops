@@ -1,16 +1,23 @@
 """
-License Activation API Endpoints (PR-02)
+License Activation API Endpoints (PR-02 + PR-03)
 
 Owns the Core-side bootstrap of PRO licensing: takes a license key from the
 admin UI, validates it against the license server via plain ``httpx``, and
 persists the result to ``<config_dir>/license.json`` for PRO to pick up on
 its next boot.
 
+PR-03 contract: ``activate_license`` writes the full ten-field LicenseCache
+shape that ``filaops_pro.licensing.cache.load_cache`` expects (the four
+fields PRO requires — ``status``, ``last_verified_at``,
+``last_server_timestamp``, ``grace_until`` — are sourced from the
+license-server's signed validate response and the local activation moment).
+``get_license_info`` auto-upgrades any pre-PR-03 file it encounters so the
+on-disk shape always matches what PRO reads.
+
 Sacred Rule: this module MUST NOT import from ``filaops_pro``. Core must
 remain Community-functional whether or not PRO is installed, so the
 activation flow re-implements the small subset of license-server
 communication it needs (rather than reusing PRO's ``LicenseClient``).
-PR-03 will extend this with a heartbeat scheduler that lives PRO-side.
 
 The license-server's ``POST /api/v1/validate`` endpoint contract is
 documented in ``license-server/CLAUDE.md`` and the request/response
@@ -18,7 +25,8 @@ shapes in ``license-server/app/schemas/license.py``.
 """
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import httpx
@@ -28,12 +36,15 @@ from pydantic import BaseModel, Field
 from app.api.v1.deps import get_current_admin_user
 from app.core.config import settings
 from app.core.license_cache import (
+    EPOCH_ZERO_ISO,
+    GRACE_DAYS,
     LicenseCache,
     clear_license_cache,
     get_install_uuid,
+    get_license_path,
+    is_pr02_shape,
     load_license_cache,
     save_license_cache,
-    utc_now_iso,
 )
 from app.logging_config import get_logger
 from app.models.user import User
@@ -141,10 +152,48 @@ def _build_info_response(
 async def get_license_info(
     current_user: Annotated[User, Depends(get_current_admin_user)],
 ) -> LicenseInfoResponse:
-    """Read the persisted license state. Returns Community defaults if no license."""
+    """Read the persisted license state. Returns Community defaults if no license.
+
+    Side effect: if the on-disk cache predates PR-03 (missing the four
+    heartbeat fields PRO requires), it is re-saved in the PR-03 shape so
+    the next ``filaops_pro.licensing.cache.load_cache`` call succeeds.
+    The upgrade is one-shot and idempotent — subsequent calls see the new
+    shape and no-op.
+    """
     install_uuid = get_install_uuid()
     cache = load_license_cache()
+    if cache is not None:
+        _upgrade_pr02_file_if_present(cache)
     return _build_info_response(cache, install_uuid)
+
+
+def _upgrade_pr02_file_if_present(cache: LicenseCache) -> None:
+    """Re-save the cache in PR-03 shape if the on-disk file is PR-02.
+
+    Detection reads the raw JSON to check for the four PR-03 keys; any
+    error during detection or re-save is logged and swallowed so a
+    transient filesystem hiccup never breaks ``/info``. The cache value
+    in memory is already PR-03 shape (``LicenseCache.from_dict`` filled
+    in defaults), so the worst case is that the file is upgraded on a
+    later call.
+    """
+    path = get_license_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.debug("Skipping PR-02 upgrade check (cannot read raw file): %s", exc)
+        return
+    if not is_pr02_shape(raw):
+        return
+    try:
+        save_license_cache(cache)
+        logger.info("Upgraded license.json from PR-02 to PR-03 shape")
+    except OSError as exc:
+        # Non-fatal — in-memory cache works; the file just stays in PR-02
+        # shape until the next /activate writes it fresh. PRO's reader
+        # would still crash in that interval, but a single upgrade attempt
+        # failing is rare enough that retry-on-next-call is acceptable.
+        logger.warning("Could not upgrade license.json to PR-03 shape: %s", exc)
 
 
 @router.post("/activate", response_model=LicenseInfoResponse)
@@ -276,21 +325,32 @@ async def activate_license(
             detail=server_message or "License key was rejected by the license server.",
         )
 
-    # Valid — persist the LicenseCache. PR-03 will extend this with the
-    # heartbeat-related fields (status, last_verified_at, etc.); for now we
-    # store just enough that PRO can pick up tier + features on next boot.
+    # Valid — persist the full ten-field LicenseCache shape PR-03 expects.
+    # status, last_verified_at, last_server_timestamp, grace_until are the
+    # four fields filaops-pro reads on every gated request; missing any of
+    # them in the on-disk JSON causes PRO's load_cache to return None and
+    # license_gate to 403 every /pro/* route.
     tier = str(data.get("tier") or "community").lower()
     raw_features = data.get("features")
     features = raw_features if isinstance(raw_features, list) else []
     expires_at = _datetime_to_iso(data.get("current_period_end"))
+
+    server_status = str(data.get("status") or "active").lower()
+    server_timestamp = data.get("server_timestamp")
+    activation_moment = datetime.now(timezone.utc)
+    grace_until = (activation_moment + timedelta(days=GRACE_DAYS)).isoformat()
 
     cache = LicenseCache(
         license_key=license_key,
         install_uuid=install_uuid,
         tier=tier,
         features=features,
-        activated_at=utc_now_iso(),
+        activated_at=activation_moment.isoformat(),
         expires_at=expires_at,
+        status=server_status,
+        last_verified_at=activation_moment.isoformat(),
+        last_server_timestamp=_datetime_to_iso(server_timestamp) or EPOCH_ZERO_ISO,
+        grace_until=grace_until,
     )
     save_license_cache(cache)
 
