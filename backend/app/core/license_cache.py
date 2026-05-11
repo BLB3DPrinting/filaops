@@ -1,8 +1,10 @@
 """License cache — filesystem-persisted license state for Core.
 
-PR-02 scope: bootstrap activation. PR-03 extends with heartbeat scheduler +
-grace window + anti-rollback fields (server_timestamp, nonce_history,
-last_verified_at).
+PR-03 extends the PR-02 activation cache with the four fields
+``filaops_pro``'s reader requires: ``status``, ``last_verified_at``,
+``last_server_timestamp``, and ``grace_until``. PRO's heartbeat scheduler
+keeps them fresh; Core writes initial values on activation so a fresh
+install can be consumed by PRO without waiting for the first heartbeat.
 
 Why filesystem instead of DB:
 - Core must function before any PRO migration runs — license activation can
@@ -11,14 +13,15 @@ Why filesystem instead of DB:
 - License state needs to outlive container restarts. A host-side volume
   mount (``/var/lib/filaops/config/``) is cleaner than a DB row that PRO
   would have to reach for on every request.
-- PRO's heartbeat scheduler (PR-03) reads/writes the same file. By making
-  the cache filesystem-based with a known JSON shape, Core and PRO share
-  the contract without sharing a Python module — preserving the Sacred
-  Rule that Core must not import from ``filaops_pro``.
+- PRO's heartbeat scheduler reads/writes the same file. By making the cache
+  filesystem-based with a known JSON shape, Core and PRO share the contract
+  without sharing a Python module — preserving the Sacred Rule that Core
+  must not import from ``filaops_pro``.
 
-The LicenseCache shape is documented in ``PRO_LAUNCH_PIVOT_v3.md``; this
-module implements the activation-time subset only. PR-03 will extend the
-dataclass and the JSON shape; readers must tolerate unknown fields.
+The on-disk JSON shape is the contract. Both Core (this module) and PRO
+(``filaops_pro/licensing/cache.py``) bind to it independently — adding a
+field requires coordinated writers on both sides, but readers must accept
+extra unknown fields silently for forward-compatibility.
 """
 from __future__ import annotations
 
@@ -29,7 +32,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -45,15 +48,31 @@ _DEFAULT_CONFIG_DIR = "/var/lib/filaops/config"
 LICENSE_CACHE_FILENAME = "license.json"
 INSTALL_UUID_FILENAME = "install_uuid"
 
+# Vendor-outage grace window. MUST stay in sync with
+# ``filaops_pro.licensing.cache.GRACE_DAYS`` — the two writers compute the
+# same anchor (last_verified_at + GRACE_DAYS days) so neither side can
+# accidentally widen or narrow the grace window without the other agreeing.
+GRACE_DAYS = 14
+
+# Sentinel for ``last_server_timestamp`` when no signed heartbeat has been
+# observed yet. PRO's verifier treats this field as a strict anti-rollback
+# floor (``response_ts <= cached_ts`` rejects), so any real heartbeat
+# timestamp will be strictly greater than epoch zero. A fresh activation
+# whose ``server_timestamp`` is missing from the validate response (older
+# license-server versions) therefore never blocks the legitimate first
+# heartbeat that follows.
+EPOCH_ZERO_ISO = "1970-01-01T00:00:00+00:00"
+
 
 @dataclass
 class LicenseCache:
-    """Activation-time subset of the LicenseCache shape.
+    """On-disk license state shared with ``filaops_pro``'s reader.
 
-    Fields added by PR-03 (status, last_verified_at, last_server_timestamp,
-    grace_until, nonce_history) are NOT declared here yet — but
-    ``from_dict`` tolerates extra keys so a forward-compatible PR-03 cache
-    can still be read by this PR-02 reader.
+    The four PR-03 fields (``status``, ``last_verified_at``,
+    ``last_server_timestamp``, ``grace_until``) have defaults so an older
+    PR-02 cache file still loads — ``from_dict`` derives sane values from
+    ``activated_at`` and the epoch sentinel rather than crashing on a
+    missing key. New activations always write the full ten-field shape.
     """
 
     license_key: str
@@ -62,21 +81,85 @@ class LicenseCache:
     features: list[str]
     activated_at: str  # ISO 8601 UTC, set on successful activation
     expires_at: Optional[str] = None  # ISO 8601 UTC; None for perpetual licenses
+    # PR-03 fields — populated on activation, refreshed by PRO's heartbeat.
+    status: str = "active"  # active | grace_period | expired | cancelled
+    last_verified_at: str = ""  # ISO 8601 UTC; grace-math anchor (local clock)
+    last_server_timestamp: str = EPOCH_ZERO_ISO  # ISO 8601 UTC; anti-rollback floor
+    grace_until: str = ""  # ISO 8601 UTC; last_verified_at + GRACE_DAYS days
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "LicenseCache":
-        """Construct a LicenseCache from JSON, dropping fields we don't know."""
+        """Construct a LicenseCache from JSON, deriving defaults for legacy files.
+
+        Pre-PR-03 cache files lack ``status``, ``last_verified_at``,
+        ``last_server_timestamp``, and ``grace_until``. For those fields,
+        defaults are anchored at the **current** time, not at
+        ``activated_at``. A Core that's been installed for weeks may
+        otherwise emerge from an in-place PR-03 upgrade with a
+        ``grace_until`` already in the past — PRO's ``evaluate_license``
+        would then see an expired grace window the instant the upgrade
+        runs (the exact failure mode the upgrade is meant to fix). The
+        first PRO heartbeat (~6 hours after boot) overwrites both fields
+        with server-signed values, so the upgrade-time anchor is in
+        effect for at most one heartbeat interval.
+
+        The on-disk file is unchanged — callers that want to persist
+        the upgraded shape must call ``save_license_cache`` on the
+        returned object.
+        """
+        activated_at = data["activated_at"]
+        # For legacy files, anchor the upgrade window at "now" rather
+        # than at activated_at (see class docstring).
+        upgrade_anchor_iso = utc_now_iso()
+        last_verified_at = data.get("last_verified_at") or upgrade_anchor_iso
+        grace_until = data.get("grace_until") or _compute_grace_until(last_verified_at)
         return cls(
             license_key=data["license_key"],
             install_uuid=data["install_uuid"],
             tier=data["tier"],
             features=list(data.get("features", [])),
-            activated_at=data["activated_at"],
+            activated_at=activated_at,
             expires_at=data.get("expires_at"),
+            status=data.get("status") or "active",
+            last_verified_at=last_verified_at,
+            last_server_timestamp=data.get("last_server_timestamp") or EPOCH_ZERO_ISO,
+            grace_until=grace_until,
         )
+
+
+def _compute_grace_until(anchor_iso: str) -> str:
+    """Return ``anchor + GRACE_DAYS days`` as an ISO 8601 string.
+
+    On malformed input, returns ``EPOCH_ZERO_ISO`` so PRO's
+    ``evaluate_license`` treats the cache as already past its grace
+    window (``now < grace_until`` is False → deny with
+    ``grace_period_expired``). Failing closed on a parse error is
+    deliberate: granting a fresh ``GRACE_DAYS`` window on garbage input
+    would silently extend access during corruption or tampering. The
+    operator sees a clean denial rather than a covertly-renewed grace.
+    """
+    try:
+        anchor = datetime.fromisoformat(anchor_iso)
+    except ValueError:
+        return EPOCH_ZERO_ISO
+    return (anchor + timedelta(days=GRACE_DAYS)).isoformat()
+
+
+def is_pr02_shape(raw: dict) -> bool:
+    """Return True if ``raw`` is missing any PR-03 field.
+
+    Used by the /info endpoint to detect a pre-PR-03 file on disk and
+    trigger a one-shot re-save in the PR-03 shape. The check is intentionally
+    permissive — if any of the four new keys is absent, the file predates
+    PR-03 and should be upgraded.
+    """
+    return not all(
+        k in raw
+        for k in ("status", "last_verified_at", "last_server_timestamp", "grace_until")
+    )
 
 
 def get_config_dir() -> Path:
@@ -207,17 +290,27 @@ def get_license_path() -> Path:
 
 def load_license_cache() -> Optional[LicenseCache]:
     """Read the persisted LicenseCache. Returns None if missing or unreadable."""
+    cache, _ = load_license_cache_with_raw()
+    return cache
+
+
+def load_license_cache_with_raw() -> tuple[Optional[LicenseCache], Optional[dict]]:
+    """Read the cache and return ``(cache, raw_dict)`` so callers that need
+    the on-disk shape (e.g. ``is_pr02_shape`` upgrade detection) can inspect
+    it without re-reading the file. Returns ``(None, None)`` if the file
+    is missing or unreadable.
+    """
     path = get_license_path()
     if not path.exists():
-        return None
+        return None, None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return LicenseCache.from_dict(data)
+        return LicenseCache.from_dict(data), data
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         # An unreadable file is treated like "no license" — safer than
         # crashing on a malformed cache.
         logger.warning("license.json present but unreadable: %s", exc)
-        return None
+        return None, None
 
 
 def save_license_cache(cache: LicenseCache) -> None:
