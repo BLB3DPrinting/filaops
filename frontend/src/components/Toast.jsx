@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useMemo } from "react";
 
 const ToastContext = createContext(null);
 
@@ -22,12 +22,22 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const toast = {
-    success: (msg, duration) => addToast(msg, "success", duration),
-    error: (msg, duration) => addToast(msg, "error", duration),
-    warning: (msg, duration) => addToast(msg, "warning", duration),
-    info: (msg, duration) => addToast(msg, "info", duration),
-  };
+  // Memoized — without this, every render of ToastProvider (which happens
+  // on every addToast call, because `toasts` state changes) produces a new
+  // object literal. Consumers that include `toast` in a useCallback /
+  // useEffect dep array would then rebuild on every toast, re-fire their
+  // effects, and — if the effect itself calls toast.error on failure —
+  // enter an infinite "toast storm" loop. addToast is stable via the empty
+  // useCallback dep array, so the memo cache stays valid across renders.
+  const toast = useMemo(
+    () => ({
+      success: (msg, duration) => addToast(msg, "success", duration),
+      error: (msg, duration) => addToast(msg, "error", duration),
+      warning: (msg, duration) => addToast(msg, "warning", duration),
+      info: (msg, duration) => addToast(msg, "info", duration),
+    }),
+    [addToast],
+  );
 
   return (
     <ToastContext.Provider value={toast}>
