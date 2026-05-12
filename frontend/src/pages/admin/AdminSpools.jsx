@@ -260,11 +260,11 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
   const api = useApi();
   const [form, setForm] = useState({
     spool_number: spool?.spool_number || "",
-    product_id: spool?.product_id || "",
+    product_id: spool?.product_id ?? null,
     initial_weight_kg: spool?.initial_weight_kg || "",
     current_weight_kg: spool?.current_weight_kg || spool?.initial_weight_kg || "",
     status: spool?.status || "active",
-    location_id: spool?.location_id || "",
+    location_id: spool?.location_id ?? null,
     supplier_lot_number: spool?.supplier_lot_number || "",
     expiry_date: spool?.expiry_date ? spool.expiry_date.split("T")[0] : "",
     notes: spool?.notes || "",
@@ -334,8 +334,13 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
             <label className="block text-sm text-gray-400 mb-1">Material *</label>
             <select
               required
-              value={form.product_id}
-              onChange={(e) => setForm({ ...form, product_id: e.target.value })}
+              value={form.product_id ?? ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  product_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                })
+              }
               disabled={!!spool}
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white disabled:opacity-50"
             >
@@ -391,8 +396,13 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
             <div>
               <label className="block text-sm text-gray-400 mb-1">Location</label>
               <select
-                value={form.location_id}
-                onChange={(e) => setForm({ ...form, location_id: e.target.value })}
+                value={form.location_id ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    location_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                  })
+                }
                 className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
               >
                 <option value="">No location</option>
