@@ -282,13 +282,25 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
         // to clear them. Picking "No location" must reach the backend as an
         // explicit null, not be silently dropped (Copilot PR #603 finding).
         const body = {};
-        if (form.current_weight_kg) {
-          // Pre-existing quirk preserved: form input is labeled grams but
-          // the submit historically multiplied by 1000. The modal also has
-          // no `reason` input, so weight edits via this form currently
-          // 400 on the backend regardless. Out of scope for this PR.
-          body.current_weight_g = parseFloat(form.current_weight_kg) * 1000;
+
+        // Weight: the form initializes current_weight_kg from the spool, so
+        // it's always populated. Only send current_weight_g when the user
+        // has actually edited it — otherwise every PATCH would trigger the
+        // backend's weight-adjustment branch, which requires a `reason` this
+        // modal doesn't collect (the 400 then blocks status/location/notes
+        // edits entirely). The dedicated weight-adjustment flow lives
+        // elsewhere; we surface a clear error if the user tries to use this
+        // form for it (CodeRabbit PR #603 finding).
+        const originalWeight = Number(
+          spool.current_weight_kg ?? spool.initial_weight_kg ?? 0
+        );
+        const editedWeight = Number(form.current_weight_kg);
+        if (editedWeight !== originalWeight) {
+          throw new Error(
+            "Weight updates require a reason and aren't supported from this modal yet. Use the inventory adjustment flow."
+          );
         }
+
         if (form.status) body.status = form.status;
         // Always send location_id, even when null, so "No location" clears.
         body.location_id = form.location_id;

@@ -276,6 +276,44 @@ class TestUpdateWeight:
         assert resp.status_code == 400
 
 
+class TestFrontendBodyShape:
+    """Guards against the regression CodeRabbit caught: AdminSpools modal
+    used to send current_weight_g on every edit (no reason), which 400'd
+    the backend before reaching the location_id branch and silently
+    blocked the whole modal. The frontend now omits current_weight_g
+    unless the user actually edited it. These tests pin the body shapes
+    the modal sends after that fix."""
+
+    def test_modal_edit_clearing_location(self, client, db, spool):
+        """Body shape when user picks "No location" without touching weight."""
+        resp = client.patch(
+            f"{BASE_URL}/{spool.id}",
+            json={
+                "status": "active",
+                "location_id": None,
+                "notes": None,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        db.refresh(spool)
+        assert spool.location_id is None
+
+    def test_modal_edit_moving_location(self, client, db, spool, other_location):
+        """Body shape when user changes location to a different value."""
+        resp = client.patch(
+            f"{BASE_URL}/{spool.id}",
+            json={
+                "status": "active",
+                "location_id": other_location.id,
+                "notes": "moved to WHB",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        db.refresh(spool)
+        assert spool.location_id == other_location.id
+        assert spool.notes == "moved to WHB"
+
+
 # =============================================================================
 # 404 behavior
 # =============================================================================
