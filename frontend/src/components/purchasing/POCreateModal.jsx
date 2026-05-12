@@ -70,7 +70,7 @@ export default function POCreateModal({
   };
 
   const [form, setForm] = useState({
-    vendor_id: po?.vendor_id || "",
+    vendor_id: po?.vendor_id ?? null,
     order_date: po?.order_date || new Date().toISOString().split("T")[0], // Default to today
     expected_date: po?.expected_date || "",
     tracking_number: po?.tracking_number || "",
@@ -328,9 +328,12 @@ export default function POCreateModal({
                   Vendor *
                 </label>
                 <select
-                  value={form.vendor_id}
+                  value={form.vendor_id ?? ""}
                   onChange={(e) =>
-                    setForm({ ...form, vendor_id: e.target.value })
+                    setForm({
+                      ...form,
+                      vendor_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                    })
                   }
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white"
                   required

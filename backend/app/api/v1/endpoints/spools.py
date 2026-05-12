@@ -19,6 +19,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.models import User, MaterialSpool, ProductionOrderSpool, Product
 from app.models.production_order import ProductionOrder
 from app.models.inventory import InventoryTransaction, Inventory
+from app.schemas.spool import SpoolCreate, SpoolUpdate
 from app.services.inventory_helpers import is_material
 from app.logging_config import get_logger
 
@@ -144,53 +145,45 @@ async def get_spool(
 
 @router.post("/")
 async def create_spool(
-    spool_number: str = Query(..., description="Unique spool identifier"),
-    product_id: int = Query(..., description="Product/material ID"),
-    initial_weight_kg: float = Query(..., description="Initial weight (grams)"),
-    current_weight_kg: Optional[float] = Query(None, description="Current weight in grams (defaults to initial)"),
-    location_id: Optional[int] = Query(None, description="Storage location"),
-    supplier_lot_number: Optional[str] = Query(None, description="Supplier lot/batch number"),
-    expiry_date: Optional[datetime] = Query(None, description="Material expiry date"),
-    notes: Optional[str] = Query(None, description="Additional notes"),
+    body: SpoolCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Create a new material spool.
+
+    Body fields documented in ``app.schemas.spool.SpoolCreate``. Weights are
+    in grams despite the ``_kg`` naming (pre-existing project quirk).
     """
-    # Check if spool number already exists
-    existing = db.query(MaterialSpool).filter(MaterialSpool.spool_number == spool_number).first()
+    existing = db.query(MaterialSpool).filter(MaterialSpool.spool_number == body.spool_number).first()
     if existing:
-        raise HTTPException(status_code=400, detail=f"Spool number {spool_number} already exists")
-    
-    # Verify product exists
-    product = db.query(Product).filter(Product.id == product_id).first()
+        raise HTTPException(status_code=400, detail=f"Spool number {body.spool_number} already exists")
+
+    product = db.query(Product).filter(Product.id == body.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Use initial weight as current if not specified
-    if current_weight_kg is None:
-        current_weight_kg = initial_weight_kg
-    
+
+    current_weight = body.current_weight_kg if body.current_weight_kg is not None else body.initial_weight_kg
+
     spool = MaterialSpool(
-        spool_number=spool_number,
-        product_id=product_id,
-        initial_weight_kg=Decimal(str(initial_weight_kg)),
-        current_weight_kg=Decimal(str(current_weight_kg)),
+        spool_number=body.spool_number,
+        product_id=body.product_id,
+        initial_weight_kg=Decimal(str(body.initial_weight_kg)),
+        current_weight_kg=Decimal(str(current_weight)),
         status="active",
-        location_id=location_id,
-        supplier_lot_number=supplier_lot_number,
-        expiry_date=expiry_date,
-        notes=notes,
+        location_id=body.location_id,
+        supplier_lot_number=body.supplier_lot_number,
+        expiry_date=body.expiry_date,
+        notes=body.notes,
         created_by=current_user.email if current_user else None,
     )
-    
+
     db.add(spool)
     db.commit()
     db.refresh(spool)
-    
-    logger.info(f"Created spool {spool_number} for product {product_id} by {current_user.email if current_user else 'system'}")
-    
+
+    logger.info(f"Created spool {body.spool_number} for product {body.product_id} by {current_user.email if current_user else 'system'}")
+
     return {
         "id": spool.id,
         "spool_number": spool.spool_number,
@@ -201,28 +194,41 @@ async def create_spool(
 @router.patch("/{spool_id}")
 async def update_spool(
     spool_id: int,
-    current_weight_g: Optional[float] = Query(None, description="Update current weight (grams)"),
-    status: Optional[str] = Query(None, description="Update status"),
-    location_id: Optional[int] = Query(None, description="Update location"),
-    notes: Optional[str] = Query(None, description="Update notes"),
-    reason: Optional[str] = Query(None, description="Reason for weight adjustment (required if adjusting weight)"),
+    body: SpoolUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Update spool information (weight, status, location, notes).
-    
+
+    Uses ``model_dump(exclude_unset=True)`` so callers can:
+      - omit a field to leave it unchanged
+      - set ``location_id`` or ``notes`` to ``null`` to clear them
+      - send a concrete value to set it
+
+    Status is left under a truthy check to preserve its prior behavior
+    (sending ``"status": null`` does NOT clear status — status has no
+    meaningful null state in this system).
+
     When updating weight, this creates an inventory adjustment transaction
     and updates the product's inventory level to maintain accuracy.
     """
     spool = db.query(MaterialSpool).filter(MaterialSpool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    
+
+    update_data = body.model_dump(exclude_unset=True)
     transaction_created = None
-    
+
     # Handle weight adjustment with inventory transaction
-    if current_weight_g is not None:
+    if "current_weight_g" in update_data:
+        current_weight_g = update_data["current_weight_g"]
+        if current_weight_g is None:
+            raise HTTPException(
+                status_code=400,
+                detail="current_weight_g cannot be null; omit the field to leave weight unchanged",
+            )
+        reason = update_data.get("reason")
         if not reason:
             raise HTTPException(
                 status_code=400,
@@ -336,15 +342,20 @@ async def update_spool(
             spool.status = "empty"  # type: ignore[assignment]
             logger.info(f"Spool {spool.spool_number} automatically marked as empty (weight: {float(new_weight_g)}g)")
     
-    # Handle other updates
-    if status:
-        spool.status = status  # type: ignore[assignment]
-    
-    if location_id is not None:
-        spool.location_id = location_id  # type: ignore[assignment]
-    
-    if notes is not None:
-        spool.notes = notes  # type: ignore[assignment]
+    # Status — truthy check preserves the prior behavior where
+    # null / empty does NOT clear status (no meaningful null state).
+    if update_data.get("status"):
+        spool.status = update_data["status"]  # type: ignore[assignment]
+
+    # location_id — exclude_unset semantics so an explicit null clears the FK.
+    # Pre-Copilot-fix, this used ``if location_id is not None`` which made
+    # "No location" silently no-op on edited spools.
+    if "location_id" in update_data:
+        spool.location_id = update_data["location_id"]  # type: ignore[assignment]
+
+    # notes — exclude_unset semantics so explicit null or "" clears the field.
+    if "notes" in update_data:
+        spool.notes = update_data["notes"]  # type: ignore[assignment]
     
     spool.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
     

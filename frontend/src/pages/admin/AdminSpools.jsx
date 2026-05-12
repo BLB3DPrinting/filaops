@@ -260,11 +260,11 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
   const api = useApi();
   const [form, setForm] = useState({
     spool_number: spool?.spool_number || "",
-    product_id: spool?.product_id || "",
+    product_id: spool?.product_id ?? null,
     initial_weight_kg: spool?.initial_weight_kg || "",
     current_weight_kg: spool?.current_weight_kg || spool?.initial_weight_kg || "",
     status: spool?.status || "active",
-    location_id: spool?.location_id || "",
+    location_id: spool?.location_id ?? null,
     supplier_lot_number: spool?.supplier_lot_number || "",
     expiry_date: spool?.expiry_date ? spool.expiry_date.split("T")[0] : "",
     notes: spool?.notes || "",
@@ -276,29 +276,52 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
     setSaving(true);
 
     try {
-      const endpoint = spool
-        ? `/api/v1/spools/${spool.id}`
-        : "/api/v1/spools";
-
-      const params = new URLSearchParams();
-      if (!spool) {
-        params.set("spool_number", form.spool_number);
-        params.set("product_id", form.product_id);
-        params.set("initial_weight_kg", form.initial_weight_kg);
-        if (form.current_weight_kg) params.set("current_weight_kg", form.current_weight_kg);
-      } else {
-        if (form.current_weight_kg) params.set("current_weight_g", form.current_weight_kg * 1000);
-        if (form.status) params.set("status", form.status);
-      }
-      if (form.location_id) params.set("location_id", form.location_id);
-      if (form.supplier_lot_number) params.set("supplier_lot_number", form.supplier_lot_number);
-      if (form.expiry_date) params.set("expiry_date", form.expiry_date);
-      if (form.notes) params.set("notes", form.notes);
-
       if (spool) {
-        await api.patch(`${endpoint}?${params}`);
+        // EDIT — JSON body with exclude_unset semantics on the backend:
+        // omit a field to leave it unchanged; send location_id/notes as null
+        // to clear them. Picking "No location" must reach the backend as an
+        // explicit null, not be silently dropped (Copilot PR #603 finding).
+        const body = {};
+
+        // Weight: the form initializes current_weight_kg from the spool, so
+        // it's always populated. Only send current_weight_g when the user
+        // has actually edited it — otherwise every PATCH would trigger the
+        // backend's weight-adjustment branch, which requires a `reason` this
+        // modal doesn't collect (the 400 then blocks status/location/notes
+        // edits entirely). The dedicated weight-adjustment flow lives
+        // elsewhere; we surface a clear error if the user tries to use this
+        // form for it (CodeRabbit PR #603 finding).
+        const originalWeight = Number(
+          spool.current_weight_kg ?? spool.initial_weight_kg ?? 0
+        );
+        const editedWeight = Number(form.current_weight_kg);
+        if (editedWeight !== originalWeight) {
+          throw new Error(
+            "Weight updates require a reason and aren't supported from this modal yet. Use the inventory adjustment flow."
+          );
+        }
+
+        if (form.status) body.status = form.status;
+        // Always send location_id, even when null, so "No location" clears.
+        body.location_id = form.location_id;
+        // Always send notes so the user can clear them by emptying the field.
+        body.notes = form.notes || null;
+        await api.patch(`/api/v1/spools/${spool.id}`, body);
       } else {
-        await api.post(`${endpoint}?${params}`);
+        // CREATE — full body. Optional fields included only when set.
+        const body = {
+          spool_number: form.spool_number,
+          product_id: form.product_id,
+          initial_weight_kg: parseFloat(form.initial_weight_kg),
+        };
+        if (form.current_weight_kg) {
+          body.current_weight_kg = parseFloat(form.current_weight_kg);
+        }
+        if (form.location_id !== null) body.location_id = form.location_id;
+        if (form.supplier_lot_number) body.supplier_lot_number = form.supplier_lot_number;
+        if (form.expiry_date) body.expiry_date = form.expiry_date;
+        if (form.notes) body.notes = form.notes;
+        await api.post("/api/v1/spools/", body);
       }
 
       toast.success(spool ? "Spool updated" : "Spool created");
@@ -334,8 +357,13 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
             <label className="block text-sm text-gray-400 mb-1">Material *</label>
             <select
               required
-              value={form.product_id}
-              onChange={(e) => setForm({ ...form, product_id: e.target.value })}
+              value={form.product_id ?? ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  product_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                })
+              }
               disabled={!!spool}
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white disabled:opacity-50"
             >
@@ -391,8 +419,13 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
             <div>
               <label className="block text-sm text-gray-400 mb-1">Location</label>
               <select
-                value={form.location_id}
-                onChange={(e) => setForm({ ...form, location_id: e.target.value })}
+                value={form.location_id ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    location_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                  })
+                }
                 className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
               >
                 <option value="">No location</option>
