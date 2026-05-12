@@ -276,29 +276,40 @@ function SpoolModal({ spool, products, locations, onClose, onSave }) {
     setSaving(true);
 
     try {
-      const endpoint = spool
-        ? `/api/v1/spools/${spool.id}`
-        : "/api/v1/spools";
-
-      const params = new URLSearchParams();
-      if (!spool) {
-        params.set("spool_number", form.spool_number);
-        params.set("product_id", form.product_id);
-        params.set("initial_weight_kg", form.initial_weight_kg);
-        if (form.current_weight_kg) params.set("current_weight_kg", form.current_weight_kg);
-      } else {
-        if (form.current_weight_kg) params.set("current_weight_g", form.current_weight_kg * 1000);
-        if (form.status) params.set("status", form.status);
-      }
-      if (form.location_id) params.set("location_id", form.location_id);
-      if (form.supplier_lot_number) params.set("supplier_lot_number", form.supplier_lot_number);
-      if (form.expiry_date) params.set("expiry_date", form.expiry_date);
-      if (form.notes) params.set("notes", form.notes);
-
       if (spool) {
-        await api.patch(`${endpoint}?${params}`);
+        // EDIT — JSON body with exclude_unset semantics on the backend:
+        // omit a field to leave it unchanged; send location_id/notes as null
+        // to clear them. Picking "No location" must reach the backend as an
+        // explicit null, not be silently dropped (Copilot PR #603 finding).
+        const body = {};
+        if (form.current_weight_kg) {
+          // Pre-existing quirk preserved: form input is labeled grams but
+          // the submit historically multiplied by 1000. The modal also has
+          // no `reason` input, so weight edits via this form currently
+          // 400 on the backend regardless. Out of scope for this PR.
+          body.current_weight_g = parseFloat(form.current_weight_kg) * 1000;
+        }
+        if (form.status) body.status = form.status;
+        // Always send location_id, even when null, so "No location" clears.
+        body.location_id = form.location_id;
+        // Always send notes so the user can clear them by emptying the field.
+        body.notes = form.notes || null;
+        await api.patch(`/api/v1/spools/${spool.id}`, body);
       } else {
-        await api.post(`${endpoint}?${params}`);
+        // CREATE — full body. Optional fields included only when set.
+        const body = {
+          spool_number: form.spool_number,
+          product_id: form.product_id,
+          initial_weight_kg: parseFloat(form.initial_weight_kg),
+        };
+        if (form.current_weight_kg) {
+          body.current_weight_kg = parseFloat(form.current_weight_kg);
+        }
+        if (form.location_id !== null) body.location_id = form.location_id;
+        if (form.supplier_lot_number) body.supplier_lot_number = form.supplier_lot_number;
+        if (form.expiry_date) body.expiry_date = form.expiry_date;
+        if (form.notes) body.notes = form.notes;
+        await api.post("/api/v1/spools/", body);
       }
 
       toast.success(spool ? "Spool updated" : "Spool created");
