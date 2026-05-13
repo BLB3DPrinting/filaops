@@ -56,10 +56,15 @@ def spa_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # the whole chain — app.main, app.core.config, app.core.settings — so
     # the reload picks up the env var. Stash the prior modules so other
     # tests in the same session aren't disturbed.
+    #
+    # The import + yield both live inside the try/finally so a failure
+    # during import_module doesn't leak the popped entries — without that
+    # guard a regression in app.main would cascade into every subsequent
+    # test that imports the FastAPI app.
     cached_names = ("app.main", "app.core.config", "app.core.settings")
     priors = {name: sys.modules.pop(name, None) for name in cached_names}
-    main = importlib.import_module("app.main")
     try:
+        main = importlib.import_module("app.main")
         yield main.app, dist
     finally:
         for name in cached_names:
