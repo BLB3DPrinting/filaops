@@ -15,8 +15,16 @@ Why this exists:
 
     These helpers preserve the existing default behaviour when no
     override is supplied, so Docker / dev installs are unaffected.
-    A packaged install can set e.g. ``FILAOPS_STATIC_DIR`` to a
-    writable per-user location.
+    A packaged install can set e.g. ``STATIC_DIR`` to a writable
+    per-user location.
+
+Environment variable note:
+    Settings reads env vars *unprefixed* (its model_config does not set
+    ``env_prefix``). The active env var names match the field names on
+    ``Settings`` exactly — ``STATIC_DIR``, ``UPLOAD_PRODUCTS_DIR``,
+    ``UPLOAD_PO_DOCS_DIR``. The ``Settings`` class docstring mentions a
+    ``FILAOPS_`` prefix but no such prefix is currently configured; that
+    pre-existing claim is misleading and worth fixing in a follow-up.
 
 Pattern:
     The caller passes the raw override string (typically from
@@ -32,7 +40,12 @@ from pathlib import Path
 # Resolves to the ``backend/`` directory at the top of the repo.
 # Used as the anchor for the historical-default paths so behaviour stays
 # identical when no env var is supplied.
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+#
+# Exported (no leading underscore) because callers — notably the test
+# suite, and anything else needing to anchor in the same place — may
+# legitimately want to read it. Treating it as part of the module's
+# public surface keeps tests from coupling to a "private" name.
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def _coerce_override(value: str | None) -> Path | None:
@@ -54,7 +67,7 @@ def resolve_static_dir(override: str | None = None) -> Path:
     """Static files root.
 
     Default: ``<backend>/static`` (the historical location).
-    Override: ``FILAOPS_STATIC_DIR`` env / ``settings.STATIC_DIR``.
+    Override: ``STATIC_DIR`` env / ``settings.STATIC_DIR``.
 
     Used by ``app.main`` to mount ``/static`` and as the parent for
     product image uploads.
@@ -62,7 +75,7 @@ def resolve_static_dir(override: str | None = None) -> Path:
     overridden = _coerce_override(override)
     if overridden is not None:
         return overridden
-    return _BACKEND_DIR / "static"
+    return BACKEND_DIR / "static"
 
 
 def resolve_upload_products_dir(
@@ -73,7 +86,13 @@ def resolve_upload_products_dir(
     Default: ``<static_dir>/uploads/products`` (kept directly under the
     static-files root so the images are web-served via the existing
     ``/static`` mount).
-    Override: ``FILAOPS_UPLOAD_PRODUCTS_DIR`` env / ``settings.UPLOAD_PRODUCTS_DIR``.
+    Override: ``UPLOAD_PRODUCTS_DIR`` env / ``settings.UPLOAD_PRODUCTS_DIR``.
+
+    Note: callers should pass the already-resolved ``static_dir=`` when
+    the static root may have been overridden. Without it, a configured
+    ``STATIC_DIR`` plus empty ``UPLOAD_PRODUCTS_DIR`` would write images
+    under the historical ``<backend>/static/uploads/products`` while
+    ``/static`` serves the overridden root — image URLs would 404.
     """
     overridden = _coerce_override(override)
     if overridden is not None:
@@ -88,9 +107,9 @@ def resolve_upload_po_docs_dir(override: str | None = None) -> Path:
     Default: ``<backend>/uploads/po_documents`` (kept outside the
     static-files root because PO docs are downloaded via an authenticated
     endpoint, not served via the public ``/static`` mount).
-    Override: ``FILAOPS_UPLOAD_PO_DOCS_DIR`` env / ``settings.UPLOAD_PO_DOCS_DIR``.
+    Override: ``UPLOAD_PO_DOCS_DIR`` env / ``settings.UPLOAD_PO_DOCS_DIR``.
     """
     overridden = _coerce_override(override)
     if overridden is not None:
         return overridden
-    return _BACKEND_DIR / "uploads" / "po_documents"
+    return BACKEND_DIR / "uploads" / "po_documents"

@@ -38,8 +38,9 @@ logger = get_logger(__name__)
 # Upload directory for local storage.
 #
 # Default resolves to ``<backend>/uploads/po_documents`` (the historical
-# location). A packaged install can override with FILAOPS_UPLOAD_PO_DOCS_DIR
-# to point at a writable per-user directory.
+# location). A packaged install can override with the ``UPLOAD_PO_DOCS_DIR``
+# env var (pydantic-settings reads it unprefixed) to point at a writable
+# per-user directory.
 UPLOAD_DIR = resolve_upload_po_docs_dir(settings.UPLOAD_PO_DOCS_DIR)
 
 
