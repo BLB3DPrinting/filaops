@@ -26,10 +26,16 @@ const AdminSettings = () => {
   const fileInputRef = useRef(null);
   const {
     latestVersion,
+    installMethod,
     updateAvailable,
     loading: checkingUpdate,
     checkForUpdates,
   } = useVersionCheck();
+  // The Tauri auto-updater is the source of truth for desktop installs, so
+  // the SPA's manual "Check for Updates → GitHub poll → docker-compose
+  // runbook" flow doesn't apply. Hide that UI and show a short explainer
+  // pointing users at the tray icon instead.
+  const isTauriInstall = installMethod === "tauri";
   const [checkingManually, setCheckingManually] = useState(false);
   const [currentVersion, setCurrentVersion] = useState(getCurrentVersionSync());
 
@@ -912,61 +918,82 @@ const AdminSettings = () => {
               </p>
             </div>
 
-            {latestVersion && (
+            {isTauriInstall ? (
+              // Tauri install: the auto-updater handles version detection +
+              // download + swap, so we don't fetch GitHub from the SPA. Show
+              // a short explainer pointing users at the tray icon so they
+              // know where the "check now" affordance lives, and surface the
+              // install method so a customer support screenshot includes
+              // enough context to identify the deployment shape.
               <div>
-                <p className="text-sm text-gray-400 mb-2">Latest Version</p>
-                <div className="flex items-center gap-3">
-                  <p className="text-lg font-semibold text-white">
-                    v{formatVersion(latestVersion)}
-                  </p>
-                  {updateAvailable ? (
-                    <span className="px-2 py-1 bg-blue-600 text-blue-100 text-xs rounded-md">
-                      Update Available
-                    </span>
-                  ) : (
-                    <span className="px-2 py-1 bg-green-600 text-green-100 text-xs rounded-md">
-                      Up to Date
-                    </span>
+                <p className="text-sm text-gray-400 mb-2">Update Channel</p>
+                <p className="text-sm text-gray-300">
+                  This is a desktop install. Updates download and install
+                  automatically through the FilaOps app — open the tray icon
+                  and choose <strong>Check for Updates</strong> if you want to
+                  upgrade now. FilaOps restarts itself once the update
+                  finishes.
+                </p>
+              </div>
+            ) : (
+              <>
+                {latestVersion && (
+                  <div>
+                    <p className="text-sm text-gray-400 mb-2">Latest Version</p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-lg font-semibold text-white">
+                        v{formatVersion(latestVersion)}
+                      </p>
+                      {updateAvailable ? (
+                        <span className="px-2 py-1 bg-blue-600 text-blue-100 text-xs rounded-md">
+                          Update Available
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-600 text-green-100 text-xs rounded-md">
+                          Up to Date
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setCheckingManually(true);
+                      await checkForUpdates(true);
+                      setCheckingManually(false);
+                      if (updateAvailable) {
+                        toast.success(
+                          `Update available: v${formatVersion(latestVersion)}`
+                        );
+                      } else {
+                        toast.success("You're running the latest version!");
+                      }
+                    }}
+                    disabled={checkingUpdate || checkingManually}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+                  >
+                    {checkingUpdate || checkingManually
+                      ? "Checking..."
+                      : "Check for Updates"}
+                  </button>
+                  {latestVersion && updateAvailable && (
+                    <a
+                      href={`https://github.com/Blb3D/filaops/releases/tag/v${formatVersion(
+                        latestVersion
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 text-sm underline"
+                    >
+                      View Release Notes
+                    </a>
                   )}
                 </div>
-              </div>
+              </>
             )}
-
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  setCheckingManually(true);
-                  await checkForUpdates(true);
-                  setCheckingManually(false);
-                  if (updateAvailable) {
-                    toast.success(
-                      `Update available: v${formatVersion(latestVersion)}`
-                    );
-                  } else {
-                    toast.success("You're running the latest version!");
-                  }
-                }}
-                disabled={checkingUpdate || checkingManually}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm"
-              >
-                {checkingUpdate || checkingManually
-                  ? "Checking..."
-                  : "Check for Updates"}
-              </button>
-              {latestVersion && updateAvailable && (
-                <a
-                  href={`https://github.com/Blb3D/filaops/releases/tag/v${formatVersion(
-                    latestVersion
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 text-sm underline"
-                >
-                  View Release Notes
-                </a>
-              )}
-            </div>
           </div>
         </div>
 

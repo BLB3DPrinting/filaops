@@ -33,6 +33,37 @@ export async function getCurrentVersion() {
 }
 
 /**
+ * Get full version metadata from backend API.
+ *
+ * Returns both the version string and the deployment shape so the UI can
+ * branch its update flow. Callers that only need the bare version string
+ * should keep using `getCurrentVersion()` to avoid pulling in fields they
+ * don't use.
+ *
+ * @returns {Promise<{version: string, install_method: string, build_date: string}>}
+ *   Always returns a shape; on network/parse failure falls back to the
+ *   build-time package version with install_method='docker' (the historical
+ *   default) so the UI keeps rendering instead of disappearing.
+ */
+export async function getVersionInfo() {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/system/version`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch version');
+    }
+    const data = await response.json();
+    return {
+      version: data.version ?? PACKAGE_VERSION,
+      install_method: data.install_method ?? 'docker',
+      build_date: data.build_date ?? '',
+    };
+  } catch (error) {
+    console.error('Failed to get version info from backend:', error);
+    return { version: PACKAGE_VERSION, install_method: 'docker', build_date: '' };
+  }
+}
+
+/**
  * Get current version synchronously (build-time value from package.json)
  * @returns {string} Current version (e.g., "3.0.1")
  */
