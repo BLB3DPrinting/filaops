@@ -9,15 +9,21 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pydantic import BaseModel
 
+from app.core.paths import resolve_upload_products_dir
+from app.core.settings import settings
 from app.models.user import User
 from app.api.v1.deps import get_current_user
 from app.logging_config import get_logger
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Upload configuration
-# Path from uploads.py to backend/static/uploads/products (6 parents up from admin/uploads.py)
-UPLOAD_DIR = Path(__file__).parent.parent.parent.parent.parent.parent / "static" / "uploads" / "products"
+# Upload configuration.
+#
+# Default resolves to ``<backend>/static/uploads/products`` (the historical
+# location, kept under the /static mount so images stay web-served). A
+# packaged install can override with FILAOPS_UPLOAD_PRODUCTS_DIR to point at
+# a writable per-user directory.
+UPLOAD_DIR = resolve_upload_products_dir(settings.UPLOAD_PRODUCTS_DIR)
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 

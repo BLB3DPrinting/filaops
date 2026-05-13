@@ -237,7 +237,22 @@ class Settings(BaseSettings):
     # ===================
     # File Storage
     # ===================
-    UPLOAD_DIR: str = Field(default="", description="Upload dir (defaults to <backend>/uploads/quotes)")
+    UPLOAD_DIR: str = Field(default="", description="Quote upload dir (defaults to <backend>/uploads/quotes)")
+    # The three fields below let packaged/non-Docker deployments override
+    # historically-hardcoded paths under the source tree. Empty default ==
+    # use the in-repo path; resolution lives in app.core.paths.
+    STATIC_DIR: str = Field(
+        default="",
+        description="Static files root, mounted at /static (defaults to <backend>/static)",
+    )
+    UPLOAD_PRODUCTS_DIR: str = Field(
+        default="",
+        description="Product image upload dir (defaults to <STATIC_DIR>/uploads/products)",
+    )
+    UPLOAD_PO_DOCS_DIR: str = Field(
+        default="",
+        description="PO document upload dir (defaults to <backend>/uploads/po_documents)",
+    )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
         default=[".3mf", ".stl"], description="Allowed upload extensions"

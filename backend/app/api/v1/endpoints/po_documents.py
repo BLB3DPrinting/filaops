@@ -18,6 +18,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from app.core.paths import resolve_upload_po_docs_dir
+from app.core.settings import settings
 from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.purchase_order import PurchaseOrder
@@ -33,8 +35,12 @@ from app.schemas.purchasing import (
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Upload directory for local storage (resolved relative to this file, works in Docker and CI)
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "uploads" / "po_documents"
+# Upload directory for local storage.
+#
+# Default resolves to ``<backend>/uploads/po_documents`` (the historical
+# location). A packaged install can override with FILAOPS_UPLOAD_PO_DOCS_DIR
+# to point at a writable per-user directory.
+UPLOAD_DIR = resolve_upload_po_docs_dir(settings.UPLOAD_PO_DOCS_DIR)
 
 
 def _ensure_upload_dir():

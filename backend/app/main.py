@@ -359,12 +359,32 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Include API routes
 app.include_router(api_v1_router, prefix="/api/v1")
 
-# Static file serving for uploaded images
-# Creates directory if it doesn't exist
-STATIC_DIR = Path(__file__).parent.parent / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-(STATIC_DIR / "uploads" / "products").mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Static file serving for uploaded images.
+#
+# Paths resolve via app.core.paths so deployments that put the source tree in
+# a read-only location (PyInstaller bundles under Program Files, etc.) can
+# override via env vars (FILAOPS_STATIC_DIR / FILAOPS_UPLOAD_PRODUCTS_DIR)
+# without touching application code. mkdir is wrapped in try/except to match
+# the file_storage.py convention — a non-writable static dir shouldn't crash
+# app import, just disable the /static mount with a warning.
+from app.core.paths import resolve_static_dir, resolve_upload_products_dir
+
+STATIC_DIR = resolve_static_dir(settings.STATIC_DIR)
+PRODUCT_UPLOADS_DIR = resolve_upload_products_dir(
+    settings.UPLOAD_PRODUCTS_DIR, static_dir=STATIC_DIR
+)
+for _d in (STATIC_DIR, PRODUCT_UPLOADS_DIR):
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Could not create %s: %s", _d, exc)
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+else:
+    logger.warning(
+        "STATIC_DIR does not exist after mkdir attempt; /static will not be mounted: %s",
+        STATIC_DIR,
+    )
 
 
 @app.get("/")
