@@ -28,6 +28,11 @@ class VersionResponse(BaseModel):
     """Current version information (public-safe fields only)"""
     version: str
     build_date: str
+    # Deployment shape — `docker`, `tauri`, or `manual`. The SPA branches the
+    # Settings page's "Version & Updates" card on this so Tauri users don't
+    # see docker-compose instructions and vice versa. See VersionManager
+    # docstring for the resolution rules.
+    install_method: str = "docker"
 
 
 class SystemInfoResponse(BaseModel):
@@ -35,6 +40,7 @@ class SystemInfoResponse(BaseModel):
     tier: str
     features_enabled: list[str]
     version: str
+    install_method: str = "docker"
     smtp_configured: bool = False
 
 
@@ -64,6 +70,11 @@ class UpdateInstructionsResponse(BaseModel):
     backup_recommendation: str
     documentation_url: str
     rollback_steps: list[str]
+    # True when the operator runs commands themselves (docker-compose flow);
+    # False when the install handles its own upgrade (Tauri auto-updater).
+    # Frontend uses this to choose between a long-form runbook and a short
+    # "this happens automatically" message.
+    requires_manual_steps: bool = True
 
 
 class SystemHealthResponse(BaseModel):
@@ -94,7 +105,10 @@ async def get_system_version():
         # Return only public-safe fields
         return VersionResponse(
             version=version_info.get("version", "unknown"),
-            build_date=version_info.get("build_date", "unknown")
+            build_date=version_info.get("build_date", "unknown"),
+            install_method=version_info.get(
+                "install_method", VersionManager.DEFAULT_INSTALL_METHOD
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to get version info: {e}", exc_info=True)
@@ -120,6 +134,9 @@ async def get_system_info():
             tier=get_tier(),
             features_enabled=get_features(),
             version=version_info.get("version", "unknown"),
+            install_method=version_info.get(
+                "install_method", VersionManager.DEFAULT_INSTALL_METHOD
+            ),
             smtp_configured=bool(settings.SMTP_USER and settings.SMTP_PASSWORD),
         )
     except Exception as e:

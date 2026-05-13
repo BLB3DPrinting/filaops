@@ -6,9 +6,27 @@ Uses git-based versioning for native PostgreSQL installation.
 
 Version resolution order:
   1. Git tag (git describe --tags --abbrev=0) — works in dev and non-Docker prod
-  2. FILAOPS_VERSION environment variable — only if explicitly set (e.g. docker-compose .env override)
+  2. FILAOPS_VERSION environment variable — only if explicitly set
+     (e.g. docker-compose .env override, or the Tauri shell stamping
+     `git describe` output at build time)
   3. VERSION file (backend/VERSION) — single source of truth, read at import time
   4. FALLBACK_VERSION sentinel ("0.0.0") — last resort, should never be reached
+
+Install-method awareness:
+  Core ships in multiple deployment shapes (Docker, Tauri desktop, future
+  Linux .deb). The version string is the **product** version and is identical
+  across them — `4.0.0` means the same code regardless of install method.
+  What differs is how updates are delivered. Deployment artifacts opt in by
+  setting `FILAOPS_INSTALL_METHOD` to one of:
+
+      docker   — default; updates via `docker-compose pull && up -d`
+      tauri    — native desktop install; updates via the Tauri auto-updater
+                 (the shell handles download/swap on next launch)
+      manual   — bare-metal install; admin runs alembic/pip themselves
+
+  Endpoints expose the install method so the SPA can render the appropriate
+  upgrade UX (and so customer support can identify the deployment shape from
+  a screenshot).
 
 See docs/VERSIONING.md for the full versioning strategy.
 """
@@ -40,6 +58,31 @@ class VersionManager:
 
     GITHUB_REPO = "Blb3D/filaops"
     FALLBACK_VERSION = _read_version_file() or "0.0.0"
+
+    # Known deployment shapes. Anything outside this set still flows through
+    # the endpoint but the frontend treats it as "docker" for UI purposes —
+    # this set is the explicit allow-list for branching behaviour.
+    KNOWN_INSTALL_METHODS = frozenset({"docker", "tauri", "manual"})
+    DEFAULT_INSTALL_METHOD = "docker"
+
+    @staticmethod
+    def get_install_method() -> str:
+        """Return how FilaOps was deployed (docker, tauri, manual).
+
+        Reads the `FILAOPS_INSTALL_METHOD` env var which the deployment
+        artifact sets. Falls back to "docker" because Docker Compose is the
+        historical default — every Core release prior to this method existing
+        was a Docker install, and that's still what most customers run.
+
+        An unrecognised value isn't an error (we don't want to crash an
+        otherwise-healthy install over a typo) but is normalised back to
+        "docker" so downstream UI branches don't have to handle an unknown
+        sentinel.
+        """
+        raw = os.getenv("FILAOPS_INSTALL_METHOD", "").strip().lower()
+        if raw in VersionManager.KNOWN_INSTALL_METHODS:
+            return raw
+        return VersionManager.DEFAULT_INSTALL_METHOD
 
     # Server-side cache for GitHub API responses (to avoid rate limiting)
     _update_cache: Optional[Dict[str, Any]] = None
@@ -92,13 +135,20 @@ class VersionManager:
             # In Docker, try to read from env var
             commit_hash = os.getenv('FILAOPS_COMMIT', 'unknown')
 
+        install_method = VersionManager.get_install_method()
         return {
             "version": version,
             "build_date": os.getenv('FILAOPS_BUILD_DATE', datetime.now().isoformat()),
             "commit_hash": commit_hash,
             "database_version": "unknown",  # Will be set by endpoint with DB session
             "environment": os.getenv("ENVIRONMENT", "production"),
-            "update_method": "docker-compose"
+            "install_method": install_method,
+            # Legacy field — kept so older clients reading `update_method`
+            # don't break. New code should read `install_method` and look up
+            # the actual update mechanism from get_update_instructions().
+            "update_method": (
+                "tauri-updater" if install_method == "tauri" else "docker-compose"
+            ),
         }
 
     @staticmethod
@@ -227,10 +277,85 @@ class VersionManager:
     @staticmethod
     def get_update_instructions() -> Dict[str, Any]:
         """
-        Get step-by-step update instructions for current deployment method
+        Get step-by-step update instructions for the current deployment shape.
 
-        Returns manual upgrade steps for Phase 1 implementation
+        Branches on `FILAOPS_INSTALL_METHOD` so each deployment artifact gets
+        the upgrade path that's actually correct for its environment. Telling
+        a Tauri desktop user to run `docker-compose down` is worse than no
+        instructions at all — they'd either hit "command not found" or hunt
+        for the wrong product.
+
+        All branches return the same shape so frontend code can stay generic;
+        the differences are in `instructions`, `downtime`, and
+        `requires_manual_steps`.
         """
+        install_method = VersionManager.get_install_method()
+
+        if install_method == "tauri":
+            # The Tauri auto-updater handles download + integrity check +
+            # swap-on-next-launch. From the user's perspective there are no
+            # commands to run — the tray app's "Check for Updates" item does
+            # everything. We surface zero manual steps and let the frontend
+            # render an "Updates install automatically" message keyed off
+            # `requires_manual_steps=False`.
+            return {
+                "method": "tauri-updater",
+                "estimated_time": "Under 1 minute",
+                "downtime": "Brief restart on next launch",
+                "instructions": [
+                    "Updates install automatically through the FilaOps app.",
+                    "Open the tray icon and choose Check for Updates if you want to upgrade now.",
+                    "FilaOps restarts itself once the update finishes downloading.",
+                ],
+                "backup_recommendation": (
+                    "FilaOps backs up your database automatically before each update. "
+                    "No manual action required."
+                ),
+                "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+                "rollback_steps": [
+                    "Re-install the previous version from "
+                    "https://github.com/Blb3D/filaops/releases — the Tauri installer "
+                    "preserves your data directory across versions.",
+                ],
+                "requires_manual_steps": False,
+            }
+
+        if install_method == "manual":
+            # Bare-metal install — no docker, no Tauri shell, just a Python
+            # interpreter pointed at the repo. The operator owns the runbook
+            # end-to-end: pip install, alembic upgrade, service restart. We
+            # don't know whether they're under systemd, supervisord, or a
+            # plain shell, so the restart step stays generic ("restart your
+            # FilaOps service") instead of prescribing one specific verb.
+            return {
+                "method": "manual",
+                "estimated_time": "5-15 minutes",
+                "downtime": "Service restart required",
+                "instructions": [
+                    "1. Back up your database (pg_dump or your usual backup tool).",
+                    "2. Fetch the latest release: git fetch --tags && git checkout vX.X.X",
+                    "3. Upgrade Python dependencies: pip install -r backend/requirements.txt",
+                    "4. Run migrations: cd backend && alembic upgrade head",
+                    "5. Restart your FilaOps service (systemd / supervisord / however you run it).",
+                    "6. Verify health: curl http://localhost:8000/health should return 200.",
+                ],
+                "backup_recommendation": (
+                    "Back up your database before running migrations. "
+                    "Alembic downgrades exist but recovering from a botched upgrade "
+                    "via backup is faster and safer."
+                ),
+                "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+                "rollback_steps": [
+                    "1. Restore the pre-upgrade database backup.",
+                    "2. Check out the previous version: git checkout vX.X.X",
+                    "3. Re-install dependencies: pip install -r backend/requirements.txt",
+                    "4. Restart your FilaOps service.",
+                ],
+                "requires_manual_steps": True,
+            }
+
+        # Default: docker-compose (preserves prior behaviour for existing
+        # Docker installs — anyone already running Core got this verbiage).
         return {
             "method": "docker-compose",
             "estimated_time": "5-10 minutes",
@@ -253,5 +378,6 @@ class VersionManager:
                 "3. Rebuild: docker-compose build",
                 "4. Start: docker-compose up -d",
                 "5. Rollback migrations: docker-compose exec backend alembic downgrade -1 (repeat as needed)"
-            ]
+            ],
+            "requires_manual_steps": True,
         }
