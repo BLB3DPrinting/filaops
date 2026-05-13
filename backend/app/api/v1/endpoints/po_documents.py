@@ -11,7 +11,6 @@ import os
 import uuid
 import mimetypes
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
