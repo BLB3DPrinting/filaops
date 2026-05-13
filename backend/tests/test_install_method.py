@@ -135,6 +135,27 @@ def test_update_instructions_tauri_returns_no_manual_steps(
     assert "alembic" not in joined
 
 
+def test_update_instructions_manual_returns_baremetal_runbook(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Manual (bare-metal) installs need their own runbook — `pip install`,
+    `alembic upgrade head`, restart-your-service — not the docker-compose
+    runbook that the previous code would have served them as a fallthrough.
+
+    The runbook stays generic on the restart step (systemd vs supervisord
+    vs plain shell) because Core doesn't dictate a process manager."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "manual")
+    instructions = VersionManager.get_update_instructions()
+
+    assert instructions["method"] == "manual"
+    assert instructions["requires_manual_steps"] is True
+    joined = " ".join(instructions["instructions"]).lower()
+    # Manual install is alembic + pip + git, NOT docker-compose
+    assert "docker-compose" not in joined
+    assert "pip install" in joined
+    assert "alembic upgrade head" in joined
+
+
 def test_update_instructions_default_when_env_unset_matches_docker(
     monkeypatch: pytest.MonkeyPatch,
 ):

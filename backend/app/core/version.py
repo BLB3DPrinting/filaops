@@ -320,6 +320,40 @@ class VersionManager:
                 "requires_manual_steps": False,
             }
 
+        if install_method == "manual":
+            # Bare-metal install — no docker, no Tauri shell, just a Python
+            # interpreter pointed at the repo. The operator owns the runbook
+            # end-to-end: pip install, alembic upgrade, service restart. We
+            # don't know whether they're under systemd, supervisord, or a
+            # plain shell, so the restart step stays generic ("restart your
+            # FilaOps service") instead of prescribing one specific verb.
+            return {
+                "method": "manual",
+                "estimated_time": "5-15 minutes",
+                "downtime": "Service restart required",
+                "instructions": [
+                    "1. Back up your database (pg_dump or your usual backup tool).",
+                    "2. Fetch the latest release: git fetch --tags && git checkout vX.X.X",
+                    "3. Upgrade Python dependencies: pip install -r backend/requirements.txt",
+                    "4. Run migrations: cd backend && alembic upgrade head",
+                    "5. Restart your FilaOps service (systemd / supervisord / however you run it).",
+                    "6. Verify health: curl http://localhost:8000/health should return 200.",
+                ],
+                "backup_recommendation": (
+                    "Back up your database before running migrations. "
+                    "Alembic downgrades exist but recovering from a botched upgrade "
+                    "via backup is faster and safer."
+                ),
+                "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+                "rollback_steps": [
+                    "1. Restore the pre-upgrade database backup.",
+                    "2. Check out the previous version: git checkout vX.X.X",
+                    "3. Re-install dependencies: pip install -r backend/requirements.txt",
+                    "4. Restart your FilaOps service.",
+                ],
+                "requires_manual_steps": True,
+            }
+
         # Default: docker-compose (preserves prior behaviour for existing
         # Docker installs — anyone already running Core got this verbiage).
         return {
