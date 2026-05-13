@@ -87,6 +87,58 @@ def test_api_path_without_trailing_slash_redirects_to_canonical(spa_app):
     assert "limit=5" in location, "Query string must survive the redirect"
 
 
+def test_static_path_without_trailing_slash_redirects_to_canonical(spa_app):
+    """`static/` is reserved as defense-in-depth: the `/static` StaticFiles
+    mount registers conditionally (only when its directory mkdir succeeds
+    — see backend/app/main.py around the /static mount). On a read-only
+    install the `/static` mount is skipped, and the SPA mount becomes the
+    only thing between a `/static/*` request and an index.html fallback.
+
+    Simulate that scenario by stripping the `/static` mount from the
+    route table after fixture setup, then verify the SPA mount redirects
+    the no-slash request to its canonical form instead of returning the
+    SPA shell."""
+    app, _ = spa_app
+    app.router.routes = [
+        r for r in app.router.routes if getattr(r, "path", "") != "/static"
+    ]
+    client = TestClient(app, follow_redirects=False)
+
+    resp = client.get("/static/uploads/missing-asset?cache=1")
+
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert location.startswith("/static/uploads/missing-asset/")
+    assert "cache=1" in location
+
+
+def test_bare_reserved_prefix_returns_404_not_index_html(spa_app):
+    """A request to `/api` (bare, no path segment after it) used to fall
+    through to the SPA shell because `_RESERVED_PREFIXES` only matched
+    `api/`. After the fix the reserved check operates on the first URL
+    segment, so bare `/api` is recognised and returns a JSON 404."""
+    app, _ = spa_app
+    client = TestClient(app, follow_redirects=False)
+
+    resp = client.get("/api")
+    assert resp.status_code == 404
+    assert "text/html" not in resp.headers.get("content-type", "")
+
+
+def test_unreserved_segment_resembling_reserved_still_falls_back(spa_app):
+    """Routing must compare against the first URL segment as a whole, not
+    a prefix substring. `/apidocs` and `/staticky/items` share opening
+    characters with reserved prefixes but are legitimate client-side
+    routes — they must still resolve to the SPA shell."""
+    app, _ = spa_app
+    client = TestClient(app)
+
+    for path in ("/apidocs", "/staticky/items"):
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        assert "spa" in resp.text, path
+
+
 def test_canonical_api_path_404_does_not_fall_back_to_index_html(spa_app):
     """Once the path is in canonical form (trailing slash) and still
     doesn't match any route, the SPA mount must let the 404 stand. Falling

@@ -564,10 +564,12 @@ load_plugin(app)
 # no user input — that's why it's safe.
 if FRONTEND_DIST is not None:
 
-    # Path prefixes the API / static layer owns. The SPA mount must never
-    # serve index.html for these, or apiClient code that parses responses
-    # as JSON will receive HTML and silently mis-interpret it.
-    _RESERVED_PREFIXES = ("api/", "static/")
+    # First URL path segments the API / static layer owns. The SPA mount
+    # must never serve index.html for these — frontend code that expects
+    # JSON would otherwise receive HTML and silently mis-interpret it.
+    # We compare against the FIRST segment (not a prefix substring), so
+    # `apidocs/foo` does not collide with `api/foo`.
+    _RESERVED_FIRST_SEGMENTS = frozenset({"api", "static"})
 
     class _SPAStaticFiles(StaticFiles):
         async def get_response(self, path: str, scope):
@@ -577,15 +579,23 @@ if FRONTEND_DIST is not None:
             # are wrong for HTTP routing decisions, so we consult the raw
             # URL path from the ASGI scope for prefix/trailing-slash checks.
             url_path = scope.get("path", "").lstrip("/")
+            first_segment, sep, _ = url_path.partition("/")
 
-            if url_path.startswith(_RESERVED_PREFIXES):
-                # API paths that reach the SPA mount didn't match any
-                # upstream route. If the path is missing a trailing slash,
-                # the most likely cause is a router whose route was
-                # registered as "/" (canonical form ends with "/"). Mirror
-                # FastAPI's redirect_slashes so the client lands on the
-                # canonical URL instead of getting index.html.
-                if not url_path.endswith("/"):
+            if first_segment in _RESERVED_FIRST_SEGMENTS:
+                # API / static paths that reach the SPA mount didn't match
+                # any upstream route. Three cases reach this branch:
+                #   1. `/api`        — bare prefix, no real endpoint to
+                #                      redirect to. Just 404.
+                #   2. `/api/v1/foo` — extra path, no trailing slash. The
+                #                      most likely cause is a router whose
+                #                      route is registered as `/`
+                #                      (canonical form ends with `/`).
+                #                      Mirror FastAPI's redirect_slashes so
+                #                      the client lands on the canonical
+                #                      URL instead of index.html.
+                #   3. `/api/v1/foo/` — already canonical, still unmatched.
+                #                       Genuine 404.
+                if sep and not url_path.endswith("/"):
                     from fastapi.responses import RedirectResponse
 
                     qs = scope.get("query_string", b"")
@@ -593,9 +603,10 @@ if FRONTEND_DIST is not None:
                     if qs:
                         target += "?" + qs.decode("latin-1")
                     return RedirectResponse(url=target, status_code=307)
-                # Already canonical and still unmatched — genuine 404.
-                # Raising HTTPException lets Starlette's default 404 JSON
-                # response flow, which is what an API client expects.
+                # Cases 1 and 3 — raise HTTPException so the request exits
+                # this mount and re-enters the parent FastAPI app's
+                # exception handler chain, which renders 404 as JSON
+                # (Starlette's bare default would be a plain text body).
                 raise StarletteHTTPException(status_code=404)
 
             try:
