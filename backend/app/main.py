@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -417,10 +418,10 @@ else:
 # unset and lets Caddy / nginx handle frontend serving in front of the
 # API — Core does nothing different in that case.
 #
-# The /assets mount handles the hashed JS/CSS bundles Vite emits. The
-# catch-all that serves index.html for client-side routes lives at the
-# bottom of this module so it's the LAST route registered (FastAPI matches
-# routes in declaration order — API routes registered earlier always win).
+# The actual SPA mount lives at the bottom of this module (registered
+# LAST so all API + plugin + explicit routes take precedence). We resolve
+# and validate the directory here so the rest of the module can branch on
+# `FRONTEND_DIST is not None`.
 FRONTEND_DIST: Path | None = resolve_frontend_dist(settings.FRONTEND_DIST)
 if FRONTEND_DIST is not None and not (FRONTEND_DIST / "index.html").is_file():
     logger.error(
@@ -430,13 +431,6 @@ if FRONTEND_DIST is not None and not (FRONTEND_DIST / "index.html").is_file():
     )
     FRONTEND_DIST = None
 if FRONTEND_DIST is not None:
-    _assets_dir = FRONTEND_DIST / "assets"
-    if _assets_dir.is_dir():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(_assets_dir)),
-            name="frontend-assets",
-        )
     logger.info("Serving React SPA from %s", FRONTEND_DIST)
 
 
@@ -541,36 +535,41 @@ def load_plugin(app, module_name: str | None = None) -> bool:
 load_plugin(app)
 
 
-# SPA client-side-routing catch-all.
+# SPA mount.
 #
-# MUST be the last route registered. FastAPI/Starlette match routes in
-# declaration order, so /api/v1/*, /health, /static/*, /assets/*, and /
-# (all registered above, including any plugin-contributed routes) take
-# precedence. Anything left over is a SPA route like /admin/items —
-# return index.html so the React router can resolve it client-side.
+# Mounted at "/" but MUST be registered last: Starlette matches in
+# declaration order, so /api/v1/*, /health, /static/*, and any
+# plugin-contributed routes (all registered above) take precedence.
+# Anything left over goes through this mount.
 #
-# Only registered when FRONTEND_DIST is configured AND has a valid
-# index.html; that check happened at static-mount time above, and
-# FRONTEND_DIST is set to None on failure. A None value means no
-# catch-all is added — Docker-style deployments see unchanged behaviour.
+# We use Starlette's StaticFiles directly rather than hand-rolling a
+# catch-all that calls Path(user_input). StaticFiles has built-in
+# path-traversal protection that CodeQL recognizes as a safe sink —
+# avoiding an entire category of bug (symlink races, Windows short-name
+# escapes, Unicode normalization edge cases, etc.) that hand-rolled
+# guards routinely get wrong. We subclass only to add SPA-style 404
+# fallback to index.html, which is what client-side routing needs:
+# a request like /admin/items isn't a real file, but the React router
+# can resolve it once index.html boots in the browser.
+#
+# The fallback opens a fixed path (FRONTEND_DIST / "index.html") with
+# no user input — that's why it's safe.
 if FRONTEND_DIST is not None:
-    _spa_index = FRONTEND_DIST / "index.html"
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa_route(full_path: str):
-        """Serve a specific static asset at FRONTEND_DIST if it exists; else
-        fall back to index.html so the SPA's router can handle the path."""
-        candidate = FRONTEND_DIST / full_path
-        # Reject traversal attempts — resolve and confirm the candidate is
-        # still under FRONTEND_DIST. Without this, a crafted path like
-        # ../../etc/passwd could read files outside the dist tree.
-        try:
-            candidate.resolve().relative_to(FRONTEND_DIST.resolve())
-        except (ValueError, OSError):
-            return FileResponse(_spa_index)
-        if candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(_spa_index)
+    class _SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    return FileResponse(FRONTEND_DIST / "index.html")
+                raise
+
+    app.mount(
+        "/",
+        _SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+        name="spa",
+    )
 
 
 if __name__ == "__main__":
