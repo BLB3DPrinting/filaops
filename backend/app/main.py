@@ -13,15 +13,20 @@ except ImportError:
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 from app.core.limiter import apply_rate_limiting
-from app.core.paths import resolve_static_dir, resolve_upload_products_dir
+from app.core.paths import (
+    resolve_frontend_dist,
+    resolve_static_dir,
+    resolve_upload_products_dir,
+)
 from app.api.v1 import router as api_v1_router
 from app.core.config import settings
 from app.exceptions import FilaOpsException
@@ -406,8 +411,34 @@ else:
     )
 
 
+# Optional SPA hosting — when FRONTEND_DIST is configured (typically by a
+# single-process deployment like the PyInstaller-bundled desktop install
+# that has no separate web server in front of FastAPI), serve the React
+# build directly. The standard Docker deployment leaves FRONTEND_DIST
+# unset and lets Caddy / nginx handle frontend serving in front of the
+# API — Core does nothing different in that case.
+#
+# The actual SPA mount lives at the bottom of this module (registered
+# LAST so all API + plugin + explicit routes take precedence). We resolve
+# and validate the directory here so the rest of the module can branch on
+# `FRONTEND_DIST is not None`.
+FRONTEND_DIST: Path | None = resolve_frontend_dist(settings.FRONTEND_DIST)
+if FRONTEND_DIST is not None and not (FRONTEND_DIST / "index.html").is_file():
+    logger.error(
+        "FRONTEND_DIST is set to %s but no index.html found there; SPA will "
+        "not be served. Check the path or unset FRONTEND_DIST.",
+        FRONTEND_DIST,
+    )
+    FRONTEND_DIST = None
+if FRONTEND_DIST is not None:
+    logger.info("Serving React SPA from %s", FRONTEND_DIST)
+
+
 @app.get("/")
 async def root():
+    """API status JSON, or SPA index.html when FRONTEND_DIST is configured."""
+    if FRONTEND_DIST is not None:
+        return FileResponse(FRONTEND_DIST / "index.html")
     return {"message": "FilaOps ERP API", "version": settings.VERSION, "status": "online"}
 
 
@@ -502,6 +533,43 @@ def load_plugin(app, module_name: str | None = None) -> bool:
 
 
 load_plugin(app)
+
+
+# SPA mount.
+#
+# Mounted at "/" but MUST be registered last: Starlette matches in
+# declaration order, so /api/v1/*, /health, /static/*, and any
+# plugin-contributed routes (all registered above) take precedence.
+# Anything left over goes through this mount.
+#
+# We use Starlette's StaticFiles directly rather than hand-rolling a
+# catch-all that calls Path(user_input). StaticFiles has built-in
+# path-traversal protection that CodeQL recognizes as a safe sink —
+# avoiding an entire category of bug (symlink races, Windows short-name
+# escapes, Unicode normalization edge cases, etc.) that hand-rolled
+# guards routinely get wrong. We subclass only to add SPA-style 404
+# fallback to index.html, which is what client-side routing needs:
+# a request like /admin/items isn't a real file, but the React router
+# can resolve it once index.html boots in the browser.
+#
+# The fallback opens a fixed path (FRONTEND_DIST / "index.html") with
+# no user input — that's why it's safe.
+if FRONTEND_DIST is not None:
+
+    class _SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    return FileResponse(FRONTEND_DIST / "index.html")
+                raise
+
+    app.mount(
+        "/",
+        _SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+        name="spa",
+    )
 
 
 if __name__ == "__main__":
