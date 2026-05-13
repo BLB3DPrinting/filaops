@@ -19,6 +19,7 @@ import pytest
 
 from app.core.paths import (
     BACKEND_DIR,
+    resolve_frontend_dist,
     resolve_static_dir,
     resolve_upload_po_docs_dir,
     resolve_upload_products_dir,
@@ -114,3 +115,25 @@ def test_backend_dir_anchor_resolves_to_backend_root():
         f"BACKEND_DIR resolved to {BACKEND_DIR!s}, but expected the backend/ root "
         "(parent dir of app/)."
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_frontend_dist
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_frontend_dist_returns_none_when_unset():
+    """Unlike the other resolvers, FRONTEND_DIST has no in-repo default —
+    Core only serves the SPA when explicitly told to. Empty / None /
+    whitespace all collapse to None so callers can skip mounting."""
+    assert resolve_frontend_dist(None) is None
+    assert resolve_frontend_dist("") is None
+    assert resolve_frontend_dist("   ") is None
+
+
+def test_resolve_frontend_dist_returns_path_when_set():
+    assert resolve_frontend_dist("/srv/filaops/frontend") == Path("/srv/filaops/frontend")
+
+
+def test_resolve_frontend_dist_strips_whitespace():
+    assert resolve_frontend_dist("  /srv/filaops/frontend  ") == Path("/srv/filaops/frontend")

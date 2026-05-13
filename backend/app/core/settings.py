@@ -253,6 +253,17 @@ class Settings(BaseSettings):
         default="",
         description="PO document upload dir (defaults to <backend>/uploads/po_documents)",
     )
+    FRONTEND_DIST: str = Field(
+        default="",
+        description=(
+            "React SPA dist directory. When set, FastAPI serves the SPA at / "
+            "with a client-side-routing catch-all. When empty (default), Core "
+            "does not serve the SPA — a separate web server (Caddy/nginx in "
+            "Docker) is expected to handle it. Single-process deployments "
+            "(PyInstaller-bundled desktop install) point this at the bundled "
+            "frontend dist."
+        ),
+    )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
         default=[".3mf", ".stl"], description="Allowed upload extensions"

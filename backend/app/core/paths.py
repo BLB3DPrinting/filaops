@@ -113,3 +113,25 @@ def resolve_upload_po_docs_dir(override: str | None = None) -> Path:
     if overridden is not None:
         return overridden
     return BACKEND_DIR / "uploads" / "po_documents"
+
+
+def resolve_frontend_dist(override: str | None = None) -> Path | None:
+    """React SPA dist directory, OR None if unset.
+
+    Default: ``None`` — Core does not serve the SPA in this case. In the
+    standard Docker deployment a separate web server (Caddy / nginx) sits
+    in front of the API and serves the static frontend; FastAPI never
+    needs to know where it lives.
+
+    Override: ``FRONTEND_DIST`` env / ``settings.FRONTEND_DIST``. Setting
+    this enables FastAPI-side SPA serving (mounted at ``/`` with a
+    client-side-routing catch-all). Used by single-process deployments
+    that have no separate web server — notably the PyInstaller-bundled
+    desktop install where the React build sits inside the same bundle
+    as the backend.
+
+    Returns ``None`` (not a default path) when unset: callers should
+    check ``is None`` and skip mounting routes rather than mounting an
+    empty directory.
+    """
+    return _coerce_override(override)

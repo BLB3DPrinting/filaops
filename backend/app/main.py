@@ -13,7 +13,7 @@ except ImportError:
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -21,7 +21,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 from app.core.limiter import apply_rate_limiting
-from app.core.paths import resolve_static_dir, resolve_upload_products_dir
+from app.core.paths import (
+    resolve_frontend_dist,
+    resolve_static_dir,
+    resolve_upload_products_dir,
+)
 from app.api.v1 import router as api_v1_router
 from app.core.config import settings
 from app.exceptions import FilaOpsException
@@ -406,8 +410,41 @@ else:
     )
 
 
+# Optional SPA hosting — when FRONTEND_DIST is configured (typically by a
+# single-process deployment like the PyInstaller-bundled desktop install
+# that has no separate web server in front of FastAPI), serve the React
+# build directly. The standard Docker deployment leaves FRONTEND_DIST
+# unset and lets Caddy / nginx handle frontend serving in front of the
+# API — Core does nothing different in that case.
+#
+# The /assets mount handles the hashed JS/CSS bundles Vite emits. The
+# catch-all that serves index.html for client-side routes lives at the
+# bottom of this module so it's the LAST route registered (FastAPI matches
+# routes in declaration order — API routes registered earlier always win).
+FRONTEND_DIST: Path | None = resolve_frontend_dist(settings.FRONTEND_DIST)
+if FRONTEND_DIST is not None and not (FRONTEND_DIST / "index.html").is_file():
+    logger.error(
+        "FRONTEND_DIST is set to %s but no index.html found there; SPA will "
+        "not be served. Check the path or unset FRONTEND_DIST.",
+        FRONTEND_DIST,
+    )
+    FRONTEND_DIST = None
+if FRONTEND_DIST is not None:
+    _assets_dir = FRONTEND_DIST / "assets"
+    if _assets_dir.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(_assets_dir)),
+            name="frontend-assets",
+        )
+    logger.info("Serving React SPA from %s", FRONTEND_DIST)
+
+
 @app.get("/")
 async def root():
+    """API status JSON, or SPA index.html when FRONTEND_DIST is configured."""
+    if FRONTEND_DIST is not None:
+        return FileResponse(FRONTEND_DIST / "index.html")
     return {"message": "FilaOps ERP API", "version": settings.VERSION, "status": "online"}
 
 
@@ -502,6 +539,38 @@ def load_plugin(app, module_name: str | None = None) -> bool:
 
 
 load_plugin(app)
+
+
+# SPA client-side-routing catch-all.
+#
+# MUST be the last route registered. FastAPI/Starlette match routes in
+# declaration order, so /api/v1/*, /health, /static/*, /assets/*, and /
+# (all registered above, including any plugin-contributed routes) take
+# precedence. Anything left over is a SPA route like /admin/items —
+# return index.html so the React router can resolve it client-side.
+#
+# Only registered when FRONTEND_DIST is configured AND has a valid
+# index.html; that check happened at static-mount time above, and
+# FRONTEND_DIST is set to None on failure. A None value means no
+# catch-all is added — Docker-style deployments see unchanged behaviour.
+if FRONTEND_DIST is not None:
+    _spa_index = FRONTEND_DIST / "index.html"
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa_route(full_path: str):
+        """Serve a specific static asset at FRONTEND_DIST if it exists; else
+        fall back to index.html so the SPA's router can handle the path."""
+        candidate = FRONTEND_DIST / full_path
+        # Reject traversal attempts — resolve and confirm the candidate is
+        # still under FRONTEND_DIST. Without this, a crafted path like
+        # ../../etc/passwd could read files outside the dist tree.
+        try:
+            candidate.resolve().relative_to(FRONTEND_DIST.resolve())
+        except (ValueError, OSError):
+            return FileResponse(_spa_index)
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_spa_index)
 
 
 if __name__ == "__main__":
