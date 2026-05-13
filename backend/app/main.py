@@ -21,6 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 from app.core.limiter import apply_rate_limiting
+from app.core.paths import resolve_static_dir, resolve_upload_products_dir
 from app.api.v1 import router as api_v1_router
 from app.core.config import settings
 from app.exceptions import FilaOpsException
@@ -359,12 +360,50 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Include API routes
 app.include_router(api_v1_router, prefix="/api/v1")
 
-# Static file serving for uploaded images
-# Creates directory if it doesn't exist
-STATIC_DIR = Path(__file__).parent.parent / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-(STATIC_DIR / "uploads" / "products").mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Static file serving for uploaded images.
+#
+# Paths resolve via app.core.paths so deployments that put the source tree in
+# a read-only location (PyInstaller bundles under Program Files, etc.) can
+# override via env vars (STATIC_DIR / UPLOAD_PRODUCTS_DIR — pydantic-settings
+# reads them unprefixed) without touching application code. mkdir is wrapped
+# in try/except to match the file_storage.py convention — a non-writable
+# static dir shouldn't crash app import. The /static mount is gated on the
+# *actual* mkdir result rather than `.exists()`: if the directory pre-existed
+# but the mkdir failed (e.g. read-only filesystem), we'd otherwise mount an
+# unwritable tree. Product uploads dir failures are logged as errors because
+# they manifest at runtime as opaque 500s — much easier to debug if the
+# startup log already names the cause.
+STATIC_DIR = resolve_static_dir(settings.STATIC_DIR)
+PRODUCT_UPLOADS_DIR = resolve_upload_products_dir(
+    settings.UPLOAD_PRODUCTS_DIR, static_dir=STATIC_DIR
+)
+
+
+def _try_mkdir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Could not create %s: %s", path, exc)
+        return False
+    return True
+
+
+_static_ok = _try_mkdir(STATIC_DIR)
+_uploads_ok = _try_mkdir(PRODUCT_UPLOADS_DIR)
+if not _uploads_ok:
+    logger.error(
+        "Product image uploads will fail at runtime — directory not "
+        "writable: %s. Set UPLOAD_PRODUCTS_DIR to a writable path.",
+        PRODUCT_UPLOADS_DIR,
+    )
+if _static_ok:
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+else:
+    logger.error(
+        "Cannot mount /static — directory not writable: %s. Set STATIC_DIR "
+        "to a writable path.",
+        STATIC_DIR,
+    )
 
 
 @app.get("/")
