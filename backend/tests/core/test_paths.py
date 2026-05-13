@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from app.core.paths import (
     BACKEND_DIR,
     resolve_frontend_dist,
