@@ -56,7 +56,7 @@ def upgrade() -> None:
         # and constraints are in place.
         raise RuntimeError(
             "Migration 083: 'quotes' table exists but 'expires_at' column is "
-            "missing. Refusing to silently skip \u2014 investigate schema drift "
+            "missing. Refusing to silently skip; investigate schema drift "
             "before re-running."
         )
 
@@ -82,7 +82,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Reverse: drop the server_default and relax NOT NULL. We do NOT
-    # null out the backfilled values — losing real expiration dates on
+    # null out the backfilled values; losing real expiration dates on
     # a downgrade would be worse than the original bug.
     op.alter_column(
         "quotes",

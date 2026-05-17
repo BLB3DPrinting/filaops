@@ -144,7 +144,9 @@ class TestPortalQuoteContract:
         assert data["requires_review"] is True
         assert data["requires_review_reason"] == "Automatic quote engine unavailable"
         assert data["total_price"] == "0.00"
-        assert data["expires_at"]
+        assert isinstance(data["expires_at"], str)
+        expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+        assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
 
     def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
         created = client.post(
