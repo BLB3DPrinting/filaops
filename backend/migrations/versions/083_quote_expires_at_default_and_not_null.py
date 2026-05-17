@@ -50,9 +50,15 @@ def upgrade() -> None:
 
     cols = {c["name"]: c for c in inspector.get_columns("quotes")}
     if "expires_at" not in cols:
-        # Defensive: schema drift we don't recognize. Bail rather than
-        # silently invent the column with a guessed type.
-        return
+        # Schema drift we don't recognize. Fail loudly rather than
+        # silently invent the column with a guessed type or leave the
+        # environment partially migrated while callers assume defaults
+        # and constraints are in place.
+        raise RuntimeError(
+            "Migration 083: 'quotes' table exists but 'expires_at' column is "
+            "missing. Refusing to silently skip \u2014 investigate schema drift "
+            "before re-running."
+        )
 
     # 1. Backfill NULLs using created_at + 90 days. created_at is
     # NOT NULL with server_default=now(), so this is always safe.
