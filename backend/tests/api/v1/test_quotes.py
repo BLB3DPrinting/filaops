@@ -109,6 +109,74 @@ class TestQuoteAuth:
         assert response.status_code == 401
 
 
+
+
+
+class TestPortalQuoteContract:
+    """Public quoter contract: Core owns the durable quote id."""
+
+    def test_portal_create_requires_auth(self, unauthed_client):
+        response = unauthed_client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+        assert response.status_code == 401
+
+    def test_portal_create_without_provider_creates_manual_review_quote(self, client):
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={
+                "material": "PLA_BASIC",
+                "color": "BLK",
+                "quality": "standard",
+                "infill": "20%",
+                "quantity": "2",
+            },
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["id"] == data["quote_id"]
+        assert data["quote_number"].startswith("Q-")
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+        assert data["requires_review_reason"] == "Automatic quote engine unavailable"
+        assert data["total_price"] == "0.00"
+        assert isinstance(data["expires_at"], str)
+        expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+        assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
+
+    def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
+        created = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        ).json()
+
+        response = client.post(
+            f"{BASE_URL}/portal/{created['quote_id']}/accept",
+            json={
+                "shipping_name": "Jane Customer",
+                "shipping_address_line1": "123 Print St",
+                "shipping_city": "Indianapolis",
+                "shipping_state": "IN",
+                "shipping_zip": "46204",
+                "shipping_country": "US",
+                "shipping_rate_id": "rate_test",
+                "shipping_carrier": "USPS",
+                "shipping_service": "Ground Advantage",
+                "shipping_cost": "8.50",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["quote_id"] == created["quote_id"]
+        assert data["requires_review"] is True
+        assert data["message"] == "Quote requires manual review"
+
 # =============================================================================
 # List - GET /api/v1/quotes/
 # =============================================================================
