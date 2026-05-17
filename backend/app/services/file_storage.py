@@ -125,7 +125,7 @@ class FileStorageService:
 
         # Backup to GCS (if enabled)
         gcs_backed_up = False
-        if settings.GCS_ENABLED:
+        if getattr(settings, "GCS_ENABLED", False):
             try:
                 gcs_path = await self._backup_to_gcs(
                     content=content,

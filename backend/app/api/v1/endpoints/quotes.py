@@ -4,19 +4,22 @@ Quote Management Endpoints - Community Edition
 Manual quote creation and management for small businesses.
 Supports creating quotes, updating status, and converting to sales orders.
 """
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone, timedelta
+from inspect import isawaitable
+from typing import Any, List, Optional
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.quote import Quote, QuoteFile
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
 from app.services import quote_service
+from app.services.file_storage import file_storage
 from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
@@ -204,6 +207,137 @@ class QuoteStatsResponse(BaseModel):
     pending_value: Decimal
 
 
+class PortalQuoteResponse(BaseModel):
+    """Customer-facing quote response for the public quoter."""
+    id: int
+    quote_id: int
+    quote_number: str
+    status: str
+    requires_review: bool = False
+    requires_review_reason: Optional[str] = None
+    unit_price: Optional[Decimal] = None
+    total_price: Decimal
+    material_grams: Optional[Decimal] = None
+    print_time_hours: Optional[Decimal] = None
+    print_time_minutes: Optional[int] = None
+    expires_at: datetime
+    estimation_method: Optional[str] = None
+    multi_material: Optional[dict[str, Any]] = None
+    slot_requirements: list[dict[str, Any]] = []
+    breakdown: dict[str, Any] = {}
+
+
+class PortalShippingSelection(BaseModel):
+    """Shipping/payment snapshot submitted by the public quote portal."""
+    shipping_name: Optional[str] = Field(None, max_length=200)
+    shipping_address_line1: str = Field(..., max_length=255)
+    shipping_address_line2: Optional[str] = Field(None, max_length=255)
+    shipping_city: str = Field(..., max_length=100)
+    shipping_state: str = Field(..., max_length=50)
+    shipping_zip: str = Field(..., max_length=20)
+    shipping_country: Optional[str] = Field("US", max_length=100)
+    shipping_phone: Optional[str] = Field(None, max_length=30)
+    shipping_rate_id: Optional[str] = Field(None, max_length=100)
+    shipping_carrier: Optional[str] = Field(None, max_length=50)
+    shipping_service: Optional[str] = Field(None, max_length=100)
+    shipping_cost: Optional[Decimal] = Field(None, ge=0)
+    print_mode: Optional[str] = Field(None, max_length=20)
+    adjusted_unit_price: Optional[Decimal] = Field(None, ge=0)
+    multi_color_info: Optional[dict[str, Any]] = None
+
+
+def _customer_display_name(user: User) -> str:
+    """Return a stable customer display name without inventing a new customer table."""
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full_name or user.company_name or user.email
+
+
+def _portal_quote_or_404(db: Session, quote_id: int, current_user: User) -> Quote:
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    if quote.user_id != current_user.id and quote.customer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Quote does not belong to current customer")
+
+    return quote
+
+
+def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    extra = extra or {}
+    print_time_hours = Decimal(str(quote.print_time_hours)) if quote.print_time_hours is not None else None
+    return {
+        "id": quote.id,
+        "quote_id": quote.id,
+        "quote_number": quote.quote_number,
+        "status": quote.status,
+        "requires_review": bool(quote.requires_review_reason),
+        "requires_review_reason": quote.requires_review_reason,
+        "unit_price": quote.unit_price,
+        "total_price": quote.total_price,
+        "material_grams": quote.material_grams,
+        "print_time_hours": quote.print_time_hours,
+        "print_time_minutes": int(float(print_time_hours) * 60) if print_time_hours is not None else None,
+        "expires_at": quote.expires_at,
+        "estimation_method": extra.get("estimation_method"),
+        "multi_material": extra.get("multi_material"),
+        "slot_requirements": extra.get("slot_requirements") or [],
+        "breakdown": extra.get("breakdown") or {},
+    }
+
+
+async def _maybe_enrich_portal_quote(
+    request: Request,
+    *,
+    db: Session,
+    quote: Quote,
+    stored_file: dict[str, Any],
+    options: dict[str, Any],
+) -> dict[str, Any]:
+    """Let PRO enrich a Core-owned quote when PRO is installed and active."""
+    provider = getattr(request.app.state, "quote_automation_provider", None)
+    if provider is None:
+        quote.status = "pending"
+        quote.approval_method = "manual"
+        quote.requires_review_reason = "Automatic quote engine unavailable"
+        return {}
+
+    result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
+    if isawaitable(result):
+        result = await result
+    return result or {}
+
+
+def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShippingSelection) -> None:
+    quote.shipping_name = payload.shipping_name or _customer_display_name(current_user)
+    quote.shipping_address_line1 = payload.shipping_address_line1
+    quote.shipping_address_line2 = payload.shipping_address_line2
+    quote.shipping_city = payload.shipping_city
+    quote.shipping_state = payload.shipping_state
+    quote.shipping_zip = payload.shipping_zip
+    quote.shipping_country = payload.shipping_country or "US"
+    quote.shipping_phone = payload.shipping_phone
+    quote.shipping_rate_id = payload.shipping_rate_id
+    quote.shipping_carrier = payload.shipping_carrier
+    quote.shipping_service = payload.shipping_service
+    quote.shipping_cost = payload.shipping_cost
+    if payload.adjusted_unit_price is not None:
+        quote.unit_price = payload.adjusted_unit_price
+        quote.subtotal = payload.adjusted_unit_price * quote.quantity
+        quote.total_price = quote.subtotal + (quote.shipping_cost or Decimal("0"))
+    elif quote.shipping_cost is not None:
+        quote.total_price = (quote.subtotal or quote.total_price) + quote.shipping_cost
+
+    current_user.shipping_address_line1 = payload.shipping_address_line1
+    current_user.shipping_address_line2 = payload.shipping_address_line2
+    current_user.shipping_city = payload.shipping_city
+    current_user.shipping_state = payload.shipping_state
+    current_user.shipping_zip = payload.shipping_zip
+    current_user.shipping_country = payload.shipping_country or "US"
+    if payload.shipping_phone:
+        current_user.phone = payload.shipping_phone
+
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -228,6 +362,134 @@ async def get_quote_stats(
 ):
     """Get quote statistics for dashboard"""
     return quote_service.get_quote_stats(db)
+
+
+
+@router.post("/portal", response_model=PortalQuoteResponse, status_code=status.HTTP_201_CREATED)
+async def create_portal_quote(
+    request: Request,
+    file: UploadFile = File(...),
+    material: str = Form("PLA_BASIC"),
+    color: Optional[str] = Form(None),
+    quality: str = Form("standard"),
+    infill: str = Form("20%"),
+    quantity: int = Form(1, ge=1, le=10000),
+    customer_notes: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create one Core-owned quote for the public portal and optionally let PRO price it."""
+    try:
+        stored_file = await file_storage.save_file(file, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    quote = Quote(
+        user_id=current_user.id,
+        quote_number=quote_service.generate_quote_number(db),
+        product_name=stored_file["original_filename"],
+        quantity=quantity,
+        material_type=material,
+        color=color,
+        finish=quality,
+        unit_price=Decimal("0.00"),
+        subtotal=Decimal("0.00"),
+        total_price=Decimal("0.00"),
+        status="calculating",
+        approval_method="auto",
+        file_format=stored_file["file_format"],
+        file_size_bytes=stored_file["file_size_bytes"],
+        customer_id=current_user.id,
+        customer_email=current_user.email,
+        customer_name=_customer_display_name(current_user),
+        customer_notes=customer_notes,
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=90),
+    )
+    db.add(quote)
+    db.flush()
+
+    db.add(QuoteFile(
+        quote_id=quote.id,
+        original_filename=stored_file["original_filename"],
+        stored_filename=stored_file["stored_filename"],
+        file_path=stored_file["file_path"],
+        file_size_bytes=stored_file["file_size_bytes"],
+        file_format=stored_file["file_format"],
+        mime_type=stored_file["mime_type"],
+        file_hash=stored_file["file_hash"],
+    ))
+
+    extra = await _maybe_enrich_portal_quote(
+        request,
+        db=db,
+        quote=quote,
+        stored_file=stored_file,
+        options={
+            "material_id": material,
+            "color": color,
+            "quality": quality,
+            "infill": infill,
+            "quantity": quantity,
+            "customer_notes": customer_notes,
+        },
+    )
+    if customer_notes and not quote.requires_review_reason:
+        quote.requires_review_reason = "Customer notes require manual review"
+        quote.status = "pending"
+        quote.approval_method = "manual"
+
+    db.commit()
+    db.refresh(quote)
+    logger.info(f"Portal quote {quote.quote_number} created by {current_user.email}")
+    return _portal_quote_payload(quote, extra)
+
+
+@router.post("/portal/{quote_id}/accept")
+async def accept_portal_quote(
+    quote_id: int,
+    payload: PortalShippingSelection,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Snapshot shipping selection and mark a portal quote accepted or awaiting review."""
+    quote = _portal_quote_or_404(db, quote_id, current_user)
+    _apply_portal_shipping(quote, current_user, payload)
+
+    requires_review = bool(quote.requires_review_reason)
+    if requires_review:
+        quote.status = "pending"
+        quote.approval_method = "manual"
+    else:
+        quote.status = "accepted"
+        quote.approval_method = quote.approval_method or "auto"
+        quote.approved_at = quote.approved_at or datetime.now(timezone.utc).replace(tzinfo=None)
+
+    db.commit()
+    db.refresh(quote)
+    return {
+        **_portal_quote_payload(quote),
+        "requires_review": requires_review,
+        "message": "Quote requires manual review" if requires_review else "Quote accepted",
+    }
+
+
+@router.post("/portal/{quote_id}/checkout")
+async def create_portal_quote_checkout(
+    request: Request,
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a payment checkout session through an optional payment provider."""
+    quote = _portal_quote_or_404(db, quote_id, current_user)
+    provider = getattr(request.app.state, "payment_checkout_provider", None)
+    if provider is None:
+        raise HTTPException(status_code=503, detail="Payment checkout provider is not configured")
+
+    result = provider(db=db, quote=quote, current_user=current_user)
+    if isawaitable(result):
+        result = await result
+    return result
 
 
 @router.get("/{quote_id}", response_model=QuoteDetail)
