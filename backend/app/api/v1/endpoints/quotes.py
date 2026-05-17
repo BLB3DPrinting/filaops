@@ -158,7 +158,9 @@ class QuoteListItem(BaseModel):
     has_image: bool = False
     line_count: int = 0
     created_at: datetime
-    expires_at: datetime
+    # Optional defensively: legacy rows may have NULL until migration 083 backfills.
+    # Migration 083 + model server_default + PRO route fix all ensure new rows are populated.
+    expires_at: Optional[datetime] = None
     sales_order_id: Optional[int]
 
     model_config = {"from_attributes": True}

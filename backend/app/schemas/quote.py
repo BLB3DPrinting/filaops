@@ -138,7 +138,11 @@ class QuoteResponse(BaseModel):
     # Timestamps
     created_at: datetime
     updated_at: datetime
-    expires_at: datetime
+    # Optional defensively: legacy rows created before the server_default
+    # migration may have NULL expires_at. The migration backfills them,
+    # but keeping this Optional means a single stray NULL can never again
+    # 500 the entire list endpoint via response validation.
+    expires_at: Optional[datetime] = None
 
     # Related data
     files: List[QuoteFileResponse] = []
@@ -171,7 +175,8 @@ class QuoteListResponse(BaseModel):
     auto_approved: bool
     rush_level: str
     created_at: datetime
-    expires_at: datetime
+    # See QuoteResponse.expires_at for rationale on Optional.
+    expires_at: Optional[datetime] = None
     # For navigation
     product_id: Optional[int] = None
     sales_order_id: Optional[int] = None

@@ -6,7 +6,7 @@ Handles quote requests, file uploads, and approval workflow
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Numeric, BigInteger, Boolean,
-    DateTime, Date, ForeignKey, LargeBinary, func
+    DateTime, Date, ForeignKey, LargeBinary, func, text
 )
 from sqlalchemy.orm import relationship
 
@@ -114,7 +114,14 @@ class Quote(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=False), nullable=False, server_default=func.now())
-    expires_at = Column(DateTime(timezone=False), nullable=False)
+    # 90-day validity for online quotes. server_default makes naive
+    # INSERTs (e.g. from PRO routes) land a sensible value instead of
+    # relying on the application layer to remember to set it.
+    expires_at = Column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=text("(now() + interval '90 days')"),
+    )
 
     # Relationships
     user = relationship("User", back_populates="quotes", foreign_keys=[user_id])
