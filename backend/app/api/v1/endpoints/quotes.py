@@ -7,14 +7,14 @@ Supports creating quotes, updating status, and converting to sales orders.
 from datetime import datetime, timezone, timedelta
 from inspect import isawaitable
 from typing import Any, List, Optional
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.quote import Quote, QuoteFile
+from app.models.quote import Quote, QuoteFile, QuoteMaterial
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
@@ -338,6 +338,72 @@ def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShip
         current_user.phone = payload.shipping_phone
 
 
+def _apply_portal_print_selection(
+    db: Session,
+    quote: Quote,
+    payload: PortalShippingSelection,
+) -> None:
+    """Persist customer print-mode choices captured before checkout."""
+    if payload.print_mode != "multi" or not payload.multi_color_info:
+        return
+
+    slot_colors = payload.multi_color_info.get("slot_colors") or []
+    if not isinstance(slot_colors, list) or not slot_colors:
+        return
+
+    def _coerce_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    primary_slot = _coerce_int(payload.multi_color_info.get("primary_slot"))
+    parsed_slots: list[dict[str, Any]] = []
+    for slot in slot_colors:
+        if not isinstance(slot, dict):
+            continue
+
+        try:
+            slot_number = _coerce_int(slot.get("slot"))
+            grams = Decimal(str(slot.get("weight_grams") or 0))
+        except (TypeError, ValueError, InvalidOperation):
+            continue
+
+        if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
+            continue
+
+        parsed_slots.append({
+            "slot_number": slot_number,
+            "is_primary": _coerce_bool(slot.get("is_primary")) or slot_number == primary_slot,
+            "material_type": quote.material_type or "PLA_BASIC",
+            "color_code": slot.get("color_code"),
+            "color_name": slot.get("color_name"),
+            "color_hex": slot.get("color_hex"),
+            "material_grams": grams,
+        })
+
+    if not parsed_slots:
+        return
+
+    db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
+        synchronize_session=False
+    )
+
+    quote.color = "MULTI_COLOR"
+    for slot in parsed_slots:
+        db.add(QuoteMaterial(
+            quote_id=quote.id,
+            **slot,
+        ))
+
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -451,16 +517,17 @@ async def accept_portal_quote(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Snapshot shipping selection and mark a portal quote accepted or awaiting review."""
+    """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
     quote = _portal_quote_or_404(db, quote_id, current_user)
     _apply_portal_shipping(quote, current_user, payload)
+    _apply_portal_print_selection(db, quote, payload)
 
     requires_review = bool(quote.requires_review_reason)
     if requires_review:
         quote.status = "pending"
         quote.approval_method = "manual"
     else:
-        quote.status = "accepted"
+        quote.status = "approved"
         quote.approval_method = quote.approval_method or "auto"
         quote.approved_at = quote.approved_at or datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -469,7 +536,7 @@ async def accept_portal_quote(
     return {
         **_portal_quote_payload(quote),
         "requires_review": requires_review,
-        "message": "Quote requires manual review" if requires_review else "Quote accepted",
+        "message": "Quote requires manual review" if requires_review else "Quote ready for checkout",
     }
 
 
