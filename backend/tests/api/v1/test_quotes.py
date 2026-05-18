@@ -115,6 +115,29 @@ class TestQuoteAuth:
 class TestPortalQuoteContract:
     """Public quoter contract: Core owns the durable quote id."""
 
+    @staticmethod
+    def _install_auto_quote_provider(client):
+        def provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            quote.requires_review_reason = None
+            return {}
+
+        client.app.state.quote_automation_provider = provider
+
+    @staticmethod
+    def _clear_auto_quote_provider(client):
+        if hasattr(client.app.state, "quote_automation_provider"):
+            delattr(client.app.state, "quote_automation_provider")
+
     def test_portal_create_requires_auth(self, unauthed_client):
         response = unauthed_client.post(
             f"{BASE_URL}/portal",
@@ -176,6 +199,123 @@ class TestPortalQuoteContract:
         assert data["quote_id"] == created["quote_id"]
         assert data["requires_review"] is True
         assert data["message"] == "Quote requires manual review"
+
+    def test_portal_accept_keeps_auto_quote_approved_until_payment(self, client, db):
+        from app.models.quote import Quote
+
+        self._install_auto_quote_provider(client)
+        try:
+            created = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            ).json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["requires_review"] is False
+            assert data["status"] == "approved"
+            assert data["message"] == "Quote ready for checkout"
+
+            checkout_response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/checkout"
+            )
+            assert checkout_response.status_code == 503
+
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.status == "approved"
+            assert quote.approval_method == "auto"
+        finally:
+            self._clear_auto_quote_provider(client)
+
+    def test_portal_accept_snapshots_multi_color_slots(self, client, db):
+        from app.models.quote import Quote, QuoteMaterial
+
+        self._install_auto_quote_provider(client)
+        try:
+            created = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            ).json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "print_mode": "multi",
+                    "multi_color_info": {
+                        "primary_slot": 1,
+                        "slot_colors": [
+                            {
+                                "slot": 1,
+                                "color_code": "RED",
+                                "color_name": "Red",
+                                "color_hex": "#ff0000",
+                                "weight_grams": 10.2,
+                                "is_primary": True,
+                            },
+                            {
+                                "slot": 2,
+                                "color_code": "YEL",
+                                "color_name": "Yellow",
+                                "color_hex": "#ffff00",
+                                "weight_grams": 9.1,
+                                "is_primary": False,
+                            },
+                            {
+                                "slot": 3,
+                                "color_code": "BLK",
+                                "color_name": "Black",
+                                "color_hex": "#000000",
+                                "weight_grams": 7.9,
+                                "is_primary": False,
+                            },
+                        ],
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.color == "MULTI_COLOR"
+
+            materials = (
+                db.query(QuoteMaterial)
+                .filter(QuoteMaterial.quote_id == created["quote_id"])
+                .order_by(QuoteMaterial.slot_number)
+                .all()
+            )
+            assert [m.color_code for m in materials] == ["RED", "YEL", "BLK"]
+            assert [m.color_name for m in materials] == ["Red", "Yellow", "Black"]
+            assert [m.is_primary for m in materials] == [True, False, False]
+        finally:
+            self._clear_auto_quote_provider(client)
 
 # =============================================================================
 # List - GET /api/v1/quotes/
