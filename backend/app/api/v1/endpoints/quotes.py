@@ -351,34 +351,56 @@ def _apply_portal_print_selection(
     if not isinstance(slot_colors, list) or not slot_colors:
         return
 
-    db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
-        synchronize_session=False
-    )
+    def _coerce_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
-    quote.color = "MULTI_COLOR"
-    primary_slot = payload.multi_color_info.get("primary_slot")
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    primary_slot = _coerce_int(payload.multi_color_info.get("primary_slot"))
+    parsed_slots: list[dict[str, Any]] = []
     for slot in slot_colors:
         if not isinstance(slot, dict):
             continue
 
         try:
-            slot_number = int(slot.get("slot") or 0)
+            slot_number = _coerce_int(slot.get("slot"))
             grams = Decimal(str(slot.get("weight_grams") or 0))
         except (TypeError, ValueError, InvalidOperation):
             continue
 
-        if slot_number < 1:
+        if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
             continue
 
+        parsed_slots.append({
+            "slot_number": slot_number,
+            "is_primary": _coerce_bool(slot.get("is_primary")) or slot_number == primary_slot,
+            "material_type": quote.material_type or "PLA_BASIC",
+            "color_code": slot.get("color_code"),
+            "color_name": slot.get("color_name"),
+            "color_hex": slot.get("color_hex"),
+            "material_grams": grams,
+        })
+
+    if not parsed_slots:
+        return
+
+    db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
+        synchronize_session=False
+    )
+
+    quote.color = "MULTI_COLOR"
+    for slot in parsed_slots:
         db.add(QuoteMaterial(
             quote_id=quote.id,
-            slot_number=slot_number,
-            is_primary=bool(slot.get("is_primary")) or slot_number == primary_slot,
-            material_type=quote.material_type or "PLA_BASIC",
-            color_code=slot.get("color_code"),
-            color_name=slot.get("color_name"),
-            color_hex=slot.get("color_hex"),
-            material_grams=grams,
+            **slot,
         ))
 
 
@@ -495,7 +517,7 @@ async def accept_portal_quote(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Snapshot shipping selection and mark a portal quote accepted or awaiting review."""
+    """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
     quote = _portal_quote_or_404(db, quote_id, current_user)
     _apply_portal_shipping(quote, current_user, payload)
     _apply_portal_print_selection(db, quote, payload)

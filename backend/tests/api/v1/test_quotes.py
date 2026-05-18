@@ -270,7 +270,7 @@ class TestPortalQuoteContract:
                     "shipping_cost": "8.50",
                     "print_mode": "multi",
                     "multi_color_info": {
-                        "primary_slot": 1,
+                        "primary_slot": "2",
                         "slot_colors": [
                             {
                                 "slot": 1,
@@ -278,10 +278,10 @@ class TestPortalQuoteContract:
                                 "color_name": "Red",
                                 "color_hex": "#ff0000",
                                 "weight_grams": 10.2,
-                                "is_primary": True,
+                                "is_primary": "false",
                             },
                             {
-                                "slot": 2,
+                                "slot": "2",
                                 "color_code": "YEL",
                                 "color_name": "Yellow",
                                 "color_hex": "#ffff00",
@@ -313,7 +313,71 @@ class TestPortalQuoteContract:
             )
             assert [m.color_code for m in materials] == ["RED", "YEL", "BLK"]
             assert [m.color_name for m in materials] == ["Red", "Yellow", "Black"]
-            assert [m.is_primary for m in materials] == [True, False, False]
+            assert [m.is_primary for m in materials] == [False, True, False]
+        finally:
+            self._clear_auto_quote_provider(client)
+
+    def test_portal_accept_preserves_materials_when_multi_color_slots_are_invalid(self, client, db):
+        from app.models.quote import Quote, QuoteMaterial
+
+        self._install_auto_quote_provider(client)
+        try:
+            created = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "EXISTING_COLOR", "quantity": "1"},
+                files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            ).json()
+
+            db.add(QuoteMaterial(
+                quote_id=created["quote_id"],
+                slot_number=1,
+                is_primary=True,
+                material_type="PLA_BASIC",
+                color_code="KEEP",
+                color_name="Keep Existing",
+                color_hex="#123456",
+                material_grams=Decimal("1.25"),
+            ))
+            db.commit()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "print_mode": "multi",
+                    "multi_color_info": {
+                        "primary_slot": "bad",
+                        "slot_colors": [
+                            {"slot": 0, "color_code": "ZERO", "weight_grams": 1},
+                            {"slot": 17, "color_code": "TOO_HIGH", "weight_grams": 1},
+                            {"slot": 2, "color_code": "NEGATIVE", "weight_grams": -1},
+                            {"slot": "bad", "color_code": "BAD", "weight_grams": 1},
+                            "not-a-slot",
+                        ],
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.color == "EXISTING_COLOR"
+
+            materials = (
+                db.query(QuoteMaterial)
+                .filter(QuoteMaterial.quote_id == created["quote_id"])
+                .all()
+            )
+            assert len(materials) == 1
+            assert materials[0].color_code == "KEEP"
         finally:
             self._clear_auto_quote_provider(client)
 
