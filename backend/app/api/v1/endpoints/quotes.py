@@ -307,11 +307,19 @@ def _require_public_quoter_enabled() -> None:
         )
 
 
-def _require_admin(current_user: User) -> None:
-    if not getattr(current_user, "is_admin", False):
+def _is_staff_or_admin(current_user: User) -> bool:
+    return bool(
+        getattr(current_user, "is_admin", False)
+        or getattr(current_user, "is_staff", False)
+        or getattr(current_user, "account_type", None) in {"admin", "operator"}
+    )
+
+
+def _require_staff_or_admin(current_user: User) -> None:
+    if not _is_staff_or_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
+            detail="Admin or staff role required",
         )
 
 
@@ -330,6 +338,14 @@ def _portal_quote_or_404(db: Session, quote_id: int, current_user: User) -> Quot
         raise HTTPException(status_code=403, detail="Quote does not belong to current customer")
 
     return quote
+
+
+def _authorize_quote_archive_access(quote: Quote, current_user: User) -> None:
+    if _is_staff_or_admin(current_user):
+        return
+    if quote.user_id == current_user.id or quote.customer_id == current_user.id:
+        return
+    raise HTTPException(status_code=403, detail="Quote does not belong to current customer")
 
 
 def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -448,11 +464,15 @@ def _apply_portal_print_selection(
         if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
             continue
 
+        color_code = str(slot.get("color_code") or "").strip()
+        if not color_code:
+            continue
+
         parsed_slots.append({
             "slot_number": slot_number,
             "is_primary": _coerce_bool(slot.get("is_primary")) or slot_number == primary_slot,
             "material_type": quote.material_type or "PLA_BASIC",
-            "color_code": slot.get("color_code"),
+            "color_code": color_code,
             "color_name": slot.get("color_name"),
             "color_hex": slot.get("color_hex"),
             "material_grams": grams,
@@ -639,6 +659,7 @@ async def get_quote_archive(
 ):
     """Read-only Core archive for online quote data after PRO downgrade."""
     quote = quote_service.get_quote_detail(db, quote_id)
+    _authorize_quote_archive_access(quote, current_user)
     files = (
         db.query(QuoteFile)
         .filter(QuoteFile.quote_id == quote_id)
@@ -660,20 +681,22 @@ async def get_quote_archive(
     }
 
 
-@router.post("/{quote_id}/create-item", response_model=QuoteItemCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{quote_id}/create-item", response_model=QuoteItemCreateResponse)
 async def create_item_from_quote(
     quote_id: int,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: create a Core item/product from an approved quote."""
-    _require_admin(current_user)
+    _require_staff_or_admin(current_user)
     quote = quote_service.get_quote_detail(db, quote_id)
     if quote.product_id:
         product = db.get(Product, quote.product_id)
         if not product:
             raise HTTPException(status_code=409, detail="Quote links to a missing product")
         bom = product.boms[0] if product.boms else None
+        response.status_code = status.HTTP_200_OK
         return {
             "quote_id": quote.id,
             "product_id": product.id,
@@ -696,6 +719,7 @@ async def create_item_from_quote(
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    response.status_code = status.HTTP_201_CREATED
     return {
         "quote_id": quote.id,
         "product_id": product.id,
