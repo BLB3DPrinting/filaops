@@ -19,6 +19,9 @@ Covers:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
+
+from app.core.config import settings
 
 
 BASE_URL = "/api/v1/quotes"
@@ -112,11 +115,168 @@ class TestQuoteAuth:
 
 
 
+class TestCoreSafeQuoterBoundary:
+    """Core manual quoting must not depend on the PRO online quoter."""
+
+    def test_manual_quote_create_works_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        quote = _create_quote(client, product_name="Manual Core Quote")
+
+        assert quote["product_name"] == "Manual Core Quote"
+        assert quote["status"] == "pending"
+
+    def test_portal_quote_create_is_gated_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Public online quoter is disabled"
+
+    def test_quote_archive_stays_readable_when_public_quoter_disabled(self, client, db, monkeypatch):
+        from app.models.quote import QuoteMaterial
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+        create_response = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+        assert create_response.status_code == 201, create_response.text
+        created = create_response.json()
+
+        db.add(QuoteMaterial(
+            quote_id=created["quote_id"],
+            slot_number=1,
+            is_primary=True,
+            material_type="PLA_BASIC",
+            color_code="JADE_WHITE",
+            color_name="Jade White",
+            color_hex="#f4f2df",
+            material_grams=Decimal("12.34"),
+        ))
+        db.commit()
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        response = client.get(f"{BASE_URL}/{created['quote_id']}/archive")
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["read_only"] is True
+        assert data["pro_actions_available"] is False
+        assert data["quote"]["id"] == created["quote_id"]
+        assert data["files"][0]["original_filename"] == "part.stl"
+        assert data["materials"][0]["color_code"] == "JADE_WHITE"
+
+    def test_quote_archive_rejects_unowned_customer_quote(self, client, db, monkeypatch):
+        from app.models.quote import Quote
+        from app.models.user import User
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        created = _create_quote(client)
+
+        other_customer = User(
+            email="archive-owner@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Archive",
+            last_name="Owner",
+            account_type="customer",
+        )
+        db.add(other_customer)
+        db.flush()
+
+        quote = db.get(Quote, created["id"])
+        quote.user_id = other_customer.id
+        quote.customer_id = other_customer.id
+
+        current_user = db.get(User, 1)
+        current_user.account_type = "customer"
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{created['id']}/archive")
+
+        assert response.status_code == 403
+        assert "belong" in response.json()["detail"]
+
+    def test_create_item_from_quote_requires_approved_quote(self, client):
+        quote = _create_quote(client)
+
+        response = client.post(f"{BASE_URL}/{quote['id']}/create-item")
+
+        assert response.status_code == 409
+        assert "approved" in response.json()["detail"]
+
+    def test_create_item_from_quote_uses_staff_action(self, client, db, monkeypatch):
+        from app.models.product import Product
+        from app.models.quote import Quote
+        from app.models.user import User
+        from app.services import bom_service
+
+        current_user = db.get(User, 1)
+        current_user.account_type = "operator"
+        db.commit()
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote.status = "approved"
+        db.commit()
+
+        def fake_auto_create_product_and_bom(quote, db):
+            product = Product(
+                sku=f"PRD-CUS-TEST-{quote.id}",
+                name=f"Custom Print - Quote #{quote.quote_number}",
+                type="custom",
+                item_type="finished_good",
+                procurement_type="make",
+                has_bom=True,
+                active=True,
+            )
+            db.add(product)
+            db.flush()
+            quote.product_id = product.id
+            db.commit()
+            return product, SimpleNamespace(id=987)
+
+        monkeypatch.setattr(
+            bom_service,
+            "auto_create_product_and_bom",
+            fake_auto_create_product_and_bom,
+        )
+
+        response = client.post(f"{BASE_URL}/{quote.id}/create-item")
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["quote_id"] == quote.id
+        assert data["product_sku"] == f"PRD-CUS-TEST-{quote.id}"
+        assert data["bom_id"] == 987
+        assert data["already_created"] is False
+
+        duplicate_response = client.post(f"{BASE_URL}/{quote.id}/create-item")
+
+        assert duplicate_response.status_code == 200, duplicate_response.text
+        duplicate_data = duplicate_response.json()
+        assert duplicate_data["product_id"] == data["product_id"]
+        assert duplicate_data["already_created"] is True
+
+
 class TestPortalQuoteContract:
     """Public quoter contract: Core owns the durable quote id."""
 
+    @pytest.fixture(autouse=True)
+    def enable_public_quoter(self, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+
     @staticmethod
     def _install_auto_quote_provider(client):
+        had_previous = hasattr(client.app.state, "quote_automation_provider")
+        previous_provider = getattr(client.app.state, "quote_automation_provider", None)
+
         def provider(**kwargs):
             quote = kwargs["quote"]
             quote.material_grams = Decimal("27.20")
@@ -132,10 +292,14 @@ class TestPortalQuoteContract:
             return {}
 
         client.app.state.quote_automation_provider = provider
+        return had_previous, previous_provider
 
     @staticmethod
-    def _clear_auto_quote_provider(client):
-        if hasattr(client.app.state, "quote_automation_provider"):
+    def _clear_auto_quote_provider(client, provider_state):
+        had_previous, previous_provider = provider_state
+        if had_previous:
+            client.app.state.quote_automation_provider = previous_provider
+        elif hasattr(client.app.state, "quote_automation_provider"):
             delattr(client.app.state, "quote_automation_provider")
 
     def test_portal_create_requires_auth(self, unauthed_client):
@@ -172,11 +336,13 @@ class TestPortalQuoteContract:
         assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
 
     def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
-        created = client.post(
+        create_response = client.post(
             f"{BASE_URL}/portal",
             data={"material": "PLA_BASIC", "quantity": "1"},
             files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
-        ).json()
+        )
+        assert create_response.status_code == 201, create_response.text
+        created = create_response.json()
 
         response = client.post(
             f"{BASE_URL}/portal/{created['quote_id']}/accept",
@@ -203,13 +369,15 @@ class TestPortalQuoteContract:
     def test_portal_accept_keeps_auto_quote_approved_until_payment(self, client, db):
         from app.models.quote import Quote
 
-        self._install_auto_quote_provider(client)
+        provider_state = self._install_auto_quote_provider(client)
         try:
-            created = client.post(
+            create_response = client.post(
                 f"{BASE_URL}/portal",
                 data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
                 files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
-            ).json()
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
 
             response = client.post(
                 f"{BASE_URL}/portal/{created['quote_id']}/accept",
@@ -242,18 +410,20 @@ class TestPortalQuoteContract:
             assert quote.status == "approved"
             assert quote.approval_method == "auto"
         finally:
-            self._clear_auto_quote_provider(client)
+            self._clear_auto_quote_provider(client, provider_state)
 
     def test_portal_accept_snapshots_multi_color_slots(self, client, db):
         from app.models.quote import Quote, QuoteMaterial
 
-        self._install_auto_quote_provider(client)
+        provider_state = self._install_auto_quote_provider(client)
         try:
-            created = client.post(
+            create_response = client.post(
                 f"{BASE_URL}/portal",
                 data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
                 files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
-            ).json()
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
 
             response = client.post(
                 f"{BASE_URL}/portal/{created['quote_id']}/accept",
@@ -315,18 +485,20 @@ class TestPortalQuoteContract:
             assert [m.color_name for m in materials] == ["Red", "Yellow", "Black"]
             assert [m.is_primary for m in materials] == [False, True, False]
         finally:
-            self._clear_auto_quote_provider(client)
+            self._clear_auto_quote_provider(client, provider_state)
 
     def test_portal_accept_preserves_materials_when_multi_color_slots_are_invalid(self, client, db):
         from app.models.quote import Quote, QuoteMaterial
 
-        self._install_auto_quote_provider(client)
+        provider_state = self._install_auto_quote_provider(client)
         try:
-            created = client.post(
+            create_response = client.post(
                 f"{BASE_URL}/portal",
                 data={"material": "PLA_BASIC", "color": "EXISTING_COLOR", "quantity": "1"},
                 files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
-            ).json()
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
 
             db.add(QuoteMaterial(
                 quote_id=created["quote_id"],
@@ -361,6 +533,7 @@ class TestPortalQuoteContract:
                             {"slot": 17, "color_code": "TOO_HIGH", "weight_grams": 1},
                             {"slot": 2, "color_code": "NEGATIVE", "weight_grams": -1},
                             {"slot": "bad", "color_code": "BAD", "weight_grams": 1},
+                            {"slot": 2, "color_code": "", "weight_grams": 1},
                             "not-a-slot",
                         ],
                     },
@@ -379,7 +552,7 @@ class TestPortalQuoteContract:
             assert len(materials) == 1
             assert materials[0].color_code == "KEEP"
         finally:
-            self._clear_auto_quote_provider(client)
+            self._clear_auto_quote_provider(client, provider_state)
 
 # =============================================================================
 # List - GET /api/v1/quotes/
