@@ -19,6 +19,9 @@ Covers:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
+
+from app.core.config import settings
 
 
 BASE_URL = "/api/v1/quotes"
@@ -112,8 +115,117 @@ class TestQuoteAuth:
 
 
 
+class TestCoreSafeQuoterBoundary:
+    """Core manual quoting must not depend on the PRO online quoter."""
+
+    def test_manual_quote_create_works_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        quote = _create_quote(client, product_name="Manual Core Quote")
+
+        assert quote["product_name"] == "Manual Core Quote"
+        assert quote["status"] == "pending"
+
+    def test_portal_quote_create_is_gated_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Public online quoter is disabled"
+
+    def test_quote_archive_stays_readable_when_public_quoter_disabled(self, client, db, monkeypatch):
+        from app.models.quote import QuoteMaterial
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+        created = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        ).json()
+
+        db.add(QuoteMaterial(
+            quote_id=created["quote_id"],
+            slot_number=1,
+            is_primary=True,
+            material_type="PLA_BASIC",
+            color_code="JADE_WHITE",
+            color_name="Jade White",
+            color_hex="#f4f2df",
+            material_grams=Decimal("12.34"),
+        ))
+        db.commit()
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        response = client.get(f"{BASE_URL}/{created['quote_id']}/archive")
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["read_only"] is True
+        assert data["pro_actions_available"] is False
+        assert data["quote"]["id"] == created["quote_id"]
+        assert data["files"][0]["original_filename"] == "part.stl"
+        assert data["materials"][0]["color_code"] == "JADE_WHITE"
+
+    def test_create_item_from_quote_requires_approved_quote(self, client):
+        quote = _create_quote(client)
+
+        response = client.post(f"{BASE_URL}/{quote['id']}/create-item")
+
+        assert response.status_code == 409
+        assert "approved" in response.json()["detail"]
+
+    def test_create_item_from_quote_uses_staff_action(self, client, db, monkeypatch):
+        from app.models.product import Product
+        from app.models.quote import Quote
+        from app.services import bom_service
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote.status = "approved"
+        db.commit()
+
+        def fake_auto_create_product_and_bom(quote, db):
+            product = Product(
+                sku=f"PRD-CUS-TEST-{quote.id}",
+                name=f"Custom Print - Quote #{quote.quote_number}",
+                type="custom",
+                item_type="finished_good",
+                procurement_type="make",
+                has_bom=True,
+                active=True,
+            )
+            db.add(product)
+            db.flush()
+            quote.product_id = product.id
+            return product, SimpleNamespace(id=987)
+
+        monkeypatch.setattr(
+            bom_service,
+            "auto_create_product_and_bom",
+            fake_auto_create_product_and_bom,
+        )
+
+        response = client.post(f"{BASE_URL}/{quote.id}/create-item")
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["quote_id"] == quote.id
+        assert data["product_sku"] == f"PRD-CUS-TEST-{quote.id}"
+        assert data["bom_id"] == 987
+        assert data["already_created"] is False
+
+
 class TestPortalQuoteContract:
     """Public quoter contract: Core owns the durable quote id."""
+
+    @pytest.fixture(autouse=True)
+    def enable_public_quoter(self, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
 
     @staticmethod
     def _install_auto_quote_provider(client):

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Public online quoter endpoints are now explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO.
+- Quotes now expose a Core-owned read-only archive response with retained file and material snapshots for downgrade/retrieval workflows.
+- Staff can create a Core item/product from an approved quote through a deliberate quote action instead of automatic customer upload side effects.
+
 ### Fixed
 
 - Portal quote checkout flow now keeps auto-priced quotes `approved` until payment succeeds instead of marking them `accepted` when checkout starts or fails.

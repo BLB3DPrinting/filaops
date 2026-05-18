@@ -14,11 +14,14 @@ from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.config import settings
+from app.models.product import Product
 from app.models.quote import Quote, QuoteFile, QuoteMaterial
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
 from app.services import quote_service
+from app.services import bom_service
 from app.services.file_storage import file_storage
 from pydantic import BaseModel, Field
 
@@ -246,6 +249,72 @@ class PortalShippingSelection(BaseModel):
     multi_color_info: Optional[dict[str, Any]] = None
 
 
+class QuoteArchiveFile(BaseModel):
+    """Read-only file metadata retained by Core after PRO downgrade."""
+    id: int
+    original_filename: str
+    file_format: str
+    file_size_bytes: int
+    file_hash: str
+    uploaded_at: datetime
+    processed: bool = False
+    processing_error: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteArchiveMaterial(BaseModel):
+    """Read-only material snapshot retained by Core after PRO downgrade."""
+    slot_number: int
+    is_primary: bool
+    material_type: str
+    color_code: Optional[str] = None
+    color_name: Optional[str] = None
+    color_hex: Optional[str] = None
+    material_grams: Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteArchiveResponse(BaseModel):
+    """Durable quote archive shape that does not require PRO tables."""
+    quote: QuoteDetail
+    files: list[QuoteArchiveFile] = Field(default_factory=list)
+    materials: list[QuoteArchiveMaterial] = Field(default_factory=list)
+    read_only: bool = True
+    pro_actions_available: bool = False
+
+
+class QuoteItemCreateResponse(BaseModel):
+    """Response for staff-created Core item/product from a quote."""
+    quote_id: int
+    product_id: int
+    product_sku: str
+    product_name: str
+    bom_id: Optional[int] = None
+    already_created: bool = False
+
+
+def _public_quoter_enabled() -> bool:
+    return bool(getattr(settings, "ENABLE_PUBLIC_QUOTER", False))
+
+
+def _require_public_quoter_enabled() -> None:
+    if not _public_quoter_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public online quoter is disabled",
+        )
+
+
+def _require_admin(current_user: User) -> None:
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+
+
 def _customer_display_name(user: User) -> str:
     """Return a stable customer display name without inventing a new customer table."""
     full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
@@ -445,6 +514,7 @@ async def create_portal_quote(
     db: Session = Depends(get_db),
 ):
     """Create one Core-owned quote for the public portal and optionally let PRO price it."""
+    _require_public_quoter_enabled()
     try:
         stored_file = await file_storage.save_file(file, current_user.id)
     except ValueError as exc:
@@ -518,6 +588,7 @@ async def accept_portal_quote(
     db: Session = Depends(get_db),
 ):
     """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
+    _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
     _apply_portal_shipping(quote, current_user, payload)
     _apply_portal_print_selection(db, quote, payload)
@@ -548,6 +619,7 @@ async def create_portal_quote_checkout(
     db: Session = Depends(get_db),
 ):
     """Create a payment checkout session through an optional payment provider."""
+    _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
     provider = getattr(request.app.state, "payment_checkout_provider", None)
     if provider is None:
@@ -557,6 +629,81 @@ async def create_portal_quote_checkout(
     if isawaitable(result):
         result = await result
     return result
+
+
+@router.get("/{quote_id}/archive", response_model=QuoteArchiveResponse)
+async def get_quote_archive(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read-only Core archive for online quote data after PRO downgrade."""
+    quote = quote_service.get_quote_detail(db, quote_id)
+    files = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.quote_id == quote_id)
+        .order_by(QuoteFile.id)
+        .all()
+    )
+    materials = (
+        db.query(QuoteMaterial)
+        .filter(QuoteMaterial.quote_id == quote_id)
+        .order_by(QuoteMaterial.slot_number)
+        .all()
+    )
+    return {
+        "quote": quote,
+        "files": files,
+        "materials": materials,
+        "read_only": True,
+        "pro_actions_available": _public_quoter_enabled(),
+    }
+
+
+@router.post("/{quote_id}/create-item", response_model=QuoteItemCreateResponse, status_code=status.HTTP_201_CREATED)
+async def create_item_from_quote(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: create a Core item/product from an approved quote."""
+    _require_admin(current_user)
+    quote = quote_service.get_quote_detail(db, quote_id)
+    if quote.product_id:
+        product = db.get(Product, quote.product_id)
+        if not product:
+            raise HTTPException(status_code=409, detail="Quote links to a missing product")
+        bom = product.boms[0] if product.boms else None
+        return {
+            "quote_id": quote.id,
+            "product_id": product.id,
+            "product_sku": product.sku,
+            "product_name": product.name,
+            "bom_id": bom.id if bom else None,
+            "already_created": True,
+        }
+
+    if quote.status not in {"approved", "accepted", "converted"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote must be approved, accepted, or converted before creating an item",
+        )
+
+    try:
+        product, bom = bom_service.auto_create_product_and_bom(quote, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "quote_id": quote.id,
+        "product_id": product.id,
+        "product_sku": product.sku,
+        "product_name": product.name,
+        "bom_id": bom.id,
+        "already_created": False,
+    }
 
 
 @router.get("/{quote_id}", response_model=QuoteDetail)

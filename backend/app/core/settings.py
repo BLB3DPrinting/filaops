@@ -162,6 +162,13 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field(
         default="http://localhost:5173", description="Frontend URL for redirects"
     )
+    ENABLE_PUBLIC_QUOTER: bool = Field(
+        default=False,
+        description=(
+            "Enable customer-facing online quote endpoints. Core manual quotes "
+            "must keep working when this is false."
+        ),
+    )
 
     @model_validator(mode="after")
     def add_frontend_url_to_cors(self):
