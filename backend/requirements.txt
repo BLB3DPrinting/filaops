@@ -1,8 +1,8 @@
 # backend/requirements.txt
 # (optional) replace your current file with this Postgres-friendly set
 fastapi==0.136.1
-uvicorn[standard]==0.46.0
-python-multipart==0.0.28
+uvicorn[standard]==0.47.0
+python-multipart==0.0.29
 sqlalchemy==2.0.49
 psycopg[binary]>=3.3.4
 alembic==1.18.4
@@ -19,9 +19,9 @@ python-dotenv==1.2.2
 slowapi==0.1.9
 python-dateutil==2.9.0.post0
 httpx==0.28.1
-requests==2.33.1
+requests==2.34.2
 semver==3.0.4
-reportlab==4.5.0
+reportlab==4.5.1
 sentry-sdk[fastapi]>=2.59.0
 
 # AI Invoice Parsing is a PRO feature (anthropic, pypdf)
