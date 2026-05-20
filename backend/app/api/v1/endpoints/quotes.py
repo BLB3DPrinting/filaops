@@ -389,6 +389,10 @@ def _set_portal_quote_manual_review(quote: Quote, reason: str) -> None:
     quote.requires_review_reason = reason
 
 
+class _InvalidQuoteAutomationResult(Exception):
+    """Raised when a PRO provider returns a payload Core cannot safely consume."""
+
+
 async def _maybe_enrich_portal_quote(
     request: Request,
     *,
@@ -408,7 +412,17 @@ async def _maybe_enrich_portal_quote(
             result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
             if isawaitable(result):
                 result = await result
+            if result is not None and not isinstance(result, dict):
+                raise _InvalidQuoteAutomationResult
         return result or {}
+    except _InvalidQuoteAutomationResult:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
+        provider_name = getattr(provider, "__name__", type(provider).__name__)
+        logger.warning(
+            "Portal quote automation returned invalid payload from %r",
+            _safe_log_value(provider_name),
+        )
+        return {}
     except HTTPException as exc:
         if exc.status_code >= 500:
             reason = "Automatic quote engine unavailable"
