@@ -371,6 +371,24 @@ def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) 
     }
 
 
+def _safe_log_value(value: Any, max_length: int = 160) -> str:
+    safe = repr(str(value or ""))[1:-1]
+    return safe[:max_length]
+
+
+def _set_portal_quote_manual_review(quote: Quote, reason: str) -> None:
+    quote.status = "pending"
+    quote.approval_method = "manual"
+    quote.auto_approved = False
+    quote.auto_approve_eligible = False
+    quote.unit_price = Decimal("0.00")
+    quote.subtotal = Decimal("0.00")
+    quote.total_price = Decimal("0.00")
+    quote.material_grams = None
+    quote.print_time_hours = None
+    quote.requires_review_reason = reason
+
+
 async def _maybe_enrich_portal_quote(
     request: Request,
     *,
@@ -382,38 +400,32 @@ async def _maybe_enrich_portal_quote(
     """Let PRO enrich a Core-owned quote when PRO is installed and active."""
     provider = getattr(request.app.state, "quote_automation_provider", None)
     if provider is None:
-        quote.status = "pending"
-        quote.approval_method = "manual"
-        quote.requires_review_reason = "Automatic quote engine unavailable"
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
         return {}
 
     try:
-        result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
-        if isawaitable(result):
-            result = await result
+        with db.begin_nested():
+            result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
+            if isawaitable(result):
+                result = await result
         return result or {}
     except HTTPException as exc:
-        quote.status = "pending"
-        quote.approval_method = "manual"
         if exc.status_code >= 500:
-            quote.requires_review_reason = "Automatic quote engine unavailable"
+            reason = "Automatic quote engine unavailable"
         else:
-            quote.requires_review_reason = "Uploaded file requires manual review"
+            reason = "Uploaded file requires manual review"
+        _set_portal_quote_manual_review(quote, reason)
         logger.warning(
-            "Portal quote automation failed for %s (%s): %s",
-            stored_file.get("original_filename"),
+            "Portal quote automation failed for %r (%s)",
+            _safe_log_value(stored_file.get("original_filename")),
             exc.status_code,
-            exc.detail,
         )
         return {}
-    except Exception as exc:
-        quote.status = "pending"
-        quote.approval_method = "manual"
-        quote.requires_review_reason = "Automatic quote engine unavailable"
+    except Exception:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
         logger.exception(
-            "Portal quote automation crashed for %s: %s",
-            stored_file.get("original_filename"),
-            exc,
+            "Portal quote automation crashed for %r",
+            _safe_log_value(stored_file.get("original_filename")),
         )
         return {}
 

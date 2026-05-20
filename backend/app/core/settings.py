@@ -281,8 +281,16 @@ class Settings(BaseSettings):
     @classmethod
     def parse_file_formats(cls, v):
         if isinstance(v, str):
-            return [fmt.strip() for fmt in v.split(",") if fmt.strip()]
-        return v
+            values = [fmt.strip() for fmt in v.split(",") if fmt.strip()]
+        else:
+            values = v
+        if not isinstance(values, list):
+            return values
+        return [
+            normalized if normalized.startswith(".") else f".{normalized}"
+            for normalized in (str(fmt).strip().lower() for fmt in values)
+            if normalized
+        ]
 
     # ===================
     # EasyPost

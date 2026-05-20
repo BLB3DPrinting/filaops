@@ -373,12 +373,20 @@ class TestPortalQuoteContract:
         from fastapi import HTTPException
         from app.models.quote import Quote
 
-        had_previous = hasattr(client.app.state, "quote_automation_provider")
-        previous_provider = getattr(client.app.state, "quote_automation_provider", None)
-
-        def failing_provider(**_kwargs):
+        def failing_provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
             raise HTTPException(status_code=503, detail="real slicer temporarily unavailable")
 
+        provider_state = self._install_auto_quote_provider(client)
         client.app.state.quote_automation_provider = failing_provider
         try:
             response = client.post(
@@ -393,10 +401,7 @@ class TestPortalQuoteContract:
                 files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
             )
         finally:
-            if had_previous:
-                client.app.state.quote_automation_provider = previous_provider
-            elif hasattr(client.app.state, "quote_automation_provider"):
-                delattr(client.app.state, "quote_automation_provider")
+            self._clear_auto_quote_provider(client, provider_state)
 
         assert response.status_code == 201, response.text
         data = response.json()
@@ -407,6 +412,11 @@ class TestPortalQuoteContract:
 
         quote = db.get(Quote, data["quote_id"])
         assert quote.status == "pending"
+        assert quote.approval_method == "manual"
+        assert quote.auto_approved is False
+        assert quote.auto_approve_eligible is False
+        assert quote.total_price == Decimal("0.00")
+        assert quote.material_grams is None
         assert quote.files[0].original_filename == "part.stl"
 
     def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
