@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Public portal quote uploads now retain `.obj`, `.step`, and `.stp` files as Core quote archives for manual review instead of rejecting them before staff can inspect the model.
+- Public portal quote creation now falls back to a pending manual-review quote when the optional PRO quote automation provider fails, preserving the uploaded file and avoiding customer-facing slicer 503 errors.
 - Portal quote checkout flow now keeps auto-priced quotes `approved` until payment succeeds instead of marking them `accepted` when checkout starts or fails.
 - Portal multi-color print selections are snapshotted to `QuoteMaterial` rows so selected red/yellow/black slot colors do not collapse back to the default single color.
 

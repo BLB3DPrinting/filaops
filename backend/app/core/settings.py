@@ -273,7 +273,8 @@ class Settings(BaseSettings):
     )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
-        default=[".3mf", ".stl"], description="Allowed upload extensions"
+        default=[".3mf", ".stl", ".obj", ".step", ".stp"],
+        description="Allowed upload extensions",
     )
 
     @field_validator("ALLOWED_FILE_FORMATS", mode="before")

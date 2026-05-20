@@ -387,10 +387,35 @@ async def _maybe_enrich_portal_quote(
         quote.requires_review_reason = "Automatic quote engine unavailable"
         return {}
 
-    result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
-    if isawaitable(result):
-        result = await result
-    return result or {}
+    try:
+        result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
+        if isawaitable(result):
+            result = await result
+        return result or {}
+    except HTTPException as exc:
+        quote.status = "pending"
+        quote.approval_method = "manual"
+        if exc.status_code >= 500:
+            quote.requires_review_reason = "Automatic quote engine unavailable"
+        else:
+            quote.requires_review_reason = "Uploaded file requires manual review"
+        logger.warning(
+            "Portal quote automation failed for %s (%s): %s",
+            stored_file.get("original_filename"),
+            exc.status_code,
+            exc.detail,
+        )
+        return {}
+    except Exception as exc:
+        quote.status = "pending"
+        quote.approval_method = "manual"
+        quote.requires_review_reason = "Automatic quote engine unavailable"
+        logger.exception(
+            "Portal quote automation crashed for %s: %s",
+            stored_file.get("original_filename"),
+            exc,
+        )
+        return {}
 
 
 def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShippingSelection) -> None:
