@@ -335,6 +335,139 @@ class TestPortalQuoteContract:
         expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
         assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
 
+    @pytest.mark.parametrize(
+        ("filename", "content_type"),
+        [
+            ("part.obj", "model/obj"),
+            ("part.step", "model/step"),
+            ("part.stp", "model/step"),
+        ],
+    )
+    def test_portal_create_retains_cad_and_obj_files_for_manual_review(
+        self, client, db, filename, content_type
+    ):
+        from app.models.quote import Quote
+
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={
+                "material": "PLA_BASIC",
+                "color": "BLK",
+                "quality": "standard",
+                "infill": "20%",
+                "quantity": "1",
+            },
+            files={"file": (filename, b"manual review model", content_type)},
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.file_format == f".{filename.rsplit('.', 1)[1]}"
+        assert quote.files[0].original_filename == filename
+
+    def test_portal_create_falls_back_to_manual_review_when_provider_fails(self, client, db):
+        from fastapi import HTTPException
+        from app.models.quote import Quote
+
+        def failing_provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            raise HTTPException(status_code=503, detail="real slicer temporarily unavailable")
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = failing_provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "PLA_BASIC",
+                    "color": "BLK",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                },
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+        assert data["requires_review_reason"] == "Automatic quote engine unavailable"
+        assert data["total_price"] == "0.00"
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.status == "pending"
+        assert quote.approval_method == "manual"
+        assert quote.auto_approved is False
+        assert quote.auto_approve_eligible is False
+        assert quote.total_price == Decimal("0.00")
+        assert quote.material_grams is None
+        assert quote.files[0].original_filename == "part.stl"
+
+    def test_portal_create_falls_back_when_provider_returns_non_dict(self, client, db):
+        from app.models.quote import Quote
+
+        def bad_provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            return "ok"
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = bad_provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "PLA_BASIC",
+                    "color": "BLK",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                },
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+        assert data["requires_review_reason"] == "Automatic quote engine unavailable"
+        assert data["total_price"] == "0.00"
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.status == "pending"
+        assert quote.approval_method == "manual"
+        assert quote.auto_approved is False
+        assert quote.auto_approve_eligible is False
+        assert quote.total_price == Decimal("0.00")
+        assert quote.material_grams is None
+        assert quote.files[0].original_filename == "part.stl"
+
     def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
         create_response = client.post(
             f"{BASE_URL}/portal",

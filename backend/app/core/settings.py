@@ -273,15 +273,24 @@ class Settings(BaseSettings):
     )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
-        default=[".3mf", ".stl"], description="Allowed upload extensions"
+        default=[".3mf", ".stl", ".obj", ".step", ".stp"],
+        description="Allowed upload extensions",
     )
 
     @field_validator("ALLOWED_FILE_FORMATS", mode="before")
     @classmethod
     def parse_file_formats(cls, v):
         if isinstance(v, str):
-            return [fmt.strip() for fmt in v.split(",") if fmt.strip()]
-        return v
+            values = [fmt.strip() for fmt in v.split(",") if fmt.strip()]
+        else:
+            values = v
+        if not isinstance(values, list):
+            return values
+        return [
+            normalized if normalized.startswith(".") else f".{normalized}"
+            for normalized in (str(fmt).strip().lower() for fmt in values)
+            if normalized
+        ]
 
     # ===================
     # EasyPost

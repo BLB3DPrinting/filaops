@@ -124,6 +124,16 @@ class TestDatabaseUrlPasswordValidation:
             )
 
 
+class TestUploadFileFormatSettings:
+    def test_allowed_file_formats_normalizes_env_values(self):
+        s = Settings(
+            _env_file=None,
+            ENVIRONMENT="development",
+            ALLOWED_FILE_FORMATS="3MF, .STL, obj, STEP, .stp",
+        )
+        assert s.ALLOWED_FILE_FORMATS == [".3mf", ".stl", ".obj", ".step", ".stp"]
+
+
 class TestDevelopmentPlaceholderCredentials:
     def test_placeholder_secret_key_logs_warning(self, caplog):
         caplog.set_level(logging.WARNING, logger="app.core.settings")

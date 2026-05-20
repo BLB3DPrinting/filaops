@@ -371,6 +371,28 @@ def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) 
     }
 
 
+def _safe_log_value(value: Any, max_length: int = 160) -> str:
+    safe = repr(str(value or ""))[1:-1]
+    return safe[:max_length]
+
+
+def _set_portal_quote_manual_review(quote: Quote, reason: str) -> None:
+    quote.status = "pending"
+    quote.approval_method = "manual"
+    quote.auto_approved = False
+    quote.auto_approve_eligible = False
+    quote.unit_price = Decimal("0.00")
+    quote.subtotal = Decimal("0.00")
+    quote.total_price = Decimal("0.00")
+    quote.material_grams = None
+    quote.print_time_hours = None
+    quote.requires_review_reason = reason
+
+
+class _InvalidQuoteAutomationResult(Exception):
+    """Raised when a PRO provider returns a payload Core cannot safely consume."""
+
+
 async def _maybe_enrich_portal_quote(
     request: Request,
     *,
@@ -382,15 +404,44 @@ async def _maybe_enrich_portal_quote(
     """Let PRO enrich a Core-owned quote when PRO is installed and active."""
     provider = getattr(request.app.state, "quote_automation_provider", None)
     if provider is None:
-        quote.status = "pending"
-        quote.approval_method = "manual"
-        quote.requires_review_reason = "Automatic quote engine unavailable"
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
         return {}
 
-    result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
-    if isawaitable(result):
-        result = await result
-    return result or {}
+    try:
+        with db.begin_nested():
+            result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
+            if isawaitable(result):
+                result = await result
+            if result is not None and not isinstance(result, dict):
+                raise _InvalidQuoteAutomationResult
+        return result or {}
+    except _InvalidQuoteAutomationResult:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
+        provider_name = getattr(provider, "__name__", type(provider).__name__)
+        logger.warning(
+            "Portal quote automation returned invalid payload from %r",
+            _safe_log_value(provider_name),
+        )
+        return {}
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            reason = "Automatic quote engine unavailable"
+        else:
+            reason = "Uploaded file requires manual review"
+        _set_portal_quote_manual_review(quote, reason)
+        logger.warning(
+            "Portal quote automation failed for %r (%s)",
+            _safe_log_value(stored_file.get("original_filename")),
+            exc.status_code,
+        )
+        return {}
+    except Exception:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
+        logger.exception(
+            "Portal quote automation crashed for %r",
+            _safe_log_value(stored_file.get("original_filename")),
+        )
+        return {}
 
 
 def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShippingSelection) -> None:
