@@ -107,12 +107,15 @@ logs/
 # Uploads (user content)
 uploads/*
 !uploads/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # Testing
 /playwright-report/
 **/test-results/
 /coverage/
 .nyc_output/
+.playwright-mcp/
 
 # OS
 .DS_Store
@@ -151,6 +154,8 @@ tables_output.txt
 # Code Conclave / Review Council (runtime artifacts + local skills)
 .code-conclave/
 .review-council/
+.agents/
+.codex/
 .claude/reviews/
 .claude/skills/review-council*
 *-review-log.txt
