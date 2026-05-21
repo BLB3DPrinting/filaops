@@ -48,7 +48,7 @@ const renderModal = () => render(
 
 describe("QuoteDetailModal attachments", () => {
   beforeEach(() => {
-    global.fetch = vi.fn((url) => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
       if (String(url).endsWith("/api/v1/quotes/42")) {
         return Promise.resolve({
           ok: true,
@@ -76,10 +76,11 @@ describe("QuoteDetailModal attachments", () => {
         ok: true,
         json: () => Promise.resolve({}),
       });
-    });
+    }));
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 

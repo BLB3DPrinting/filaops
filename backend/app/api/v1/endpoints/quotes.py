@@ -910,7 +910,18 @@ async def delete_quote_file(
 
     stored_filename = quote_file.stored_filename
     original_filename = quote_file.original_filename
-    file_storage.delete_file(stored_filename)
+    if not file_storage.delete_file(stored_filename):
+        logger.error(
+            "Failed to delete stored quote file %s for quote file %s on quote %s",
+            stored_filename,
+            file_id,
+            quote.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored quote file could not be deleted",
+        )
+
     db.delete(quote_file)
     db.commit()
 

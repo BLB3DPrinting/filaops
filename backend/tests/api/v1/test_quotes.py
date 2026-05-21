@@ -499,6 +499,33 @@ class TestCoreSafeQuoterBoundary:
         assert upload_response.status_code == 403
         assert delete_response.status_code == 403
 
+    def test_quote_file_delete_failure_keeps_db_record(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="existing.stl",
+            stored_filename="existing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="2" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        monkeypatch.setattr(file_storage, "delete_file", lambda stored_filename: False)
+
+        response = client.delete(f"{BASE_URL}/{quote.id}/files/{quote_file.id}")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Stored quote file could not be deleted"
+        assert db.get(QuoteFile, quote_file.id) is not None
+
     def test_quote_archive_rejects_unowned_customer_quote(self, client, db, monkeypatch):
         from app.models.quote import Quote
         from app.models.user import User

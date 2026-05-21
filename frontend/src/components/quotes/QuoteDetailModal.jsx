@@ -3,7 +3,7 @@
  *
  * Extracted from AdminQuotes.jsx (ARCHITECT-002)
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 
@@ -45,22 +45,28 @@ export default function QuoteDetailModal({
   const canConvert =
     (q.status === "approved" || q.status === "accepted") && !isExpired && !q.sales_order_id;
 
-  const loadQuoteFiles = async () => {
+  const loadQuoteFiles = useCallback(async ({ signal } = {}) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/files`, {
         credentials: "include",
+        signal,
       });
       if (!res.ok) throw new Error("Failed to load quote files");
-      setQuoteFiles(await res.json());
-    } catch {
+      const files = await res.json();
+      if (signal?.aborted) return;
+      setQuoteFiles(files);
+    } catch (err) {
+      if (err.name === "AbortError") return;
       setQuoteFiles([]);
     }
-  };
+  }, [quote.id]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setQuoteFiles([]);
-    loadQuoteFiles();
-  }, [quote.id]);
+    loadQuoteFiles({ signal: controller.signal });
+    return () => controller.abort();
+  }, [loadQuoteFiles]);
 
   // Load image if quote has one (fetch with auth and create blob URL)
   useEffect(() => {
