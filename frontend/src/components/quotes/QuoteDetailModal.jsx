@@ -23,6 +23,8 @@ export default function QuoteDetailModal({
 }) {
   const toast = useToast();
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [quoteFiles, setQuoteFiles] = useState([]);
   const [imageUrl, setImageUrl] = useState(null);
   const imageUrlRef = useRef(null);
 
@@ -42,6 +44,23 @@ export default function QuoteDetailModal({
   const isExpired = new Date(q.expires_at) < new Date();
   const canConvert =
     (q.status === "approved" || q.status === "accepted") && !isExpired && !q.sales_order_id;
+
+  const loadQuoteFiles = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/files`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load quote files");
+      setQuoteFiles(await res.json());
+    } catch {
+      setQuoteFiles([]);
+    }
+  };
+
+  useEffect(() => {
+    setQuoteFiles([]);
+    loadQuoteFiles();
+  }, [quote.id]);
 
   // Load image if quote has one (fetch with auth and create blob URL)
   useEffect(() => {
@@ -150,6 +169,91 @@ export default function QuoteDetailModal({
     } catch (err) {
       toast.error(err.message);
     }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/files`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to upload quote file");
+      }
+
+      toast.success("Quote file uploaded");
+      await loadQuoteFiles();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleFileDownload = async (quoteFile) => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/quotes/${quote.id}/files/${quoteFile.id}/download`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to download quote file");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = quoteFile.original_filename || "quote-file";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleFileDelete = async (quoteFile) => {
+    if (!confirm(`Delete ${quoteFile.original_filename}?`)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/quotes/${quote.id}/files/${quoteFile.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to delete quote file");
+      }
+
+      toast.success("Quote file deleted");
+      await loadQuoteFiles();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return "0 B";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -339,6 +443,63 @@ export default function QuoteDetailModal({
                     />
                     <span className="text-xs text-gray-500">PNG, JPG, WebP up to 5MB</span>
                   </label>
+                </div>
+              )}
+            </div>
+
+            {/* Quote Files */}
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h4 className="text-sm font-medium text-gray-300">Quote Files</h4>
+                <label className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded cursor-pointer hover:bg-blue-700 disabled:opacity-50">
+                  {uploadingFile ? "Uploading..." : "Upload"}
+                  <input
+                    type="file"
+                    accept=".3mf,.stl,.obj,.step,.stp"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    disabled={uploadingFile}
+                  />
+                </label>
+              </div>
+              {quoteFiles.length > 0 ? (
+                <div className="space-y-2">
+                  {quoteFiles.map((quoteFile) => (
+                    <div
+                      key={quoteFile.id}
+                      className="flex items-center justify-between gap-3 rounded border border-gray-700 bg-gray-900 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-white">{quoteFile.original_filename}</p>
+                        <p className="text-xs text-gray-500">
+                          {quoteFile.file_format} · {formatFileSize(quoteFile.file_size_bytes)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleFileDownload(quoteFile)}
+                          className="px-2.5 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleFileDelete(quoteFile)}
+                          className="px-2.5 py-1.5 text-xs bg-red-600/20 text-red-400 rounded hover:bg-red-600/30"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="border-2 border-dashed border-gray-700 rounded-lg p-4 text-center">
+                  <p className="text-sm text-gray-400">
+                    Attach model files or customer-provided documents for this quote.
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">3MF, STL, OBJ, STEP, STP</p>
                 </div>
               )}
             </div>

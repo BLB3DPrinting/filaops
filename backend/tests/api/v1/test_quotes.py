@@ -116,6 +116,21 @@ class TestQuoteAuth:
         response = unauthed_client.get(f"{BASE_URL}/1/files/1/download")
         assert response.status_code == 401
 
+    def test_file_list_requires_auth(self, unauthed_client):
+        response = unauthed_client.get(f"{BASE_URL}/1/files")
+        assert response.status_code == 401
+
+    def test_file_upload_requires_auth(self, unauthed_client):
+        response = unauthed_client.post(
+            f"{BASE_URL}/1/files",
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+        assert response.status_code == 401
+
+    def test_file_delete_requires_auth(self, unauthed_client):
+        response = unauthed_client.delete(f"{BASE_URL}/1/files/1")
+        assert response.status_code == 401
+
 
 
 
@@ -391,6 +406,98 @@ class TestCoreSafeQuoterBoundary:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Quote file not found"
+
+    def test_manual_quote_file_upload_list_and_delete(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        async def fake_save_file(file, user_id, quote_id=None):
+            return {
+                "original_filename": file.filename,
+                "stored_filename": "manual-attachment.stl",
+                "file_path": str(Path(__file__)),
+                "file_size_bytes": 25,
+                "file_format": ".stl",
+                "file_hash": "f" * 64,
+                "mime_type": file.content_type or "application/octet-stream",
+                "gcs_backed_up": False,
+            }
+
+        deleted = []
+        monkeypatch.setattr(file_storage, "save_file", fake_save_file)
+        monkeypatch.setattr(file_storage, "delete_file", lambda stored_filename: deleted.append(stored_filename) or True)
+
+        upload_response = client.post(
+            f"{BASE_URL}/{quote.id}/files",
+            files={"file": ("manual-part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert upload_response.status_code == 201, upload_response.text
+        uploaded = upload_response.json()
+        assert uploaded["original_filename"] == "manual-part.stl"
+        assert uploaded["file_format"] == ".stl"
+
+        list_response = client.get(f"{BASE_URL}/{quote.id}/files")
+
+        assert list_response.status_code == 200, list_response.text
+        files = list_response.json()
+        assert len(files) == 1
+        assert files[0]["id"] == uploaded["id"]
+        assert files[0]["original_filename"] == "manual-part.stl"
+
+        delete_response = client.delete(f"{BASE_URL}/{quote.id}/files/{uploaded['id']}")
+
+        assert delete_response.status_code == 200, delete_response.text
+        assert deleted == ["manual-attachment.stl"]
+        assert db.get(QuoteFile, uploaded["id"]) is None
+
+    def test_customer_cannot_upload_or_delete_quote_files(self, client, db):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        customer = User(
+            email="attachment-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Attachment",
+            last_name="Customer",
+            account_type="customer",
+        )
+        db.add(customer)
+        db.flush()
+        quote.user_id = customer.id
+        quote.customer_id = customer.id
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="existing.stl",
+            stored_filename="existing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="1" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+        auth = {"Authorization": f"Bearer {create_access_token(user_id=customer.id)}"}
+
+        upload_response = client.post(
+            f"{BASE_URL}/{quote.id}/files",
+            files={"file": ("customer-upload.stl", b"solid test\nendsolid test\n", "model/stl")},
+            headers=auth,
+        )
+        delete_response = client.delete(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}",
+            headers=auth,
+        )
+
+        assert upload_response.status_code == 403
+        assert delete_response.status_code == 403
 
     def test_quote_archive_rejects_unowned_customer_quote(self, client, db, monkeypatch):
         from app.models.quote import Quote
