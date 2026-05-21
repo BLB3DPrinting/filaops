@@ -160,14 +160,36 @@ class FileStorageService:
         Returns:
             Path object if file exists, None otherwise
         """
+        if not stored_filename:
+            return None
+
+        stored_path = Path(stored_filename)
+        if (
+            stored_path.is_absolute()
+            or stored_path.name != stored_filename
+            or "/" in stored_filename
+            or "\\" in stored_filename
+        ):
+            logger.warning("Rejected unsafe stored quote filename: %s", stored_filename)
+            return None
+
+        upload_root = self.upload_dir.resolve()
+        if not upload_root.exists():
+            return None
+
         # Search through year/month directories
-        for year_dir in self.upload_dir.iterdir():
+        for year_dir in upload_root.iterdir():
             if not year_dir.is_dir():
                 continue
             for month_dir in year_dir.iterdir():
                 if not month_dir.is_dir():
                     continue
-                file_path = month_dir / stored_filename
+                file_path = (month_dir / stored_filename).resolve()
+                try:
+                    file_path.relative_to(upload_root)
+                except ValueError:
+                    logger.warning("Rejected quote file path outside upload root: %s", file_path)
+                    continue
                 if file_path.exists():
                     return file_path
         return None

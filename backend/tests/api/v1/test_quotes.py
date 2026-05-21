@@ -19,6 +19,7 @@ Covers:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.core.config import settings
@@ -111,6 +112,10 @@ class TestQuoteAuth:
         response = unauthed_client.get(f"{BASE_URL}/1/pdf")
         assert response.status_code == 401
 
+    def test_file_download_requires_auth(self, unauthed_client):
+        response = unauthed_client.get(f"{BASE_URL}/1/files/1/download")
+        assert response.status_code == 401
+
 
 
 
@@ -172,6 +177,220 @@ class TestCoreSafeQuoterBoundary:
         assert data["quote"]["id"] == created["quote_id"]
         assert data["files"][0]["original_filename"] == "part.stl"
         assert data["materials"][0]["color_code"] == "JADE_WHITE"
+
+    def test_quote_file_download_returns_original_upload(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote.user_id = 1
+        quote.customer_id = 1
+
+        stored_file = Path(__file__)
+        stored_filename = "stored-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-model.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="a" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 200, response.text
+        assert response.content == stored_file.read_bytes()
+        assert response.headers["content-type"].startswith("model/stl")
+        assert 'filename="customer-model.stl"' in response.headers["content-disposition"]
+
+    def test_quote_file_download_allows_staff_access_to_any_quote(self, client, db, monkeypatch):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        customer = User(
+            email="file-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Customer",
+            account_type="customer",
+        )
+        staff = User(
+            email="file-staff@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Staff",
+            account_type="operator",
+        )
+        db.add_all([customer, staff])
+        db.flush()
+        quote.user_id = customer.id
+        quote.customer_id = customer.id
+
+        stored_file = Path(__file__)
+        stored_filename = "staff-readable-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-owned.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="b" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download",
+            headers={"Authorization": f"Bearer {create_access_token(user_id=staff.id)}"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.content == stored_file.read_bytes()
+
+    def test_quote_file_download_rejects_unowned_customer_quote(self, client, db, monkeypatch):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        owner = User(
+            email="file-owner@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Owner",
+            account_type="customer",
+        )
+        other_customer = User(
+            email="other-file-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Other",
+            last_name="Customer",
+            account_type="customer",
+        )
+        db.add_all([owner, other_customer])
+        db.flush()
+        quote.user_id = owner.id
+        quote.customer_id = owner.id
+
+        stored_file = Path(__file__)
+        stored_filename = "private-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="private-model.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="b" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download",
+            headers={"Authorization": f"Bearer {create_access_token(user_id=other_customer.id)}"},
+        )
+
+        assert response.status_code == 403
+        assert "belong" in response.json()["detail"]
+
+    def test_quote_file_download_returns_404_when_file_missing(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        monkeypatch.setattr(file_storage, "get_file_path", lambda filename: None)
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="missing.stl",
+            stored_filename="missing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="c" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Quote file not found"
+
+    @pytest.mark.parametrize("stored_filename_kind", ["absolute", "relative_traversal"])
+    def test_quote_file_download_rejects_stored_filename_escape(
+        self,
+        client,
+        db,
+        monkeypatch,
+        stored_filename_kind,
+    ):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        upload_dir = Path("backend/tests")
+        outside_file = Path(__file__).resolve()
+
+        monkeypatch.setattr(file_storage, "upload_dir", upload_dir)
+        unsafe_stored_filename = (
+            str(outside_file)
+            if stored_filename_kind == "absolute"
+            else "../v1/test_quotes.py"
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-model.stl",
+            stored_filename=unsafe_stored_filename,
+            file_path=str(outside_file),
+            file_size_bytes=outside_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="e" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Quote file not found"
 
     def test_quote_archive_rejects_unowned_customer_quote(self, client, db, monkeypatch):
         from app.models.quote import Quote

@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Public online quoter endpoints are now explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO.
 - Quotes now expose a Core-owned read-only archive response with retained file and material snapshots for downgrade/retrieval workflows.
+- Quote uploads now have a Core-owned authenticated download endpoint so retained customer files remain retrievable without PRO automation.
 - Staff can create a Core item/product from an approved quote through a deliberate quote action instead of automatic customer upload side effects.
 
 ### Fixed
 
+- Quote file downloads now reject unsafe stored filenames that could escape the Core quote upload directory.
 - Public portal quote uploads now retain `.obj`, `.step`, and `.stp` files as Core quote archives for manual review instead of rejecting them before staff can inspect the model.
 - Public portal quote creation now falls back to a pending manual-review quote when the optional PRO quote automation provider fails, preserving the uploaded file, rolling back partial provider mutations, and avoiding customer-facing slicer 503 errors.
 - Upload format overrides now normalize case and missing leading dots so `.STL`, `stl`, and similar env values behave consistently.

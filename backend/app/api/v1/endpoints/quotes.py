@@ -10,7 +10,7 @@ from typing import Any, List, Optional
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -779,6 +779,48 @@ async def create_item_from_quote(
         "bom_id": bom.id,
         "already_created": False,
     }
+
+
+@router.get("/{quote_id}/files/{file_id}/download")
+async def download_quote_file(
+    quote_id: int,
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download a retained quote upload for authorized customers or staff."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    _authorize_quote_archive_access(quote, current_user)
+
+    quote_file = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.id == file_id, QuoteFile.quote_id == quote_id)
+        .first()
+    )
+    if not quote_file:
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    file_path = file_storage.get_file_path(quote_file.stored_filename)
+    if not file_path or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    logger.info(
+        "Quote file %s (%s, %s) downloaded from quote %s by user %s",
+        quote_file.id,
+        quote_file.original_filename,
+        quote_file.mime_type,
+        quote.id,
+        current_user.id,
+    )
+
+    return FileResponse(
+        path=file_path,
+        media_type=quote_file.mime_type or "application/octet-stream",
+        filename=quote_file.original_filename,
+    )
 
 
 @router.get("/{quote_id}", response_model=QuoteDetail)
