@@ -7,6 +7,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 
+const QUOTE_FILE_EXTENSIONS = [".3mf", ".stl", ".obj", ".step", ".stp"];
+const QUOTE_FILE_ACCEPT = QUOTE_FILE_EXTENSIONS.join(",");
+const QUOTE_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;
+
 export default function QuoteDetailModal({
   quote,
   onClose,
@@ -60,6 +64,22 @@ export default function QuoteDetailModal({
       setQuoteFiles([]);
     }
   }, [quote.id]);
+
+  const parseErrorResponse = async (res, fallback) => {
+    let detail = fallback;
+    try {
+      const err = await res.clone().json();
+      if (err?.detail) detail = err.detail;
+    } catch {
+      try {
+        const text = await res.text();
+        if (text) detail = text;
+      } catch {
+        detail = `${fallback} (${res.status} ${res.statusText || "error"})`;
+      }
+    }
+    return detail;
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -182,6 +202,19 @@ export default function QuoteDetailModal({
     e.target.value = "";
     if (!file) return;
 
+    const extension = file.name.includes(".")
+      ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase()
+      : "";
+    if (!QUOTE_FILE_EXTENSIONS.includes(extension)) {
+      toast.error("Unsupported file type");
+      return;
+    }
+
+    if (file.size > QUOTE_FILE_MAX_SIZE_BYTES) {
+      toast.error("File must be less than 50MB");
+      return;
+    }
+
     setUploadingFile(true);
     const formData = new FormData();
     formData.append("file", file);
@@ -194,8 +227,7 @@ export default function QuoteDetailModal({
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to upload quote file");
+        throw new Error(await parseErrorResponse(res, "Failed to upload quote file"));
       }
 
       toast.success("Quote file uploaded");
@@ -215,8 +247,7 @@ export default function QuoteDetailModal({
         { credentials: "include" },
       );
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to download quote file");
+        throw new Error(await parseErrorResponse(res, "Failed to download quote file"));
       }
 
       const blob = await res.blob();
@@ -243,8 +274,7 @@ export default function QuoteDetailModal({
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to delete quote file");
+        throw new Error(await parseErrorResponse(res, "Failed to delete quote file"));
       }
 
       toast.success("Quote file deleted");
@@ -461,7 +491,7 @@ export default function QuoteDetailModal({
                   {uploadingFile ? "Uploading..." : "Upload"}
                   <input
                     type="file"
-                    accept=".3mf,.stl,.obj,.step,.stp"
+                    accept={QUOTE_FILE_ACCEPT}
                     onChange={handleFileUpload}
                     className="hidden"
                     disabled={uploadingFile}
@@ -501,12 +531,21 @@ export default function QuoteDetailModal({
                   ))}
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-gray-700 rounded-lg p-4 text-center">
+                <label className="block cursor-pointer border-2 border-dashed border-gray-700 rounded-lg p-4 text-center hover:border-gray-600">
                   <p className="text-sm text-gray-400">
-                    Attach model files or customer-provided documents for this quote.
+                    {uploadingFile
+                      ? "Uploading..."
+                      : "Click to attach model files or customer-provided documents for this quote."}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">3MF, STL, OBJ, STEP, STP</p>
-                </div>
+                  <input
+                    type="file"
+                    accept={QUOTE_FILE_ACCEPT}
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    disabled={uploadingFile}
+                  />
+                </label>
               )}
             </div>
 

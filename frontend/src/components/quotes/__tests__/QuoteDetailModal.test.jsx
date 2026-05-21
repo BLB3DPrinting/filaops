@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import QuoteDetailModal from "../QuoteDetailModal";
 import { ToastProvider } from "../../Toast";
@@ -27,7 +27,20 @@ const quote = {
   lines: [],
 };
 
-const renderModal = () => render(
+const attachment = {
+  id: 7,
+  original_filename: "manual-part.stl",
+  file_format: ".stl",
+  file_size_bytes: 2048,
+  file_hash: "a".repeat(64),
+  uploaded_at: "2026-05-21T12:01:00Z",
+  processed: false,
+  processing_error: null,
+};
+
+let quoteFiles;
+
+const renderModal = (props = {}) => render(
   <ToastProvider>
     <QuoteDetailModal
       quote={quote}
@@ -42,34 +55,45 @@ const renderModal = () => render(
       onDelete={vi.fn()}
       getStatusStyle={() => "bg-gray-700 text-gray-200"}
       onRefresh={vi.fn()}
+      {...props}
     />
   </ToastProvider>,
 );
 
 describe("QuoteDetailModal attachments", () => {
   beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn((url) => {
+    quoteFiles = [attachment];
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("fetch", vi.fn((url, options = {}) => {
+      const method = options.method || "GET";
       if (String(url).endsWith("/api/v1/quotes/42")) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(quote),
         });
       }
-      if (String(url).endsWith("/api/v1/quotes/42/files")) {
+      if (String(url).endsWith("/api/v1/quotes/42/files") && method === "GET") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve([
-            {
-              id: 7,
-              original_filename: "manual-part.stl",
-              file_format: ".stl",
-              file_size_bytes: 2048,
-              file_hash: "a".repeat(64),
-              uploaded_at: "2026-05-21T12:01:00Z",
-              processed: false,
-              processing_error: null,
-            },
-          ]),
+          json: () => Promise.resolve(quoteFiles),
+        });
+      }
+      if (String(url).endsWith("/api/v1/quotes/42/files") && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ...attachment, id: 8, original_filename: "upload.stl" }),
+        });
+      }
+      if (String(url).endsWith("/api/v1/quotes/42/files/7/download")) {
+        return Promise.resolve({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(["solid test"], { type: "model/stl" })),
+        });
+      }
+      if (String(url).endsWith("/api/v1/quotes/42/files/7") && method === "DELETE") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ message: "Quote file deleted" }),
         });
       }
       return Promise.resolve({
@@ -77,6 +101,9 @@ describe("QuoteDetailModal attachments", () => {
         json: () => Promise.resolve({}),
       });
     }));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:quote-file");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -97,6 +124,64 @@ describe("QuoteDetailModal attachments", () => {
 
     expect(screen.getByText(".stl · 2.0 KB")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBeGreaterThan(0);
+    const row = screen.getByText("manual-part.stl").closest("div").parentElement;
+    expect(within(row).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("uploads, downloads, and deletes quote attachments", async () => {
+    const onRefresh = vi.fn();
+    renderModal({ onRefresh });
+
+    await waitFor(() => {
+      expect(screen.getByText("manual-part.stl")).toBeInTheDocument();
+    });
+
+    const uploadInput = screen.getByText("Upload").closest("label").querySelector("input");
+    fireEvent.change(uploadInput, {
+      target: {
+        files: [new File(["solid test"], "upload.stl", { type: "model/stl" })],
+      },
+    });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/quotes/42/files"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    expect(onRefresh).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/quotes/42/files/7/download"),
+        expect.objectContaining({ credentials: "include" }),
+      );
+    });
+    expect(URL.createObjectURL).toHaveBeenCalled();
+
+    const row = screen.getByText("manual-part.stl").closest("div").parentElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/quotes/42/files/7"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  it("uses the empty quote-file panel as an upload target", () => {
+    quoteFiles = [];
+    renderModal();
+
+    const emptyPanel = screen
+      .getByText("Click to attach model files or customer-provided documents for this quote.")
+      .closest("label");
+
+    expect(emptyPanel.querySelector("input[type='file']")).toHaveAttribute(
+      "accept",
+      ".3mf,.stl,.obj,.step,.stp",
+    );
   });
 });
