@@ -823,6 +823,122 @@ async def download_quote_file(
     )
 
 
+@router.get("/{quote_id}/files", response_model=list[QuoteArchiveFile])
+async def list_quote_files(
+    quote_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List retained files attached to a quote."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    _authorize_quote_archive_access(quote, current_user)
+
+    return (
+        db.query(QuoteFile)
+        .filter(QuoteFile.quote_id == quote_id)
+        .order_by(QuoteFile.id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+@router.post("/{quote_id}/files", response_model=QuoteArchiveFile, status_code=status.HTTP_201_CREATED)
+async def upload_quote_file(
+    quote_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: attach a retained file to a manual or online quote."""
+    _require_staff_or_admin(current_user)
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    try:
+        file_info = await file_storage.save_file(file, user_id=current_user.id, quote_id=quote.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    quote_file = QuoteFile(
+        quote_id=quote.id,
+        original_filename=file_info["original_filename"],
+        stored_filename=file_info["stored_filename"],
+        file_path=file_info["file_path"],
+        file_size_bytes=file_info["file_size_bytes"],
+        file_format=file_info["file_format"],
+        mime_type=file_info["mime_type"],
+        file_hash=file_info["file_hash"],
+    )
+    db.add(quote_file)
+    db.commit()
+    db.refresh(quote_file)
+
+    logger.info(
+        "Quote file %s (%s, %s) uploaded to quote %s by user %s",
+        quote_file.id,
+        quote_file.original_filename,
+        quote_file.mime_type,
+        quote.id,
+        current_user.id,
+    )
+    return quote_file
+
+
+@router.delete("/{quote_id}/files/{file_id}")
+async def delete_quote_file(
+    quote_id: int,
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: remove a retained file from a quote."""
+    _require_staff_or_admin(current_user)
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    quote_file = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.id == file_id, QuoteFile.quote_id == quote_id)
+        .first()
+    )
+    if not quote_file:
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    stored_filename = quote_file.stored_filename
+    original_filename = quote_file.original_filename
+    if not file_storage.delete_file(stored_filename):
+        logger.error(
+            "Failed to delete stored quote file %s for quote file %s on quote %s",
+            stored_filename,
+            file_id,
+            quote.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored quote file could not be deleted",
+        )
+
+    db.delete(quote_file)
+    db.commit()
+
+    logger.info(
+        "Quote file %s (%s) deleted from quote %s by user %s",
+        file_id,
+        original_filename,
+        quote.id,
+        current_user.id,
+    )
+    return {"message": "Quote file deleted"}
+
+
 @router.get("/{quote_id}", response_model=QuoteDetail)
 async def get_quote(
     quote_id: int,

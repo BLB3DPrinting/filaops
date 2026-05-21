@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Manual quotes now support Core-owned file attachments with staff upload, download, list, and delete actions.
 - Public online quoter endpoints are now explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO.
 - Quotes now expose a Core-owned read-only archive response with retained file and material snapshots for downgrade/retrieval workflows.
 - Quote uploads now have a Core-owned authenticated download endpoint so retained customer files remain retrievable without PRO automation.
