@@ -8,7 +8,7 @@ Covers POST /api/v1/admin/system/pro/install + GET .../install/status:
   task runs (FastAPI BackgroundTasks executes inline in TestClient, so the
   pipeline finishes before the next request)
 - License-server contract: GET to ``/api/v1/download/wheel`` with
-  ``X-API-Key`` header + ``license_key`` query param
+  ``X-API-Key`` and ``X-License-Key`` headers
 - Error pipeline: download network error, download timeout, server 4xx,
   hash mismatch, pip non-zero exit, pip timeout — all leave Core running
   and surface as ``state=error`` (retryable)
@@ -363,7 +363,7 @@ def test_install_calls_license_server_with_correct_credentials(
     mock_license_server,
     mock_pip_success,
 ):
-    """Contract test: ``X-API-Key`` header + ``license_key`` query param."""
+    """Contract test: API credential and customer license are sent as headers."""
     mock_license_server(_ok_wheel_response())
     client.post(INSTALL_URL)
 
@@ -372,7 +372,8 @@ def test_install_calls_license_server_with_correct_credentials(
     call = calls[0]
     assert call["url"] == "http://license-test.local/api/v1/download/wheel"
     assert call["headers"]["X-API-Key"] == "test-api-key"
-    assert call["params"]["license_key"] == VALID_KEY
+    assert call["headers"]["X-License-Key"] == VALID_KEY
+    assert not call["params"]
 
 
 def test_install_invokes_pip_with_no_deps_and_current_python(
