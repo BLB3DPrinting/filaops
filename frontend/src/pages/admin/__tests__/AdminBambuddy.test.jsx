@@ -8,9 +8,18 @@ const { mocks } = vi.hoisted(() => ({
     get: vi.fn(),
     post: vi.fn(),
     del: vi.fn(),
+    toastSuccess: vi.fn(),
+    toastError: vi.fn(),
+    toast: null,
     isPro: true,
+    features: ['bambu_integration'],
   },
 }))
+
+mocks.toast = {
+  success: mocks.toastSuccess,
+  error: mocks.toastError,
+}
 
 vi.mock('../../../hooks/useApi', () => {
   const api = {
@@ -25,8 +34,8 @@ vi.mock('../../../hooks/useApi', () => {
 vi.mock('../../../hooks/useFeatureFlags', () => ({
   useFeatureFlags: () => ({
     tier: mocks.isPro ? 'professional' : 'community',
-    features: mocks.isPro ? ['bambu_integration'] : [],
-    hasFeature: (feature) => mocks.isPro && feature === 'bambu_integration',
+    features: mocks.features,
+    hasFeature: (feature) => mocks.isPro && mocks.features.includes(feature),
     isPro: mocks.isPro,
     isEnterprise: false,
     loading: false,
@@ -34,10 +43,7 @@ vi.mock('../../../hooks/useFeatureFlags', () => ({
 }))
 
 vi.mock('../../../components/Toast', () => ({
-  useToast: () => ({
-    success: vi.fn(),
-    error: vi.fn(),
-  }),
+  useToast: () => mocks.toast,
 }))
 
 import AdminBambuddy from '../AdminBambuddy'
@@ -54,10 +60,22 @@ beforeEach(() => {
   mocks.get.mockReset()
   mocks.post.mockReset()
   mocks.del.mockReset()
+  mocks.toastSuccess.mockReset()
+  mocks.toastError.mockReset()
   mocks.isPro = true
+  mocks.features = ['bambu_integration']
 })
 
 describe('AdminBambuddy', () => {
+  it('locks the page for PRO installs without the Bambuddy feature', async () => {
+    mocks.features = []
+
+    renderPage()
+
+    expect(await screen.findByText(/Bambuddy not enabled/i)).toBeInTheDocument()
+    expect(mocks.get).not.toHaveBeenCalledWith('/api/v1/pro/integrations/bambuddy/status')
+  })
+
   it('lists Bambuddy machines with linked FilaOps printer state', async () => {
     mocks.get.mockImplementation((path) => {
       if (path === '/api/v1/pro/integrations/bambuddy/status') {
@@ -138,6 +156,7 @@ describe('AdminBambuddy', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: /link printer/i }))
+    expect(screen.getByRole('dialog', { name: /link printer/i })).toBeInTheDocument()
     await user.selectOptions(await screen.findByLabelText(/filaops printer/i), '12')
     const linkButtons = screen.getAllByRole('button', { name: /link printer/i })
     await user.click(linkButtons[linkButtons.length - 1])
@@ -185,5 +204,34 @@ describe('AdminBambuddy', () => {
       'href',
       '/admin/printers',
     )
+  })
+
+  it('does not keep the Bambuddy credential in the form after a failed connect', async () => {
+    const user = userEvent.setup()
+    const typedCredential = ['temporary', 'connector', 'credential'].join('-')
+    mocks.get.mockImplementation((path) => {
+      if (path === '/api/v1/pro/integrations/bambuddy/status') {
+        return Promise.resolve({ connected: false, base_url: 'http://127.0.0.1:8080' })
+      }
+      if (path === '/api/v1/printers?active_only=true&page_size=200') {
+        return Promise.resolve({ items: [] })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+    mocks.post.mockRejectedValue(new Error('bad credential'))
+
+    renderPage()
+
+    const input = await screen.findByLabelText(/api key/i)
+    await user.type(input, typedCredential)
+    await user.click(screen.getByRole('button', { name: /^connect$/i }))
+
+    await waitFor(() => {
+      expect(mocks.post).toHaveBeenCalledWith(
+        '/api/v1/pro/integrations/bambuddy/connect',
+        { base_url: 'http://127.0.0.1:8080', api_key: typedCredential },
+      )
+      expect(input).toHaveValue('')
+    })
   })
 })

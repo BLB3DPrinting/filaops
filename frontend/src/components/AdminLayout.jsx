@@ -504,6 +504,7 @@ const navGroups = [
         icon: PrintersIcon,
         adminOnly: true,
         proOnly: true,
+        feature: "bambu_integration",
       },
       { path: "/admin/purchasing", label: "Purchasing", icon: PurchasingIcon },
       { path: "/admin/shipping", label: "Shipping", icon: ShippingIcon },
