@@ -133,7 +133,7 @@ subscription-gated capabilities.
 
 - Backend: FastAPI, SQLAlchemy, PostgreSQL, Alembic
 - Frontend: React, Vite, Tailwind
-- Testing: pytest for backend, Vitest for frontend
+- Testing: pytest for backend, Vitest for frontend, Playwright for E2E
 
 UOM safety: costs are stored as dollars per kilogram and inventory is stored in
 grams. The single source is `backend/app/core/uom_config.py`. Do not hardcode
@@ -142,7 +142,8 @@ conversions elsewhere.
 ## Git Workflow
 
 - Use feature branches off `main`.
-- Preferred branch prefixes: `codex/`, `claude/`, `feat/`, `fix/`, `docs/`.
+- Preferred branch prefixes: `codex/`, `claude/`, `feature/`, `feat/`,
+  `fix/`, `docs/`.
 - Commit prefixes: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`.
 - Pull requests require passing CI and completed bot-review triage.
 - Delete merged feature branches unless explicitly retained.
