@@ -21,10 +21,11 @@ Patterns reused:
   - httpx + admin-auth conventions:
       app/api/v1/endpoints/system_license.py
 
-License-server endpoint contract (per the deployed PR-04 server impl,
-documented in `tests/test_wheel_download.py` on the license-server side):
-  GET /api/v1/download/wheel?license_key=<key>
-  Headers: X-API-Key: <server-to-server credential>
+License-server endpoint contract:
+  GET /api/v1/download/wheel
+  Headers:
+    X-API-Key: <server-to-server credential>
+    X-License-Key: <customer license key>
   Response: wheel binary (application/octet-stream)
   Response headers: X-Wheel-SHA256 (hex digest)
 
@@ -149,12 +150,14 @@ async def _download_wheel(
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     url = f"{license_server_url}/api/v1/download/wheel"
-    headers = {"X-API-Key": api_key}
-    params = {"license_key": license_key}
+    headers = {
+        "X-API-Key": api_key,
+        "X-License-Key": license_key,
+    }
 
     async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT_SECONDS) as client:
         try:
-            resp = await client.get(url, headers=headers, params=params)
+            resp = await client.get(url, headers=headers)
         except httpx.TimeoutException as exc:
             raise InstallError("License server did not respond in time.") from exc
         except httpx.RequestError as exc:
