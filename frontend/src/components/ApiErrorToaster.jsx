@@ -68,17 +68,14 @@ export default function ApiErrorToaster() {
         return;
       }
 
-      // Handle server unavailable (502, 503, network errors) gracefully
-      // Don't spam toasts - just redirect to login once
+      // Handle server unavailable (502, 503, network errors) gracefully.
+      // Keep the user on the current screen so recoverable integration errors
+      // (for example Bambuddy sync/storage issues) do not look like auth expiry.
       if (status === 502 || status === 503 || status === 0 || msg.includes("Failed to fetch") || msg.includes("Network")) {
         if (!serverDownShown.current) {
           serverDownShown.current = true;
           toast.info("Unable to connect to server. Please check your connection.");
-          // Redirect to login after a brief delay
           setTimeout(() => {
-            if (window.location.pathname !== "/admin/login") {
-              window.location.href = "/admin/login";
-            }
             serverDownShown.current = false;
           }, 2000);
         }
@@ -90,4 +87,3 @@ export default function ApiErrorToaster() {
   }, [toast]);
   return null;
 }
-

@@ -1,9 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     get: vi.fn(),
+    isPro: true,
+    features: ['bambu_integration'],
   },
 }))
 
@@ -21,16 +24,37 @@ vi.mock('../../../components/settings/AiSettingsSection', () => ({
   ),
 }))
 
+vi.mock('../../../hooks/useFeatureFlags', () => ({
+  useFeatureFlags: () => ({
+    tier: mocks.isPro ? 'professional' : 'community',
+    features: mocks.features,
+    hasFeature: (feature) => mocks.features.includes(feature),
+    isPro: mocks.isPro,
+    isEnterprise: false,
+    loading: false,
+  }),
+}))
+
 import AdminIntegrations, { IntegrationCard } from '../AdminIntegrations'
+
+function renderIntegrations() {
+  return render(
+    <MemoryRouter>
+      <AdminIntegrations />
+    </MemoryRouter>,
+  )
+}
 
 beforeEach(() => {
   mocks.get.mockReset()
+  mocks.isPro = true
+  mocks.features = ['bambu_integration']
 })
 
 describe('AdminIntegrations', () => {
   it('renders header and all three integration cards', async () => {
     mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     await waitFor(() => {
       expect(screen.getByText(/Integrations & Connections/i)).toBeInTheDocument()
@@ -43,7 +67,7 @@ describe('AdminIntegrations', () => {
 
   it('AI card embeds the AiSettingsSection', async () => {
     mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     expect(
@@ -57,7 +81,7 @@ describe('AdminIntegrations', () => {
       ai_api_key_set: true,
       ai_status: 'configured',
     })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     await waitFor(() => {
@@ -71,7 +95,7 @@ describe('AdminIntegrations', () => {
       ai_api_key_set: false,
       ai_status: 'not_configured',
     })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     await waitFor(() => {
@@ -85,7 +109,7 @@ describe('AdminIntegrations', () => {
       ai_api_key_set: true,
       ai_status: 'error',
     })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     await waitFor(() => {
@@ -98,7 +122,7 @@ describe('AdminIntegrations', () => {
     // log stays clean — we still assert the error was logged below.
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     mocks.get.mockRejectedValue(new Error('boom'))
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const aiCard = await screen.findByTestId('integration-card-ai')
     await waitFor(() => {
@@ -111,7 +135,7 @@ describe('AdminIntegrations', () => {
 
   it('Shopify card renders coming-soon placeholder with feature bullets', async () => {
     mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const shopifyCard = await screen.findByTestId('integration-card-shopify')
     expect(within(shopifyCard).getByText('Shopify')).toBeInTheDocument()
@@ -126,7 +150,7 @@ describe('AdminIntegrations', () => {
 
   it('QuickBooks card renders coming-soon placeholder with feature bullets', async () => {
     mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     const qboCard = await screen.findByTestId('integration-card-qbo')
     expect(within(qboCard).getByText('QuickBooks Online')).toBeInTheDocument()
@@ -140,15 +164,52 @@ describe('AdminIntegrations', () => {
   })
 
   it('only fires one GET on mount (no fetch storm from re-renders)', async () => {
+    mocks.isPro = false
+    mocks.features = []
     mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
-    render(<AdminIntegrations />)
+    renderIntegrations()
 
     await waitFor(() => {
       expect(screen.getByTestId('integration-card-ai')).toBeInTheDocument()
     })
-    // Exactly one initial fetch — useEffect with stable useCallback dep
+    // Community users should not call PRO-only Bambuddy endpoints.
     expect(mocks.get).toHaveBeenCalledTimes(1)
     expect(mocks.get).toHaveBeenCalledWith('/api/v1/settings/ai')
+  })
+
+  it('renders Bambuddy as a locked PRO card for Community without calling PRO APIs', async () => {
+    mocks.isPro = false
+    mocks.features = []
+    mocks.get.mockResolvedValue({ ai_provider: null, ai_api_key_set: false })
+
+    renderIntegrations()
+
+    const bambuddyCard = await screen.findByTestId('integration-card-bambuddy')
+    expect(within(bambuddyCard).getByText('PRO feature')).toBeInTheDocument()
+    expect(
+      within(bambuddyCard).getByText(/Bambu printer support is included with FilaOps PRO/i),
+    ).toBeInTheDocument()
+    expect(mocks.get).not.toHaveBeenCalledWith('/api/v1/pro/integrations/bambuddy/status')
+  })
+
+  it('checks Bambuddy status only for PRO users with bambu_integration', async () => {
+    mocks.get.mockImplementation((path) => {
+      if (path === '/api/v1/settings/ai') {
+        return Promise.resolve({ ai_provider: null, ai_api_key_set: false })
+      }
+      if (path === '/api/v1/pro/integrations/bambuddy/status') {
+        return Promise.resolve({ connected: true })
+      }
+      return Promise.reject(new Error(`unexpected path ${path}`))
+    })
+
+    renderIntegrations()
+
+    const bambuddyCard = await screen.findByTestId('integration-card-bambuddy')
+    await waitFor(() => {
+      expect(within(bambuddyCard).getByText('Configured')).toBeInTheDocument()
+    })
+    expect(mocks.get).toHaveBeenCalledWith('/api/v1/pro/integrations/bambuddy/status')
   })
 })
 

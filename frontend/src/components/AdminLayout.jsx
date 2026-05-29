@@ -498,6 +498,13 @@ const navGroups = [
         icon: ManufacturingIcon,
       },
       { path: "/admin/printers", label: "Printers", icon: PrintersIcon },
+      {
+        path: "/admin/bambuddy",
+        label: "Bambuddy",
+        icon: PrintersIcon,
+        adminOnly: true,
+        proOnly: true,
+      },
       { path: "/admin/purchasing", label: "Purchasing", icon: PurchasingIcon },
       { path: "/admin/shipping", label: "Shipping", icon: ShippingIcon },
     ],
