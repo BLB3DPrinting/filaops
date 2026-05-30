@@ -708,6 +708,44 @@ def generate_item_sku(db: Session, item_type: str) -> str:
     return f"{item_type_prefix}-{new_num:03d}"
 
 
+PACKAGING_PHYSICAL_FIELDS = ("weight_oz", "length_in", "width_in", "height_in")
+PACKAGING_PHYSICAL_DETAIL = (
+    "Packaging items require weight_oz, length_in, width_in, and height_in."
+)
+
+
+def _item_type_value(item_type: object) -> str:
+    if hasattr(item_type, "value"):
+        return item_type.value
+    return str(item_type)
+
+
+def _physical_value_present(value: object) -> bool:
+    return value is not None and value != ""
+
+
+def _validate_packaging_physical_metadata(
+    data: dict,
+    *,
+    existing_item: Product | None = None,
+) -> None:
+    item_type = data.get(
+        "item_type",
+        existing_item.item_type if existing_item is not None else "finished_good",
+    )
+    if _item_type_value(item_type) != "packaging":
+        return
+
+    missing = []
+    for field in PACKAGING_PHYSICAL_FIELDS:
+        value = data[field] if field in data else getattr(existing_item, field, None)
+        if not _physical_value_present(value):
+            missing.append(field)
+
+    if missing:
+        raise HTTPException(status_code=400, detail=PACKAGING_PHYSICAL_DETAIL)
+
+
 def create_item(db: Session, *, data: dict) -> Product:
     """
     Create a new item (product).
@@ -719,6 +757,8 @@ def create_item(db: Session, *, data: dict) -> Product:
     item_type = data.get("item_type", "finished_good")
     if hasattr(item_type, "value"):
         item_type = item_type.value
+
+    _validate_packaging_physical_metadata({**data, "item_type": item_type})
 
     if not sku or sku.strip() == "":
         data["sku"] = generate_item_sku(db, item_type)
@@ -829,6 +869,8 @@ def update_item(db: Session, item_id: int, *, data: dict) -> Product:
     for enum_field in ["item_type", "procurement_type", "cost_method", "stocking_policy"]:
         if enum_field in data and data[enum_field] and hasattr(data[enum_field], "value"):
             data[enum_field] = data[enum_field].value
+
+    _validate_packaging_physical_metadata(data, existing_item=item)
 
     if "is_active" in data:
         data["active"] = data.pop("is_active")
@@ -1273,6 +1315,10 @@ def bulk_update_items(
                 if hasattr(item_type_value, "value"):
                     item_type_value = item_type_value.value
                 if item_type_value in valid_item_types:
+                    _validate_packaging_physical_metadata(
+                        {"item_type": item_type_value},
+                        existing_item=item,
+                    )
                     item.item_type = item_type_value
                 else:
                     raise ValueError(f"Invalid item_type: {item_type_value}")

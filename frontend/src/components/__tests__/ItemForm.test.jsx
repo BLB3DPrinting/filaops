@@ -66,10 +66,10 @@ describe('ItemForm packaging physical metadata', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Create Item' }))
 
-    expect(await screen.findByText('Weight (oz) is required')).toBeInTheDocument()
-    expect(screen.getByText('Length (in) is required')).toBeInTheDocument()
-    expect(screen.getByText('Width (in) is required')).toBeInTheDocument()
-    expect(screen.getByText('Height (in) is required')).toBeInTheDocument()
+    expect(await screen.findAllByText('Weight (oz) is required')).toHaveLength(2)
+    expect(screen.getAllByText('Length (in) is required')).toHaveLength(2)
+    expect(screen.getAllByText('Width (in) is required')).toHaveLength(2)
+    expect(screen.getAllByText('Height (in) is required')).toHaveLength(2)
     expect(globalThis.fetch).not.toHaveBeenCalledWith(
       expect.stringContaining('/api/v1/items'),
       expect.objectContaining({ method: 'POST' })
