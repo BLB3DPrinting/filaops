@@ -4,7 +4,8 @@ Item and Category Pydantic Schemas
 Supports unified item management for:
 - Finished goods (products sold to customers)
 - Components (parts used in BOMs)
-- Supplies (consumables like filament, packaging)
+- Packaging (boxes, mailers, cartons, and shipping supplies)
+- Supplies (general consumables like tape, gloves, tools)
 - Services (non-physical items like machine time)
 """
 from pydantic import BaseModel, Field, field_validator
@@ -22,7 +23,8 @@ class ItemType(str, Enum):
     """Types of items in the system"""
     FINISHED_GOOD = "finished_good"  # Sellable products
     COMPONENT = "component"          # Parts used in assembly
-    SUPPLY = "supply"                # Consumables and supplies
+    PACKAGING = "packaging"          # Boxes, mailers, cartons, and shipping supplies
+    SUPPLY = "supply"                # General consumables and supplies
     SERVICE = "service"              # Non-physical services
     MATERIAL = "material"            # Raw materials (filament, sheet stock, etc.) - auto-configures UOM
 
@@ -343,7 +345,7 @@ class ItemBulkUpdateRequest(BaseModel):
     """Bulk update multiple items"""
     item_ids: List[int]
     category_id: Optional[int] = Field(None, description="Category ID (use 0 to clear category)")
-    item_type: Optional[str] = Field(None, description="Item type: finished_good, component, supply, service")
+    item_type: Optional[str] = Field(None, description="Item type: finished_good, component, packaging, supply, service, material")
     procurement_type: Optional[str] = Field(None, description="Procurement type: make, buy, make_or_buy")
     is_active: Optional[bool] = None
 

@@ -14,15 +14,8 @@ import {
   hasErrors,
 } from "../utils/validation";
 import { FormErrorSummary, RequiredIndicator } from "./ErrorMessage";
+import { ITEM_TYPES } from "./item-wizard/constants";
 import Modal from "./Modal";
-
-const ITEM_TYPES = [
-  { value: "finished_good", label: "Finished Good" },
-  { value: "component", label: "Component" },
-  { value: "supply", label: "Supply" },
-  { value: "service", label: "Service" },
-  { value: "material", label: "Material (Filament)" },
-];
 
 const PROCUREMENT_TYPES = [
   { value: "make", label: "Make (Manufactured)" },

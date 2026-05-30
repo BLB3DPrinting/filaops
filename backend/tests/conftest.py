@@ -246,6 +246,7 @@ def setup_database():
             ("5000", "Cost of Goods Sold", "expense", True, None),
             ("5010", "Shipping Supplies", "expense", True, None),
             ("5020", "Scrap Expense (Production)", "expense", True, None),
+            ("5030", "Inventory Adjustment", "expense", True, None),
             ("5100", "Material Cost", "expense", True, None),
             ("5200", "Scrap Expense", "expense", True, None),
             ("5500", "Inventory Adjustment", "expense", True, None),

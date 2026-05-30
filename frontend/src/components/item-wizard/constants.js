@@ -8,6 +8,7 @@
 export const ITEM_TYPES = [
   { value: "finished_good", label: "Finished Good", color: "blue", defaultProcurement: "make" },
   { value: "component", label: "Component", color: "purple", defaultProcurement: "buy" },
+  { value: "packaging", label: "Packaging", color: "teal", defaultProcurement: "buy" },
   { value: "supply", label: "Supply", color: "orange", defaultProcurement: "buy" },
   { value: "service", label: "Service", color: "green", defaultProcurement: "buy" },
   { value: "material", label: "Material (Filament)", color: "yellow", defaultProcurement: "buy" },

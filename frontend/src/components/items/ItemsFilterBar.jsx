@@ -6,6 +6,7 @@ const ITEM_TYPES = [
   { value: "component", label: "Component", color: "purple" },
   { value: "material", label: "Material", color: "orange" },
   { value: "filament", label: "Filament (Legacy)", color: "orange" },
+  { value: "packaging", label: "Packaging", color: "teal" },
   { value: "supply", label: "Supply", color: "yellow" },
   { value: "service", label: "Service", color: "green" },
 ];

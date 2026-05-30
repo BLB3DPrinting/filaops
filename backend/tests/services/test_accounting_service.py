@@ -324,6 +324,29 @@ class TestGetInventoryValuation:
         # No GL entries means GL balance is lower, creating a variance
         assert fg_cat["variance"] >= Decimal("0")
 
+    def test_packaging_inventory_maps_to_packaging_gl_category(self, db, make_product):
+        product = make_product(
+            item_type="packaging",
+            cost_method="standard",
+            standard_cost=Decimal("1.25"),
+        )
+        inv = Inventory(
+            product_id=product.id,
+            location_id=1,
+            on_hand_quantity=Decimal("10"),
+        )
+        db.add(inv)
+        db.flush()
+
+        result = accounting_service.get_inventory_valuation(db)
+
+        packaging_cat = next(
+            (c for c in result["categories"] if c["category"] == "Packaging"), None,
+        )
+        assert packaging_cat is not None
+        assert packaging_cat["gl_account_code"] == "1230"
+        assert packaging_cat["inventory_value"] >= Decimal("12.50")
+
     def test_valuation_categories_match_gl_accounts(self, db):
         """Each category maps to its expected GL account code."""
         result = accounting_service.get_inventory_valuation(db)
@@ -841,6 +864,30 @@ class TestGetAccountingSummary:
         assert fg_cat is not None
         assert fg_cat["value"] >= Decimal("150")
         assert fg_cat["item_count"] >= 1
+
+    def test_inventory_by_category_includes_packaging(self, db, make_product):
+        product = make_product(
+            item_type="packaging",
+            cost_method="standard",
+            standard_cost=Decimal("2.00"),
+        )
+        inv = Inventory(
+            product_id=product.id,
+            location_id=1,
+            on_hand_quantity=Decimal("4"),
+        )
+        db.add(inv)
+        db.flush()
+
+        result = accounting_service.get_accounting_summary(db)
+
+        packaging_cat = next(
+            (c for c in result["inventory_by_category"] if c["category"] == "Packaging"),
+            None,
+        )
+        assert packaging_cat is not None
+        assert packaging_cat["value"] >= Decimal("8.00")
+        assert packaging_cat["item_count"] >= 1
 
 
 # ===========================================================================

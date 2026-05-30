@@ -646,6 +646,7 @@ def get_item_stats(db: Session) -> dict:
         "total": total,
         "finished_goods": by_type.get("finished_good", 0),
         "components": by_type.get("component", 0),
+        "packaging": by_type.get("packaging", 0),
         "supplies": by_type.get("supply", 0),
         "materials": by_type.get("material", 0),
         "needs_reorder": reorder_count,
@@ -683,6 +684,7 @@ def generate_item_sku(db: Session, item_type: str) -> str:
     item_type_prefix = {
         "finished_good": "FG",
         "component": "COMP",
+        "packaging": "PKG",
         "supply": "SUP",
         "service": "SRV",
         "material": get_default_material_sku_prefix(),
@@ -1250,7 +1252,7 @@ def bulk_update_items(
     updated = 0
     errors = []
 
-    valid_item_types = ["finished_good", "component", "supply", "service", "material"]
+    valid_item_types = ["finished_good", "component", "packaging", "supply", "service", "material"]
     valid_proc_types = ["make", "buy", "make_or_buy"]
 
     for item_id in item_ids:
@@ -1720,6 +1722,30 @@ def _strip_html(text: str) -> str:
     return text
 
 
+def _normalize_import_item_type(value: str | None, default: str) -> str:
+    """Normalize item type names from CSV exports and shop-owner shorthand."""
+    item_type_raw = (value or "").strip().lower()
+    if not item_type_raw:
+        return default
+
+    item_type_map = {
+        "simple": "finished_good",
+        "variable": "finished_good",
+        "finished_good": "finished_good",
+        "component": "component",
+        "packaging": "packaging",
+        "box": "packaging",
+        "mailers": "packaging",
+        "mailer": "packaging",
+        "supply": "supply",
+        "service": "service",
+        "material": "material",
+        "filament": "material",
+        "raw_material": "material",
+    }
+    return item_type_map.get(item_type_raw, default)
+
+
 def import_items_from_csv(
     db: Session,
     *,
@@ -1824,19 +1850,8 @@ def import_items_from_csv(
                     or row.get("Type", "")
                 ).strip()
                 if item_type_raw:
-                    item_type_map = {
-                        "simple": "finished_good",
-                        "variable": "finished_good",
-                        "finished_good": "finished_good",
-                        "component": "component",
-                        "supply": "supply",
-                        "service": "service",
-                        "material": "material",
-                        "filament": "material",
-                        "raw_material": "material",
-                    }
-                    existing.item_type = item_type_map.get(
-                        item_type_raw.lower(), existing.item_type
+                    existing.item_type = _normalize_import_item_type(
+                        item_type_raw, existing.item_type
                     )
 
                 # Update category
@@ -1895,31 +1910,47 @@ def import_items_from_csv(
                     db, row, default_category_id
                 )
 
+                # Get item type
+                item_type_str = (
+                    row.get("item_type", "")
+                    or row.get("Item Type", "")
+                    or row.get("Type", "")
+                    or ""
+                ).strip() or default_item_type
+                item_type_str = _normalize_import_item_type(
+                    item_type_str, default_item_type
+                )
+
                 # Get unit from CSV
                 unit_value = _get_csv_column_value(row, _UNIT_COLUMNS).upper()
                 purchase_uom_value = _get_csv_column_value(
                     row, _PURCHASE_UOM_COLUMNS
                 ).upper()
+                purchase_factor = None
+                is_raw_material = False
 
-                # Auto-detect UOMs based on SKU/category if not provided
+                # Auto-detect UOMs based on item type, SKU, and category if not provided.
                 if not purchase_uom_value or not unit_value:
-                    recommended_purchase, recommended_unit, is_material = (
-                        get_recommended_uoms(db, sku=sku, category_id=final_category_id)
+                    (
+                        recommended_purchase,
+                        recommended_unit,
+                        is_raw_material,
+                        purchase_factor,
+                    ) = get_recommended_uoms(
+                        db,
+                        sku=sku,
+                        category_id=final_category_id,
+                        item_type=item_type_str,
                     )
                     if not purchase_uom_value:
                         purchase_uom_value = recommended_purchase
-                    if not unit_value and is_material:
+                    if not unit_value and is_raw_material:
                         unit_value = recommended_unit
 
                 final_unit = unit_value or "EA"
                 final_purchase_uom = purchase_uom_value or final_unit
-
-                # Get item type
-                item_type_str = (
-                    row.get("item_type", "")
-                    or row.get("Item Type", "")
-                    or ""
-                ).strip() or default_item_type
+                if purchase_factor is None:
+                    purchase_factor = 1
 
                 # Get reorder point
                 reorder_point = None
@@ -1942,6 +1973,8 @@ def import_items_from_csv(
                     category_id=final_category_id,
                     standard_cost=standard_cost,
                     selling_price=selling_price,
+                    purchase_factor=purchase_factor,
+                    is_raw_material=is_raw_material,
                     reorder_point=reorder_point,
                     upc=upc,
                     active=True,
