@@ -1910,25 +1910,6 @@ def import_items_from_csv(
                     db, row, default_category_id
                 )
 
-                # Get unit from CSV
-                unit_value = _get_csv_column_value(row, _UNIT_COLUMNS).upper()
-                purchase_uom_value = _get_csv_column_value(
-                    row, _PURCHASE_UOM_COLUMNS
-                ).upper()
-
-                # Auto-detect UOMs based on SKU/category if not provided
-                if not purchase_uom_value or not unit_value:
-                    recommended_purchase, recommended_unit, is_material = (
-                        get_recommended_uoms(db, sku=sku, category_id=final_category_id)
-                    )
-                    if not purchase_uom_value:
-                        purchase_uom_value = recommended_purchase
-                    if not unit_value and is_material:
-                        unit_value = recommended_unit
-
-                final_unit = unit_value or "EA"
-                final_purchase_uom = purchase_uom_value or final_unit
-
                 # Get item type
                 item_type_str = (
                     row.get("item_type", "")
@@ -1939,6 +1920,37 @@ def import_items_from_csv(
                 item_type_str = _normalize_import_item_type(
                     item_type_str, default_item_type
                 )
+
+                # Get unit from CSV
+                unit_value = _get_csv_column_value(row, _UNIT_COLUMNS).upper()
+                purchase_uom_value = _get_csv_column_value(
+                    row, _PURCHASE_UOM_COLUMNS
+                ).upper()
+                purchase_factor = None
+                is_raw_material = False
+
+                # Auto-detect UOMs based on item type, SKU, and category if not provided.
+                if not purchase_uom_value or not unit_value:
+                    (
+                        recommended_purchase,
+                        recommended_unit,
+                        is_raw_material,
+                        purchase_factor,
+                    ) = get_recommended_uoms(
+                        db,
+                        sku=sku,
+                        category_id=final_category_id,
+                        item_type=item_type_str,
+                    )
+                    if not purchase_uom_value:
+                        purchase_uom_value = recommended_purchase
+                    if not unit_value and is_raw_material:
+                        unit_value = recommended_unit
+
+                final_unit = unit_value or "EA"
+                final_purchase_uom = purchase_uom_value or final_unit
+                if purchase_factor is None:
+                    purchase_factor = 1
 
                 # Get reorder point
                 reorder_point = None
@@ -1961,6 +1973,8 @@ def import_items_from_csv(
                     category_id=final_category_id,
                     standard_cost=standard_cost,
                     selling_price=selling_price,
+                    purchase_factor=purchase_factor,
+                    is_raw_material=is_raw_material,
                     reorder_point=reorder_point,
                     upc=upc,
                     active=True,
