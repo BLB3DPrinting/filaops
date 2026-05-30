@@ -93,6 +93,7 @@ export default function ItemWizard({ isOpen, onClose, onSuccess, editingItem = n
     if (item.name && !item.sku && !editingItem) {
       const prefix = item.item_type === "finished_good" ? "FG" :
                      item.item_type === "component" ? "CP" :
+                     item.item_type === "packaging" ? "PKG" :
                      item.item_type === "supply" ? "SP" : "SV";
       const timestamp = Date.now().toString(36).toUpperCase();
       setItem(prev => ({ ...prev, sku: `${prefix}-${timestamp}` }));

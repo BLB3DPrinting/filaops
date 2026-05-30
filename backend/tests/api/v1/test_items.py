@@ -148,6 +148,15 @@ class TestListItems:
         for item in body["items"]:
             assert item["item_type"] == "component"
 
+    def test_list_filter_by_packaging_item_type(self, client, make_product):
+        make_product(item_type="packaging", name="Packaging Filter Test")
+        resp = client.get(BASE_URL, params={"item_type": "packaging"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] >= 1
+        for item in body["items"]:
+            assert item["item_type"] == "packaging"
+
     def test_list_filter_by_procurement_type(self, client, make_product):
         make_product(procurement_type="make", name="Make Filter Test")
         resp = client.get(BASE_URL, params={"procurement_type": "make"})
@@ -272,6 +281,17 @@ class TestCreateItem:
         resp = client.post(BASE_URL, json=payload)
         assert resp.status_code == 201
         assert resp.json()["sku"].startswith("SUP-")
+
+    def test_create_packaging_auto_sku_prefix(self, client):
+        payload = {
+            "name": "Auto SKU Packaging",
+            "item_type": "packaging",
+        }
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["item_type"] == "packaging"
+        assert body["sku"].startswith("PKG-")
 
     def test_create_service_auto_sku_prefix(self, client):
         payload = {
@@ -789,6 +809,18 @@ class TestBulkUpdate:
         resp = client.post(f"{BASE_URL}/bulk-update", json=payload)
         assert resp.status_code == 200
         assert resp.json()["updated_count"] == 1
+
+    def test_bulk_update_packaging_item_type(self, client, make_product):
+        p1 = make_product(name="Bulk Packaging", item_type="supply")
+        payload = {
+            "item_ids": [p1.id],
+            "item_type": "packaging",
+        }
+        resp = client.post(f"{BASE_URL}/bulk-update", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["updated_count"] == 1
+        assert body["error_count"] == 0
 
     def test_bulk_update_deactivate(self, client, make_product):
         p1 = make_product(name="Bulk Deactivate")

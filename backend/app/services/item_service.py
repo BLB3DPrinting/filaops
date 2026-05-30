@@ -646,6 +646,7 @@ def get_item_stats(db: Session) -> dict:
         "total": total,
         "finished_goods": by_type.get("finished_good", 0),
         "components": by_type.get("component", 0),
+        "packaging": by_type.get("packaging", 0),
         "supplies": by_type.get("supply", 0),
         "materials": by_type.get("material", 0),
         "needs_reorder": reorder_count,
@@ -683,6 +684,7 @@ def generate_item_sku(db: Session, item_type: str) -> str:
     item_type_prefix = {
         "finished_good": "FG",
         "component": "COMP",
+        "packaging": "PKG",
         "supply": "SUP",
         "service": "SRV",
         "material": get_default_material_sku_prefix(),
@@ -1250,7 +1252,7 @@ def bulk_update_items(
     updated = 0
     errors = []
 
-    valid_item_types = ["finished_good", "component", "supply", "service", "material"]
+    valid_item_types = ["finished_good", "component", "packaging", "supply", "service", "material"]
     valid_proc_types = ["make", "buy", "make_or_buy"]
 
     for item_id in item_ids:
@@ -1829,6 +1831,10 @@ def import_items_from_csv(
                         "variable": "finished_good",
                         "finished_good": "finished_good",
                         "component": "component",
+                        "packaging": "packaging",
+                        "box": "packaging",
+                        "mailers": "packaging",
+                        "mailer": "packaging",
                         "supply": "supply",
                         "service": "service",
                         "material": "material",

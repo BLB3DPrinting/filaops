@@ -15,7 +15,8 @@ class Product(Base):
     Unified item model for all inventory-tracked items:
     - finished_good: Products sold to customers
     - component: Parts used in BOMs (e.g., inserts, hardware)
-    - supply: Consumables (e.g., filament, packaging)
+    - packaging: Boxes, mailers, cartons, and shipping supplies
+    - supply: General consumables
     - service: Non-physical items (e.g., machine time)
     """
     __tablename__ = "products"
@@ -44,7 +45,7 @@ class Product(Base):
                              comment='Conversion: 1 purchase_uom = X unit. E.g., 1000 for KG->G')
 
     # Item classification
-    item_type = Column(String(20), default='finished_good', nullable=False)  # finished_good, component, supply, service
+    item_type = Column(String(20), default='finished_good', nullable=False)  # finished_good, component, packaging, supply, service, material
     procurement_type = Column(String(20), default='buy', nullable=False)  # 'make', 'buy', 'make_or_buy'
     category_id = Column(Integer, ForeignKey("item_categories.id"), nullable=True)
 

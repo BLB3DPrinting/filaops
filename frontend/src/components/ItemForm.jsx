@@ -19,6 +19,7 @@ import Modal from "./Modal";
 const ITEM_TYPES = [
   { value: "finished_good", label: "Finished Good" },
   { value: "component", label: "Component" },
+  { value: "packaging", label: "Packaging" },
   { value: "supply", label: "Supply" },
   { value: "service", label: "Service" },
   { value: "material", label: "Material (Filament)" },

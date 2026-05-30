@@ -192,12 +192,12 @@ def get_inventory_valuation(db: Session, *, as_of_date: date | None = None) -> d
 
     # Define category mappings
     # item_type -> (category_name, gl_account_code)
-    # Valid item_types: finished_good, component, supply, service (see Product model)
-    # Note: WIP (1210) and Packaging (1230) GL accounts exist for journal entries
-    # but have no corresponding item_type — they track cost flow, not inventory categories
+    # Valid inventory item_types: finished_good, component, packaging, supply.
+    # WIP (1210) exists for journal entries, but has no corresponding item_type.
     category_map = {
         "supply": ("Raw Materials", "1200"),
         "component": ("Components", "1200"),
+        "packaging": ("Packaging", "1230"),
         "finished_good": ("Finished Goods", "1220"),
     }
 
@@ -638,6 +638,7 @@ def get_accounting_summary(db: Session) -> dict:
     category_map = {
         "supply": "Raw Materials",
         "component": "Components",
+        "packaging": "Packaging",
         "finished_good": "Finished Goods",
     }
 

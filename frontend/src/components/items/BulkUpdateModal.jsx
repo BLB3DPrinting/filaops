@@ -8,6 +8,7 @@ const ITEM_TYPES = [
   { value: "finished_good", label: "Finished Good" },
   { value: "component", label: "Component" },
   { value: "material", label: "Material" },
+  { value: "packaging", label: "Packaging" },
   { value: "supply", label: "Supply" },
   { value: "service", label: "Service" },
 ];
