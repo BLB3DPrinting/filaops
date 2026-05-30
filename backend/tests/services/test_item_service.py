@@ -456,6 +456,18 @@ class TestPackagingItemType:
         item = db.query(Product).filter(Product.sku == "PKG-CSV-001").one()
         assert item.item_type == "packaging"
 
+    def test_import_csv_maps_packaging_alias_on_create(self, db):
+        csv_data = (
+            "sku,name,Type,unit\n"
+            "PKG-CSV-ALIAS-001,CSV Box Alias,box,EA\n"
+        ).encode("utf-8")
+
+        result = item_service.import_items_from_csv(db, file_content=csv_data)
+
+        assert result["created"] == 1
+        item = db.query(Product).filter(Product.sku == "PKG-CSV-ALIAS-001").one()
+        assert item.item_type == "packaging"
+
 
 class TestGetItem:
     """Test get_item and get_item_by_sku."""

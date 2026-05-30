@@ -1722,6 +1722,30 @@ def _strip_html(text: str) -> str:
     return text
 
 
+def _normalize_import_item_type(value: str | None, default: str) -> str:
+    """Normalize item type names from CSV exports and shop-owner shorthand."""
+    item_type_raw = (value or "").strip().lower()
+    if not item_type_raw:
+        return default
+
+    item_type_map = {
+        "simple": "finished_good",
+        "variable": "finished_good",
+        "finished_good": "finished_good",
+        "component": "component",
+        "packaging": "packaging",
+        "box": "packaging",
+        "mailers": "packaging",
+        "mailer": "packaging",
+        "supply": "supply",
+        "service": "service",
+        "material": "material",
+        "filament": "material",
+        "raw_material": "material",
+    }
+    return item_type_map.get(item_type_raw, default)
+
+
 def import_items_from_csv(
     db: Session,
     *,
@@ -1826,23 +1850,8 @@ def import_items_from_csv(
                     or row.get("Type", "")
                 ).strip()
                 if item_type_raw:
-                    item_type_map = {
-                        "simple": "finished_good",
-                        "variable": "finished_good",
-                        "finished_good": "finished_good",
-                        "component": "component",
-                        "packaging": "packaging",
-                        "box": "packaging",
-                        "mailers": "packaging",
-                        "mailer": "packaging",
-                        "supply": "supply",
-                        "service": "service",
-                        "material": "material",
-                        "filament": "material",
-                        "raw_material": "material",
-                    }
-                    existing.item_type = item_type_map.get(
-                        item_type_raw.lower(), existing.item_type
+                    existing.item_type = _normalize_import_item_type(
+                        item_type_raw, existing.item_type
                     )
 
                 # Update category
@@ -1924,8 +1933,12 @@ def import_items_from_csv(
                 item_type_str = (
                     row.get("item_type", "")
                     or row.get("Item Type", "")
+                    or row.get("Type", "")
                     or ""
                 ).strip() or default_item_type
+                item_type_str = _normalize_import_item_type(
+                    item_type_str, default_item_type
+                )
 
                 # Get reorder point
                 reorder_point = None
