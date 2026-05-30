@@ -39,6 +39,25 @@ const PHYSICAL_FIELDS = [
 const optionalNumber = (value) =>
   value === "" || value === null || value === undefined ? null : parseFloat(value);
 
+const buildFormState = (item) => ({
+  sku: item?.sku || "",
+  name: item?.name || "",
+  description: item?.description || "",
+  item_type: item?.item_type || "finished_good",
+  procurement_type: item?.procurement_type || "make",
+  stocking_policy: item?.stocking_policy || "on_demand",
+  category_id: item?.category_id || null,
+  unit: item?.unit || "EA",
+  standard_cost: item?.standard_cost || "",
+  selling_price: item?.selling_price || "",
+  reorder_point: item?.reorder_point || "",
+  weight_oz: item?.weight_oz || "",
+  length_in: item?.length_in || "",
+  width_in: item?.width_in || "",
+  height_in: item?.height_in || "",
+  image_url: item?.image_url || "",
+});
+
 export default function ItemForm({
   isOpen,
   onClose,
@@ -53,24 +72,7 @@ export default function ItemForm({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  const [formData, setFormData] = useState({
-    sku: editingItem?.sku || "",
-    name: editingItem?.name || "",
-    description: editingItem?.description || "",
-    item_type: editingItem?.item_type || "finished_good",
-    procurement_type: editingItem?.procurement_type || "make",
-    stocking_policy: editingItem?.stocking_policy || "on_demand",
-    category_id: editingItem?.category_id || null,
-    unit: editingItem?.unit || "EA",
-    standard_cost: editingItem?.standard_cost || "",
-    selling_price: editingItem?.selling_price || "",
-    reorder_point: editingItem?.reorder_point || "",
-    weight_oz: editingItem?.weight_oz || "",
-    length_in: editingItem?.length_in || "",
-    width_in: editingItem?.width_in || "",
-    height_in: editingItem?.height_in || "",
-    image_url: editingItem?.image_url || "",
-  });
+  const [formData, setFormData] = useState(() => buildFormState(editingItem));
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -117,46 +119,7 @@ export default function ItemForm({
     if (isOpen) {
       fetchCategories();
       fetchUomClasses();
-      if (editingItem) {
-        setFormData({
-          sku: editingItem.sku || "",
-          name: editingItem.name || "",
-          description: editingItem.description || "",
-          item_type: editingItem.item_type || "finished_good",
-          procurement_type: editingItem.procurement_type || "make",
-          stocking_policy: editingItem.stocking_policy || "on_demand",
-          category_id: editingItem.category_id || null,
-          unit: editingItem.unit || "EA",
-          standard_cost: editingItem.standard_cost || "",
-          selling_price: editingItem.selling_price || "",
-          reorder_point: editingItem.reorder_point || "",
-          weight_oz: editingItem.weight_oz || "",
-          length_in: editingItem.length_in || "",
-          width_in: editingItem.width_in || "",
-          height_in: editingItem.height_in || "",
-          image_url: editingItem.image_url || "",
-        });
-      } else {
-        // Reset form for new item
-        setFormData({
-          sku: "",
-          name: "",
-          description: "",
-          item_type: "finished_good",
-          procurement_type: "make",
-          stocking_policy: "on_demand",
-          category_id: null,
-          unit: "EA",
-          standard_cost: "",
-          selling_price: "",
-          reorder_point: "",
-          weight_oz: "",
-          length_in: "",
-          width_in: "",
-          height_in: "",
-          image_url: "",
-        });
-      }
+      setFormData(buildFormState(editingItem));
       setError(null);
       setErrors({});
     }

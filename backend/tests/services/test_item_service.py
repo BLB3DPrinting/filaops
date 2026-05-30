@@ -411,12 +411,38 @@ class TestCreateItem:
         assert item.weight_oz == Decimal("1.25")
 
     def test_create_packaging_item_requires_physical_metadata(self, db):
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             item_service.create_item(db, data={
                 "name": "Small Mailer Missing Metadata",
                 "item_type": "packaging",
             })
-        assert "Packaging items require" in str(exc_info.value)
+        assert exc_info.value.status_code == 400
+        assert "Packaging items require" in exc_info.value.detail
+
+    @pytest.mark.parametrize(
+        "physical_data",
+        [
+            {"weight_oz": Decimal("1.25")},
+            {
+                "weight_oz": Decimal("1.25"),
+                "length_in": Decimal("10.00"),
+                "width_in": Decimal("7.00"),
+            },
+        ],
+    )
+    def test_create_packaging_item_requires_complete_physical_metadata(
+        self,
+        db,
+        physical_data,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            item_service.create_item(db, data={
+                "name": "Small Mailer Partial Metadata",
+                "item_type": "packaging",
+                **physical_data,
+            })
+        assert exc_info.value.status_code == 400
+        assert "Packaging items require" in exc_info.value.detail
 
     def test_enum_values_converted(self, db):
         """Enum-like objects with .value attr are converted to strings."""
