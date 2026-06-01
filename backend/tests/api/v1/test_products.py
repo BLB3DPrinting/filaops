@@ -90,6 +90,24 @@ class TestProductList:
         skus = [item["sku"] for item in body["items"]]
         assert product.sku in skus
 
+    @pytest.mark.parametrize("legacy_unit", [None, "", "   "])
+    def test_list_defaults_legacy_blank_unit(self, client, db, make_product, legacy_unit):
+        """Legacy product rows with NULL/blank unit should not break API responses."""
+        uid = _uid()
+        product = make_product(
+            sku=f"NULLUNIT-{uid}",
+            name=f"Null Unit {uid}",
+        )
+        product.unit = legacy_unit
+        db.flush()
+
+        resp = client.get(BASE_URL, params={"search": uid})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        item = next(item for item in body["items"] if item["sku"] == product.sku)
+        assert item["unit"] == "EA"
+
     def test_list_active_only_default(self, client, make_product):
         """Default active_only=True excludes inactive products."""
         uid = _uid()
