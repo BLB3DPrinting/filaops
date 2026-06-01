@@ -4,6 +4,7 @@ Quote Management Endpoints - Community Edition
 Manual quote creation and management for small businesses.
 Supports creating quotes, updating status, and converting to sales orders.
 """
+import json
 from datetime import datetime, timezone, timedelta
 from inspect import isawaitable
 from typing import Any, List, Optional
@@ -23,11 +24,12 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
+PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 
 
 # ============================================================================
@@ -253,6 +255,32 @@ class PortalShippingSelection(BaseModel):
     shipping_snapshot: Optional[dict[str, Any]] = None
     artifact_snapshot: Optional[dict[str, Any]] = None
     slicer_diagnostics: Optional[dict[str, Any]] = None
+
+    @field_validator(
+        "pricing_snapshot",
+        "component_snapshot",
+        "packaging_snapshot",
+        "shipping_snapshot",
+        "artifact_snapshot",
+        "slicer_diagnostics",
+    )
+    @classmethod
+    def _limit_snapshot_size(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return value
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Snapshot payload must be JSON serializable") from exc
+
+        if len(encoded.encode("utf-8")) > PORTAL_SNAPSHOT_MAX_BYTES:
+            raise ValueError("Snapshot payload must be 32KB or smaller")
+        return value
 
 
 class QuoteArchiveFile(BaseModel):

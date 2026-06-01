@@ -1046,6 +1046,39 @@ class TestPortalQuoteContract:
         finally:
             self._clear_auto_quote_provider(client, provider_state)
 
+    def test_portal_accept_rejects_oversized_handoff_snapshot(self, client):
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "pricing_snapshot": {"raw": "x" * (33 * 1024)},
+                },
+            )
+
+            assert response.status_code == 422
+            assert "32KB" in response.text
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
     def test_portal_accept_snapshots_multi_color_slots(self, client, db):
         from app.models.quote import Quote, QuoteMaterial
 

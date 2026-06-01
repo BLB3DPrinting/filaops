@@ -6,6 +6,7 @@ Create Date: 2026-06-01
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "084"
@@ -22,6 +23,7 @@ SNAPSHOT_COLUMNS = (
     "artifact_snapshot",
     "slicer_diagnostics",
 )
+SNAPSHOT_JSON_TYPE = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 def _table_exists(table_name: str) -> bool:
@@ -40,7 +42,7 @@ def upgrade() -> None:
             continue
         for column_name in SNAPSHOT_COLUMNS:
             if not _column_exists(table_name, column_name):
-                op.add_column(table_name, sa.Column(column_name, sa.JSON(), nullable=True))
+                op.add_column(table_name, sa.Column(column_name, SNAPSHOT_JSON_TYPE, nullable=True))
 
 
 def downgrade() -> None:

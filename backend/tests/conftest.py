@@ -178,7 +178,7 @@ def setup_database():
                 "slicer_diagnostics",
             ):
                 conn.execute(text(
-                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} JSON"
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} JSONB"
                 ))
         # Migration 074: close short and line editing
         conn.execute(text(
