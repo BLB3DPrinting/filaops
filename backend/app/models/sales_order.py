@@ -3,7 +3,7 @@ Sales Order Model
 
 Represents customer orders converted from approved quotes
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, Boolean, CheckConstraint
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, Boolean, CheckConstraint, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -109,6 +109,14 @@ class SalesOrder(Base):
     carrier = Column(String(100), nullable=True)  # USPS, FedEx, UPS
     shipped_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
+
+    # Durable snapshots copied from the accepted quote at conversion time.
+    pricing_snapshot = Column(JSON, nullable=True)
+    component_snapshot = Column(JSON, nullable=True)
+    packaging_snapshot = Column(JSON, nullable=True)
+    shipping_snapshot = Column(JSON, nullable=True)
+    artifact_snapshot = Column(JSON, nullable=True)
+    slicer_diagnostics = Column(JSON, nullable=True)
 
     # Notes
     customer_notes = Column(Text, nullable=True)
