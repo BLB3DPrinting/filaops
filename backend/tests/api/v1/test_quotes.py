@@ -688,6 +688,52 @@ class TestPortalQuoteContract:
         expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
         assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
 
+    def test_portal_create_passes_component_addon_ids_to_provider(self, client):
+        captured_options = {}
+
+        def provider(**kwargs):
+            captured_options.update(kwargs["options"])
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("19.43")
+            quote.subtotal = Decimal("19.43")
+            quote.total_price = Decimal("19.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            quote.requires_review_reason = None
+            return {
+                "breakdown": {
+                    "component_addons": [
+                        {"id": "led-kit", "label": "LED Lamp Kit"},
+                    ],
+                },
+            }
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "pla-basic",
+                    "color": "yellow",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                    "component_addon_ids": ["led-kit", "gift-box"],
+                },
+                files={"file": ("lamp.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        assert captured_options["component_addon_ids"] == ["led-kit", "gift-box"]
+        assert response.json()["breakdown"]["component_addons"][0]["id"] == "led-kit"
+
     @pytest.mark.parametrize(
         ("filename", "content_type"),
         [
