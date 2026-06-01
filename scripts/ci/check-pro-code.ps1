@@ -27,7 +27,16 @@ foreach ($dir in $proDirs) {
 }
 
 $mergeBase = git -C $repoRoot merge-base $BaseRef $HeadRef
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mergeBase)) {
+    Write-ProHit "Failed to compute merge-base for refs '$BaseRef' and '$HeadRef'."
+    exit 1
+}
+
 $changedFiles = git -C $repoRoot diff --name-only "$mergeBase..$HeadRef"
+if ($LASTEXITCODE -ne 0) {
+    Write-ProHit "Failed to diff changed files for range '$mergeBase..$HeadRef'."
+    exit 1
+}
 
 $proFilePattern = '^(backend/app/pro/|license-server/)'
 $proFiles = $changedFiles | Where-Object { $_ -match $proFilePattern }
