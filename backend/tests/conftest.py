@@ -167,6 +167,19 @@ def setup_database():
             "ALTER TABLE sales_orders "
             "ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"
         ))
+        # Migration 084: durable quote/order snapshots for public quote handoff
+        for table in ("quotes", "sales_orders"):
+            for col in (
+                "pricing_snapshot",
+                "component_snapshot",
+                "packaging_snapshot",
+                "shipping_snapshot",
+                "artifact_snapshot",
+                "slicer_diagnostics",
+            ):
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} JSON"
+                ))
         # Migration 074: close short and line editing
         conn.execute(text(
             "ALTER TABLE sales_orders "
