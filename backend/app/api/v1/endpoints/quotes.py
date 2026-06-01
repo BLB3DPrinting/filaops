@@ -376,6 +376,22 @@ def _safe_log_value(value: Any, max_length: int = 160) -> str:
     return safe[:max_length]
 
 
+def _normalize_portal_component_addon_ids(values: Optional[List[str]]) -> List[str]:
+    """Normalize optional public add-on ids without interpreting private costs."""
+    if values is None:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        for item in str(raw_value or "").split(","):
+            addon_id = item.strip()
+            if addon_id and addon_id not in seen:
+                seen.add(addon_id)
+                normalized.append(addon_id)
+    return normalized
+
+
 def _set_portal_quote_manual_review(quote: Quote, reason: str) -> None:
     quote.status = "pending"
     quote.approval_method = "manual"
@@ -580,6 +596,7 @@ async def create_portal_quote(
     quality: str = Form("standard"),
     infill: str = Form("20%"),
     quantity: int = Form(1, ge=1, le=10000),
+    component_addon_ids: Optional[List[str]] = Form(None),
     customer_notes: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -626,19 +643,25 @@ async def create_portal_quote(
         file_hash=stored_file["file_hash"],
     ))
 
+    automation_options: dict[str, Any] = {
+        "material_id": material,
+        "color": color,
+        "quality": quality,
+        "infill": infill,
+        "quantity": quantity,
+        "customer_notes": customer_notes,
+    }
+    if component_addon_ids is not None:
+        automation_options["component_addon_ids"] = (
+            _normalize_portal_component_addon_ids(component_addon_ids)
+        )
+
     extra = await _maybe_enrich_portal_quote(
         request,
         db=db,
         quote=quote,
         stored_file=stored_file,
-        options={
-            "material_id": material,
-            "color": color,
-            "quality": quality,
-            "infill": infill,
-            "quantity": quantity,
-            "customer_notes": customer_notes,
-        },
+        options=automation_options,
     )
     if customer_notes and not quote.requires_review_reason:
         quote.requires_review_reason = "Customer notes require manual review"
