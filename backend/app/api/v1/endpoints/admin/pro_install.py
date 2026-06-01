@@ -1,12 +1,11 @@
 """
 PRO Installer API Endpoints (PR-04)
 
-Orchestrates the post-activation download + pip install of the FilaOps PRO
-wheel from the license server. After PR-02 the customer has a license.json
-on disk; this module is what turns that into an actually-installed PRO
-package, surfacing progress through a polled status endpoint so the admin UI
-can show download/install progress without the customer ever touching a
-terminal.
+Orchestrates the post-activation download + install of the FilaOps PRO wheel
+from the license server. After PR-02 the customer has a license.json on disk;
+this module is what turns that into an actually-installed PRO package,
+surfacing progress through a polled status endpoint so the admin UI can show
+download/install progress without the customer ever touching a terminal.
 
 Sacred Rule: this module MUST NOT ``import filaops_pro``. Detection of an
 already-installed PRO uses ``importlib.util.find_spec``, which only walks
@@ -16,8 +15,10 @@ stays free of PRO references whether or not the wheel is present.
 Patterns reused:
   - Background task + module-level status dict:
       app/api/v1/endpoints/admin/system.py:_update_status
-  - subprocess pip install against sys.executable:
+  - subprocess pip install for standard Python deployments:
       app/api/v1/endpoints/settings.py:install_anthropic_package
+  - Relay/AppImage sideload target:
+      FILAOPS_PRO_SITE_PACKAGES injected by the desktop runtime
   - httpx + admin-auth conventions:
       app/api/v1/endpoints/system_license.py
 
@@ -40,10 +41,13 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Optional
@@ -132,6 +136,71 @@ def _extract_version_from_filename(wheel_path: Path) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def _relay_site_packages_dir() -> Optional[Path]:
+    """Return Relay/AppImage PRO sideload target when configured.
+
+    Relay injects this directory onto ``sys.path`` before Core imports. In
+    bundled desktop builds ``sys.executable`` points at the backend executable,
+    so ``sys.executable -m pip`` fails with "unknown subcommand: -m".
+    """
+    configured = os.getenv("FILAOPS_PRO_SITE_PACKAGES")
+    if not configured:
+        return None
+    return Path(configured)
+
+
+def _remove_existing_sideload(site_packages: Path) -> None:
+    """Remove prior sideloaded filaops-pro files before extracting a new wheel."""
+    for path in [
+        site_packages / "filaops_pro",
+        *site_packages.glob("filaops_pro-*.dist-info"),
+        *site_packages.glob("filaops_pro-*.data"),
+    ]:
+        if not path.exists():
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
+def _safe_extract_wheel(wheel_path: Path, dest_dir: Path) -> None:
+    """Extract a verified wheel zip into ``dest_dir`` without path escapes."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    root = dest_dir.resolve()
+    with zipfile.ZipFile(wheel_path) as zf:
+        for member in zf.infolist():
+            target = (dest_dir / member.filename).resolve()
+            if root != target and root not in target.parents:
+                raise InstallError(
+                    f"Wheel contains an unsafe path: {member.filename!r}"
+                )
+        zf.extractall(dest_dir)
+
+
+def _install_verified_wheel(wheel_path: Path) -> str:
+    """Install the already-hash-verified PRO wheel.
+
+    Returns ``"sideload"`` for Relay/AppImage installs or ``"pip"`` for
+    standard Python deployments.
+    """
+    site_packages = _relay_site_packages_dir()
+    if site_packages is not None:
+        _remove_existing_sideload(site_packages)
+        _safe_extract_wheel(wheel_path, site_packages)
+        return "sideload"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", str(wheel_path), "--no-deps"],
+        capture_output=True,
+        text=True,
+        timeout=_PIP_INSTALL_TIMEOUT_SECONDS,
+    )
+    if result.returncode != 0:
+        raise InstallError(f"pip install failed: {result.stderr[:500]}")
+    return "pip"
+
+
 async def _download_wheel(
     *,
     license_server_url: str,
@@ -194,7 +263,7 @@ async def _download_wheel(
 
 
 async def _do_pro_install() -> None:
-    """Background install pipeline: download -> verify -> pip install -> done.
+    """Background install pipeline: download -> verify -> install -> done.
 
     Mutates ``_install_status`` so the polling endpoint can surface progress.
     Every exception is converted into the error state — Core must keep
@@ -252,14 +321,7 @@ async def _do_pro_install() -> None:
         # Phase 3: Install
         _install_status["state"] = "installing"
         _install_status["progress"] = "Installing PRO package..."
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", str(wheel_path), "--no-deps"],
-            capture_output=True,
-            text=True,
-            timeout=_PIP_INSTALL_TIMEOUT_SECONDS,
-        )
-        if result.returncode != 0:
-            raise InstallError(f"pip install failed: {result.stderr[:500]}")
+        install_method = _install_verified_wheel(wheel_path)
 
         # Phase 4: Done
         _install_status["state"] = "restart_required"
@@ -269,9 +331,10 @@ async def _do_pro_install() -> None:
         _install_status["installed_version"] = _extract_version_from_filename(wheel_path)
         _install_status["completed_at"] = _now_iso()
         logger.info(
-            "PRO installed successfully (version=%s, wheel=%s)",
+            "PRO installed successfully (version=%s, wheel=%s, method=%s)",
             _install_status["installed_version"],
             wheel_path.name,
+            install_method,
         )
 
     except InstallError as exc:
