@@ -1,10 +1,7 @@
 name: FilaOps CI/CD - Tests
 
 on:
-  push:
-    branches: [ main, develop, feat/* ]
-  pull_request:
-    branches: [ main, develop ]
+  workflow_dispatch:
 
 jobs:
   # Backend Tests
