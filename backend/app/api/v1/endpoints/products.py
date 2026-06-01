@@ -5,7 +5,7 @@ Uses product_service for business logic (ARCHITECT-003).
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -70,6 +70,13 @@ class ProductResponse(BaseModel):
     woocommerce_product_id: Optional[int] = None
     image_url: Optional[str] = None
     created_at: datetime
+
+    @field_validator("unit", mode="before")
+    @classmethod
+    def default_unit(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return "EA"
+        return value or "EA"
 
     class Config:
         from_attributes = True
