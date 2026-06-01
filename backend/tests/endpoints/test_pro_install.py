@@ -24,8 +24,10 @@ stub so pip never actually executes.
 from __future__ import annotations
 
 import hashlib
+import io
 import subprocess
 import uuid
+import zipfile
 from typing import Optional
 
 import httpx
@@ -88,6 +90,7 @@ def _license_env(monkeypatch, tmp_path):
     monkeypatch.setattr(
         settings, "LICENSE_SERVER_URL", "http://license-test.local", raising=False
     )
+    monkeypatch.delenv("FILAOPS_PRO_SITE_PACKAGES", raising=False)
     yield tmp_path
 
 
@@ -253,6 +256,40 @@ def _ok_wheel_response(*, sha256: str = WHEEL_SHA256) -> _MockResponse:
     )
 
 
+def _wheel_zip_response() -> _MockResponse:
+    """Return a tiny valid wheel-shaped zip for sideload extraction tests."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("filaops_pro/__init__.py", "__version__ = '1.2.3'\n")
+        zf.writestr("filaops_pro-1.2.3.dist-info/METADATA", "Name: filaops-pro\n")
+        zf.writestr("filaops_pro-1.2.3.dist-info/WHEEL", "Wheel-Version: 1.0\n")
+    data = buf.getvalue()
+    return _MockResponse(
+        200,
+        content=data,
+        headers={
+            "X-Wheel-SHA256": hashlib.sha256(data).hexdigest(),
+            "Content-Disposition": f'attachment; filename="{WHEEL_FILENAME}"',
+        },
+    )
+
+
+def _unsafe_wheel_zip_response() -> _MockResponse:
+    """Return a wheel zip with a member path that attempts to escape."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../escape.py", "raise RuntimeError('escaped')\n")
+    data = buf.getvalue()
+    return _MockResponse(
+        200,
+        content=data,
+        headers={
+            "X-Wheel-SHA256": hashlib.sha256(data).hexdigest(),
+            "Content-Disposition": f'attachment; filename="{WHEEL_FILENAME}"',
+        },
+    )
+
+
 # =============================================================================
 # POST /install — input / state validation
 # =============================================================================
@@ -398,6 +435,80 @@ def test_install_invokes_pip_with_no_deps_and_current_python(
     # Wheel path is the last positional before the flag
     wheel_arg = args[4]
     assert wheel_arg.endswith(WHEEL_FILENAME)
+
+
+def test_install_sideloads_wheel_when_relay_site_packages_is_configured(
+    client,
+    with_license,
+    mock_pro_not_installed,
+    mock_license_server,
+    monkeypatch,
+    tmp_path,
+):
+    """Relay/AppImage installs extract into FILAOPS_PRO_SITE_PACKAGES.
+
+    In bundled desktop builds ``sys.executable`` is the backend executable, not
+    a Python interpreter. Calling ``sys.executable -m pip`` there fails with
+    "unknown subcommand: -m", so the installer must sideload the verified
+    wheel into the path the Relay backend already injects onto ``sys.path``.
+    """
+    site_packages = tmp_path / "pro-site-packages"
+    monkeypatch.setenv("FILAOPS_PRO_SITE_PACKAGES", str(site_packages))
+    mock_license_server(_wheel_zip_response())
+
+    pip_calls: list = []
+
+    def fake_run(args, **kwargs):
+        pip_calls.append(args)
+        raise AssertionError("pip must not be invoked for Relay sideload installs")
+
+    import app.api.v1.endpoints.admin.pro_install as mod
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    resp = client.post(INSTALL_URL)
+    assert resp.status_code == 200
+
+    body = client.get(STATUS_URL).json()
+    assert body["state"] == "restart_required"
+    assert body["installed_version"] == "1.2.3"
+    assert pip_calls == []
+    assert (site_packages / "filaops_pro" / "__init__.py").exists()
+    assert (site_packages / "filaops_pro-1.2.3.dist-info" / "METADATA").exists()
+
+
+def test_install_rejects_sideload_wheel_with_unsafe_member_path(
+    client,
+    with_license,
+    mock_pro_not_installed,
+    mock_license_server,
+    monkeypatch,
+    tmp_path,
+):
+    """Sideload extraction must reject zip members that escape the target."""
+    site_packages = tmp_path / "pro-site-packages"
+    monkeypatch.setenv("FILAOPS_PRO_SITE_PACKAGES", str(site_packages))
+    mock_license_server(_unsafe_wheel_zip_response())
+
+    pip_calls: list = []
+
+    def fake_run(args, **kwargs):
+        pip_calls.append(args)
+        raise AssertionError("pip must not be invoked for Relay sideload installs")
+
+    import app.api.v1.endpoints.admin.pro_install as mod
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    resp = client.post(INSTALL_URL)
+    assert resp.status_code == 200
+
+    body = client.get(STATUS_URL).json()
+    assert body["state"] == "error"
+    assert "unsafe path" in body["error"].lower()
+    assert pip_calls == []
+    assert not (tmp_path / "escape.py").exists()
+    assert not (site_packages / "filaops_pro").exists()
 
 
 # =============================================================================
