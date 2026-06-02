@@ -660,13 +660,17 @@ class _SPAStaticFiles(StaticFiles):
             raise
 
 
-for mount_path, name, dist in SURFACE_DISTS:
-    async def surface_root(index_path: Path = dist):
-        return FileResponse(index_path / "index.html")
+def _surface_root_handler(index_path: Path):
+    async def surface_root():
+        return FileResponse(index_path)
 
+    return surface_root
+
+
+for mount_path, name, dist in SURFACE_DISTS:
     app.add_api_route(
         mount_path,
-        surface_root,
+        _surface_root_handler(dist / "index.html"),
         methods=["GET"],
         name=f"{name}_root",
         include_in_schema=False,

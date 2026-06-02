@@ -258,6 +258,16 @@ def test_surface_roots_serve_own_spas_without_trailing_slash(multi_surface_app):
         assert "core-spa" not in resp.text, path
 
 
+def test_surface_root_ignores_index_path_query_param(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    resp = client.get("/quote?index_path=/tmp/other-index.html")
+
+    assert resp.status_code == 200
+    assert "quoter-spa" in resp.text
+    assert "core-spa" not in resp.text
+
+
 def test_b2b_portal_surface_serves_own_spa(multi_surface_app):
     client = TestClient(multi_surface_app)
 
