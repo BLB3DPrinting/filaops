@@ -19,6 +19,7 @@ from app.core.paths import (
     BACKEND_DIR,
     resolve_frontend_dist,
     resolve_static_dir,
+    resolve_surface_dist,
     resolve_upload_po_docs_dir,
     resolve_upload_products_dir,
 )
@@ -135,3 +136,22 @@ def test_resolve_frontend_dist_returns_path_when_set():
 
 def test_resolve_frontend_dist_strips_whitespace():
     assert resolve_frontend_dist("  /srv/filaops/frontend  ") == Path("/srv/filaops/frontend")
+
+
+# ---------------------------------------------------------------------------
+# resolve_surface_dist
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_surface_dist_returns_none_when_unset():
+    assert resolve_surface_dist(None) is None
+    assert resolve_surface_dist("") is None
+    assert resolve_surface_dist("   ") is None
+
+
+def test_resolve_surface_dist_returns_path_when_set():
+    assert resolve_surface_dist("/srv/filaops/quoter") == Path("/srv/filaops/quoter")
+
+
+def test_resolve_surface_dist_strips_whitespace():
+    assert resolve_surface_dist("  /srv/filaops/portal  ") == Path("/srv/filaops/portal")
