@@ -135,3 +135,13 @@ def resolve_frontend_dist(override: str | None = None) -> Path | None:
     empty directory.
     """
     return _coerce_override(override)
+
+
+def resolve_surface_dist(override: str | None = None) -> Path | None:
+    """Customer-facing or PRO admin SPA dist directory, OR None if unset.
+
+    This mirrors ``resolve_frontend_dist`` but keeps the call sites readable
+    when Core is asked to serve additional local-first surfaces such as
+    Portal Admin, the B2B Portal, or the public Quoter.
+    """
+    return _coerce_override(override)

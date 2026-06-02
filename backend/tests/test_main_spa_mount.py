@@ -74,6 +74,47 @@ def spa_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 sys.modules[name] = prior
 
 
+@pytest.fixture()
+def multi_surface_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Reload app.main with Core, Portal Admin, Portal, and Quoter SPAs.
+
+    The local-first PRO install serves distinct SPAs from one Core process.
+    This fixture stages minimal dist folders for each surface so route tests
+    prove prefixed surfaces are mounted before the root Core SPA catch-all.
+    """
+
+    def make_dist(name: str, body: str) -> Path:
+        dist = tmp_path / name
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text(
+            f"<!doctype html><html><body>{body}</body></html>"
+        )
+        (dist / "assets" / "surface.js").write_text(f"// {body} asset")
+        return dist
+
+    core_dist = make_dist("core", "core-spa")
+    portal_admin_dist = make_dist("portal-admin", "portal-admin-spa")
+    portal_dist = make_dist("portal", "portal-spa")
+    quoter_dist = make_dist("quoter", "quoter-spa")
+
+    monkeypatch.setenv("FRONTEND_DIST", str(core_dist))
+    monkeypatch.setenv("PORTAL_ADMIN_DIST", str(portal_admin_dist))
+    monkeypatch.setenv("PORTAL_DIST", str(portal_dist))
+    monkeypatch.setenv("QUOTER_DIST", str(quoter_dist))
+
+    cached_names = ("app.main", "app.core.config", "app.core.settings")
+    priors = {name: sys.modules.pop(name, None) for name in cached_names}
+    try:
+        main = importlib.import_module("app.main")
+        yield main.app
+    finally:
+        for name in cached_names:
+            sys.modules.pop(name, None)
+        for name, prior in priors.items():
+            if prior is not None:
+                sys.modules[name] = prior
+
+
 def test_api_path_without_trailing_slash_redirects_to_canonical(spa_app):
     """The bug: `/api/v1/purchase-orders` (no slash) used to return 200 +
     index.html. After the fix it must 307 to `/api/v1/purchase-orders/`
@@ -190,3 +231,57 @@ def test_root_serves_index_html_when_spa_mounted(spa_app):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "<!doctype html>" in resp.text.lower()
+
+
+def test_portal_admin_surface_serves_own_spa(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    resp = client.get("/portal-admin/admin/quote-config")
+
+    assert resp.status_code == 200
+    assert "portal-admin-spa" in resp.text
+    assert "core-spa" not in resp.text
+
+
+def test_surface_roots_serve_own_spas_without_trailing_slash(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    expected = {
+        "/portal-admin": "portal-admin-spa",
+        "/portal": "portal-spa",
+        "/quote": "quoter-spa",
+    }
+    for path, body in expected.items():
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        assert body in resp.text, path
+        assert "core-spa" not in resp.text, path
+
+
+def test_b2b_portal_surface_serves_own_spa(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    resp = client.get("/portal/catalog")
+
+    assert resp.status_code == 200
+    assert "portal-spa" in resp.text
+    assert "core-spa" not in resp.text
+
+
+def test_quoter_surface_serves_own_spa(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    resp = client.get("/quote/result/Q-123")
+
+    assert resp.status_code == 200
+    assert "quoter-spa" in resp.text
+    assert "core-spa" not in resp.text
+
+
+def test_surface_assets_serve_from_surface_dist(multi_surface_app):
+    client = TestClient(multi_surface_app)
+
+    resp = client.get("/quote/assets/surface.js")
+
+    assert resp.status_code == 200
+    assert "quoter-spa asset" in resp.text
