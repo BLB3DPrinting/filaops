@@ -123,7 +123,7 @@ jobs:
           command: |
             cd backend
             . .venv/bin/activate
-            python - <<'PY'
+            python -c '
             import os
             import time
 
@@ -146,7 +146,7 @@ jobs:
                     last_error = exc
                     time.sleep(2)
             raise SystemExit(f"Postgres did not become ready: {last_error}")
-            PY
+            '
       - run:
           name: Run backend tests
           command: |
