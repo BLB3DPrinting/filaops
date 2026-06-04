@@ -41,3 +41,7 @@ GitHub-hosted workflows in `.github/workflows/` are intentionally
 `workflow_dispatch` only. CodeQL can still be run manually from GitHub, or by an
 external security job that posts its own required status once that runner is
 available.
+
+CircleCI is being introduced as the replacement hosted CI surface for these
+Core checks. Until the CircleCI workflow has green history and branch rules are
+updated deliberately, keep the external CI runner available as rollback.

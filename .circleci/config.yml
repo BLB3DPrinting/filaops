@@ -1,0 +1,197 @@
+version: 2.1
+
+executors:
+  python-311:
+    docker:
+      - image: cimg/python:3.11
+    working_directory: ~/project
+
+  python-311-postgres:
+    docker:
+      - image: cimg/python:3.11
+      - image: postgres:16
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Admin
+          POSTGRES_DB: filaops
+    environment:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: filaops
+      DB_USER: postgres
+      DB_PASSWORD: Admin
+      DATABASE_URL: postgresql+psycopg://postgres:Admin@localhost:5432/filaops
+      ENVIRONMENT: test
+      SECRET_KEY: ci-test-secret-key-not-for-production-use
+      DEBUG: "false"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    working_directory: ~/project
+
+  node:
+    docker:
+      - image: cimg/node:lts
+    working_directory: ~/project
+
+commands:
+  fetch_main:
+    steps:
+      - run:
+          name: Fetch main for diff checks
+          command: git fetch origin main:refs/remotes/origin/main --depth=50
+
+  install_backend_dependencies:
+    steps:
+      - restore_cache:
+          keys:
+            - v1-pip-backend-{{ checksum "backend/requirements.txt" }}
+      - run:
+          name: Install backend dependencies
+          command: |
+            cd backend
+            python -m venv .venv
+            . .venv/bin/activate
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+      - save_cache:
+          key: v1-pip-backend-{{ checksum "backend/requirements.txt" }}
+          paths:
+            - ~/.cache/pip
+
+  install_frontend_dependencies:
+    steps:
+      - restore_cache:
+          keys:
+            - v1-npm-frontend-{{ checksum "frontend/package-lock.json" }}
+      - run:
+          name: Install frontend dependencies
+          command: cd frontend && npm ci
+      - save_cache:
+          key: v1-npm-frontend-{{ checksum "frontend/package-lock.json" }}
+          paths:
+            - ~/.npm
+
+jobs:
+  core-diff:
+    executor: python-311
+    steps:
+      - checkout
+      - fetch_main
+      - run:
+          name: Check whitespace and conflict markers
+          command: git diff --check origin/main...HEAD
+
+  core-pro-guard:
+    executor: python-311
+    steps:
+      - checkout
+      - fetch_main
+      - run:
+          name: Assert Core repo has no PRO code
+          command: |
+            set -euo pipefail
+            if [ -d backend/app/pro ]; then
+              echo "backend/app/pro found; PRO code must not be in the public Core repo."
+              exit 1
+            fi
+            if [ -d license-server ]; then
+              echo "license-server found; PRO code must not be in the public Core repo."
+              exit 1
+            fi
+            pro_files="$(git diff --name-only origin/main...HEAD | grep -E '^(backend/app/pro/|license-server/)' || true)"
+            if [ -n "$pro_files" ]; then
+              echo "Diff contains PRO-only paths:"
+              echo "$pro_files"
+              exit 1
+            fi
+            echo "No PRO code detected; public Core repo is clean."
+
+  core-backend-static:
+    executor: python-311
+    steps:
+      - checkout
+      - run:
+          name: Compile backend Python files
+          command: cd backend && python -m compileall -q app tests
+
+  core-backend-tests:
+    executor: python-311-postgres
+    steps:
+      - checkout
+      - install_backend_dependencies
+      - run:
+          name: Wait for Postgres
+          command: |
+            cd backend
+            . .venv/bin/activate
+            python - <<'PY'
+            import os
+            import time
+
+            import psycopg
+
+            deadline = time.time() + 60
+            last_error = None
+            while time.time() < deadline:
+                try:
+                    with psycopg.connect(
+                        host=os.environ["DB_HOST"],
+                        port=os.environ["DB_PORT"],
+                        dbname=os.environ["DB_NAME"],
+                        user=os.environ["DB_USER"],
+                        password=os.environ["DB_PASSWORD"],
+                    ):
+                        print("Postgres is ready")
+                        raise SystemExit(0)
+                except Exception as exc:  # pragma: no cover - CI bootstrap
+                    last_error = exc
+                    time.sleep(2)
+            raise SystemExit(f"Postgres did not become ready: {last_error}")
+            PY
+      - run:
+          name: Run backend tests
+          command: |
+            cd backend
+            . .venv/bin/activate
+            mkdir -p ../test-results/core-backend
+            python -m pytest -q --junitxml=../test-results/core-backend/pytest.xml
+      - store_test_results:
+          path: test-results/core-backend
+      - store_artifacts:
+          path: test-results/core-backend
+
+  core-frontend-build:
+    executor: node
+    steps:
+      - checkout
+      - install_frontend_dependencies
+      - run:
+          name: Build frontend
+          command: cd frontend && npm run build
+          environment:
+            VITE_API_URL: http://localhost:8001
+
+  core-frontend-unit:
+    executor: node
+    steps:
+      - checkout
+      - install_frontend_dependencies
+      - run:
+          name: Run frontend unit tests
+          command: |
+            cd frontend
+            mkdir -p ../test-results/core-frontend-unit
+            npm run test:unit -- --run --reporter=default --reporter=junit --outputFile=../test-results/core-frontend-unit/vitest.xml
+      - store_test_results:
+          path: test-results/core-frontend-unit
+      - store_artifacts:
+          path: test-results/core-frontend-unit
+
+workflows:
+  core-ci:
+    jobs:
+      - core-diff
+      - core-pro-guard
+      - core-backend-static
+      - core-backend-tests
+      - core-frontend-build
+      - core-frontend-unit
