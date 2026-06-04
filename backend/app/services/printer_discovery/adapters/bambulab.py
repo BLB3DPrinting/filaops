@@ -66,8 +66,9 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             sock.settimeout(timeout_seconds)
 
-            # Bind to any available port
-            sock.bind(("", 0))
+            # Bind to a concrete local interface so the discovery socket is not
+            # reachable from every IPv4 interface on the host.
+            sock.bind((self._get_ssdp_bind_host(), 0))
 
             # Send SSDP discovery request
             logger.debug(f"Sending BambuLab SSDP discovery to {SSDP_MULTICAST_ADDR}:{SSDP_PORT}")
@@ -101,6 +102,24 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
 
         logger.info(f"BambuLab discovery found {len(discovered)} printers")
         return discovered
+
+    def _get_ssdp_bind_host(self) -> str:
+        """Return a dedicated local IPv4 host for SSDP discovery."""
+        try:
+            for result in socket.getaddrinfo(
+                socket.gethostname(),
+                None,
+                socket.AF_INET,
+                socket.SOCK_DGRAM,
+            ):
+                host = result[4][0]
+                if host and host != "0.0.0.0" and not host.startswith("127."):
+                    return host
+        except socket.gaierror as exc:
+            logger.debug(f"Unable to resolve local SSDP bind host: {exc}")
+
+        logger.warning("No non-loopback IPv4 interface found; BambuLab discovery is loopback-only")
+        return "127.0.0.1"
 
     async def discover_cloud(self, credentials: Dict[str, Any]) -> List[DiscoveredPrinter]:
         """
