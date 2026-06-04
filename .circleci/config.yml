@@ -37,7 +37,7 @@ commands:
     steps:
       - run:
           name: Fetch main for diff checks
-          command: git fetch origin main:refs/remotes/origin/main --depth=50
+          command: git fetch origin main:refs/remotes/origin/main
 
   install_backend_dependencies:
     steps:
@@ -89,15 +89,15 @@ jobs:
           name: Assert Core repo has no PRO code
           command: |
             set -euo pipefail
-            if [ -d backend/app/pro ]; then
+            if [ -e backend/app/pro ]; then
               echo "backend/app/pro found; PRO code must not be in the public Core repo."
               exit 1
             fi
-            if [ -d license-server ]; then
+            if [ -e license-server ]; then
               echo "license-server found; PRO code must not be in the public Core repo."
               exit 1
             fi
-            pro_files="$(git diff --name-only origin/main...HEAD | grep -E '^(backend/app/pro/|license-server/)' || true)"
+            pro_files="$(git diff --name-only origin/main...HEAD | grep -E '^(backend/app/pro($|/)|license-server($|/))' || true)"
             if [ -n "$pro_files" ]; then
               echo "Diff contains PRO-only paths:"
               echo "$pro_files"
@@ -192,6 +192,16 @@ workflows:
       - core-diff
       - core-pro-guard
       - core-backend-static
-      - core-backend-tests
-      - core-frontend-build
-      - core-frontend-unit
+      - core-backend-tests:
+          requires:
+            - core-diff
+            - core-pro-guard
+            - core-backend-static
+      - core-frontend-build:
+          requires:
+            - core-diff
+            - core-pro-guard
+      - core-frontend-unit:
+          requires:
+            - core-diff
+            - core-pro-guard
