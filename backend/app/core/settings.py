@@ -162,6 +162,13 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field(
         default="http://localhost:5173", description="Frontend URL for redirects"
     )
+    ENABLE_PUBLIC_QUOTER: bool = Field(
+        default=False,
+        description=(
+            "Enable customer-facing online quote endpoints. Core manual quotes "
+            "must keep working when this is false."
+        ),
+    )
 
     @model_validator(mode="after")
     def add_frontend_url_to_cors(self):
@@ -264,17 +271,47 @@ class Settings(BaseSettings):
             "frontend dist."
         ),
     )
+    PORTAL_ADMIN_DIST: str = Field(
+        default="",
+        description=(
+            "Portal Admin SPA dist directory. When set, FastAPI serves it at "
+            "/portal-admin for local-first PRO installs."
+        ),
+    )
+    PORTAL_DIST: str = Field(
+        default="",
+        description=(
+            "B2B Portal SPA dist directory. When set, FastAPI serves it at "
+            "/portal for local-first PRO installs."
+        ),
+    )
+    QUOTER_DIST: str = Field(
+        default="",
+        description=(
+            "Public Quoter SPA dist directory. When set, FastAPI serves it at "
+            "/quote for local-first PRO installs."
+        ),
+    )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
-        default=[".3mf", ".stl"], description="Allowed upload extensions"
+        default=[".3mf", ".stl", ".obj", ".step", ".stp"],
+        description="Allowed upload extensions",
     )
 
     @field_validator("ALLOWED_FILE_FORMATS", mode="before")
     @classmethod
     def parse_file_formats(cls, v):
         if isinstance(v, str):
-            return [fmt.strip() for fmt in v.split(",") if fmt.strip()]
-        return v
+            values = [fmt.strip() for fmt in v.split(",") if fmt.strip()]
+        else:
+            values = v
+        if not isinstance(values, list):
+            return values
+        return [
+            normalized if normalized.startswith(".") else f".{normalized}"
+            for normalized in (str(fmt).strip().lower() for fmt in values)
+            if normalized
+        ]
 
     # ===================
     # EasyPost

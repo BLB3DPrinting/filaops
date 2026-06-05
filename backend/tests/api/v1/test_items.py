@@ -148,6 +148,15 @@ class TestListItems:
         for item in body["items"]:
             assert item["item_type"] == "component"
 
+    def test_list_filter_by_packaging_item_type(self, client, make_product):
+        make_product(item_type="packaging", name="Packaging Filter Test")
+        resp = client.get(BASE_URL, params={"item_type": "packaging"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] >= 1
+        for item in body["items"]:
+            assert item["item_type"] == "packaging"
+
     def test_list_filter_by_procurement_type(self, client, make_product):
         make_product(procurement_type="make", name="Make Filter Test")
         resp = client.get(BASE_URL, params={"procurement_type": "make"})
@@ -272,6 +281,59 @@ class TestCreateItem:
         resp = client.post(BASE_URL, json=payload)
         assert resp.status_code == 201
         assert resp.json()["sku"].startswith("SUP-")
+
+    def test_create_packaging_auto_sku_prefix(self, client):
+        payload = {
+            "name": "Auto SKU Packaging",
+            "item_type": "packaging",
+            "weight_oz": "3.20",
+            "length_in": "12.00",
+            "width_in": "9.00",
+            "height_in": "4.00",
+        }
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["item_type"] == "packaging"
+        assert body["sku"].startswith("PKG-")
+
+    def test_create_packaging_requires_physical_metadata(self, client):
+        payload = {
+            "name": "Box Missing Physical Metadata",
+            "item_type": "packaging",
+        }
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == 400
+        assert "Packaging items require" in resp.json()["detail"]
+
+    def test_create_packaging_with_physical_metadata_succeeds(self, client):
+        payload = {
+            "name": "12x9x4 Corrugated Box",
+            "item_type": "packaging",
+            "weight_oz": "3.20",
+            "length_in": "12.00",
+            "width_in": "9.00",
+            "height_in": "4.00",
+        }
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["item_type"] == "packaging"
+        assert body["weight_oz"] == "3.20"
+        assert body["length_in"] == "12.00"
+        assert body["width_in"] == "9.00"
+        assert body["height_in"] == "4.00"
+
+    def test_create_non_packaging_can_omit_physical_metadata(self, client):
+        payload = {
+            "name": "Physical Metadata Optional Component",
+            "item_type": "component",
+        }
+        resp = client.post(BASE_URL, json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["item_type"] == "component"
+        assert body["weight_oz"] is None
 
     def test_create_service_auto_sku_prefix(self, client):
         payload = {
@@ -517,6 +579,42 @@ class TestUpdateItem:
         assert body["name"] == "Renamed"
         # Original selling_price should be preserved
         assert float(body["selling_price"]) == pytest.approx(50.00, abs=0.01)
+
+    def test_update_to_packaging_requires_physical_metadata(self, client, make_product):
+        product = make_product(name="Supply Without Physical Data", item_type="supply")
+        resp = client.patch(f"{BASE_URL}/{product.id}", json={"item_type": "packaging"})
+        assert resp.status_code == 400
+        assert "Packaging items require" in resp.json()["detail"]
+
+    def test_update_to_packaging_with_physical_metadata_succeeds(self, client, make_product):
+        product = make_product(name="Supply With Physical Data", item_type="supply")
+        resp = client.patch(
+            f"{BASE_URL}/{product.id}",
+            json={
+                "item_type": "packaging",
+                "weight_oz": "2.50",
+                "length_in": "10.00",
+                "width_in": "8.00",
+                "height_in": "6.00",
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["item_type"] == "packaging"
+        assert body["weight_oz"] == "2.50"
+
+    def test_update_packaging_cannot_clear_physical_metadata(self, client, make_product):
+        product = make_product(
+            name="Packaging With Physical Data",
+            item_type="packaging",
+            weight_oz=Decimal("2.50"),
+            length_in=Decimal("10.00"),
+            width_in=Decimal("8.00"),
+            height_in=Decimal("6.00"),
+        )
+        resp = client.patch(f"{BASE_URL}/{product.id}", json={"weight_oz": None})
+        assert resp.status_code == 400
+        assert "Packaging items require" in resp.json()["detail"]
 
 
 # =============================================================================
@@ -789,6 +887,38 @@ class TestBulkUpdate:
         resp = client.post(f"{BASE_URL}/bulk-update", json=payload)
         assert resp.status_code == 200
         assert resp.json()["updated_count"] == 1
+
+    def test_bulk_update_packaging_item_type(self, client, make_product):
+        p1 = make_product(
+            name="Bulk Packaging",
+            item_type="supply",
+            weight_oz=Decimal("2.50"),
+            length_in=Decimal("10.00"),
+            width_in=Decimal("8.00"),
+            height_in=Decimal("6.00"),
+        )
+        payload = {
+            "item_ids": [p1.id],
+            "item_type": "packaging",
+        }
+        resp = client.post(f"{BASE_URL}/bulk-update", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["updated_count"] == 1
+        assert body["error_count"] == 0
+
+    def test_bulk_update_packaging_item_type_requires_physical_metadata(self, client, make_product):
+        p1 = make_product(name="Bulk Packaging Missing Metadata", item_type="supply")
+        payload = {
+            "item_ids": [p1.id],
+            "item_type": "packaging",
+        }
+        resp = client.post(f"{BASE_URL}/bulk-update", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["updated_count"] == 0
+        assert body["error_count"] == 1
+        assert "Packaging items require" in body["errors"][0]["error"]
 
     def test_bulk_update_deactivate(self, client, make_product):
         p1 = make_product(name="Bulk Deactivate")

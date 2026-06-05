@@ -9,20 +9,14 @@ import { API_URL } from "../config/api";
 import {
   validateRequired,
   validatePrice,
+  validateNumber,
   validateSKU,
   validateForm,
   hasErrors,
 } from "../utils/validation";
 import { FormErrorSummary, RequiredIndicator } from "./ErrorMessage";
+import { ITEM_TYPES } from "./item-wizard/constants";
 import Modal from "./Modal";
-
-const ITEM_TYPES = [
-  { value: "finished_good", label: "Finished Good" },
-  { value: "component", label: "Component" },
-  { value: "supply", label: "Supply" },
-  { value: "service", label: "Service" },
-  { value: "material", label: "Material (Filament)" },
-];
 
 const PROCUREMENT_TYPES = [
   { value: "make", label: "Make (Manufactured)" },
@@ -34,6 +28,35 @@ const STOCKING_POLICIES = [
   { value: "on_demand", label: "On-Demand (MRP-driven)" },
   { value: "stocked", label: "Stocked (Reorder Point)" },
 ];
+
+const PHYSICAL_FIELDS = [
+  { name: "weight_oz", label: "Weight (oz)" },
+  { name: "length_in", label: "Length (in)" },
+  { name: "width_in", label: "Width (in)" },
+  { name: "height_in", label: "Height (in)" },
+];
+
+const optionalNumber = (value) =>
+  value === "" || value === null || value === undefined ? null : parseFloat(value);
+
+const buildFormState = (item) => ({
+  sku: item?.sku || "",
+  name: item?.name || "",
+  description: item?.description || "",
+  item_type: item?.item_type || "finished_good",
+  procurement_type: item?.procurement_type || "make",
+  stocking_policy: item?.stocking_policy || "on_demand",
+  category_id: item?.category_id || null,
+  unit: item?.unit || "EA",
+  standard_cost: item?.standard_cost || "",
+  selling_price: item?.selling_price || "",
+  reorder_point: item?.reorder_point || "",
+  weight_oz: item?.weight_oz || "",
+  length_in: item?.length_in || "",
+  width_in: item?.width_in || "",
+  height_in: item?.height_in || "",
+  image_url: item?.image_url || "",
+});
 
 export default function ItemForm({
   isOpen,
@@ -49,20 +72,7 @@ export default function ItemForm({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  const [formData, setFormData] = useState({
-    sku: editingItem?.sku || "",
-    name: editingItem?.name || "",
-    description: editingItem?.description || "",
-    item_type: editingItem?.item_type || "finished_good",
-    procurement_type: editingItem?.procurement_type || "make",
-    stocking_policy: editingItem?.stocking_policy || "on_demand",
-    category_id: editingItem?.category_id || null,
-    unit: editingItem?.unit || "EA",
-    standard_cost: editingItem?.standard_cost || "",
-    selling_price: editingItem?.selling_price || "",
-    reorder_point: editingItem?.reorder_point || "",
-    image_url: editingItem?.image_url || "",
-  });
+  const [formData, setFormData] = useState(() => buildFormState(editingItem));
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -109,38 +119,7 @@ export default function ItemForm({
     if (isOpen) {
       fetchCategories();
       fetchUomClasses();
-      if (editingItem) {
-        setFormData({
-          sku: editingItem.sku || "",
-          name: editingItem.name || "",
-          description: editingItem.description || "",
-          item_type: editingItem.item_type || "finished_good",
-          procurement_type: editingItem.procurement_type || "make",
-          stocking_policy: editingItem.stocking_policy || "on_demand",
-          category_id: editingItem.category_id || null,
-          unit: editingItem.unit || "EA",
-          standard_cost: editingItem.standard_cost || "",
-          selling_price: editingItem.selling_price || "",
-          reorder_point: editingItem.reorder_point || "",
-          image_url: editingItem.image_url || "",
-        });
-      } else {
-        // Reset form for new item
-        setFormData({
-          sku: "",
-          name: "",
-          description: "",
-          item_type: "finished_good",
-          procurement_type: "make",
-          stocking_policy: "on_demand",
-          category_id: null,
-          unit: "EA",
-          standard_cost: "",
-          selling_price: "",
-          reorder_point: "",
-          image_url: "",
-        });
-      }
+      setFormData(buildFormState(editingItem));
       setError(null);
       setErrors({});
     }
@@ -158,6 +137,7 @@ export default function ItemForm({
   }, [formData.item_type, editingItem]);
 
   const validateFormData = () => {
+    const isPackaging = formData.item_type === "packaging";
     const validationRules = {
       name: [(v) => validateRequired(v, "Item name")],
       unit: [(v) => validateRequired(v, "Unit of measure")],
@@ -181,6 +161,15 @@ export default function ItemForm({
       validationRules.selling_price = [
         (v) => validatePrice(v, "Selling price"),
       ];
+    }
+
+    for (const field of PHYSICAL_FIELDS) {
+      if (isPackaging || (formData[field.name] !== "" && formData[field.name] !== null)) {
+        validationRules[field.name] = [
+          ...(isPackaging ? [(v) => validateRequired(v, field.label)] : []),
+          (v) => validateNumber(v, field.label, { min: 0 }),
+        ];
+      }
     }
 
     return validateForm(formData, validationRules);
@@ -215,6 +204,10 @@ export default function ItemForm({
         selling_price: formData.selling_price
           ? parseFloat(formData.selling_price)
           : null,
+        weight_oz: optionalNumber(formData.weight_oz),
+        length_in: optionalNumber(formData.length_in),
+        width_in: optionalNumber(formData.width_in),
+        height_in: optionalNumber(formData.height_in),
         reorder_point: formData.stocking_policy === "stocked" && formData.reorder_point
           ? parseFloat(formData.reorder_point)
           : null,
@@ -653,6 +646,57 @@ export default function ItemForm({
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Physical / Shipping */}
+            <div className="border border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-gray-200 mb-3">
+                Physical / Shipping
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {PHYSICAL_FIELDS.map((field) => (
+                  <div key={field.name}>
+                    <label
+                      htmlFor={`item-${field.name.replace("_", "-")}`}
+                      className="block text-sm font-medium text-gray-300 mb-1"
+                    >
+                      {field.label}
+                      {formData.item_type === "packaging" && <RequiredIndicator />}
+                    </label>
+                    <input
+                      id={`item-${field.name.replace("_", "-")}`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData[field.name]}
+                      onChange={(e) =>
+                        setFormData({ ...formData, [field.name]: e.target.value })
+                      }
+                      aria-invalid={!!errors[field.name]}
+                      aria-describedby={
+                        errors[field.name]
+                          ? `item-${field.name.replace("_", "-")}-error`
+                          : undefined
+                      }
+                      className={`w-full px-4 py-2 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none ${
+                        errors[field.name]
+                          ? "border-red-500 focus:border-red-500"
+                          : "border-gray-700 focus:border-blue-500"
+                      }`}
+                      placeholder="0.00"
+                    />
+                    {errors[field.name] && (
+                      <p
+                        id={`item-${field.name.replace("_", "-")}-error`}
+                        role="alert"
+                        className="text-red-400 text-sm mt-1"
+                      >
+                        {errors[field.name]}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Pricing */}

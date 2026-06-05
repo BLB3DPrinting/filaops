@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import AiSettingsSection from "../../components/settings/AiSettingsSection";
 
 /**
@@ -19,7 +21,10 @@ import AiSettingsSection from "../../components/settings/AiSettingsSection";
  */
 export default function AdminIntegrations() {
   const api = useApi();
+  const { isPro, hasFeature, loading: featuresLoading } = useFeatureFlags();
   const [aiStatus, setAiStatus] = useState("loading");
+  const [bambuddyStatus, setBambuddyStatus] = useState("loading");
+  const bambuddyAvailable = !featuresLoading && isPro && hasFeature("bambu_integration");
 
   const refreshAiStatus = useCallback(async () => {
     try {
@@ -42,9 +47,24 @@ export default function AdminIntegrations() {
     }
   }, [api]);
 
+  const refreshBambuddyStatus = useCallback(async () => {
+    if (!bambuddyAvailable) {
+      setBambuddyStatus("locked");
+      return;
+    }
+    try {
+      const data = await api.get("/api/v1/pro/integrations/bambuddy/status");
+      setBambuddyStatus(data?.connected ? "configured" : "not_configured");
+    } catch (err) {
+      console.error("Failed to fetch Bambuddy integration status:", err);
+      setBambuddyStatus("error");
+    }
+  }, [api, bambuddyAvailable]);
+
   useEffect(() => {
     refreshAiStatus();
-  }, [refreshAiStatus]);
+    refreshBambuddyStatus();
+  }, [refreshAiStatus, refreshBambuddyStatus]);
 
   return (
     <div className="space-y-6">
@@ -57,6 +77,44 @@ export default function AdminIntegrations() {
         testId="integration-card-ai"
       >
         <AiSettingsSection />
+      </IntegrationCard>
+
+      <IntegrationCard
+        title="Bambuddy"
+        description={
+          bambuddyAvailable
+            ? "Connect the managed Bambuddy service to FilaOps printer operations."
+            : "Bambu printer support is included with FilaOps PRO."
+        }
+        status={bambuddyStatus}
+        testId="integration-card-bambuddy"
+      >
+        {bambuddyAvailable ? (
+          <div className="bg-gray-900/40 border border-gray-700/60 rounded-md p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-gray-400">
+              Configure the Bambuddy URL, API key, printer sync, and machine view.
+            </p>
+            <Link
+              to="/admin/bambuddy"
+              className="inline-flex justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium whitespace-nowrap"
+            >
+              Open Bambuddy
+            </Link>
+          </div>
+        ) : (
+          <div className="bg-gray-900/40 border border-gray-700/60 rounded-md p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-gray-400">
+              Activate PRO to start Bambuddy, connect its API key, and link Bambu
+              machines to existing FilaOps printers.
+            </p>
+            <Link
+              to="/admin/license"
+              className="inline-flex justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium whitespace-nowrap"
+            >
+              Upgrade to PRO
+            </Link>
+          </div>
+        )}
       </IntegrationCard>
 
       <IntegrationCard
@@ -159,6 +217,10 @@ function StatusBadge({ status }) {
     loading: {
       label: "Loading…",
       classes: "bg-gray-500/15 text-gray-400 border-gray-500/30",
+    },
+    locked: {
+      label: "PRO feature",
+      classes: "bg-blue-500/15 text-blue-300 border-blue-500/30",
     },
   };
   const v = variants[status] || variants.not_configured;

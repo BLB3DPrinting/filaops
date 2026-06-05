@@ -19,6 +19,10 @@ Covers:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+from app.core.config import settings
 
 
 BASE_URL = "/api/v1/quotes"
@@ -108,12 +112,548 @@ class TestQuoteAuth:
         response = unauthed_client.get(f"{BASE_URL}/1/pdf")
         assert response.status_code == 401
 
+    def test_file_download_requires_auth(self, unauthed_client):
+        response = unauthed_client.get(f"{BASE_URL}/1/files/1/download")
+        assert response.status_code == 401
+
+    def test_file_list_requires_auth(self, unauthed_client):
+        response = unauthed_client.get(f"{BASE_URL}/1/files")
+        assert response.status_code == 401
+
+    def test_file_upload_requires_auth(self, unauthed_client):
+        response = unauthed_client.post(
+            f"{BASE_URL}/1/files",
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+        assert response.status_code == 401
+
+    def test_file_delete_requires_auth(self, unauthed_client):
+        response = unauthed_client.delete(f"{BASE_URL}/1/files/1")
+        assert response.status_code == 401
 
 
+
+
+
+class TestCoreSafeQuoterBoundary:
+    """Core manual quoting must not depend on the PRO online quoter."""
+
+    def test_manual_quote_create_works_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        quote = _create_quote(client, product_name="Manual Core Quote")
+
+        assert quote["product_name"] == "Manual Core Quote"
+        assert quote["status"] == "pending"
+
+    def test_portal_quote_create_is_gated_when_public_quoter_disabled(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Public online quoter is disabled"
+
+    def test_quote_archive_stays_readable_when_public_quoter_disabled(self, client, db, monkeypatch):
+        from app.models.quote import QuoteMaterial
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+        create_response = client.post(
+            f"{BASE_URL}/portal",
+            data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+            files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+        assert create_response.status_code == 201, create_response.text
+        created = create_response.json()
+
+        db.add(QuoteMaterial(
+            quote_id=created["quote_id"],
+            slot_number=1,
+            is_primary=True,
+            material_type="PLA_BASIC",
+            color_code="JADE_WHITE",
+            color_name="Jade White",
+            color_hex="#f4f2df",
+            material_grams=Decimal("12.34"),
+        ))
+        db.commit()
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        response = client.get(f"{BASE_URL}/{created['quote_id']}/archive")
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["read_only"] is True
+        assert data["pro_actions_available"] is False
+        assert data["quote"]["id"] == created["quote_id"]
+        assert data["files"][0]["original_filename"] == "part.stl"
+        assert data["materials"][0]["color_code"] == "JADE_WHITE"
+
+    def test_quote_file_download_returns_original_upload(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote.user_id = 1
+        quote.customer_id = 1
+
+        stored_file = Path(__file__)
+        stored_filename = "stored-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-model.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="a" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 200, response.text
+        assert response.content == stored_file.read_bytes()
+        assert response.headers["content-type"].startswith("model/stl")
+        assert 'filename="customer-model.stl"' in response.headers["content-disposition"]
+
+    def test_quote_file_download_allows_staff_access_to_any_quote(self, client, db, monkeypatch):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        customer = User(
+            email="file-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Customer",
+            account_type="customer",
+        )
+        staff = User(
+            email="file-staff@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Staff",
+            account_type="operator",
+        )
+        db.add_all([customer, staff])
+        db.flush()
+        quote.user_id = customer.id
+        quote.customer_id = customer.id
+
+        stored_file = Path(__file__)
+        stored_filename = "staff-readable-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-owned.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="b" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download",
+            headers={"Authorization": f"Bearer {create_access_token(user_id=staff.id)}"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.content == stored_file.read_bytes()
+
+    def test_quote_file_download_rejects_unowned_customer_quote(self, client, db, monkeypatch):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        owner = User(
+            email="file-owner@example.com",
+            password_hash="not-a-real-hash",
+            first_name="File",
+            last_name="Owner",
+            account_type="customer",
+        )
+        other_customer = User(
+            email="other-file-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Other",
+            last_name="Customer",
+            account_type="customer",
+        )
+        db.add_all([owner, other_customer])
+        db.flush()
+        quote.user_id = owner.id
+        quote.customer_id = owner.id
+
+        stored_file = Path(__file__)
+        stored_filename = "private-model.stl"
+        monkeypatch.setattr(
+            file_storage,
+            "get_file_path",
+            lambda filename: stored_file if filename == stored_filename else None,
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="private-model.stl",
+            stored_filename=stored_filename,
+            file_path=str(stored_file),
+            file_size_bytes=stored_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="b" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download",
+            headers={"Authorization": f"Bearer {create_access_token(user_id=other_customer.id)}"},
+        )
+
+        assert response.status_code == 403
+        assert "belong" in response.json()["detail"]
+
+    def test_quote_file_download_returns_404_when_file_missing(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        monkeypatch.setattr(file_storage, "get_file_path", lambda filename: None)
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="missing.stl",
+            stored_filename="missing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="c" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Quote file not found"
+
+    @pytest.mark.parametrize("stored_filename_kind", ["absolute", "relative_traversal"])
+    def test_quote_file_download_rejects_stored_filename_escape(
+        self,
+        client,
+        db,
+        monkeypatch,
+        stored_filename_kind,
+    ):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        upload_dir = Path("backend/tests")
+        outside_file = Path(__file__).resolve()
+
+        monkeypatch.setattr(file_storage, "upload_dir", upload_dir)
+        unsafe_stored_filename = (
+            str(outside_file)
+            if stored_filename_kind == "absolute"
+            else "../v1/test_quotes.py"
+        )
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="customer-model.stl",
+            stored_filename=unsafe_stored_filename,
+            file_path=str(outside_file),
+            file_size_bytes=outside_file.stat().st_size,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="e" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{quote.id}/files/{quote_file.id}/download")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Quote file not found"
+
+    def test_manual_quote_file_upload_list_and_delete(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+
+        async def fake_save_file(file, user_id, quote_id=None):
+            return {
+                "original_filename": file.filename,
+                "stored_filename": "manual-attachment.stl",
+                "file_path": str(Path(__file__)),
+                "file_size_bytes": 25,
+                "file_format": ".stl",
+                "file_hash": "f" * 64,
+                "mime_type": file.content_type or "application/octet-stream",
+                "gcs_backed_up": False,
+            }
+
+        deleted = []
+        monkeypatch.setattr(file_storage, "save_file", fake_save_file)
+        monkeypatch.setattr(file_storage, "delete_file", lambda stored_filename: deleted.append(stored_filename) or True)
+
+        upload_response = client.post(
+            f"{BASE_URL}/{quote.id}/files",
+            files={"file": ("manual-part.stl", b"solid test\nendsolid test\n", "model/stl")},
+        )
+
+        assert upload_response.status_code == 201, upload_response.text
+        uploaded = upload_response.json()
+        assert uploaded["original_filename"] == "manual-part.stl"
+        assert uploaded["file_format"] == ".stl"
+
+        list_response = client.get(f"{BASE_URL}/{quote.id}/files")
+
+        assert list_response.status_code == 200, list_response.text
+        files = list_response.json()
+        assert len(files) == 1
+        assert files[0]["id"] == uploaded["id"]
+        assert files[0]["original_filename"] == "manual-part.stl"
+
+        delete_response = client.delete(f"{BASE_URL}/{quote.id}/files/{uploaded['id']}")
+
+        assert delete_response.status_code == 200, delete_response.text
+        assert deleted == ["manual-attachment.stl"]
+        assert db.get(QuoteFile, uploaded["id"]) is None
+
+    def test_customer_cannot_upload_or_delete_quote_files(self, client, db):
+        from app.core.security import create_access_token
+        from app.models.quote import Quote, QuoteFile
+        from app.models.user import User
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        customer = User(
+            email="attachment-customer@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Attachment",
+            last_name="Customer",
+            account_type="customer",
+        )
+        db.add(customer)
+        db.flush()
+        quote.user_id = customer.id
+        quote.customer_id = customer.id
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="existing.stl",
+            stored_filename="existing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="1" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+        auth = {"Authorization": f"Bearer {create_access_token(user_id=customer.id)}"}
+
+        upload_response = client.post(
+            f"{BASE_URL}/{quote.id}/files",
+            files={"file": ("customer-upload.stl", b"solid test\nendsolid test\n", "model/stl")},
+            headers=auth,
+        )
+        delete_response = client.delete(
+            f"{BASE_URL}/{quote.id}/files/{quote_file.id}",
+            headers=auth,
+        )
+
+        assert upload_response.status_code == 403
+        assert delete_response.status_code == 403
+
+    def test_quote_file_delete_failure_keeps_db_record(self, client, db, monkeypatch):
+        from app.models.quote import Quote, QuoteFile
+        from app.services.file_storage import file_storage
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote_file = QuoteFile(
+            quote_id=quote.id,
+            original_filename="existing.stl",
+            stored_filename="existing.stl",
+            file_path=str(Path(__file__)),
+            file_size_bytes=123,
+            file_format=".stl",
+            mime_type="model/stl",
+            file_hash="2" * 64,
+        )
+        db.add(quote_file)
+        db.commit()
+
+        monkeypatch.setattr(file_storage, "delete_file", lambda stored_filename: False)
+
+        response = client.delete(f"{BASE_URL}/{quote.id}/files/{quote_file.id}")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Stored quote file could not be deleted"
+        assert db.get(QuoteFile, quote_file.id) is not None
+
+    def test_quote_archive_rejects_unowned_customer_quote(self, client, db, monkeypatch):
+        from app.models.quote import Quote
+        from app.models.user import User
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        created = _create_quote(client)
+
+        other_customer = User(
+            email="archive-owner@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Archive",
+            last_name="Owner",
+            account_type="customer",
+        )
+        db.add(other_customer)
+        db.flush()
+
+        quote = db.get(Quote, created["id"])
+        quote.user_id = other_customer.id
+        quote.customer_id = other_customer.id
+
+        current_user = db.get(User, 1)
+        current_user.account_type = "customer"
+        db.commit()
+
+        response = client.get(f"{BASE_URL}/{created['id']}/archive")
+
+        assert response.status_code == 403
+        assert "belong" in response.json()["detail"]
+
+    def test_create_item_from_quote_requires_approved_quote(self, client):
+        quote = _create_quote(client)
+
+        response = client.post(f"{BASE_URL}/{quote['id']}/create-item")
+
+        assert response.status_code == 409
+        assert "approved" in response.json()["detail"]
+
+    def test_create_item_from_quote_uses_staff_action(self, client, db, monkeypatch):
+        from app.models.product import Product
+        from app.models.quote import Quote
+        from app.models.user import User
+        from app.services import bom_service
+
+        current_user = db.get(User, 1)
+        current_user.account_type = "operator"
+        db.commit()
+
+        quote_data = _create_quote(client)
+        quote = db.get(Quote, quote_data["id"])
+        quote.status = "approved"
+        db.commit()
+
+        def fake_auto_create_product_and_bom(quote, db):
+            product = Product(
+                sku=f"PRD-CUS-TEST-{quote.id}",
+                name=f"Custom Print - Quote #{quote.quote_number}",
+                type="custom",
+                item_type="finished_good",
+                procurement_type="make",
+                has_bom=True,
+                active=True,
+            )
+            db.add(product)
+            db.flush()
+            quote.product_id = product.id
+            db.commit()
+            return product, SimpleNamespace(id=987)
+
+        monkeypatch.setattr(
+            bom_service,
+            "auto_create_product_and_bom",
+            fake_auto_create_product_and_bom,
+        )
+
+        response = client.post(f"{BASE_URL}/{quote.id}/create-item")
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["quote_id"] == quote.id
+        assert data["product_sku"] == f"PRD-CUS-TEST-{quote.id}"
+        assert data["bom_id"] == 987
+        assert data["already_created"] is False
+
+        duplicate_response = client.post(f"{BASE_URL}/{quote.id}/create-item")
+
+        assert duplicate_response.status_code == 200, duplicate_response.text
+        duplicate_data = duplicate_response.json()
+        assert duplicate_data["product_id"] == data["product_id"]
+        assert duplicate_data["already_created"] is True
 
 
 class TestPortalQuoteContract:
     """Public quoter contract: Core owns the durable quote id."""
+
+    @pytest.fixture(autouse=True)
+    def enable_public_quoter(self, monkeypatch):
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+
+    @staticmethod
+    def _install_auto_quote_provider(client):
+        had_previous = hasattr(client.app.state, "quote_automation_provider")
+        previous_provider = getattr(client.app.state, "quote_automation_provider", None)
+
+        def provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            quote.requires_review_reason = None
+            return {}
+
+        client.app.state.quote_automation_provider = provider
+        return had_previous, previous_provider
+
+    @staticmethod
+    def _clear_auto_quote_provider(client, provider_state):
+        had_previous, previous_provider = provider_state
+        if had_previous:
+            client.app.state.quote_automation_provider = previous_provider
+        elif hasattr(client.app.state, "quote_automation_provider"):
+            delattr(client.app.state, "quote_automation_provider")
 
     def test_portal_create_requires_auth(self, unauthed_client):
         response = unauthed_client.post(
@@ -148,12 +688,193 @@ class TestPortalQuoteContract:
         expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
         assert expires_at.tzinfo is None or expires_at.tzinfo.utcoffset(expires_at) is not None
 
+    def test_portal_create_passes_component_addon_ids_to_provider(self, client):
+        captured_options = {}
+
+        def provider(**kwargs):
+            captured_options.update(kwargs["options"])
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("19.43")
+            quote.subtotal = Decimal("19.43")
+            quote.total_price = Decimal("19.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            quote.requires_review_reason = None
+            return {
+                "breakdown": {
+                    "component_addons": [
+                        {"id": "led-kit", "label": "LED Lamp Kit"},
+                    ],
+                },
+            }
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "pla-basic",
+                    "color": "yellow",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                    "component_addon_ids": ["led-kit", "gift-box"],
+                },
+                files={"file": ("lamp.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        assert captured_options["component_addon_ids"] == ["led-kit", "gift-box"]
+        assert response.json()["breakdown"]["component_addons"][0]["id"] == "led-kit"
+
+    @pytest.mark.parametrize(
+        ("filename", "content_type"),
+        [
+            ("part.obj", "model/obj"),
+            ("part.step", "model/step"),
+            ("part.stp", "model/step"),
+        ],
+    )
+    def test_portal_create_retains_cad_and_obj_files_for_manual_review(
+        self, client, db, filename, content_type
+    ):
+        from app.models.quote import Quote
+
+        response = client.post(
+            f"{BASE_URL}/portal",
+            data={
+                "material": "PLA_BASIC",
+                "color": "BLK",
+                "quality": "standard",
+                "infill": "20%",
+                "quantity": "1",
+            },
+            files={"file": (filename, b"manual review model", content_type)},
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.file_format == f".{filename.rsplit('.', 1)[1]}"
+        assert quote.files[0].original_filename == filename
+
+    def test_portal_create_falls_back_to_manual_review_when_provider_fails(self, client, db):
+        from fastapi import HTTPException
+        from app.models.quote import Quote
+
+        def failing_provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            raise HTTPException(status_code=503, detail="real slicer temporarily unavailable")
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = failing_provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "PLA_BASIC",
+                    "color": "BLK",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                },
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+        assert data["requires_review_reason"] == "Automatic quote engine unavailable"
+        assert data["total_price"] == "0.00"
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.status == "pending"
+        assert quote.approval_method == "manual"
+        assert quote.auto_approved is False
+        assert quote.auto_approve_eligible is False
+        assert quote.total_price == Decimal("0.00")
+        assert quote.material_grams is None
+        assert quote.files[0].original_filename == "part.stl"
+
+    def test_portal_create_falls_back_when_provider_returns_non_dict(self, client, db):
+        from app.models.quote import Quote
+
+        def bad_provider(**kwargs):
+            quote = kwargs["quote"]
+            quote.material_grams = Decimal("27.20")
+            quote.print_time_hours = Decimal("0.75")
+            quote.unit_price = Decimal("6.43")
+            quote.subtotal = Decimal("6.43")
+            quote.total_price = Decimal("6.43")
+            quote.status = "approved"
+            quote.approval_method = "auto"
+            quote.auto_approved = True
+            quote.auto_approve_eligible = True
+            return "ok"
+
+        provider_state = self._install_auto_quote_provider(client)
+        client.app.state.quote_automation_provider = bad_provider
+        try:
+            response = client.post(
+                f"{BASE_URL}/portal",
+                data={
+                    "material": "PLA_BASIC",
+                    "color": "BLK",
+                    "quality": "standard",
+                    "infill": "20%",
+                    "quantity": "1",
+                },
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["requires_review"] is True
+        assert data["requires_review_reason"] == "Automatic quote engine unavailable"
+        assert data["total_price"] == "0.00"
+
+        quote = db.get(Quote, data["quote_id"])
+        assert quote.status == "pending"
+        assert quote.approval_method == "manual"
+        assert quote.auto_approved is False
+        assert quote.auto_approve_eligible is False
+        assert quote.total_price == Decimal("0.00")
+        assert quote.material_grams is None
+        assert quote.files[0].original_filename == "part.stl"
+
     def test_portal_accept_snapshots_shipping_on_owned_quote(self, client):
-        created = client.post(
+        create_response = client.post(
             f"{BASE_URL}/portal",
             data={"material": "PLA_BASIC", "quantity": "1"},
             files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
-        ).json()
+        )
+        assert create_response.status_code == 201, create_response.text
+        created = create_response.json()
 
         response = client.post(
             f"{BASE_URL}/portal/{created['quote_id']}/accept",
@@ -176,6 +897,329 @@ class TestPortalQuoteContract:
         assert data["quote_id"] == created["quote_id"]
         assert data["requires_review"] is True
         assert data["message"] == "Quote requires manual review"
+
+    def test_portal_accept_keeps_auto_quote_approved_until_payment(self, client, db):
+        from app.models.quote import Quote
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["requires_review"] is False
+            assert data["status"] == "approved"
+            assert data["message"] == "Quote ready for checkout"
+
+            checkout_response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/checkout"
+            )
+            assert checkout_response.status_code == 503
+
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.status == "approved"
+            assert quote.approval_method == "auto"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_persists_quote_handoff_snapshots(self, client, db):
+        from app.models.quote import Quote
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("lamp.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "pricing_snapshot": {
+                        "source": "core_backed",
+                        "material_cost": "7.65",
+                    },
+                    "component_snapshot": {
+                        "items": [{"sku": "COMP-LED", "quantity": 1}],
+                    },
+                    "packaging_snapshot": {
+                        "sku": "BOX-8",
+                        "dimensions_in": {"length": 8, "width": 8, "height": 8},
+                    },
+                    "shipping_snapshot": {
+                        "carrier": "USPS",
+                        "service": "Ground Advantage",
+                        "cost": "8.50",
+                        "package": {"sku": "BOX-8"},
+                    },
+                    "artifact_snapshot": {
+                        "files": [{"kind": "gcode", "file_id": "artifact-123"}],
+                    },
+                    "slicer_diagnostics": {
+                        "source": "real_slicer",
+                        "plates": 1,
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.pricing_snapshot["source"] == "core_backed"
+            assert quote.component_snapshot["items"][0]["sku"] == "COMP-LED"
+            assert quote.packaging_snapshot["sku"] == "BOX-8"
+            assert quote.shipping_snapshot["package"]["sku"] == "BOX-8"
+            assert quote.artifact_snapshot["files"][0]["kind"] == "gcode"
+            assert quote.slicer_diagnostics["source"] == "real_slicer"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_derives_shipping_snapshot_when_not_supplied(self, client, db):
+        from app.models.quote import Quote
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.shipping_snapshot["source"] == "portal_accept"
+            assert quote.shipping_snapshot["carrier"] == "USPS"
+            assert quote.shipping_snapshot["cost"] == "8.50"
+            assert quote.shipping_snapshot["ship_to"]["zip"] == "46204"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_rejects_oversized_handoff_snapshot(self, client):
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "pricing_snapshot": {"raw": "x" * (33 * 1024)},
+                },
+            )
+
+            assert response.status_code == 422
+            assert "32KB" in response.text
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_snapshots_multi_color_slots(self, client, db):
+        from app.models.quote import Quote, QuoteMaterial
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "print_mode": "multi",
+                    "multi_color_info": {
+                        "primary_slot": "2",
+                        "slot_colors": [
+                            {
+                                "slot": 1,
+                                "color_code": "RED",
+                                "color_name": "Red",
+                                "color_hex": "#ff0000",
+                                "weight_grams": 10.2,
+                                "is_primary": "false",
+                            },
+                            {
+                                "slot": "2",
+                                "color_code": "YEL",
+                                "color_name": "Yellow",
+                                "color_hex": "#ffff00",
+                                "weight_grams": 9.1,
+                                "is_primary": False,
+                            },
+                            {
+                                "slot": 3,
+                                "color_code": "BLK",
+                                "color_name": "Black",
+                                "color_hex": "#000000",
+                                "weight_grams": 7.9,
+                                "is_primary": False,
+                            },
+                        ],
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.color == "MULTI_COLOR"
+
+            materials = (
+                db.query(QuoteMaterial)
+                .filter(QuoteMaterial.quote_id == created["quote_id"])
+                .order_by(QuoteMaterial.slot_number)
+                .all()
+            )
+            assert [m.color_code for m in materials] == ["RED", "YEL", "BLK"]
+            assert [m.color_name for m in materials] == ["Red", "Yellow", "Black"]
+            assert [m.is_primary for m in materials] == [False, True, False]
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_preserves_materials_when_multi_color_slots_are_invalid(self, client, db):
+        from app.models.quote import Quote, QuoteMaterial
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "EXISTING_COLOR", "quantity": "1"},
+                files={"file": ("multi.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            db.add(QuoteMaterial(
+                quote_id=created["quote_id"],
+                slot_number=1,
+                is_primary=True,
+                material_type="PLA_BASIC",
+                color_code="KEEP",
+                color_name="Keep Existing",
+                color_hex="#123456",
+                material_grams=Decimal("1.25"),
+            ))
+            db.commit()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "print_mode": "multi",
+                    "multi_color_info": {
+                        "primary_slot": "bad",
+                        "slot_colors": [
+                            {"slot": 0, "color_code": "ZERO", "weight_grams": 1},
+                            {"slot": 17, "color_code": "TOO_HIGH", "weight_grams": 1},
+                            {"slot": 2, "color_code": "NEGATIVE", "weight_grams": -1},
+                            {"slot": "bad", "color_code": "BAD", "weight_grams": 1},
+                            {"slot": 2, "color_code": "", "weight_grams": 1},
+                            "not-a-slot",
+                        ],
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.color == "EXISTING_COLOR"
+
+            materials = (
+                db.query(QuoteMaterial)
+                .filter(QuoteMaterial.quote_id == created["quote_id"])
+                .all()
+            )
+            assert len(materials) == 1
+            assert materials[0].color_code == "KEEP"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
 
 # =============================================================================
 # List - GET /api/v1/quotes/

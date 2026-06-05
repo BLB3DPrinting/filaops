@@ -249,3 +249,28 @@ describe('ItemsTable — variant inventory rollup (Workstream A)', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('ItemsTable — item type labels', () => {
+  it('renders packaging items with the Packaging label', () => {
+    render(
+      <MockLocaleProvider currency="USD" locale="en-US">
+        <ItemsTable
+          {...baseProps}
+          items={[
+            {
+              ...item,
+              id: 300,
+              sku: 'PKG-BOX-001',
+              name: 'Shipping Box',
+              item_type: 'packaging',
+              material_type_id: null,
+              unit: 'EA',
+            },
+          ]}
+        />
+      </MockLocaleProvider>
+    )
+
+    expect(screen.getByText('Packaging')).toBeInTheDocument()
+  })
+})

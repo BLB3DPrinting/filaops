@@ -167,6 +167,19 @@ def setup_database():
             "ALTER TABLE sales_orders "
             "ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ"
         ))
+        # Migration 084: durable quote/order snapshots for public quote handoff
+        for table in ("quotes", "sales_orders"):
+            for col in (
+                "pricing_snapshot",
+                "component_snapshot",
+                "packaging_snapshot",
+                "shipping_snapshot",
+                "artifact_snapshot",
+                "slicer_diagnostics",
+            ):
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} JSONB"
+                ))
         # Migration 074: close short and line editing
         conn.execute(text(
             "ALTER TABLE sales_orders "
@@ -246,6 +259,7 @@ def setup_database():
             ("5000", "Cost of Goods Sold", "expense", True, None),
             ("5010", "Shipping Supplies", "expense", True, None),
             ("5020", "Scrap Expense (Production)", "expense", True, None),
+            ("5030", "Inventory Adjustment", "expense", True, None),
             ("5100", "Material Cost", "expense", True, None),
             ("5200", "Scrap Expense", "expense", True, None),
             ("5500", "Inventory Adjustment", "expense", True, None),

@@ -19,6 +19,8 @@ from decimal import Decimal
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from fastapi import HTTPException
+
 from app.services import item_service
 from app.models.product import Product
 from app.models.item_category import ItemCategory
@@ -155,7 +157,7 @@ class TestCreateCategory:
 
     def test_duplicate_code_raises_400(self, db):
         item_service.create_category(db, code="DUP-CAT", name="First")
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             item_service.create_category(db, code="DUP-CAT", name="Second")
         assert exc_info.value.status_code == 400
 
@@ -312,6 +314,10 @@ class TestGenerateItemSku:
         sku = item_service.generate_item_sku(db, "supply")
         assert sku.startswith("SUP-")
 
+    def test_packaging_prefix(self, db):
+        sku = item_service.generate_item_sku(db, "packaging")
+        assert sku.startswith("PKG-")
+
     def test_material_prefix(self, db):
         sku = item_service.generate_item_sku(db, "material")
         assert sku.startswith("MAT-")
@@ -389,6 +395,55 @@ class TestCreateItem:
         })
         assert item.sku.startswith("COMP-")
 
+    def test_create_packaging_item(self, db):
+        item = item_service.create_item(db, data={
+            "name": "Small Mailer",
+            "item_type": "packaging",
+            "weight_oz": Decimal("1.25"),
+            "length_in": Decimal("10.00"),
+            "width_in": Decimal("7.00"),
+            "height_in": Decimal("0.50"),
+        })
+        assert item.item_type == "packaging"
+        assert item.sku.startswith("PKG-")
+        assert item.unit == "EA"
+        assert item.purchase_uom == "EA"
+        assert item.weight_oz == Decimal("1.25")
+
+    def test_create_packaging_item_requires_physical_metadata(self, db):
+        with pytest.raises(HTTPException) as exc_info:
+            item_service.create_item(db, data={
+                "name": "Small Mailer Missing Metadata",
+                "item_type": "packaging",
+            })
+        assert exc_info.value.status_code == 400
+        assert "Packaging items require" in exc_info.value.detail
+
+    @pytest.mark.parametrize(
+        "physical_data",
+        [
+            {"weight_oz": Decimal("1.25")},
+            {
+                "weight_oz": Decimal("1.25"),
+                "length_in": Decimal("10.00"),
+                "width_in": Decimal("7.00"),
+            },
+        ],
+    )
+    def test_create_packaging_item_requires_complete_physical_metadata(
+        self,
+        db,
+        physical_data,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            item_service.create_item(db, data={
+                "name": "Small Mailer Partial Metadata",
+                "item_type": "packaging",
+                **physical_data,
+            })
+        assert exc_info.value.status_code == 400
+        assert "Packaging items require" in exc_info.value.detail
+
     def test_enum_values_converted(self, db):
         """Enum-like objects with .value attr are converted to strings."""
         class FakeEnum:
@@ -417,6 +472,42 @@ class TestCreateItem:
             "category_id": cat.id,
         })
         assert item.category_id == cat.id
+
+
+class TestPackagingItemType:
+    """Packaging participates in item stats and CSV import."""
+
+    def test_get_item_stats_counts_packaging(self, db, make_product):
+        make_product(sku="PKG-STATS-001", name="Stats Box", item_type="packaging")
+        db.commit()
+
+        stats = item_service.get_item_stats(db)
+
+        assert stats["packaging"] >= 1
+
+    def test_import_csv_maps_packaging_item_type(self, db):
+        csv_data = (
+            "sku,name,item_type,unit\n"
+            "PKG-CSV-001,CSV Corrugated Box,packaging,EA\n"
+        ).encode("utf-8")
+
+        result = item_service.import_items_from_csv(db, file_content=csv_data)
+
+        assert result["created"] == 1
+        item = db.query(Product).filter(Product.sku == "PKG-CSV-001").one()
+        assert item.item_type == "packaging"
+
+    def test_import_csv_maps_packaging_alias_on_create(self, db):
+        csv_data = (
+            "sku,name,Type,unit\n"
+            "PKG-CSV-ALIAS-001,CSV Box Alias,box,EA\n"
+        ).encode("utf-8")
+
+        result = item_service.import_items_from_csv(db, file_content=csv_data)
+
+        assert result["created"] == 1
+        item = db.query(Product).filter(Product.sku == "PKG-CSV-ALIAS-001").one()
+        assert item.item_type == "packaging"
 
 
 class TestGetItem:
@@ -897,6 +988,37 @@ class TestBulkUpdateItems:
             db, item_ids=[p.id], item_type="not_a_valid_type"
         )
         assert result["error_count"] == 1
+
+    def test_bulk_update_allows_packaging_item_type(self, db, make_product):
+        p = make_product(
+            item_type="supply",
+            weight_oz=Decimal("1.25"),
+            length_in=Decimal("10.00"),
+            width_in=Decimal("7.00"),
+            height_in=Decimal("0.50"),
+        )
+        db.commit()
+
+        result = item_service.bulk_update_items(
+            db, item_ids=[p.id], item_type="packaging"
+        )
+
+        assert result["updated_count"] == 1
+        assert result["error_count"] == 0
+        db.refresh(p)
+        assert p.item_type == "packaging"
+
+    def test_bulk_update_packaging_item_type_requires_physical_metadata(self, db, make_product):
+        p = make_product(item_type="supply")
+        db.commit()
+
+        result = item_service.bulk_update_items(
+            db, item_ids=[p.id], item_type="packaging"
+        )
+
+        assert result["updated_count"] == 0
+        assert result["error_count"] == 1
+        assert "Packaging items require" in result["errors"][0]["error"]
 
     def test_category_id_zero_clears_category(self, db, make_product):
         cat = _make_category(db, "BULK-CLR", "Clear Category")

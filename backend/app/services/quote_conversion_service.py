@@ -203,6 +203,12 @@ def convert_portal_quote_to_order(
             shipping_state=shipping_state,
             shipping_zip=shipping_zip,
             shipping_country=shipping_country,
+            pricing_snapshot=quote.pricing_snapshot,
+            component_snapshot=quote.component_snapshot,
+            packaging_snapshot=quote.packaging_snapshot,
+            shipping_snapshot=quote.shipping_snapshot,
+            artifact_snapshot=quote.artifact_snapshot,
+            slicer_diagnostics=quote.slicer_diagnostics,
             customer_notes=quote.customer_notes,
             # Hybrid architecture fields
             order_type="quote_based",

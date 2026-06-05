@@ -44,10 +44,13 @@ export default function ApiErrorToaster() {
 
   useEffect(() => {
     return on("api:error", (e) => {
-      const _url = e?.url || "";  // Reserved for future logging
+      const url = e?.url || "";
       const status = e?.status ?? "";
       const msg = e?.message || "Request failed";
       const detail = e?.detail;
+      const isRecoverableIntegrationError =
+        url.includes("/api/v1/pro/integrations/bambuddy") ||
+        url.includes("/api/v1/pro/printer-providers/bambuddy");
 
       // Check if this is a tier limit error
       if (status === 403 && detail && typeof detail === "object" && detail.code === "TIER_LIMIT_EXCEEDED") {
@@ -68,17 +71,23 @@ export default function ApiErrorToaster() {
         return;
       }
 
-      // Handle server unavailable (502, 503, network errors) gracefully
-      // Don't spam toasts - just redirect to login once
+      // Handle server unavailable (502, 503, network errors) gracefully.
+      // Bambuddy failures are recoverable integration errors; core API outages
+      // block the page and should return users to the login/start point.
       if (status === 502 || status === 503 || status === 0 || msg.includes("Failed to fetch") || msg.includes("Network")) {
         if (!serverDownShown.current) {
           serverDownShown.current = true;
-          toast.info("Unable to connect to server. Please check your connection.");
-          // Redirect to login after a brief delay
+          if (isRecoverableIntegrationError) {
+            toast.info("Unable to connect to Bambuddy. FilaOps is still available.");
+          } else {
+            toast.info("Unable to connect to FilaOps. Returning to login...");
+            setTimeout(() => {
+              if (!window.location.pathname.includes("/admin/login")) {
+                window.location.href = "/admin/login";
+              }
+            }, 3000);
+          }
           setTimeout(() => {
-            if (window.location.pathname !== "/admin/login") {
-              window.location.href = "/admin/login";
-            }
             serverDownShown.current = false;
           }, 2000);
         }
@@ -90,4 +99,3 @@ export default function ApiErrorToaster() {
   }, [toast]);
   return null;
 }
-

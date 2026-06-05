@@ -25,6 +25,7 @@ from app.core.limiter import apply_rate_limiting
 from app.core.paths import (
     resolve_frontend_dist,
     resolve_static_dir,
+    resolve_surface_dist,
     resolve_upload_products_dir,
 )
 from app.api.v1 import router as api_v1_router
@@ -434,6 +435,45 @@ if FRONTEND_DIST is not None:
     logger.info("Serving React SPA from %s", FRONTEND_DIST)
 
 
+def _validated_spa_dist(label: str, configured_path: str) -> Path | None:
+    dist = resolve_surface_dist(configured_path)
+    if dist is None:
+        return None
+    if not (dist / "index.html").is_file():
+        logger.error(
+            "%s is set to %s but no index.html found there; surface will "
+            "not be served. Check the path or unset it.",
+            label,
+            dist,
+        )
+        return None
+    logger.info("Serving %s from %s", label, dist)
+    return dist
+
+
+SURFACE_DISTS: tuple[tuple[str, str, Path], ...] = tuple(
+    (mount_path, name, dist)
+    for mount_path, name, dist in (
+        (
+            "/portal-admin",
+            "portal_admin_spa",
+            _validated_spa_dist("PORTAL_ADMIN_DIST", settings.PORTAL_ADMIN_DIST),
+        ),
+        (
+            "/portal",
+            "portal_spa",
+            _validated_spa_dist("PORTAL_DIST", settings.PORTAL_DIST),
+        ),
+        (
+            "/quote",
+            "quoter_spa",
+            _validated_spa_dist("QUOTER_DIST", settings.QUOTER_DIST),
+        ),
+    )
+    if dist is not None
+)
+
+
 @app.get("/")
 async def root():
     """API status JSON, or SPA index.html when FRONTEND_DIST is configured."""
@@ -560,65 +600,101 @@ load_plugin(app)
 #     so client-side routes (e.g. /admin/items) resolve once the React
 #     router boots in the browser.
 #
-# The fallback opens a fixed path (FRONTEND_DIST / "index.html") with
+# The fallback opens a fixed index.html path configured at startup with
 # no user input — that's why it's safe.
+class _SPAStaticFiles(StaticFiles):
+    def __init__(
+        self,
+        *,
+        directory: str,
+        index_path: Path,
+        reserved_first_segments: frozenset[str] = frozenset(),
+        **kwargs,
+    ):
+        super().__init__(directory=directory, **kwargs)
+        self.index_path = index_path
+        self.reserved_first_segments = reserved_first_segments
+
+    async def get_response(self, path: str, scope):
+        # `path` here is the os-normalised filesystem path produced by
+        # StaticFiles.get_path — on Windows it uses backslashes and
+        # `os.path.normpath` strips trailing slashes. Both behaviours
+        # are wrong for HTTP routing decisions, so we consult the raw
+        # URL path from the ASGI scope for prefix/trailing-slash checks.
+        url_path = scope.get("path", "").lstrip("/")
+        first_segment, sep, _ = url_path.partition("/")
+
+        if first_segment in self.reserved_first_segments:
+            # API / static paths that reach the SPA mount didn't match
+            # any upstream route. Three cases reach this branch:
+            #   1. `/api`        — bare prefix, no real endpoint to
+            #                      redirect to. Just 404.
+            #   2. `/api/v1/foo` — extra path, no trailing slash. The
+            #                      most likely cause is a router whose
+            #                      route is registered as `/`
+            #                      (canonical form ends with `/`).
+            #                      Mirror FastAPI's redirect_slashes so
+            #                      the client lands on the canonical
+            #                      URL instead of index.html.
+            #   3. `/api/v1/foo/` — already canonical, still unmatched.
+            #                       Genuine 404.
+            if sep and not url_path.endswith("/"):
+                from fastapi.responses import RedirectResponse
+
+                qs = scope.get("query_string", b"")
+                target = f"/{url_path}/"
+                if qs:
+                    target += "?" + qs.decode("latin-1")
+                return RedirectResponse(url=target, status_code=307)
+            # Cases 1 and 3 — raise HTTPException so the request exits
+            # this mount and re-enters the parent FastAPI app's
+            # exception handler chain, which renders 404 as JSON
+            # (Starlette's bare default would be a plain text body).
+            raise StarletteHTTPException(status_code=404)
+
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return FileResponse(self.index_path)
+            raise
+
+
+def _surface_root_handler(index_path: Path):
+    async def surface_root():
+        return FileResponse(index_path)
+
+    return surface_root
+
+
+for mount_path, name, dist in SURFACE_DISTS:
+    app.add_api_route(
+        mount_path,
+        _surface_root_handler(dist / "index.html"),
+        methods=["GET"],
+        name=f"{name}_root",
+        include_in_schema=False,
+    )
+    app.mount(
+        mount_path,
+        _SPAStaticFiles(
+            directory=str(dist),
+            index_path=dist / "index.html",
+            html=True,
+        ),
+        name=name,
+    )
+
+
 if FRONTEND_DIST is not None:
-
-    # First URL path segments the API / static layer owns. The SPA mount
-    # must never serve index.html for these — frontend code that expects
-    # JSON would otherwise receive HTML and silently mis-interpret it.
-    # We compare against the FIRST segment (not a prefix substring), so
-    # `apidocs/foo` does not collide with `api/foo`.
-    _RESERVED_FIRST_SEGMENTS = frozenset({"api", "static"})
-
-    class _SPAStaticFiles(StaticFiles):
-        async def get_response(self, path: str, scope):
-            # `path` here is the os-normalised filesystem path produced by
-            # StaticFiles.get_path — on Windows it uses backslashes and
-            # `os.path.normpath` strips trailing slashes. Both behaviours
-            # are wrong for HTTP routing decisions, so we consult the raw
-            # URL path from the ASGI scope for prefix/trailing-slash checks.
-            url_path = scope.get("path", "").lstrip("/")
-            first_segment, sep, _ = url_path.partition("/")
-
-            if first_segment in _RESERVED_FIRST_SEGMENTS:
-                # API / static paths that reach the SPA mount didn't match
-                # any upstream route. Three cases reach this branch:
-                #   1. `/api`        — bare prefix, no real endpoint to
-                #                      redirect to. Just 404.
-                #   2. `/api/v1/foo` — extra path, no trailing slash. The
-                #                      most likely cause is a router whose
-                #                      route is registered as `/`
-                #                      (canonical form ends with `/`).
-                #                      Mirror FastAPI's redirect_slashes so
-                #                      the client lands on the canonical
-                #                      URL instead of index.html.
-                #   3. `/api/v1/foo/` — already canonical, still unmatched.
-                #                       Genuine 404.
-                if sep and not url_path.endswith("/"):
-                    from fastapi.responses import RedirectResponse
-
-                    qs = scope.get("query_string", b"")
-                    target = f"/{url_path}/"
-                    if qs:
-                        target += "?" + qs.decode("latin-1")
-                    return RedirectResponse(url=target, status_code=307)
-                # Cases 1 and 3 — raise HTTPException so the request exits
-                # this mount and re-enters the parent FastAPI app's
-                # exception handler chain, which renders 404 as JSON
-                # (Starlette's bare default would be a plain text body).
-                raise StarletteHTTPException(status_code=404)
-
-            try:
-                return await super().get_response(path, scope)
-            except StarletteHTTPException as exc:
-                if exc.status_code == 404:
-                    return FileResponse(FRONTEND_DIST / "index.html")
-                raise
-
     app.mount(
         "/",
-        _SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+        _SPAStaticFiles(
+            directory=str(FRONTEND_DIST),
+            index_path=FRONTEND_DIST / "index.html",
+            reserved_first_segments=frozenset({"api", "static"}),
+            html=True,
+        ),
         name="spa",
     )
 

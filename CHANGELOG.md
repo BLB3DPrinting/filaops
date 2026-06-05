@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Quotes and quote-based orders now retain Core-owned pricing, component, packaging, shipping, artifact, and slicer diagnostic snapshots for durable public-quoter handoff.
+- Item create/edit now exposes optional weight and dimensions for shipping, with packaging items requiring all physical fields.
+- Public portal quote creation now passes selected component add-on ids through to the optional quote automation provider.
+- Manual quotes now support Core-owned file attachments with staff upload, download, list, and delete actions.
+- Public online quoter endpoints are now explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO.
+- Quotes now expose a Core-owned read-only archive response with retained file and material snapshots for downgrade/retrieval workflows.
+- Quote uploads now have a Core-owned authenticated download endpoint so retained customer files remain retrievable without PRO automation.
+- Staff can create a Core item/product from an approved quote through a deliberate quote action instead of automatic customer upload side effects.
+
+### Fixed
+
+- Quote file downloads now reject unsafe stored filenames that could escape the Core quote upload directory.
+- Public portal quote uploads now retain `.obj`, `.step`, and `.stp` files as Core quote archives for manual review instead of rejecting them before staff can inspect the model.
+- Public portal quote creation now falls back to a pending manual-review quote when the optional PRO quote automation provider fails, preserving the uploaded file, rolling back partial provider mutations, and avoiding customer-facing slicer 503 errors.
+- Upload format overrides now normalize case and missing leading dots so `.STL`, `stl`, and similar env values behave consistently.
+- Portal quote checkout flow now keeps auto-priced quotes `approved` until payment succeeds instead of marking them `accepted` when checkout starts or fails.
+- Portal multi-color print selections are snapshotted to `QuoteMaterial` rows so selected red/yellow/black slot colors do not collapse back to the default single color.
+
 ## [4.0.0] - 2026-04-14
 
 ### Added

@@ -4,27 +4,32 @@ Quote Management Endpoints - Community Edition
 Manual quote creation and management for small businesses.
 Supports creating quotes, updating status, and converting to sales orders.
 """
+import json
 from datetime import datetime, timezone, timedelta
 from inspect import isawaitable
 from typing import Any, List, Optional
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.quote import Quote, QuoteFile
+from app.core.config import settings
+from app.models.product import Product
+from app.models.quote import Quote, QuoteFile, QuoteMaterial
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
 from app.services import quote_service
+from app.services import bom_service
 from app.services.file_storage import file_storage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
+PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 
 
 # ============================================================================
@@ -244,6 +249,112 @@ class PortalShippingSelection(BaseModel):
     print_mode: Optional[str] = Field(None, max_length=20)
     adjusted_unit_price: Optional[Decimal] = Field(None, ge=0)
     multi_color_info: Optional[dict[str, Any]] = None
+    pricing_snapshot: Optional[dict[str, Any]] = None
+    component_snapshot: Optional[dict[str, Any]] = None
+    packaging_snapshot: Optional[dict[str, Any]] = None
+    shipping_snapshot: Optional[dict[str, Any]] = None
+    artifact_snapshot: Optional[dict[str, Any]] = None
+    slicer_diagnostics: Optional[dict[str, Any]] = None
+
+    @field_validator(
+        "pricing_snapshot",
+        "component_snapshot",
+        "packaging_snapshot",
+        "shipping_snapshot",
+        "artifact_snapshot",
+        "slicer_diagnostics",
+    )
+    @classmethod
+    def _limit_snapshot_size(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return value
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Snapshot payload must be JSON serializable") from exc
+
+        if len(encoded.encode("utf-8")) > PORTAL_SNAPSHOT_MAX_BYTES:
+            raise ValueError("Snapshot payload must be 32KB or smaller")
+        return value
+
+
+class QuoteArchiveFile(BaseModel):
+    """Read-only file metadata retained by Core after PRO downgrade."""
+    id: int
+    original_filename: str
+    file_format: str
+    file_size_bytes: int
+    file_hash: str
+    uploaded_at: datetime
+    processed: bool = False
+    processing_error: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteArchiveMaterial(BaseModel):
+    """Read-only material snapshot retained by Core after PRO downgrade."""
+    slot_number: int
+    is_primary: bool
+    material_type: str
+    color_code: Optional[str] = None
+    color_name: Optional[str] = None
+    color_hex: Optional[str] = None
+    material_grams: Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteArchiveResponse(BaseModel):
+    """Durable quote archive shape that does not require PRO tables."""
+    quote: QuoteDetail
+    files: list[QuoteArchiveFile] = Field(default_factory=list)
+    materials: list[QuoteArchiveMaterial] = Field(default_factory=list)
+    read_only: bool = True
+    pro_actions_available: bool = False
+
+
+class QuoteItemCreateResponse(BaseModel):
+    """Response for staff-created Core item/product from a quote."""
+    quote_id: int
+    product_id: int
+    product_sku: str
+    product_name: str
+    bom_id: Optional[int] = None
+    already_created: bool = False
+
+
+def _public_quoter_enabled() -> bool:
+    return bool(getattr(settings, "ENABLE_PUBLIC_QUOTER", False))
+
+
+def _require_public_quoter_enabled() -> None:
+    if not _public_quoter_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public online quoter is disabled",
+        )
+
+
+def _is_staff_or_admin(current_user: User) -> bool:
+    return bool(
+        getattr(current_user, "is_admin", False)
+        or getattr(current_user, "is_staff", False)
+        or getattr(current_user, "account_type", None) in {"admin", "operator"}
+    )
+
+
+def _require_staff_or_admin(current_user: User) -> None:
+    if not _is_staff_or_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or staff role required",
+        )
 
 
 def _customer_display_name(user: User) -> str:
@@ -261,6 +372,14 @@ def _portal_quote_or_404(db: Session, quote_id: int, current_user: User) -> Quot
         raise HTTPException(status_code=403, detail="Quote does not belong to current customer")
 
     return quote
+
+
+def _authorize_quote_archive_access(quote: Quote, current_user: User) -> None:
+    if _is_staff_or_admin(current_user):
+        return
+    if quote.user_id == current_user.id or quote.customer_id == current_user.id:
+        return
+    raise HTTPException(status_code=403, detail="Quote does not belong to current customer")
 
 
 def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -286,6 +405,44 @@ def _portal_quote_payload(quote: Quote, extra: Optional[dict[str, Any]] = None) 
     }
 
 
+def _safe_log_value(value: Any, max_length: int = 160) -> str:
+    safe = repr(str(value or ""))[1:-1]
+    return safe[:max_length]
+
+
+def _normalize_portal_component_addon_ids(values: Optional[List[str]]) -> List[str]:
+    """Normalize optional public add-on ids without interpreting private costs."""
+    if values is None:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        for item in str(raw_value or "").split(","):
+            addon_id = item.strip()
+            if addon_id and addon_id not in seen:
+                seen.add(addon_id)
+                normalized.append(addon_id)
+    return normalized
+
+
+def _set_portal_quote_manual_review(quote: Quote, reason: str) -> None:
+    quote.status = "pending"
+    quote.approval_method = "manual"
+    quote.auto_approved = False
+    quote.auto_approve_eligible = False
+    quote.unit_price = Decimal("0.00")
+    quote.subtotal = Decimal("0.00")
+    quote.total_price = Decimal("0.00")
+    quote.material_grams = None
+    quote.print_time_hours = None
+    quote.requires_review_reason = reason
+
+
+class _InvalidQuoteAutomationResult(Exception):
+    """Raised when a PRO provider returns a payload Core cannot safely consume."""
+
+
 async def _maybe_enrich_portal_quote(
     request: Request,
     *,
@@ -297,15 +454,44 @@ async def _maybe_enrich_portal_quote(
     """Let PRO enrich a Core-owned quote when PRO is installed and active."""
     provider = getattr(request.app.state, "quote_automation_provider", None)
     if provider is None:
-        quote.status = "pending"
-        quote.approval_method = "manual"
-        quote.requires_review_reason = "Automatic quote engine unavailable"
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
         return {}
 
-    result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
-    if isawaitable(result):
-        result = await result
-    return result or {}
+    try:
+        with db.begin_nested():
+            result = provider(db=db, quote=quote, stored_file=stored_file, options=options)
+            if isawaitable(result):
+                result = await result
+            if result is not None and not isinstance(result, dict):
+                raise _InvalidQuoteAutomationResult
+        return result or {}
+    except _InvalidQuoteAutomationResult:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
+        provider_name = getattr(provider, "__name__", type(provider).__name__)
+        logger.warning(
+            "Portal quote automation returned invalid payload from %r",
+            _safe_log_value(provider_name),
+        )
+        return {}
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            reason = "Automatic quote engine unavailable"
+        else:
+            reason = "Uploaded file requires manual review"
+        _set_portal_quote_manual_review(quote, reason)
+        logger.warning(
+            "Portal quote automation failed for %r (%s)",
+            _safe_log_value(stored_file.get("original_filename")),
+            exc.status_code,
+        )
+        return {}
+    except Exception:
+        _set_portal_quote_manual_review(quote, "Automatic quote engine unavailable")
+        logger.exception(
+            "Portal quote automation crashed for %r",
+            _safe_log_value(stored_file.get("original_filename")),
+        )
+        return {}
 
 
 def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShippingSelection) -> None:
@@ -336,6 +522,123 @@ def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShip
     current_user.shipping_country = payload.shipping_country or "US"
     if payload.shipping_phone:
         current_user.phone = payload.shipping_phone
+
+
+def _fallback_shipping_snapshot(
+    quote: Quote,
+    payload: PortalShippingSelection,
+) -> Optional[dict[str, Any]]:
+    if not any([
+        payload.shipping_rate_id,
+        payload.shipping_carrier,
+        payload.shipping_service,
+        payload.shipping_cost is not None,
+    ]):
+        return None
+
+    return {
+        "source": "portal_accept",
+        "rate_id": quote.shipping_rate_id,
+        "carrier": quote.shipping_carrier,
+        "service": quote.shipping_service,
+        "cost": str(quote.shipping_cost) if quote.shipping_cost is not None else None,
+        "ship_to": {
+            "name": quote.shipping_name,
+            "address_line1": quote.shipping_address_line1,
+            "address_line2": quote.shipping_address_line2,
+            "city": quote.shipping_city,
+            "state": quote.shipping_state,
+            "zip": quote.shipping_zip,
+            "country": quote.shipping_country,
+            "phone": quote.shipping_phone,
+        },
+    }
+
+
+def _apply_portal_snapshots(quote: Quote, payload: PortalShippingSelection) -> None:
+    if payload.pricing_snapshot is not None:
+        quote.pricing_snapshot = payload.pricing_snapshot
+    if payload.component_snapshot is not None:
+        quote.component_snapshot = payload.component_snapshot
+    if payload.packaging_snapshot is not None:
+        quote.packaging_snapshot = payload.packaging_snapshot
+    shipping_snapshot = payload.shipping_snapshot or _fallback_shipping_snapshot(quote, payload)
+    if shipping_snapshot is not None:
+        quote.shipping_snapshot = shipping_snapshot
+    if payload.artifact_snapshot is not None:
+        quote.artifact_snapshot = payload.artifact_snapshot
+    if payload.slicer_diagnostics is not None:
+        quote.slicer_diagnostics = payload.slicer_diagnostics
+
+
+def _apply_portal_print_selection(
+    db: Session,
+    quote: Quote,
+    payload: PortalShippingSelection,
+) -> None:
+    """Persist customer print-mode choices captured before checkout."""
+    if payload.print_mode != "multi" or not payload.multi_color_info:
+        return
+
+    slot_colors = payload.multi_color_info.get("slot_colors") or []
+    if not isinstance(slot_colors, list) or not slot_colors:
+        return
+
+    def _coerce_int(value: Any) -> Optional[int]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    primary_slot = _coerce_int(payload.multi_color_info.get("primary_slot"))
+    parsed_slots: list[dict[str, Any]] = []
+    for slot in slot_colors:
+        if not isinstance(slot, dict):
+            continue
+
+        try:
+            slot_number = _coerce_int(slot.get("slot"))
+            grams = Decimal(str(slot.get("weight_grams") or 0))
+        except (TypeError, ValueError, InvalidOperation):
+            continue
+
+        if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
+            continue
+
+        color_code = str(slot.get("color_code") or "").strip()
+        if not color_code:
+            continue
+
+        parsed_slots.append({
+            "slot_number": slot_number,
+            "is_primary": _coerce_bool(slot.get("is_primary")) or slot_number == primary_slot,
+            "material_type": quote.material_type or "PLA_BASIC",
+            "color_code": color_code,
+            "color_name": slot.get("color_name"),
+            "color_hex": slot.get("color_hex"),
+            "material_grams": grams,
+        })
+
+    if not parsed_slots:
+        return
+
+    db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
+        synchronize_session=False
+    )
+
+    quote.color = "MULTI_COLOR"
+    for slot in parsed_slots:
+        db.add(QuoteMaterial(
+            quote_id=quote.id,
+            **slot,
+        ))
 
 
 # ============================================================================
@@ -374,11 +677,13 @@ async def create_portal_quote(
     quality: str = Form("standard"),
     infill: str = Form("20%"),
     quantity: int = Form(1, ge=1, le=10000),
+    component_addon_ids: Optional[List[str]] = Form(None),
     customer_notes: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Create one Core-owned quote for the public portal and optionally let PRO price it."""
+    _require_public_quoter_enabled()
     try:
         stored_file = await file_storage.save_file(file, current_user.id)
     except ValueError as exc:
@@ -419,19 +724,25 @@ async def create_portal_quote(
         file_hash=stored_file["file_hash"],
     ))
 
+    automation_options: dict[str, Any] = {
+        "material_id": material,
+        "color": color,
+        "quality": quality,
+        "infill": infill,
+        "quantity": quantity,
+        "customer_notes": customer_notes,
+    }
+    if component_addon_ids is not None:
+        automation_options["component_addon_ids"] = (
+            _normalize_portal_component_addon_ids(component_addon_ids)
+        )
+
     extra = await _maybe_enrich_portal_quote(
         request,
         db=db,
         quote=quote,
         stored_file=stored_file,
-        options={
-            "material_id": material,
-            "color": color,
-            "quality": quality,
-            "infill": infill,
-            "quantity": quantity,
-            "customer_notes": customer_notes,
-        },
+        options=automation_options,
     )
     if customer_notes and not quote.requires_review_reason:
         quote.requires_review_reason = "Customer notes require manual review"
@@ -451,16 +762,19 @@ async def accept_portal_quote(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Snapshot shipping selection and mark a portal quote accepted or awaiting review."""
+    """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
+    _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
     _apply_portal_shipping(quote, current_user, payload)
+    _apply_portal_snapshots(quote, payload)
+    _apply_portal_print_selection(db, quote, payload)
 
     requires_review = bool(quote.requires_review_reason)
     if requires_review:
         quote.status = "pending"
         quote.approval_method = "manual"
     else:
-        quote.status = "accepted"
+        quote.status = "approved"
         quote.approval_method = quote.approval_method or "auto"
         quote.approved_at = quote.approved_at or datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -469,7 +783,7 @@ async def accept_portal_quote(
     return {
         **_portal_quote_payload(quote),
         "requires_review": requires_review,
-        "message": "Quote requires manual review" if requires_review else "Quote accepted",
+        "message": "Quote requires manual review" if requires_review else "Quote ready for checkout",
     }
 
 
@@ -481,6 +795,7 @@ async def create_portal_quote_checkout(
     db: Session = Depends(get_db),
 ):
     """Create a payment checkout session through an optional payment provider."""
+    _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
     provider = getattr(request.app.state, "payment_checkout_provider", None)
     if provider is None:
@@ -490,6 +805,243 @@ async def create_portal_quote_checkout(
     if isawaitable(result):
         result = await result
     return result
+
+
+@router.get("/{quote_id}/archive", response_model=QuoteArchiveResponse)
+async def get_quote_archive(
+    quote_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Read-only Core archive for online quote data after PRO downgrade."""
+    quote = quote_service.get_quote_detail(db, quote_id)
+    _authorize_quote_archive_access(quote, current_user)
+    files = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.quote_id == quote_id)
+        .order_by(QuoteFile.id)
+        .all()
+    )
+    materials = (
+        db.query(QuoteMaterial)
+        .filter(QuoteMaterial.quote_id == quote_id)
+        .order_by(QuoteMaterial.slot_number)
+        .all()
+    )
+    return {
+        "quote": quote,
+        "files": files,
+        "materials": materials,
+        "read_only": True,
+        "pro_actions_available": _public_quoter_enabled(),
+    }
+
+
+@router.post("/{quote_id}/create-item", response_model=QuoteItemCreateResponse)
+async def create_item_from_quote(
+    quote_id: int,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: create a Core item/product from an approved quote."""
+    _require_staff_or_admin(current_user)
+    quote = quote_service.get_quote_detail(db, quote_id)
+    if quote.product_id:
+        product = db.get(Product, quote.product_id)
+        if not product:
+            raise HTTPException(status_code=409, detail="Quote links to a missing product")
+        bom = product.boms[0] if product.boms else None
+        response.status_code = status.HTTP_200_OK
+        return {
+            "quote_id": quote.id,
+            "product_id": product.id,
+            "product_sku": product.sku,
+            "product_name": product.name,
+            "bom_id": bom.id if bom else None,
+            "already_created": True,
+        }
+
+    if quote.status not in {"approved", "accepted", "converted"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote must be approved, accepted, or converted before creating an item",
+        )
+
+    try:
+        product, bom = bom_service.auto_create_product_and_bom(quote, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    response.status_code = status.HTTP_201_CREATED
+    return {
+        "quote_id": quote.id,
+        "product_id": product.id,
+        "product_sku": product.sku,
+        "product_name": product.name,
+        "bom_id": bom.id,
+        "already_created": False,
+    }
+
+
+@router.get("/{quote_id}/files/{file_id}/download")
+async def download_quote_file(
+    quote_id: int,
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Download a retained quote upload for authorized customers or staff."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    _authorize_quote_archive_access(quote, current_user)
+
+    quote_file = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.id == file_id, QuoteFile.quote_id == quote_id)
+        .first()
+    )
+    if not quote_file:
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    file_path = file_storage.get_file_path(quote_file.stored_filename)
+    if not file_path or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    logger.info(
+        "Quote file %s (%s, %s) downloaded from quote %s by user %s",
+        quote_file.id,
+        quote_file.original_filename,
+        quote_file.mime_type,
+        quote.id,
+        current_user.id,
+    )
+
+    return FileResponse(
+        path=file_path,
+        media_type=quote_file.mime_type or "application/octet-stream",
+        filename=quote_file.original_filename,
+    )
+
+
+@router.get("/{quote_id}/files", response_model=list[QuoteArchiveFile])
+async def list_quote_files(
+    quote_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List retained files attached to a quote."""
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    _authorize_quote_archive_access(quote, current_user)
+
+    return (
+        db.query(QuoteFile)
+        .filter(QuoteFile.quote_id == quote_id)
+        .order_by(QuoteFile.id)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+@router.post("/{quote_id}/files", response_model=QuoteArchiveFile, status_code=status.HTTP_201_CREATED)
+async def upload_quote_file(
+    quote_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: attach a retained file to a manual or online quote."""
+    _require_staff_or_admin(current_user)
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    try:
+        file_info = await file_storage.save_file(file, user_id=current_user.id, quote_id=quote.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    quote_file = QuoteFile(
+        quote_id=quote.id,
+        original_filename=file_info["original_filename"],
+        stored_filename=file_info["stored_filename"],
+        file_path=file_info["file_path"],
+        file_size_bytes=file_info["file_size_bytes"],
+        file_format=file_info["file_format"],
+        mime_type=file_info["mime_type"],
+        file_hash=file_info["file_hash"],
+    )
+    db.add(quote_file)
+    db.commit()
+    db.refresh(quote_file)
+
+    logger.info(
+        "Quote file %s (%s, %s) uploaded to quote %s by user %s",
+        quote_file.id,
+        quote_file.original_filename,
+        quote_file.mime_type,
+        quote.id,
+        current_user.id,
+    )
+    return quote_file
+
+
+@router.delete("/{quote_id}/files/{file_id}")
+async def delete_quote_file(
+    quote_id: int,
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Staff action: remove a retained file from a quote."""
+    _require_staff_or_admin(current_user)
+    quote = db.query(Quote).filter(Quote.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote not found")
+
+    quote_file = (
+        db.query(QuoteFile)
+        .filter(QuoteFile.id == file_id, QuoteFile.quote_id == quote_id)
+        .first()
+    )
+    if not quote_file:
+        raise HTTPException(status_code=404, detail="Quote file not found")
+
+    stored_filename = quote_file.stored_filename
+    original_filename = quote_file.original_filename
+    if not file_storage.delete_file(stored_filename):
+        logger.error(
+            "Failed to delete stored quote file %s for quote file %s on quote %s",
+            stored_filename,
+            file_id,
+            quote.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored quote file could not be deleted",
+        )
+
+    db.delete(quote_file)
+    db.commit()
+
+    logger.info(
+        "Quote file %s (%s) deleted from quote %s by user %s",
+        file_id,
+        original_filename,
+        quote.id,
+        current_user.id,
+    )
+    return {"message": "Quote file deleted"}
 
 
 @router.get("/{quote_id}", response_model=QuoteDetail)
