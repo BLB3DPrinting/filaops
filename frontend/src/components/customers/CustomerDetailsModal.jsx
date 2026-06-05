@@ -359,7 +359,7 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
           {activeTab === "overview" && (
             <div className="space-y-6">
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="bg-gray-800/50 rounded-lg p-4">
                   <p className="text-gray-400 text-sm">Total Orders</p>
                   <p className="text-2xl font-bold text-white">
@@ -367,9 +367,21 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
                   </p>
                 </div>
                 <div className="bg-gray-800/50 rounded-lg p-4">
-                  <p className="text-gray-400 text-sm">Total Spent</p>
+                  <p className="text-gray-400 text-sm">Booked Orders</p>
                   <p className="text-2xl font-bold text-emerald-400">
                     {formatCurrency(customer.total_spent || 0)}
+                  </p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <p className="text-gray-400 text-sm">Paid Cash</p>
+                  <p className="text-2xl font-bold text-blue-300">
+                    {formatCurrency(customer.total_paid || 0)}
+                  </p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <p className="text-gray-400 text-sm">Outstanding</p>
+                  <p className="text-2xl font-bold text-amber-300">
+                    {formatCurrency(customer.outstanding_balance || 0)}
                   </p>
                 </div>
                 <div className="bg-gray-800/50 rounded-lg p-4">
@@ -522,6 +534,8 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
                         <th className="text-left py-2 px-3 text-gray-400">Date</th>
                         <th className="text-left py-2 px-3 text-gray-400">Status</th>
                         <th className="text-right py-2 px-3 text-gray-400">Total</th>
+                        <th className="text-right py-2 px-3 text-gray-400">Paid</th>
+                        <th className="text-right py-2 px-3 text-gray-400">Balance</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -540,6 +554,12 @@ export default function CustomerDetailsModal({ customer, onClose, onEdit }) {
                           </td>
                           <td className="py-2 px-3 text-right text-emerald-400">
                             ${parseFloat(order.grand_total || order.total || 0).toFixed(2)}
+                          </td>
+                          <td className="py-2 px-3 text-right text-blue-300">
+                            {formatCurrency(order.amount_paid || 0)}
+                          </td>
+                          <td className="py-2 px-3 text-right text-amber-300">
+                            {formatCurrency(order.balance_due || 0)}
                           </td>
                         </tr>
                       ))}

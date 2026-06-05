@@ -78,8 +78,16 @@ export default function AdminCustomers() {
     total: customers.length,
     active: customers.filter((c) => c.status === "active").length,
     withOrders: customers.filter((c) => c.order_count > 0).length,
-    totalRevenue: customers.reduce(
+    bookedOrders: customers.reduce(
       (sum, c) => sum + (parseFloat(c.total_spent) || 0),
+      0
+    ),
+    paidCash: customers.reduce(
+      (sum, c) => sum + (parseFloat(c.total_paid) || 0),
+      0
+    ),
+    outstanding: customers.reduce(
+      (sum, c) => sum + (parseFloat(c.outstanding_balance) || 0),
       0
     ),
   };
@@ -173,15 +181,27 @@ export default function AdminCustomers() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard variant="simple" title="Total Customers" value={stats.total} color="neutral" />
         <StatCard variant="simple" title="Active" value={stats.active} color="success" />
         <StatCard variant="simple" title="With Orders" value={stats.withOrders} color="secondary" />
         <StatCard
           variant="simple"
-          title="Total Revenue"
-          value={formatCurrency(stats.totalRevenue)}
+          title="Booked Orders"
+          value={formatCurrency(stats.bookedOrders)}
           color="primary"
+        />
+        <StatCard
+          variant="simple"
+          title="Paid Cash"
+          value={formatCurrency(stats.paidCash)}
+          color="success"
+        />
+        <StatCard
+          variant="simple"
+          title="Outstanding"
+          value={formatCurrency(stats.outstanding)}
+          color="warning"
         />
       </div>
 
@@ -250,7 +270,13 @@ export default function AdminCustomers() {
                   Orders
                 </th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-gray-400 uppercase">
-                  Total Spent
+                  Booked
+                </th>
+                <th className="text-right py-3 px-4 text-xs font-medium text-gray-400 uppercase">
+                  Paid
+                </th>
+                <th className="text-right py-3 px-4 text-xs font-medium text-gray-400 uppercase">
+                  Balance
                 </th>
                 <th className="text-center py-3 px-4 text-xs font-medium text-gray-400 uppercase">
                   Status
@@ -283,12 +309,13 @@ export default function AdminCustomers() {
                     {customer.order_count || 0}
                   </td>
                   <td className="py-3 px-4 text-right text-emerald-400">
-                    {customer.total_spent
-                      ? `$${parseFloat(customer.total_spent).toLocaleString(
-                          "en-US",
-                          { minimumFractionDigits: 2 }
-                        )}`
-                      : "$0.00"}
+                    {formatCurrency(customer.total_spent || 0)}
+                  </td>
+                  <td className="py-3 px-4 text-right text-blue-300">
+                    {formatCurrency(customer.total_paid || 0)}
+                  </td>
+                  <td className="py-3 px-4 text-right text-amber-300">
+                    {formatCurrency(customer.outstanding_balance || 0)}
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span
@@ -320,7 +347,7 @@ export default function AdminCustomers() {
               ))}
               {filteredCustomers.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-500">
+                  <td colSpan={11} className="py-12 text-center text-gray-500">
                     No customers found
                   </td>
                 </tr>
@@ -368,4 +395,3 @@ export default function AdminCustomers() {
     </div>
   );
 }
-
