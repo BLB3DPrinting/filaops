@@ -86,6 +86,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     shipping_city: "",
     shipping_state: "",
     shipping_zip: "",
+    shipping_cost: "",
     customer_notes: "",
   });
 
@@ -174,6 +175,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
             shipping_city: data.shipping_city || "",
             shipping_state: data.shipping_state || "",
             shipping_zip: data.shipping_zip || "",
+            shipping_cost: data.shipping_cost || "",
             customer_notes: data.customer_notes || "",
           });
           setLineItems(data.lineItems || []);
@@ -681,6 +683,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
         shipping_city: orderData.shipping_city,
         shipping_state: orderData.shipping_state,
         shipping_zip: orderData.shipping_zip,
+        shipping_cost: orderData.shipping_cost,
         customer_notes: orderData.customer_notes,
         lineItems: lineItems,
         currentStep: currentStep,
@@ -1061,6 +1064,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     setError(null);
 
     try {
+      const parsedShippingCost = parseFloat(orderData.shipping_cost);
       const payload = {
         customer_id: orderData.customer_id || null,
         lines: lineItems.map((li) => {
@@ -1092,6 +1096,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
         shipping_city: orderData.shipping_city || null,
         shipping_state: orderData.shipping_state || null,
         shipping_zip: orderData.shipping_zip || null,
+        shipping_cost: Number.isNaN(parsedShippingCost) ? 0 : parsedShippingCost,
         customer_notes: orderData.customer_notes || null,
       };
 
@@ -1128,6 +1133,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       shipping_city: "",
       shipping_state: "",
       shipping_zip: "",
+      shipping_cost: "",
       customer_notes: "",
     });
     setLineItems([]);
@@ -1241,28 +1247,56 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
         <div className="flex-1 overflow-auto p-6">
           {/* Step 1: Customer */}
           {currentStep === 1 && (
-            <CustomerSelectionStep
-              customers={customers}
-              orderData={orderData}
-              setOrderData={setOrderData}
-              selectedCustomer={selectedCustomer}
-              onNavigateToNewCustomer={() => {
-                sessionStorage.setItem(
-                  "pendingOrderData",
-                  JSON.stringify({
-                    customer_id: orderData.customer_id,
-                    shipping_address_line1: orderData.shipping_address_line1,
-                    shipping_city: orderData.shipping_city,
-                    shipping_state: orderData.shipping_state,
-                    shipping_zip: orderData.shipping_zip,
-                    customer_notes: orderData.customer_notes,
-                    lineItems: lineItems,
-                    currentStep: currentStep,
-                  })
-                );
-                navigate("/admin/customers?action=new&returnTo=order");
-              }}
-            />
+            <div className="space-y-6">
+              <CustomerSelectionStep
+                customers={customers}
+                orderData={orderData}
+                setOrderData={setOrderData}
+                selectedCustomer={selectedCustomer}
+                onNavigateToNewCustomer={() => {
+                  sessionStorage.setItem(
+                    "pendingOrderData",
+                    JSON.stringify({
+                      customer_id: orderData.customer_id,
+                      shipping_address_line1: orderData.shipping_address_line1,
+                      shipping_city: orderData.shipping_city,
+                      shipping_state: orderData.shipping_state,
+                      shipping_zip: orderData.shipping_zip,
+                      shipping_cost: orderData.shipping_cost,
+                      customer_notes: orderData.customer_notes,
+                      lineItems: lineItems,
+                      currentStep: currentStep,
+                    })
+                  );
+                  navigate("/admin/customers?action=new&returnTo=order");
+                }}
+              />
+              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+                <h4 className="text-md font-medium text-white mb-3">
+                  Shipping Charge
+                </h4>
+                <label className="block text-sm text-gray-400 mb-1">
+                  Shipping Cost
+                </label>
+                <div className="relative w-44">
+                  <span className="absolute left-3 top-2 text-gray-400">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={orderData.shipping_cost}
+                    onChange={(e) =>
+                      setOrderData({
+                        ...orderData,
+                        shipping_cost: e.target.value,
+                      })
+                    }
+                    placeholder="0.00"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pl-7 text-white"
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Step 2: Products */}
