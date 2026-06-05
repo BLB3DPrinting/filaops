@@ -16,6 +16,7 @@ Covers:
 """
 import io
 import uuid
+from decimal import Decimal
 
 import pytest
 
@@ -333,6 +334,25 @@ class TestListCustomers:
         assert len(match) >= 1
         assert match[0]["full_name"] == "Jane Smith"
 
+    def test_list_counts_orders_linked_by_customer_id(self, client, db, make_sales_order):
+        """Customer list stats include staff-owned orders linked by customer_id."""
+        customer = _create_customer(client, first_name="LinkedStats")
+        customer_id = customer["id"]
+        order = make_sales_order(
+            user_id=1,
+            customer_id=customer_id,
+            status="confirmed",
+        )
+        order.grand_total = Decimal("87.65")
+        order.total_price = Decimal("87.65")
+        db.flush()
+
+        response = client.get(BASE_URL, params={"search": customer["email"]})
+        assert response.status_code == 200
+        match = next(c for c in response.json() if c["id"] == customer_id)
+        assert match["order_count"] == 1
+        assert match["total_spent"] == 87.65
+
 
 # =============================================================================
 # GET /api/v1/admin/customers/search?q=... - Quick search
@@ -447,6 +467,51 @@ class TestGetCustomer:
         assert data["order_count"] == 0
         assert data["quote_count"] == 0
         assert data["total_spent"] == 0.0
+
+    def test_get_customer_counts_orders_linked_by_customer_id(self, client, db, make_sales_order):
+        """Staff-owned orders linked via customer_id count toward customer stats."""
+        customer = _create_customer(client)
+        customer_id = customer["id"]
+        order = make_sales_order(
+            user_id=1,
+            customer_id=customer_id,
+            status="confirmed",
+        )
+        order.grand_total = Decimal("123.45")
+        order.total_price = Decimal("123.45")
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{customer_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_count"] == 1
+        assert data["total_spent"] == 123.45
+
+    def test_get_customer_counts_quotes_linked_by_customer_id(self, client, db):
+        """Staff-owned quotes linked via customer_id count toward customer stats."""
+        from app.models.quote import Quote
+
+        customer = _create_customer(client)
+        quote = Quote(
+            user_id=1,
+            customer_id=customer["id"],
+            quote_number=f"Q-CUST-{uuid.uuid4().hex[:8]}",
+            product_name="Customer Linked Quote",
+            quantity=1,
+            material_type="PLA",
+            unit_price=Decimal("10.00"),
+            subtotal=Decimal("10.00"),
+            total_price=Decimal("10.00"),
+            status="pending",
+            file_format="manual",
+            file_size_bytes=0,
+        )
+        db.add(quote)
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{customer['id']}")
+        assert response.status_code == 200
+        assert response.json()["quote_count"] == 1
 
     def test_get_customer_includes_addresses(self, client):
         """Get customer includes full billing and shipping address fields."""
@@ -658,6 +723,17 @@ class TestCustomerOrders:
         assert "status" in order
         assert "grand_total" in order
         assert "created_at" in order
+
+    def test_orders_returns_orders_linked_by_customer_id(self, client, make_sales_order):
+        """Order history includes staff-owned orders linked by customer_id."""
+        customer = _create_customer(client)
+        customer_id = customer["id"]
+        so = make_sales_order(user_id=1, customer_id=customer_id, status="confirmed")
+
+        response = client.get(f"{BASE_URL}/{customer_id}/orders")
+        assert response.status_code == 200
+        data = response.json()
+        assert any(order["id"] == so.id for order in data)
 
     def test_orders_not_found(self, client):
         """Orders for non-existent customer returns 404."""

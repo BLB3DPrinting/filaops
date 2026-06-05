@@ -12,7 +12,7 @@ from typing import Optional
 
 import sqlalchemy as sa
 from fastapi import HTTPException
-from sqlalchemy import Integer, cast, desc, func
+from sqlalchemy import Integer, and_, cast, desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -43,17 +43,20 @@ def _build_full_name(customer: User) -> Optional[str]:
 
 def _get_customer_stats(db: Session, customer_id: int) -> dict:
     """Fetch order count, quote count, and total spent for a customer."""
+    order_customer_filter = _sales_order_customer_filter(customer_id)
+    quote_customer_filter = _quote_customer_filter(customer_id)
+
     order_count = db.query(func.count(SalesOrder.id)).filter(
-        SalesOrder.user_id == customer_id,
+        order_customer_filter,
         SalesOrder.status != "cancelled",
     ).scalar() or 0
 
     quote_count = db.query(func.count(Quote.id)).filter(
-        Quote.user_id == customer_id,
+        quote_customer_filter,
     ).scalar() or 0
 
     total_spent = db.query(func.sum(SalesOrder.grand_total)).filter(
-        SalesOrder.user_id == customer_id,
+        order_customer_filter,
         SalesOrder.status != "cancelled",
     ).scalar() or 0
 
@@ -62,6 +65,22 @@ def _get_customer_stats(db: Session, customer_id: int) -> dict:
         "quote_count": quote_count,
         "total_spent": float(total_spent),
     }
+
+
+def _sales_order_customer_filter(customer_id: int):
+    """Match orders for a customer, preferring explicit customer_id over legacy user_id."""
+    return or_(
+        SalesOrder.customer_id == customer_id,
+        and_(SalesOrder.customer_id.is_(None), SalesOrder.user_id == customer_id),
+    )
+
+
+def _quote_customer_filter(customer_id: int):
+    """Match quotes for a customer, preferring explicit customer_id over legacy user_id."""
+    return or_(
+        Quote.customer_id == customer_id,
+        and_(Quote.customer_id.is_(None), Quote.user_id == customer_id),
+    )
 
 
 def _get_customer_or_404(db: Session, customer_id: int) -> User:
@@ -230,12 +249,13 @@ def list_customers(
 
     result = []
     for customer in customers:
+        order_customer_filter = _sales_order_customer_filter(customer.id)
         order_stats = db.query(
             func.count(SalesOrder.id).label("order_count"),
             func.sum(SalesOrder.grand_total).label("total_spent"),
             func.max(SalesOrder.created_at).label("last_order"),
         ).filter(
-            SalesOrder.user_id == customer.id,
+            order_customer_filter,
             SalesOrder.status != "cancelled",
         ).first()
 
@@ -448,7 +468,7 @@ def delete_customer(db: Session, customer_id: int, admin_id: int) -> dict:
     customer = _get_customer_or_404(db, customer_id)
 
     order_count = db.query(func.count(SalesOrder.id)).filter(
-        SalesOrder.user_id == customer_id,
+        _sales_order_customer_filter(customer_id),
     ).scalar() or 0
 
     customer_number = customer.customer_number
@@ -502,7 +522,7 @@ def get_customer_orders(
 
     orders = (
         db.query(SalesOrder)
-        .filter(SalesOrder.user_id == customer_id)
+        .filter(_sales_order_customer_filter(customer_id))
         .order_by(desc(SalesOrder.created_at))
         .limit(limit)
         .all()
