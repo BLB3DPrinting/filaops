@@ -39,6 +39,7 @@ const attachment = {
 };
 
 let quoteFiles;
+let detailQuote;
 
 const renderModal = (props = {}) => render(
   <ToastProvider>
@@ -63,13 +64,14 @@ const renderModal = (props = {}) => render(
 describe("QuoteDetailModal attachments", () => {
   beforeEach(() => {
     quoteFiles = [attachment];
+    detailQuote = quote;
     vi.stubGlobal("confirm", vi.fn(() => true));
     vi.stubGlobal("fetch", vi.fn((url, options = {}) => {
       const method = options.method || "GET";
       if (String(url).endsWith("/api/v1/quotes/42")) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(quote),
+          json: () => Promise.resolve(detailQuote),
         });
       }
       if (String(url).endsWith("/api/v1/quotes/42/files") && method === "GET") {
@@ -183,5 +185,50 @@ describe("QuoteDetailModal attachments", () => {
       "accept",
       ".3mf,.stl,.obj,.step,.stp",
     );
+  });
+
+  it("passes fetched quote detail to edit and duplicate actions", async () => {
+    const onEdit = vi.fn();
+    const onDuplicate = vi.fn();
+    detailQuote = {
+      ...quote,
+      line_count: 2,
+      lines: [
+        {
+          id: 101,
+          product_id: 201,
+          product_name: "Bracket",
+          quantity: 2,
+          unit_price: "15.00",
+          total: "30.00",
+          material_type: "PETG",
+          color: "Black",
+          notes: null,
+        },
+        {
+          id: 102,
+          product_id: 202,
+          product_name: "Clip",
+          quantity: 1,
+          unit_price: "5.00",
+          total: "5.00",
+          material_type: "PLA",
+          color: "White",
+          notes: null,
+        },
+      ],
+    };
+
+    renderModal({ onEdit, onDuplicate });
+
+    await waitFor(() => {
+      expect(screen.getByText("Items (2)")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+
+    expect(onEdit).toHaveBeenCalledWith(detailQuote);
+    expect(onDuplicate).toHaveBeenCalledWith(detailQuote);
   });
 });
