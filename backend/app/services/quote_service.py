@@ -22,6 +22,17 @@ from app.models.user import User
 logger = get_logger(__name__)
 
 
+LOCKED_QUOTE_STATUSES = {"accepted", "converted"}
+
+
+def _raise_if_quote_locked_for_modification(quote: Quote) -> None:
+    if quote.status in LOCKED_QUOTE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot modify a {quote.status} quote"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Helper: Generate Quote Number
 # ---------------------------------------------------------------------------
@@ -354,12 +365,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
             detail=f"Quote {quote_id} not found"
         )
 
-    # Don't allow editing converted quotes
-    if quote.status == "converted":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot edit a converted quote"
-        )
+    _raise_if_quote_locked_for_modification(quote)
 
     # Validate customer_id if provided
     if request.customer_id is not None:
@@ -738,11 +744,7 @@ def delete_quote(db: Session, quote_id: int) -> str:
             detail=f"Quote {quote_id} not found"
         )
 
-    if quote.status == "converted":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete a converted quote"
-        )
+    _raise_if_quote_locked_for_modification(quote)
 
     quote_number = quote.quote_number
     db.delete(quote)

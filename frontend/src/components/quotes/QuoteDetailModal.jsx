@@ -48,6 +48,7 @@ export default function QuoteDetailModal({
   const isExpired = new Date(q.expires_at) < new Date();
   const canConvert =
     (q.status === "approved" || q.status === "accepted") && !isExpired && !q.sales_order_id;
+  const canModify = q.status !== "accepted" && q.status !== "converted";
 
   const loadQuoteFiles = useCallback(async ({ signal } = {}) => {
     try {
@@ -675,7 +676,7 @@ export default function QuoteDetailModal({
                 Duplicate
               </button>
 
-              {q.status !== "converted" && (
+              {canModify && (
                 <>
                   <button
                     onClick={() => onEdit(q)}

@@ -231,4 +231,21 @@ describe("QuoteDetailModal attachments", () => {
     expect(onEdit).toHaveBeenCalledWith(detailQuote);
     expect(onDuplicate).toHaveBeenCalledWith(detailQuote);
   });
+
+  it("does not offer edit or delete actions after customer acceptance", async () => {
+    quoteFiles = [];
+    detailQuote = {
+      ...quote,
+      status: "accepted",
+    };
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Convert to Order" })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
 });
