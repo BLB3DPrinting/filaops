@@ -562,8 +562,8 @@ export default function AdminQuotes() {
         <QuoteDetailModal
           quote={viewingQuote}
           onClose={() => setViewingQuote(null)}
-          onEdit={() => {
-            setEditingQuote(viewingQuote);
+          onEdit={(quoteToEdit) => {
+            setEditingQuote(quoteToEdit);
             setShowQuoteModal(true);
             setViewingQuote(null);
           }}
@@ -590,4 +590,3 @@ export default function AdminQuotes() {
     </div>
   );
 }
-
