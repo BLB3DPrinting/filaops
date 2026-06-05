@@ -241,6 +241,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     );
   };
 
+  const handleTabKeyDown = (e) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      setActiveLineTab((current) => (current === "products" ? "fees" : "products"));
+    }
+  };
+
   const handleCustomerSelect = (e) => {
     const customerId = e.target.value ? parseInt(e.target.value) : null;
     if (customerId) {
@@ -266,8 +273,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
 
     for (const li of lineItems) {
-      if (!li.product_name || li.unit_price === "" || li.unit_price === null || isNaN(Number(li.unit_price))) {
+      const unitPrice = Number(li.unit_price);
+      if (!li.product_name || li.unit_price === "" || li.unit_price === null || Number.isNaN(unitPrice)) {
         toast.error("Each line item needs a description and unit price");
+        return;
+      }
+      if (unitPrice < 0) {
+        toast.error("Line item unit prices cannot be negative");
         return;
       }
     }
@@ -346,10 +358,14 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   };
 
   // Calculate totals
-  const subtotal = lineItems.reduce(
-    (sum, li) => sum + (parseFloat(li.unit_price) || 0) * (li.quantity || 1),
-    0
-  );
+  const discountPercent = parseFloat(customerDiscount) || 0;
+  const subtotal = lineItems.reduce((sum, li) => {
+    let linePrice = parseFloat(li.unit_price) || 0;
+    if (li.line_type === "product" && discountPercent > 0) {
+      linePrice *= 1 - discountPercent / 100;
+    }
+    return sum + linePrice * (li.quantity || 1);
+  }, 0);
   const taxRate = form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0;
   const taxAmount = subtotal * taxRate;
   const shippingCost = parseFloat(form.shipping_cost) || 0;
@@ -392,10 +408,19 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 </p>
               </div>
 
-              <div className="flex gap-1 bg-gray-800 p-1 rounded-lg">
+              <div
+                role="tablist"
+                aria-label="Quote line item type"
+                className="flex gap-1 bg-gray-800 p-1 rounded-lg"
+              >
                 <button
                   type="button"
+                  role="tab"
+                  id="products-tab"
+                  aria-selected={activeLineTab === "products"}
+                  aria-controls="products-panel"
                   onClick={() => setActiveLineTab("products")}
+                  onKeyDown={handleTabKeyDown}
                   className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     activeLineTab === "products"
                       ? "bg-blue-600 text-white"
@@ -406,7 +431,12 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  id="fees-tab"
+                  aria-selected={activeLineTab === "fees"}
+                  aria-controls="fees-panel"
                   onClick={() => setActiveLineTab("fees")}
+                  onKeyDown={handleTabKeyDown}
                   className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     activeLineTab === "fees"
                       ? "bg-blue-600 text-white"
@@ -419,75 +449,85 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
               {/* Product Search */}
               {activeLineTab === "products" && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search products by SKU or name..."
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white pl-10"
-                  />
-                  <svg
-                    className="w-5 h-5 absolute left-3 top-3.5 text-gray-500"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                <div
+                  role="tabpanel"
+                  id="products-panel"
+                  aria-labelledby="products-tab"
+                  className="space-y-3"
+                >
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search products by SKU or name..."
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white pl-10"
                     />
-                  </svg>
-                </div>
-              )}
+                    <svg
+                      className="w-5 h-5 absolute left-3 top-3.5 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                  </div>
 
-              {/* Product Grid */}
-              {activeLineTab === "products" && (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-auto">
-                  {loading ? (
-                    <div className="col-span-full flex justify-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    </div>
-                  ) : filteredProducts.length === 0 ? (
-                    <div className="col-span-full text-center py-8 text-gray-500">
-                      {productSearch.trim()
-                        ? `No products found matching "${productSearch}"`
-                        : "No finished goods available."}
-                    </div>
-                  ) : (
-                    filteredProducts.map((product) => {
-                      const inCart = lineItems.some((li) => li.product_id === product.id);
-                      return (
-                        <button
-                          key={product.id}
-                          onClick={() => handleAddProduct(product)}
-                          className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
-                            inCart ? "border-blue-500 bg-blue-900/20" : "border-gray-700"
-                          }`}
-                        >
-                          <div className="text-white font-medium truncate">{product.name}</div>
-                          <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-green-400 font-medium">
-                              ${parseFloat(product.selling_price || 0).toFixed(2)}
-                            </span>
-                            {inCart && (
-                              <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                                Added
+                  {/* Product Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-auto">
+                    {loading ? (
+                      <div className="col-span-full flex justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                      </div>
+                    ) : filteredProducts.length === 0 ? (
+                      <div className="col-span-full text-center py-8 text-gray-500">
+                        {productSearch.trim()
+                          ? `No products found matching "${productSearch}"`
+                          : "No finished goods available."}
+                      </div>
+                    ) : (
+                      filteredProducts.map((product) => {
+                        const inCart = lineItems.some((li) => li.product_id === product.id);
+                        return (
+                          <button
+                            key={product.id}
+                            onClick={() => handleAddProduct(product)}
+                            className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
+                              inCart ? "border-blue-500 bg-blue-900/20" : "border-gray-700"
+                            }`}
+                          >
+                            <div className="text-white font-medium truncate">{product.name}</div>
+                            <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
+                            <div className="flex justify-between items-center mt-2">
+                              <span className="text-green-400 font-medium">
+                                ${parseFloat(product.selling_price || 0).toFixed(2)}
                               </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
+                              {inCart && (
+                                <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                                  Added
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               )}
 
               {activeLineTab === "fees" && (
-                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                <div
+                  role="tabpanel"
+                  id="fees-panel"
+                  aria-labelledby="fees-tab"
+                  className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
+                >
                   <div className="grid grid-cols-1 sm:grid-cols-[1fr_96px_140px_auto] gap-3 items-end">
                     <div>
                       <label className="block text-xs font-medium text-gray-400 mb-1">
@@ -849,12 +889,6 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                   <span className="text-gray-400">Subtotal ({lineItems.length} item{lineItems.length !== 1 ? "s" : ""}):</span>
                   <span className="text-white">${subtotal.toFixed(2)}</span>
                 </div>
-                {customerDiscount && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-green-400">Customer Discount ({customerDiscount}%):</span>
-                    <span className="text-green-400">Applied to line prices</span>
-                  </div>
-                )}
                 {form.apply_tax && taxAmount > 0 && (
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-400">

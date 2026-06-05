@@ -1064,6 +1064,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     setError(null);
 
     try {
+      const parsedShippingCost = parseFloat(orderData.shipping_cost);
       const payload = {
         customer_id: orderData.customer_id || null,
         lines: lineItems.map((li) => {
@@ -1095,7 +1096,7 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
         shipping_city: orderData.shipping_city || null,
         shipping_state: orderData.shipping_state || null,
         shipping_zip: orderData.shipping_zip || null,
-        shipping_cost: orderData.shipping_cost ? parseFloat(orderData.shipping_cost) : 0,
+        shipping_cost: Number.isNaN(parsedShippingCost) ? 0 : parsedShippingCost,
         customer_notes: orderData.customer_notes || null,
       };
 
