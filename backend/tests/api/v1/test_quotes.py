@@ -944,6 +944,141 @@ class TestPortalQuoteContract:
         finally:
             self._clear_auto_quote_provider(client, provider_state)
 
+    def test_portal_accept_persists_quote_handoff_snapshots(self, client, db):
+        from app.models.quote import Quote
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("lamp.3mf", b"PK\x03\x04fake-3mf", "model/3mf")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "pricing_snapshot": {
+                        "source": "core_backed",
+                        "material_cost": "7.65",
+                    },
+                    "component_snapshot": {
+                        "items": [{"sku": "COMP-LED", "quantity": 1}],
+                    },
+                    "packaging_snapshot": {
+                        "sku": "BOX-8",
+                        "dimensions_in": {"length": 8, "width": 8, "height": 8},
+                    },
+                    "shipping_snapshot": {
+                        "carrier": "USPS",
+                        "service": "Ground Advantage",
+                        "cost": "8.50",
+                        "package": {"sku": "BOX-8"},
+                    },
+                    "artifact_snapshot": {
+                        "files": [{"kind": "gcode", "file_id": "artifact-123"}],
+                    },
+                    "slicer_diagnostics": {
+                        "source": "real_slicer",
+                        "plates": 1,
+                    },
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.pricing_snapshot["source"] == "core_backed"
+            assert quote.component_snapshot["items"][0]["sku"] == "COMP-LED"
+            assert quote.packaging_snapshot["sku"] == "BOX-8"
+            assert quote.shipping_snapshot["package"]["sku"] == "BOX-8"
+            assert quote.artifact_snapshot["files"][0]["kind"] == "gcode"
+            assert quote.slicer_diagnostics["source"] == "real_slicer"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_derives_shipping_snapshot_when_not_supplied(self, client, db):
+        from app.models.quote import Quote
+
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                },
+            )
+
+            assert response.status_code == 200, response.text
+            quote = db.get(Quote, created["quote_id"])
+            assert quote.shipping_snapshot["source"] == "portal_accept"
+            assert quote.shipping_snapshot["carrier"] == "USPS"
+            assert quote.shipping_snapshot["cost"] == "8.50"
+            assert quote.shipping_snapshot["ship_to"]["zip"] == "46204"
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
+    def test_portal_accept_rejects_oversized_handoff_snapshot(self, client):
+        provider_state = self._install_auto_quote_provider(client)
+        try:
+            create_response = client.post(
+                f"{BASE_URL}/portal",
+                data={"material": "PLA_BASIC", "color": "JADE_WHITE", "quantity": "1"},
+                files={"file": ("part.stl", b"solid test\nendsolid test\n", "model/stl")},
+            )
+            assert create_response.status_code == 201, create_response.text
+            created = create_response.json()
+
+            response = client.post(
+                f"{BASE_URL}/portal/{created['quote_id']}/accept",
+                json={
+                    "shipping_name": "Jane Customer",
+                    "shipping_address_line1": "123 Print St",
+                    "shipping_city": "Indianapolis",
+                    "shipping_state": "IN",
+                    "shipping_zip": "46204",
+                    "shipping_country": "US",
+                    "shipping_rate_id": "rate_test",
+                    "shipping_carrier": "USPS",
+                    "shipping_service": "Ground Advantage",
+                    "shipping_cost": "8.50",
+                    "pricing_snapshot": {"raw": "x" * (33 * 1024)},
+                },
+            )
+
+            assert response.status_code == 422
+            assert "32KB" in response.text
+        finally:
+            self._clear_auto_quote_provider(client, provider_state)
+
     def test_portal_accept_snapshots_multi_color_slots(self, client, db):
         from app.models.quote import Quote, QuoteMaterial
 

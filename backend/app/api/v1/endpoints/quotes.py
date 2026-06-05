@@ -4,6 +4,7 @@ Quote Management Endpoints - Community Edition
 Manual quote creation and management for small businesses.
 Supports creating quotes, updating status, and converting to sales orders.
 """
+import json
 from datetime import datetime, timezone, timedelta
 from inspect import isawaitable
 from typing import Any, List, Optional
@@ -23,11 +24,12 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
+PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 
 
 # ============================================================================
@@ -247,6 +249,38 @@ class PortalShippingSelection(BaseModel):
     print_mode: Optional[str] = Field(None, max_length=20)
     adjusted_unit_price: Optional[Decimal] = Field(None, ge=0)
     multi_color_info: Optional[dict[str, Any]] = None
+    pricing_snapshot: Optional[dict[str, Any]] = None
+    component_snapshot: Optional[dict[str, Any]] = None
+    packaging_snapshot: Optional[dict[str, Any]] = None
+    shipping_snapshot: Optional[dict[str, Any]] = None
+    artifact_snapshot: Optional[dict[str, Any]] = None
+    slicer_diagnostics: Optional[dict[str, Any]] = None
+
+    @field_validator(
+        "pricing_snapshot",
+        "component_snapshot",
+        "packaging_snapshot",
+        "shipping_snapshot",
+        "artifact_snapshot",
+        "slicer_diagnostics",
+    )
+    @classmethod
+    def _limit_snapshot_size(cls, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return value
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Snapshot payload must be JSON serializable") from exc
+
+        if len(encoded.encode("utf-8")) > PORTAL_SNAPSHOT_MAX_BYTES:
+            raise ValueError("Snapshot payload must be 32KB or smaller")
+        return value
 
 
 class QuoteArchiveFile(BaseModel):
@@ -490,6 +524,53 @@ def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShip
         current_user.phone = payload.shipping_phone
 
 
+def _fallback_shipping_snapshot(
+    quote: Quote,
+    payload: PortalShippingSelection,
+) -> Optional[dict[str, Any]]:
+    if not any([
+        payload.shipping_rate_id,
+        payload.shipping_carrier,
+        payload.shipping_service,
+        payload.shipping_cost is not None,
+    ]):
+        return None
+
+    return {
+        "source": "portal_accept",
+        "rate_id": quote.shipping_rate_id,
+        "carrier": quote.shipping_carrier,
+        "service": quote.shipping_service,
+        "cost": str(quote.shipping_cost) if quote.shipping_cost is not None else None,
+        "ship_to": {
+            "name": quote.shipping_name,
+            "address_line1": quote.shipping_address_line1,
+            "address_line2": quote.shipping_address_line2,
+            "city": quote.shipping_city,
+            "state": quote.shipping_state,
+            "zip": quote.shipping_zip,
+            "country": quote.shipping_country,
+            "phone": quote.shipping_phone,
+        },
+    }
+
+
+def _apply_portal_snapshots(quote: Quote, payload: PortalShippingSelection) -> None:
+    if payload.pricing_snapshot is not None:
+        quote.pricing_snapshot = payload.pricing_snapshot
+    if payload.component_snapshot is not None:
+        quote.component_snapshot = payload.component_snapshot
+    if payload.packaging_snapshot is not None:
+        quote.packaging_snapshot = payload.packaging_snapshot
+    shipping_snapshot = payload.shipping_snapshot or _fallback_shipping_snapshot(quote, payload)
+    if shipping_snapshot is not None:
+        quote.shipping_snapshot = shipping_snapshot
+    if payload.artifact_snapshot is not None:
+        quote.artifact_snapshot = payload.artifact_snapshot
+    if payload.slicer_diagnostics is not None:
+        quote.slicer_diagnostics = payload.slicer_diagnostics
+
+
 def _apply_portal_print_selection(
     db: Session,
     quote: Quote,
@@ -685,6 +766,7 @@ async def accept_portal_quote(
     _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
     _apply_portal_shipping(quote, current_user, payload)
+    _apply_portal_snapshots(quote, payload)
     _apply_portal_print_selection(db, quote, payload)
 
     requires_review = bool(quote.requires_review_reason)

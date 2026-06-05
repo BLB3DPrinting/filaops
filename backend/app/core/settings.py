@@ -271,6 +271,27 @@ class Settings(BaseSettings):
             "frontend dist."
         ),
     )
+    PORTAL_ADMIN_DIST: str = Field(
+        default="",
+        description=(
+            "Portal Admin SPA dist directory. When set, FastAPI serves it at "
+            "/portal-admin for local-first PRO installs."
+        ),
+    )
+    PORTAL_DIST: str = Field(
+        default="",
+        description=(
+            "B2B Portal SPA dist directory. When set, FastAPI serves it at "
+            "/portal for local-first PRO installs."
+        ),
+    )
+    QUOTER_DIST: str = Field(
+        default="",
+        description=(
+            "Public Quoter SPA dist directory. When set, FastAPI serves it at "
+            "/quote for local-first PRO installs."
+        ),
+    )
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Max upload size (MB)")
     ALLOWED_FILE_FORMATS: List[str] = Field(
         default=[".3mf", ".stl", ".obj", ".step", ".stp"],

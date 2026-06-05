@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Quotes and quote-based orders now retain Core-owned pricing, component, packaging, shipping, artifact, and slicer diagnostic snapshots for durable public-quoter handoff.
 - Item create/edit now exposes optional weight and dimensions for shipping, with packaging items requiring all physical fields.
 - Public portal quote creation now passes selected component add-on ids through to the optional quote automation provider.
 - Manual quotes now support Core-owned file attachments with staff upload, download, list, and delete actions.

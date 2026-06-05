@@ -6,7 +6,7 @@ Handles quote requests, file uploads, and approval workflow
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Numeric, BigInteger, Boolean,
-    DateTime, Date, ForeignKey, LargeBinary, func, text
+    DateTime, Date, ForeignKey, JSON, LargeBinary, func, text
 )
 from sqlalchemy.orm import relationship
 
@@ -103,6 +103,14 @@ class Quote(Base):
     shipping_carrier = Column(String(50), nullable=True)   # USPS, UPS, FedEx
     shipping_service = Column(String(100), nullable=True)  # Priority, Ground, etc.
     shipping_cost = Column(Numeric(10, 2), nullable=True)  # Selected shipping cost
+
+    # Durable quote snapshots from customer-facing or automated quote flows.
+    pricing_snapshot = Column(JSON, nullable=True)
+    component_snapshot = Column(JSON, nullable=True)
+    packaging_snapshot = Column(JSON, nullable=True)
+    shipping_snapshot = Column(JSON, nullable=True)
+    artifact_snapshot = Column(JSON, nullable=True)
+    slicer_diagnostics = Column(JSON, nullable=True)
 
     # Conversion to Order
     sales_order_id = Column(Integer, nullable=True)

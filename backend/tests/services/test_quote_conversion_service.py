@@ -1,7 +1,6 @@
 """Tests for quote_conversion_service.py — quote-to-order conversion workflow."""
-import pytest
 from decimal import Decimal
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 from app.services.quote_conversion_service import (
@@ -12,9 +11,7 @@ from app.services.quote_conversion_service import (
     ShippingInfo,
     ConversionResult,
 )
-from app.models.quote import Quote
-from app.models.sales_order import SalesOrder
-from app.models.production_order import ProductionOrder
+from app.services import quote_conversion_service
 
 
 class TestGenerateSalesOrderNumber:
@@ -105,6 +102,47 @@ class TestConvertQuoteToOrder:
         result = convert_portal_quote_to_order(quote, db)
         assert result.success is False
         assert "already converted" in result.error_message.lower()
+
+    def test_copies_quote_handoff_snapshots_to_sales_order(
+        self, db, make_product, make_bom, monkeypatch
+    ):
+        product = make_product(
+            item_type="finished_good",
+            procurement_type="make",
+            selling_price=Decimal("50.00"),
+        )
+        make_bom(product_id=product.id)
+        quote = self._make_quote(
+            db,
+            status="approved",
+            product_id=product.id,
+            color="YEL",
+            material_grams=Decimal("120.00"),
+            subtotal=Decimal("50.00"),
+            pricing_snapshot={"source": "core_backed", "print_cost": "12.34"},
+            component_snapshot={"items": [{"sku": "COMP-LED", "quantity": 1}]},
+            packaging_snapshot={"sku": "BOX-8"},
+            shipping_snapshot={"carrier": "USPS", "cost": "8.50"},
+            artifact_snapshot={"files": [{"kind": "gcode"}]},
+            slicer_diagnostics={"source": "real_slicer"},
+        )
+
+        monkeypatch.setattr(
+            quote_conversion_service,
+            "validate_quote_for_bom",
+            lambda _quote, _db: (True, "Valid"),
+        )
+
+        result = convert_portal_quote_to_order(quote, db)
+
+        assert result.success is True, result.error_message
+        order = result.sales_order
+        assert order.pricing_snapshot == quote.pricing_snapshot
+        assert order.component_snapshot == quote.component_snapshot
+        assert order.packaging_snapshot == quote.packaging_snapshot
+        assert order.shipping_snapshot == quote.shipping_snapshot
+        assert order.artifact_snapshot == quote.artifact_snapshot
+        assert order.slicer_diagnostics == quote.slicer_diagnostics
 
 
 class TestConvertQuoteAfterPayment:
