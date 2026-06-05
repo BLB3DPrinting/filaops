@@ -1664,6 +1664,33 @@ class TestUpdateQuote:
         assert response.status_code == 400
         assert "converted" in response.json()["detail"].lower()
 
+    def test_update_accepted_quote_fails(self, client):
+        """Cannot edit a quote after customer acceptance."""
+        quote = _create_quote(client)
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={"status": "approved"})
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={"status": "accepted"})
+
+        response = client.patch(f"{BASE_URL}/{quote['id']}", json={
+            "product_name": "Changed After Acceptance",
+        })
+        assert response.status_code == 400
+        assert "accepted" in response.json()["detail"].lower()
+
+    def test_update_approved_quote_succeeds_before_acceptance(self, client):
+        """Staff can revise an approved/sent quote until the customer accepts it."""
+        quote = _create_quote(client, apply_tax=False)
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={"status": "approved"})
+
+        response = client.patch(f"{BASE_URL}/{quote['id']}", json={
+            "product_name": "Revised Before Acceptance",
+            "quantity": 3,
+            "unit_price": "20.00",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["product_name"] == "Revised Before Acceptance"
+        assert Decimal(str(data["subtotal"])) == Decimal("60.00")
+
     def test_update_invalid_customer_id_fails(self, client):
         quote = _create_quote(client)
         response = client.patch(f"{BASE_URL}/{quote['id']}", json={
@@ -1961,6 +1988,26 @@ class TestDeleteQuote:
         })
         response = client.delete(f"{BASE_URL}/{quote['id']}")
         assert response.status_code == 204
+
+    def test_delete_approved_quote_succeeds_before_acceptance(self, client):
+        quote = _create_quote(client)
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={
+            "status": "approved",
+        })
+        response = client.delete(f"{BASE_URL}/{quote['id']}")
+        assert response.status_code == 204
+
+    def test_delete_accepted_quote_fails(self, client):
+        quote = _create_quote(client)
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={
+            "status": "approved",
+        })
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={
+            "status": "accepted",
+        })
+        response = client.delete(f"{BASE_URL}/{quote['id']}")
+        assert response.status_code == 400
+        assert "accepted" in response.json()["detail"].lower()
 
     def test_delete_converted_quote_fails(self, client, db):
         from app.models.quote import Quote
