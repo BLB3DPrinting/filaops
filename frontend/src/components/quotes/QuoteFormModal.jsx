@@ -20,6 +20,10 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   const [companySettings, setCompanySettings] = useState(null);
   const [taxRates, setTaxRates] = useState([]);
   const [productSearch, setProductSearch] = useState("");
+  const [activeLineTab, setActiveLineTab] = useState("products");
+  const [feeDescription, setFeeDescription] = useState("");
+  const [feeQuantity, setFeeQuantity] = useState(1);
+  const [feePrice, setFeePrice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveAsCustomer, setSaveAsCustomer] = useState(false);
@@ -28,6 +32,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   const [lineItems, setLineItems] = useState(() => {
     if (quote?.lines?.length > 0) {
       return quote.lines.map((l) => ({
+        line_type: l.product_id ? "product" : "service",
         product_id: l.product_id,
         product_name: l.product_name,
         product_sku: "",
@@ -40,6 +45,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
     if (quote?.product_name) {
       return [{
+        line_type: "product",
         product_id: quote.product_id,
         product_name: quote.product_name,
         product_sku: "",
@@ -188,6 +194,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
         ...prev,
         {
           product_id: product.id,
+          line_type: "product",
           product_name: product.name,
           product_sku: product.sku,
           quantity: 1,
@@ -198,6 +205,30 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
         },
       ];
     });
+  };
+
+  const handleAddFeeLine = () => {
+    const description = feeDescription.trim();
+    const unitPrice = parseFloat(feePrice);
+    if (!description || Number.isNaN(unitPrice) || unitPrice < 0) return;
+
+    setLineItems((prev) => [
+      ...prev,
+      {
+        line_type: "service",
+        product_id: null,
+        product_name: description,
+        product_sku: "",
+        quantity: Math.max(1, parseInt(feeQuantity, 10) || 1),
+        unit_price: unitPrice.toFixed(2),
+        material_type: "",
+        color: "",
+        notes: "",
+      },
+    ]);
+    setFeeDescription("");
+    setFeeQuantity(1);
+    setFeePrice("");
   };
 
   const handleRemoveLine = (index) => {
@@ -230,13 +261,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (lineItems.length === 0) {
-      toast.error("Add at least one product");
+      toast.error("Add at least one line item");
       return;
     }
 
     for (const li of lineItems) {
       if (!li.product_name || li.unit_price === "" || li.unit_price === null || isNaN(Number(li.unit_price))) {
-        toast.error("Each line item needs a product name and unit price");
+        toast.error("Each line item needs a description and unit price");
         return;
       }
     }
@@ -285,7 +316,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     // Build payload with lines array
     const payload = {
       lines: lineItems.map((li) => ({
-        product_id: li.product_id || null,
+        product_id: li.line_type === "service" ? null : li.product_id || null,
         product_name: li.product_name,
         quantity: li.quantity,
         unit_price: parseFloat(li.unit_price),
@@ -351,7 +382,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
               <div>
                 <h4 className="text-white font-medium mb-2">Add Products</h4>
                 <p className="text-gray-400 text-sm mb-4">
-                  Select products for this quote, or{" "}
+                  Select products or add one-time fees for this quote, or{" "}
                   <button
                     onClick={() => navigate("/admin/items?action=new")}
                     className="text-blue-400 hover:underline"
@@ -361,70 +392,158 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 </p>
               </div>
 
-              {/* Product Search */}
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search products by SKU or name..."
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white pl-10"
-                />
-                <svg
-                  className="w-5 h-5 absolute left-3 top-3.5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              <div className="flex gap-1 bg-gray-800 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setActiveLineTab("products")}
+                  className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    activeLineTab === "products"
+                      ? "bg-blue-600 text-white"
+                      : "text-gray-400 hover:text-white hover:bg-gray-700"
+                  }`}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+                  Products
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLineTab("fees")}
+                  className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    activeLineTab === "fees"
+                      ? "bg-blue-600 text-white"
+                      : "text-gray-400 hover:text-white hover:bg-gray-700"
+                  }`}
+                >
+                  Fees
+                </button>
               </div>
 
+              {/* Product Search */}
+              {activeLineTab === "products" && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search products by SKU or name..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white pl-10"
+                  />
+                  <svg
+                    className="w-5 h-5 absolute left-3 top-3.5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
+              )}
+
               {/* Product Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-auto">
-                {loading ? (
-                  <div className="col-span-full flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                  </div>
-                ) : filteredProducts.length === 0 ? (
-                  <div className="col-span-full text-center py-8 text-gray-500">
-                    {productSearch.trim()
-                      ? `No products found matching "${productSearch}"`
-                      : "No finished goods available."}
-                  </div>
-                ) : (
-                  filteredProducts.map((product) => {
-                    const inCart = lineItems.some((li) => li.product_id === product.id);
-                    return (
-                      <button
-                        key={product.id}
-                        onClick={() => handleAddProduct(product)}
-                        className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
-                          inCart ? "border-blue-500 bg-blue-900/20" : "border-gray-700"
-                        }`}
-                      >
-                        <div className="text-white font-medium truncate">{product.name}</div>
-                        <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
-                        <div className="flex justify-between items-center mt-2">
-                          <span className="text-green-400 font-medium">
-                            ${parseFloat(product.selling_price || 0).toFixed(2)}
-                          </span>
-                          {inCart && (
-                            <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                              Added
+              {activeLineTab === "products" && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-auto">
+                  {loading ? (
+                    <div className="col-span-full flex justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                    </div>
+                  ) : filteredProducts.length === 0 ? (
+                    <div className="col-span-full text-center py-8 text-gray-500">
+                      {productSearch.trim()
+                        ? `No products found matching "${productSearch}"`
+                        : "No finished goods available."}
+                    </div>
+                  ) : (
+                    filteredProducts.map((product) => {
+                      const inCart = lineItems.some((li) => li.product_id === product.id);
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => handleAddProduct(product)}
+                          className={`text-left p-4 bg-gray-800 border rounded-lg hover:border-blue-500 transition-colors ${
+                            inCart ? "border-blue-500 bg-blue-900/20" : "border-gray-700"
+                          }`}
+                        >
+                          <div className="text-white font-medium truncate">{product.name}</div>
+                          <div className="text-gray-500 text-xs font-mono mt-1">{product.sku}</div>
+                          <div className="flex justify-between items-center mt-2">
+                            <span className="text-green-400 font-medium">
+                              ${parseFloat(product.selling_price || 0).toFixed(2)}
                             </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+                            {inCart && (
+                              <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                                Added
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {activeLineTab === "fees" && (
+                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_96px_140px_auto] gap-3 items-end">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">
+                        Description
+                      </label>
+                      <input
+                        type="text"
+                        value={feeDescription}
+                        onChange={(e) => setFeeDescription(e.target.value)}
+                        placeholder="Engineering fee"
+                        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">
+                        Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={feeQuantity}
+                        onChange={(e) => setFeeQuantity(parseInt(e.target.value, 10) || 1)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-right"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">
+                        Unit Price
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={feePrice}
+                        onChange={(e) => setFeePrice(e.target.value)}
+                        placeholder="75.00"
+                        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-right"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddFeeLine}
+                      disabled={
+                        !feeDescription.trim() ||
+                        feePrice === "" ||
+                        Number.isNaN(parseFloat(feePrice)) ||
+                        parseFloat(feePrice) < 0
+                      }
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Selected Items Table */}
               {lineItems.length > 0 && (
@@ -436,8 +555,24 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                     {lineItems.map((li, idx) => (
                       <div key={idx} className="p-3 flex items-center gap-4">
                         <div className="flex-1 min-w-0">
-                          <div className="text-white font-medium truncate">{li.product_name}</div>
-                          {li.product_sku && (
+                          <div className="flex items-center gap-2">
+                            {li.line_type === "service" && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
+                                FEE
+                              </span>
+                            )}
+                            {li.line_type === "service" ? (
+                              <input
+                                type="text"
+                                value={li.product_name}
+                                onChange={(e) => handleUpdateLine(idx, "product_name", e.target.value)}
+                                className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm"
+                              />
+                            ) : (
+                              <div className="text-white font-medium truncate">{li.product_name}</div>
+                            )}
+                          </div>
+                          {li.line_type !== "service" && li.product_sku && (
                             <div className="text-gray-500 text-xs">{li.product_sku}</div>
                           )}
                         </div>
@@ -528,8 +663,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                   <div className="space-y-1">
                     {lineItems.map((li, idx) => (
                       <div key={idx} className="flex justify-between text-sm">
-                        <span className="text-gray-300 truncate">
-                          {li.product_name} x{li.quantity}
+                        <span className="text-gray-300 truncate flex items-center gap-2">
+                          {li.line_type === "service" && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
+                              FEE
+                            </span>
+                          )}
+                          <span>{li.product_name} x{li.quantity}</span>
                         </span>
                         <span className="text-gray-400">
                           ${((parseFloat(li.unit_price) || 0) * li.quantity).toFixed(2)}

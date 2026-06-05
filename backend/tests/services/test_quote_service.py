@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 from app.services import quote_service
-from app.models.quote import Quote
+from app.models.quote import Quote, QuoteLine
 from app.models.company_settings import CompanySettings
 from app.models.user import User
 from app.models.sales_order import SalesOrder
@@ -551,6 +551,60 @@ class TestConvertQuoteToOrder:
         assert order.tax_amount == Decimal("8.25")
         assert order.tax_rate == Decimal("0.0825")
         assert order.grand_total == Decimal("113.25")
+
+    def test_converts_product_and_fee_lines(self, db, make_product):
+        product = make_product(name="Standard Widget", selling_price=Decimal("20.00"))
+        q = _make_quote(
+            db,
+            quote_number="Q-CONV-FEE-01",
+            status="approved",
+            product_name="Standard Widget",
+            product_id=None,
+            quantity=2,
+            unit_price=None,
+            subtotal=Decimal("90.00"),
+            total_price=Decimal("95.00"),
+            shipping_cost=Decimal("5.00"),
+        )
+        db.add_all([
+            QuoteLine(
+                quote_id=q.id,
+                product_id=product.id,
+                line_number=1,
+                product_name="Standard Widget",
+                quantity=2,
+                unit_price=Decimal("20.00"),
+                total=Decimal("40.00"),
+            ),
+            QuoteLine(
+                quote_id=q.id,
+                product_id=None,
+                line_number=2,
+                product_name="Engineering fee",
+                quantity=1,
+                unit_price=Decimal("50.00"),
+                total=Decimal("50.00"),
+                notes="CAD cleanup",
+            ),
+        ])
+        db.flush()
+
+        result = quote_service.convert_quote_to_order(db, q.id)
+        order = db.query(SalesOrder).filter(SalesOrder.id == result["order_id"]).first()
+
+        assert order.total_price == Decimal("90.00")
+        assert order.shipping_cost == Decimal("5.00")
+        assert order.grand_total == Decimal("95.00")
+
+        product_line = next(line for line in order.lines if line.product_id == product.id)
+        fee_line = next(line for line in order.lines if line.line_type == "service")
+        assert product_line.line_type == "product"
+        assert product_line.total == Decimal("40.00")
+        assert fee_line.description == "Engineering fee"
+        assert fee_line.quantity == Decimal("1")
+        assert fee_line.unit_price == Decimal("50.00")
+        assert fee_line.total == Decimal("50.00")
+        assert fee_line.notes == "CAD cleanup"
 
 
 # =============================================================================

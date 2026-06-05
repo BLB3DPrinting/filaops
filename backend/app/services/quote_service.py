@@ -236,12 +236,13 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         subtotal = Decimal("0")
         for line in request.lines:
             line_price = Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
-            if discount_percent and discount_percent > 0:
+            if line.product_id and discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
             subtotal += line_price * line.quantity
-        # Use first line's product for header-level backward compat
-        header_product_name = request.lines[0].product_name
-        header_product_id = request.lines[0].product_id
+        # Use the first product line for header-level backward compat, else first line.
+        header_line = next((line for line in request.lines if line.product_id), request.lines[0])
+        header_product_name = header_line.product_name
+        header_product_id = header_line.product_id
         header_quantity = sum(line.quantity for line in request.lines)
         header_unit_price = None  # Multi-line: no single unit price
     else:
@@ -315,7 +316,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         for idx, line_data in enumerate(request.lines, start=1):
             line_price = Decimal(str(line_data.unit_price)).quantize(Decimal("0.01"))
             line_discount = None
-            if discount_percent and discount_percent > 0:
+            if line_data.product_id and discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
                 line_discount = discount_percent
             line = QuoteLine(
@@ -432,7 +433,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
             ld = line_data if isinstance(line_data, dict) else line_data.model_dump()
             line_price = Decimal(str(ld["unit_price"])).quantize(Decimal("0.01"))
             line_discount = None
-            if discount_percent and discount_percent > 0:
+            if ld.get("product_id") and discount_percent and discount_percent > 0:
                 line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
                 line_discount = discount_percent
             line_total = (line_price * ld["quantity"]).quantize(Decimal("0.01"))
@@ -454,7 +455,14 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
             db.add(line)
 
         # Update header from lines
-        quote.product_name = lines_data[0]["product_name"] if isinstance(lines_data[0], dict) else lines_data[0].product_name
+        header_line = next(
+            (
+                line for line in lines_data
+                if (line.get("product_id") if isinstance(line, dict) else line.product_id)
+            ),
+            lines_data[0],
+        )
+        quote.product_name = header_line["product_name"] if isinstance(header_line, dict) else header_line.product_name
         quote.quantity = sum(ld["quantity"] if isinstance(ld, dict) else ld.quantity for ld in lines_data)
         quote.unit_price = None
         quote.subtotal = subtotal
@@ -657,7 +665,7 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
         quantity=quote.quantity,
         material_type=quote.material_type or "PLA",
         finish=quote.finish or "standard",
-        unit_price=quote.unit_price,
+        unit_price=quote.unit_price if quote.unit_price is not None else Decimal("0"),
         total_price=subtotal,
         tax_amount=tax,
         tax_rate=quote.tax_rate,
@@ -684,20 +692,15 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
 
     # Create SalesOrderLines for multi-line quotes
     if has_lines:
-        # Validate: ck_sol_product_or_material requires product_id to be set
-        missing = [ql.product_name for ql in quote.lines if not ql.product_id]
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot convert: line(s) missing product link: {', '.join(missing)}. "
-                       "Edit the quote and select a product from the catalog for each line."
-            )
-
         for ql in quote.lines:
-            # unit_price is already net (discount applied), so discount=0
+            # unit_price is already net (discount applied), so discount=0.
+            # Product-less quote lines are one-time service/fee lines.
+            is_service_line = ql.product_id is None
             sol = SalesOrderLine(
                 sales_order_id=sales_order.id,
-                product_id=ql.product_id,
+                line_type="service" if is_service_line else "product",
+                product_id=None if is_service_line else ql.product_id,
+                description=ql.product_name if is_service_line else None,
                 quantity=ql.quantity,
                 unit_price=ql.unit_price,
                 discount=Decimal("0"),
