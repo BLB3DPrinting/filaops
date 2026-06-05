@@ -1421,6 +1421,12 @@ def edit_sales_order_lines(
         )
         shipped = line.shipped_quantity or Decimal("0")
 
+        if line.product_id and new_qty != new_qty.to_integral_value():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Line {line.id} quantity must be a whole number for product-backed lines"
+            )
+
         if new_qty < shipped:
             raise HTTPException(
                 status_code=400,
@@ -1442,8 +1448,7 @@ def edit_sales_order_lines(
 
         line.quantity = new_qty
         line.unit_price = new_unit_price
-        discount = line.discount or Decimal("0")
-        line.total = (new_qty * new_unit_price - discount).quantize(Decimal("0.01"))
+        line.total = (new_qty * new_unit_price).quantize(Decimal("0.01"))
 
         # Resolve product name for the event
         product_name = "Line"

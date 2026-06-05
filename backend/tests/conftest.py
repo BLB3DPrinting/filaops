@@ -112,6 +112,10 @@ def setup_database():
             "UPDATE sales_order_lines SET line_type = 'product' "
             "WHERE product_id IS NOT NULL AND material_inventory_id IS NULL"
         ))
+        conn.execute(text(
+            "UPDATE sales_order_lines SET line_type = 'service' "
+            "WHERE product_id IS NULL AND material_inventory_id IS NULL"
+        ))
         # Migration 065: widen cost columns
         for col in ("standard_cost", "average_cost", "last_cost"):
             conn.execute(text(

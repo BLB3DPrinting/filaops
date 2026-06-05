@@ -30,6 +30,11 @@ def _column_exists(table_name: str, column_name: str) -> bool:
     return column_name in {column["name"] for column in inspector.get_columns(table_name)}
 
 
+def _index_exists(table_name: str, index_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return index_name in {index["name"] for index in inspector.get_indexes(table_name)}
+
+
 def _constraint_exists(table_name: str, constraint_name: str) -> bool:
     inspector = sa.inspect(op.get_bind())
     return constraint_name in {
@@ -49,6 +54,8 @@ def upgrade() -> None:
                 server_default="product",
             ),
         )
+
+    if not _index_exists("sales_order_lines", "ix_sales_order_lines_line_type"):
         op.create_index(
             "ix_sales_order_lines_line_type",
             "sales_order_lines",
@@ -115,5 +122,6 @@ def downgrade() -> None:
     if _column_exists("sales_order_lines", "description"):
         op.drop_column("sales_order_lines", "description")
     if _column_exists("sales_order_lines", "line_type"):
-        op.drop_index("ix_sales_order_lines_line_type", table_name="sales_order_lines")
+        if _index_exists("sales_order_lines", "ix_sales_order_lines_line_type"):
+            op.drop_index("ix_sales_order_lines_line_type", table_name="sales_order_lines")
         op.drop_column("sales_order_lines", "line_type")
