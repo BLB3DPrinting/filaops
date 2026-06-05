@@ -115,6 +115,115 @@ class TestEditSalesOrderLines:
         assert updated.total_price == Decimal("1040.00")
         assert updated.grand_total == Decimal("1040.00")
 
+    def test_updates_unit_price_and_recalculates(self, db, make_product):
+        """Changing a line unit price updates the line and order totals."""
+        user = _make_user(db)
+        product = make_product(selling_price=Decimal("10.00"))
+        order = _make_order(db, user.id, quantity=3, unit_price=Decimal("10.00"))
+        line = _make_line(db, order.id, product.id, quantity=3, unit_price=Decimal("10.00"))
+        db.commit()
+
+        updated = sales_order_service.edit_sales_order_lines(
+            db,
+            order_id=order.id,
+            line_updates=[
+                {
+                    "line_id": line.id,
+                    "new_quantity": Decimal("3"),
+                    "new_unit_price": Decimal("12.50"),
+                    "reason": "Manual line price adjustment",
+                }
+            ],
+            user_id=user.id,
+        )
+
+        db.refresh(line)
+        assert line.quantity == Decimal("3")
+        assert line.unit_price == Decimal("12.50")
+        assert line.total == Decimal("37.50")
+        assert updated.total_price == Decimal("37.50")
+        assert updated.grand_total == Decimal("37.50")
+
+    def test_unit_price_edit_does_not_reapply_line_discount(self, db, make_product):
+        """Line discount stores audit data; it is not subtracted again during edits."""
+        user = _make_user(db)
+        product = make_product(selling_price=Decimal("10.00"))
+        order = _make_order(db, user.id, quantity=3, unit_price=Decimal("10.00"))
+        line = _make_line(db, order.id, product.id, quantity=3, unit_price=Decimal("10.00"))
+        line.discount = Decimal("5.00")
+        db.commit()
+
+        updated = sales_order_service.edit_sales_order_lines(
+            db,
+            order_id=order.id,
+            line_updates=[
+                {
+                    "line_id": line.id,
+                    "new_quantity": Decimal("3"),
+                    "new_unit_price": Decimal("12.50"),
+                    "reason": "Manual line price adjustment",
+                }
+            ],
+            user_id=user.id,
+        )
+
+        db.refresh(line)
+        assert line.discount == Decimal("5.00")
+        assert line.total == Decimal("37.50")
+        assert updated.total_price == Decimal("37.50")
+        assert updated.grand_total == Decimal("37.50")
+
+    def test_rejects_fractional_product_quantity_edit(self, db, make_product):
+        """Product-backed sales order lines must remain whole-number quantities."""
+        user = _make_user(db)
+        product = make_product(selling_price=Decimal("10.00"))
+        order = _make_order(db, user.id, quantity=3, unit_price=Decimal("10.00"))
+        line = _make_line(db, order.id, product.id, quantity=3, unit_price=Decimal("10.00"))
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.edit_sales_order_lines(
+                db,
+                order_id=order.id,
+                line_updates=[
+                    {
+                        "line_id": line.id,
+                        "new_quantity": Decimal("1.5"),
+                        "reason": "Invalid fractional product quantity",
+                    }
+                ],
+                user_id=user.id,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "whole number" in exc_info.value.detail.lower()
+
+    def test_rejects_negative_unit_price_edit(self, db, make_product):
+        """Line price edits must not create negative order values."""
+        user = _make_user(db)
+        product = make_product(selling_price=Decimal("10.00"))
+        order = _make_order(db, user.id, quantity=1)
+        line = _make_line(db, order.id, product.id, quantity=1)
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.edit_sales_order_lines(
+                db,
+                order_id=order.id,
+                line_updates=[
+                    {
+                        "line_id": line.id,
+                        "new_quantity": Decimal("1"),
+                        "new_unit_price": Decimal("-1.00"),
+                        "reason": "Invalid price",
+                    }
+                ],
+                user_id=user.id,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "unit price" in exc_info.value.detail.lower()
+
     def test_stores_original_quantity_on_first_edit(self, db, make_product):
         """original_quantity is set on first edit and not overwritten on subsequent edits."""
         user = _make_user(db)

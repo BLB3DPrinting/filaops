@@ -616,7 +616,26 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     }
   };
 
-  // Remove line item (works for both product and material lines)
+  // Add one-time service/fee line item
+  const addServiceLineItem = ({ description, quantity, unit_price }) => {
+    const key = `service-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setLineItems([
+      ...lineItems,
+      {
+        line_type: "service",
+        product_id: null,
+        material_inventory_id: null,
+        product: null,
+        material: null,
+        description: description.trim(),
+        quantity: quantity || 1,
+        unit_price: unit_price || 0,
+        _key: key,
+      },
+    ]);
+  };
+
+  // Remove line item (works for product, material, and service lines)
   const removeLineItem = (key) => {
     setLineItems(lineItems.filter((li) => li._key !== key));
   };
@@ -637,6 +656,15 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
     setLineItems(
       lineItems.map((li) =>
         li._key === key ? { ...li, unit_price: price } : li
+      )
+    );
+  };
+
+  // Update one-time service/fee line description
+  const updateLineDescription = (key, description) => {
+    setLineItems(
+      lineItems.map((li) =>
+        li._key === key ? { ...li, description } : li
       )
     );
   };
@@ -993,10 +1021,20 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       for (const item of lineItems) {
         const qtyError = validateQuantity(item.quantity, "Quantity");
         if (qtyError) {
-          const itemName = item.line_type === "material"
-            ? item.material?.name
-            : item.product?.name || item.name;
+          const itemName = item.line_type === "service"
+            ? item.description || "Service line"
+            : item.line_type === "material"
+              ? item.material?.name
+              : item.product?.name || item.name;
           setError(`${itemName}: ${qtyError}`);
+          return false;
+        }
+        if (item.line_type === "service" && !item.description?.trim()) {
+          setError("Service and fee lines require a description");
+          return false;
+        }
+        if (item.unit_price < 0) {
+          setError("Line item prices must be zero or greater");
           return false;
         }
       }
@@ -1026,14 +1064,24 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
       const payload = {
         customer_id: orderData.customer_id || null,
         lines: lineItems.map((li) => {
+          if (li.line_type === "service") {
+            return {
+              line_type: "service",
+              description: li.description,
+              quantity: li.quantity,
+              unit_price: li.unit_price,
+            };
+          }
           if (li.line_type === "material") {
             return {
+              line_type: "material",
               material_inventory_id: li.material_inventory_id,
               quantity: li.quantity,
               unit_price: li.unit_price,
             };
           }
           return {
+            line_type: "product",
             product_id: li.product_id,
             quantity: li.quantity,
             unit_price: li.unit_price,
@@ -1226,9 +1274,11 @@ export default function SalesOrderWizard({ isOpen, onClose, onSuccess }) {
               lineItems={lineItems}
               addLineItem={addLineItem}
               addMaterialLineItem={addMaterialLineItem}
+              addServiceLineItem={addServiceLineItem}
               removeLineItem={removeLineItem}
               updateLineQuantity={updateLineQuantity}
               updateLinePrice={updateLinePrice}
+              updateLineDescription={updateLineDescription}
               orderTotal={orderTotal}
               startNewItem={startNewItem}
               materialInventory={materialInventory}

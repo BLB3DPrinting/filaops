@@ -16,24 +16,54 @@ from app.schemas.fulfillment_status import FulfillmentStatusSummary
 class SalesOrderLineCreate(BaseModel):
     """Line item for manual order creation.
 
-    Exactly one of product_id or material_inventory_id must be provided.
+    Product/material lines reference inventory records; service lines are
+    one-time charges with a description and no inventory FK.
     """
+    line_type: Optional[str] = Field(None, description="Line type: product, material, or service")
     product_id: Optional[int] = Field(None, description="Product ID (for finished goods)")
     material_inventory_id: Optional[int] = Field(None, description="Material inventory ID (for raw material / filament)")
+    description: Optional[str] = Field(None, max_length=255, description="Description for one-time service/fee lines")
     quantity: Decimal = Field(..., gt=0, le=10000, description="Quantity — integer for products, fractional for materials (e.g. 0.5 kg)")
     unit_price: Optional[Decimal] = Field(None, ge=0, description="Unit price (uses product/material price if not specified)")
     notes: Optional[str] = Field(None, max_length=500)
 
     @model_validator(mode="after")
-    def exactly_one_item_ref(self) -> "SalesOrderLineCreate":
+    def validate_line_reference(self) -> "SalesOrderLineCreate":
+        normalized_type = (self.line_type or "").strip().lower()
         has_product = self.product_id is not None
         has_material = self.material_inventory_id is not None
-        if has_product == has_material:  # both True or both False
+
+        if not normalized_type:
+            if has_product:
+                normalized_type = "product"
+            elif has_material:
+                normalized_type = "material"
+        if normalized_type not in {"product", "material", "service"}:
+            raise ValueError("line_type must be product, material, or service")
+
+        if normalized_type == "service":
+            if has_product or has_material:
+                raise ValueError("Service lines must not reference product_id or material_inventory_id")
+            if not self.description or not self.description.strip():
+                raise ValueError("Service lines require a description")
+            if self.unit_price is None:
+                raise ValueError("Service lines require a unit_price")
+        elif normalized_type == "product":
+            if not has_product or has_material:
+                raise ValueError("Product lines require product_id and no material_inventory_id")
+            if self.quantity != self.quantity.to_integral_value():
+                raise ValueError("Product line quantity must be a whole number")
+        else:
+            if has_product or not has_material:
+                raise ValueError("Material lines require material_inventory_id and no product_id")
+
+        if not normalized_type:
             raise ValueError(
-                "Exactly one of product_id or material_inventory_id must be provided"
+                "Each line must specify product_id, material_inventory_id, or line_type='service'"
             )
-        if has_product and self.quantity != self.quantity.to_integral_value():
-            raise ValueError("Product line quantity must be a whole number")
+        self.line_type = normalized_type
+        if self.description:
+            self.description = self.description.strip()
         return self
 
 
@@ -119,14 +149,21 @@ class SalesOrderCancel(BaseModel):
 
 
 class SalesOrderLineUpdate(BaseModel):
-    """Update a single line item quantity"""
+    """Update a single line item quantity and/or unit price"""
     line_id: int = Field(..., description="ID of the line to update")
-    new_quantity: Decimal = Field(..., gt=0, le=10000, description="New quantity (must be >= shipped quantity)")
+    new_quantity: Optional[Decimal] = Field(None, gt=0, le=10000, description="New quantity (must be >= shipped quantity)")
+    new_unit_price: Optional[Decimal] = Field(None, ge=0, le=100000, description="New unit price for this line")
     reason: str = Field(..., min_length=1, max_length=500, description="Reason for the change")
+
+    @model_validator(mode="after")
+    def at_least_one_change(self) -> "SalesOrderLineUpdate":
+        if self.new_quantity is None and self.new_unit_price is None:
+            raise ValueError("At least one of new_quantity or new_unit_price must be provided")
+        return self
 
 
 class SalesOrderEditLines(BaseModel):
-    """Edit one or more line quantities on a sales order"""
+    """Edit one or more line quantities/prices on a sales order"""
     lines: List[SalesOrderLineUpdate] = Field(..., min_length=1)
 
 
@@ -186,6 +223,8 @@ class SalesOrderListResponse(SalesOrderBase):
 class SalesOrderLineResponse(BaseModel):
     """Sales order line item response"""
     id: int
+    line_type: str = "product"
+    description: Optional[str] = None
     product_id: Optional[int] = None
     material_inventory_id: Optional[int] = None
     product_sku: Optional[str] = None

@@ -201,6 +201,8 @@ class SalesOrderLine(Base):
     sales_order_id = Column(Integer, ForeignKey("sales_orders.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=True, index=True)
     material_inventory_id = Column(Integer, ForeignKey("material_inventory.id"), nullable=True, index=True)
+    line_type = Column(String(20), nullable=False, default="product", index=True)
+    description = Column(String(255), nullable=True)
 
     # Line Details (matching actual database schema)
     quantity = Column(Numeric(10, 2), nullable=False)
@@ -229,11 +231,22 @@ class SalesOrderLine(Base):
     # line_number, product_sku, product_name, or created_at columns.
     # These are computed in the API layer when building responses.
 
-    # Exactly one of product_id or material_inventory_id must be set
+    def __init__(self, **kwargs):
+        if kwargs.get("line_type") is None:
+            if kwargs.get("material_inventory_id") is not None:
+                kwargs["line_type"] = "material"
+            elif kwargs.get("product_id") is None:
+                kwargs["line_type"] = "service"
+            else:
+                kwargs["line_type"] = "product"
+        super().__init__(**kwargs)
+
+    # Product/material lines require their inventory FK; service lines have neither FK.
     __table_args__ = (
         CheckConstraint(
-            "(product_id IS NOT NULL AND material_inventory_id IS NULL) OR "
-            "(product_id IS NULL AND material_inventory_id IS NOT NULL)",
+            "(line_type = 'product' AND product_id IS NOT NULL AND material_inventory_id IS NULL) OR "
+            "(line_type = 'material' AND product_id IS NULL AND material_inventory_id IS NOT NULL) OR "
+            "(line_type = 'service' AND product_id IS NULL AND material_inventory_id IS NULL)",
             name="ck_sol_product_or_material",
         ),
     )

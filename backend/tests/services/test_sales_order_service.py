@@ -380,6 +380,81 @@ class TestCreateSalesOrder:
         assert order.quantity == 2
         assert order.grand_total == Decimal("50.00")
 
+    def test_creates_product_line_with_manual_unit_price(self, db, make_product):
+        """Manual walk-in orders can override catalog price per line."""
+        product = make_product(selling_price=Decimal("25.00"))
+        _set_company_tax(db, tax_enabled=False)
+
+        order = sales_order_service.create_sales_order(
+            db,
+            customer_id=None,
+            lines=[{"product_id": product.id, "quantity": 2, "unit_price": Decimal("30.00")}],
+            created_by_user_id=1,
+        )
+
+        db.flush()
+        line = db.query(SalesOrderLine).filter(SalesOrderLine.sales_order_id == order.id).one()
+
+        assert line.unit_price == Decimal("30.00")
+        assert line.total == Decimal("60.00")
+        assert order.total_price == Decimal("60.00")
+        assert order.grand_total == Decimal("60.00")
+
+    def test_creates_one_time_service_fee_line(self, db, make_product):
+        """Manual orders can include non-inventory one-time service or engineering fees."""
+        product = make_product(selling_price=Decimal("25.00"))
+        _set_company_tax(db, tax_enabled=False)
+
+        order = sales_order_service.create_sales_order(
+            db,
+            customer_id=None,
+            lines=[
+                {"product_id": product.id, "quantity": 1},
+                {
+                    "line_type": "service",
+                    "description": "Engineering fee",
+                    "quantity": Decimal("1"),
+                    "unit_price": Decimal("75.00"),
+                },
+            ],
+            created_by_user_id=1,
+        )
+
+        db.flush()
+        lines = db.query(SalesOrderLine).filter(
+            SalesOrderLine.sales_order_id == order.id
+        ).order_by(SalesOrderLine.id).all()
+
+        assert order.product_name == "2 items"
+        assert order.total_price == Decimal("100.00")
+        assert order.grand_total == Decimal("100.00")
+        assert lines[1].product_id is None
+        assert lines[1].material_inventory_id is None
+        assert lines[1].line_type == "service"
+        assert lines[1].description == "Engineering fee"
+        assert lines[1].unit_price == Decimal("75.00")
+
+    def test_rejects_service_fee_without_description(self, db):
+        """One-time fee lines need a description for receipts and accounting review."""
+        _set_company_tax(db, tax_enabled=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.create_sales_order(
+                db,
+                customer_id=None,
+                lines=[
+                    {
+                        "line_type": "service",
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("75.00"),
+                    }
+                ],
+                created_by_user_id=1,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "description" in exc_info.value.detail.lower()
+
     def test_creates_order_with_multiple_lines(self, db, make_product):
         """Creates order with multiple line items and correct totals."""
         p1 = make_product(selling_price=Decimal("10.00"))

@@ -41,7 +41,9 @@ export default function OrderDetail() {
     if (!order?.lines || order.lines.length === 0) {
       return productionOrders.some((po) => po.product_id === order?.product_id);
     }
-    const lineProductIds = order.lines.map((line) => line.product_id);
+    const lineProductIds = order.lines
+      .filter((line) => line.product_id)
+      .map((line) => line.product_id);
     const woProductIds = productionOrders
       .filter((po) => po.sales_order_line_id)
       .map((po) => po.product_id);
@@ -70,6 +72,7 @@ export default function OrderDetail() {
   // Line editing state
   const [editingLineId, setEditingLineId] = useState(null);
   const [editQty, setEditQty] = useState("");
+  const [editPrice, setEditPrice] = useState("");
   const [editReason, setEditReason] = useState("");
   const [savingLineEdit, setSavingLineEdit] = useState(false);
   const [removingLineId, setRemovingLineId] = useState(null);
@@ -428,15 +431,21 @@ export default function OrderDetail() {
   };
 
   const handleSaveLineEdit = async (lineId) => {
-    if (!editQty || !editReason.trim()) return;
+    if ((editQty === "" && editPrice === "") || !editReason.trim()) return;
     setSavingLineEdit(true);
     try {
       await api.patch(`/api/v1/sales-orders/${orderId}/lines`, {
-        lines: [{ line_id: lineId, new_quantity: parseFloat(editQty), reason: editReason }],
+        lines: [{
+          line_id: lineId,
+          new_quantity: editQty !== "" ? parseFloat(editQty) : undefined,
+          new_unit_price: editPrice !== "" ? parseFloat(editPrice) : undefined,
+          reason: editReason,
+        }],
       });
-      toast.success("Line quantity updated");
+      toast.success("Line updated");
       setEditingLineId(null);
       setEditQty("");
+      setEditPrice("");
       setEditReason("");
       fetchOrder();
     } catch (err) {
@@ -447,7 +456,7 @@ export default function OrderDetail() {
   };
 
   const handleRemoveLine = async (line) => {
-    const label = line.product_name || line.material_name || `Line ${line.id}`;
+    const label = line.product_name || line.material_name || line.description || `Line ${line.id}`;
     if (!window.confirm(`Remove "${label}" from this order? This cannot be undone.`)) return;
     setRemovingLineId(line.id);
     try {
@@ -873,13 +882,15 @@ export default function OrderDetail() {
               {order.lines.map((line, idx) => {
                 const isEditing = editingLineId === line.id;
                 const shipped = parseFloat(line.shipped_quantity || 0);
+                const lineLabel = line.product_name || line.material_name || line.description || "One-time line";
+                const lineCode = line.product_sku || line.material_sku || line.sku || (line.line_type === "service" ? "FEE" : "\u2014");
                 return (
                   <tr key={line.id || idx}>
                     <td className="py-2 px-3 text-white">
-                      {line.product_name || line.material_name || "N/A"}
+                      {lineLabel}
                     </td>
                     <td className="py-2 px-3 text-gray-400 font-mono text-xs">
-                      {line.product_sku || line.sku || "\u2014"}
+                      {lineCode}
                     </td>
                     <td className="py-2 px-3 text-right text-white">
                       {isEditing ? (
@@ -905,7 +916,18 @@ export default function OrderDetail() {
                       {shipped > 0 ? shipped : "\u2014"}
                     </td>
                     <td className="py-2 px-3 text-right text-gray-300">
-                      ${parseFloat(line.unit_price || 0).toFixed(2)}
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editPrice}
+                          onChange={(e) => setEditPrice(e.target.value)}
+                          min="0"
+                          step="0.01"
+                          className="w-24 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
+                        />
+                      ) : (
+                        `$${parseFloat(line.unit_price || 0).toFixed(2)}`
+                      )}
                     </td>
                     <td className="py-2 px-3 text-right text-green-400 font-medium">
                       ${parseFloat(line.total || 0).toFixed(2)}
@@ -916,14 +938,14 @@ export default function OrderDetail() {
                           <div className="flex gap-1 justify-center">
                             <button
                               onClick={() => handleSaveLineEdit(line.id)}
-                              disabled={savingLineEdit || !editQty || !editReason.trim()}
+                              disabled={savingLineEdit || (editQty === "" && editPrice === "") || !editReason.trim()}
                               className="text-green-400 hover:text-green-300 disabled:opacity-50 text-xs"
                               title="Save"
                             >
                               {savingLineEdit ? "..." : "\u2713"}
                             </button>
                             <button
-                              onClick={() => { setEditingLineId(null); setEditQty(""); setEditReason(""); }}
+                              onClick={() => { setEditingLineId(null); setEditQty(""); setEditPrice(""); setEditReason(""); }}
                               className="text-gray-400 hover:text-white text-xs"
                               title="Cancel"
                             >
@@ -933,9 +955,14 @@ export default function OrderDetail() {
                         ) : (
                           <div className="flex gap-2 justify-center">
                             <button
-                              onClick={() => { setEditingLineId(line.id); setEditQty(String(line.quantity)); setEditReason(""); }}
+                              onClick={() => {
+                                setEditingLineId(line.id);
+                                setEditQty(String(line.quantity));
+                                setEditPrice(String(line.unit_price || 0));
+                                setEditReason("");
+                              }}
                               className="text-gray-500 hover:text-blue-400 text-xs"
-                              title="Edit quantity"
+                              title="Edit line"
                             >
                               Edit
                             </button>

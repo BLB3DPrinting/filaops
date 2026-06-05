@@ -4,6 +4,7 @@ import ItemCreationWizard from "./ItemCreationWizard";
 const TABS = [
   { id: "products", label: "Finished Goods" },
   { id: "materials", label: "Raw Materials" },
+  { id: "fees", label: "Fees" },
 ];
 
 export default function ProductSelectionStep({
@@ -13,9 +14,11 @@ export default function ProductSelectionStep({
   lineItems,
   addLineItem,
   addMaterialLineItem,
+  addServiceLineItem,
   removeLineItem,
   updateLineQuantity,
   updateLinePrice,
+  updateLineDescription,
   orderTotal,
   startNewItem,
   materialInventory = [],
@@ -27,6 +30,24 @@ export default function ProductSelectionStep({
   itemWizardProps,
 }) {
   const [activeTab, setActiveTab] = useState("products");
+  const [feeDescription, setFeeDescription] = useState("");
+  const [feeQuantity, setFeeQuantity] = useState(1);
+  const [feePrice, setFeePrice] = useState("");
+
+  const handleAddServiceLine = () => {
+    const description = feeDescription.trim();
+    const unitPrice = parseFloat(feePrice);
+    if (!description || Number.isNaN(unitPrice) || unitPrice < 0) return;
+
+    addServiceLineItem({
+      description,
+      quantity: Math.max(1, parseFloat(feeQuantity) || 1),
+      unit_price: unitPrice,
+    });
+    setFeeDescription("");
+    setFeeQuantity(1);
+    setFeePrice("");
+  };
 
   if (showItemWizard) {
     return (
@@ -259,6 +280,65 @@ export default function ProductSelectionStep({
         </>
       )}
 
+      {/* Fees Tab */}
+      {activeTab === "fees" && (
+        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+          <div className="grid grid-cols-[1fr_96px_140px_auto] gap-3 items-end">
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">
+                Description
+              </label>
+              <input
+                type="text"
+                value={feeDescription}
+                onChange={(e) => setFeeDescription(e.target.value)}
+                placeholder="Engineering fee"
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">
+                Qty
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={feeQuantity}
+                onChange={(e) => setFeeQuantity(parseFloat(e.target.value) || 1)}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-right"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">
+                Unit Price
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={feePrice}
+                onChange={(e) => setFeePrice(e.target.value)}
+                placeholder="75.00"
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-right"
+              />
+            </div>
+            <button
+              onClick={handleAddServiceLine}
+              disabled={
+                !feeDescription.trim() ||
+                feePrice === "" ||
+                Number.isNaN(parseFloat(feePrice)) ||
+                parseFloat(feePrice) < 0
+              }
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Selected Line Items */}
       {lineItems.length > 0 && (
         <div className="space-y-2">
@@ -278,17 +358,33 @@ export default function ProductSelectionStep({
                         RAW
                       </span>
                     )}
-                    <div className="text-white font-medium">
+                    {li.line_type === "service" && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
+                        FEE
+                      </span>
+                    )}
+                    {li.line_type === "service" ? (
+                      <input
+                        type="text"
+                        value={li.description || ""}
+                        onChange={(e) => updateLineDescription(li._key, e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
+                      />
+                    ) : (
+                      <div className="text-white font-medium">
+                        {li.line_type === "material"
+                          ? li.material?.name
+                          : li.product?.name}
+                      </div>
+                    )}
+                  </div>
+                  {li.line_type !== "service" && (
+                    <div className="text-gray-500 text-xs font-mono">
                       {li.line_type === "material"
-                        ? li.material?.name
-                        : li.product?.name}
+                        ? li.material?.sku
+                        : li.product?.sku}
                     </div>
-                  </div>
-                  <div className="text-gray-500 text-xs font-mono">
-                    {li.line_type === "material"
-                      ? li.material?.sku
-                      : li.product?.sku}
-                  </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="text-gray-400 text-sm">

@@ -90,10 +90,15 @@ export default function ReviewStep({
           <tbody>
             {lineItems.map((li) => {
               const isMaterial = li.line_type === "material";
-              const name = isMaterial
+              const isService = li.line_type === "service";
+              const name = isService
+                ? li.description
+                : isMaterial
                 ? li.material?.name
                 : li.product?.name;
-              const sku = isMaterial
+              const sku = isService
+                ? "One-time line"
+                : isMaterial
                 ? li.material?.sku
                 : li.product?.sku;
 
@@ -107,6 +112,11 @@ export default function ReviewStep({
                       {isMaterial && (
                         <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded">
                           RAW
+                        </span>
+                      )}
+                      {isService && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
+                          FEE
                         </span>
                       )}
                       <div>

@@ -532,10 +532,11 @@ def create_sales_order(
     """
     Create a manual sales order (line_item type).
 
-    Each line must contain exactly one of ``product_id`` or
-    ``material_inventory_id``.  Product lines use the catalog selling
-    price; material lines require an explicit ``unit_price`` (or fall
-    back to the material's ``cost_per_kg``).
+    Each line must contain a ``product_id``, a ``material_inventory_id``, or
+    ``line_type='service'``.  Product lines default to the catalog selling price
+    but may be overridden for manual/walk-in adjustments; material lines require
+    an explicit ``unit_price`` (or fall back to the material's ``cost_per_kg``);
+    service lines are one-time non-inventory charges with a description.
 
     Args:
         customer_id: Optional customer user ID
@@ -567,22 +568,101 @@ def create_sales_order(
     line_names: list[str] = []
 
     for line in lines:
+        line_type = (line.get("line_type") or "").strip().lower()
         has_product = line.get("product_id") is not None
         has_material = line.get("material_inventory_id") is not None
+
+        if not line_type:
+            if has_product:
+                line_type = "product"
+            elif has_material:
+                line_type = "material"
+
+        if line_type == "service":
+            if has_product or has_material:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Service lines must not specify product_id or material_inventory_id",
+                )
+            description = (line.get("description") or "").strip()
+            if not description:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Service lines require a description",
+                )
+            explicit_price = line.get("unit_price")
+            if explicit_price is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service line '{description}' requires a unit_price",
+                )
+            unit_price = Decimal(str(explicit_price))
+            if unit_price < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service line '{description}' unit price must be >= 0",
+                )
+
+            line_total = unit_price * line["quantity"]
+
+            validated_lines.append({
+                "line_type": "service",
+                "description": description,
+                "product": None,
+                "material": None,
+                "product_id": None,
+                "material_inventory_id": None,
+                "quantity": line["quantity"],
+                "unit_price": unit_price,
+                "line_total": line_total,
+                "discountable": False,
+                "notes": line.get("notes"),
+            })
+            line_names.append(description)
+
+            total_price += line_total
+            total_quantity += line["quantity"]
+            continue
+
+        if line_type not in {"product", "material"}:
+            raise HTTPException(
+                status_code=400,
+                detail="line_type must be product, material, or service",
+            )
 
         if has_product == has_material:
             raise HTTPException(
                 status_code=400,
-                detail="Each line must specify exactly one of product_id or material_inventory_id",
+                detail="Each line must specify product_id, material_inventory_id, or line_type='service'",
+            )
+
+        if has_product and line_type != "product":
+            raise HTTPException(
+                status_code=400,
+                detail="Product-backed lines must use line_type='product'",
+            )
+        if has_material and line_type != "material":
+            raise HTTPException(
+                status_code=400,
+                detail="Material-backed lines must use line_type='material'",
             )
 
         if has_product:
             # --- Product line (existing path) ---
             product = validate_product_for_order(db, line["product_id"])
 
-            # SECURITY: Always use product's catalog price
-            unit_price = product.selling_price or Decimal("0")
-            if unit_price <= 0:
+            explicit_price = line.get("unit_price")
+            if explicit_price is not None:
+                unit_price = Decimal(str(explicit_price))
+            else:
+                unit_price = product.selling_price or Decimal("0")
+
+            if unit_price < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Product '{product.sku}' unit price must be >= 0",
+                )
+            if explicit_price is None and unit_price <= 0:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Product '{product.sku}' has no selling price configured",
@@ -591,6 +671,8 @@ def create_sales_order(
             line_total = unit_price * line["quantity"]
 
             validated_lines.append({
+                "line_type": "product",
+                "description": None,
                 "product": product,
                 "material": None,
                 "product_id": product.id,
@@ -598,6 +680,7 @@ def create_sales_order(
                 "quantity": line["quantity"],
                 "unit_price": unit_price,
                 "line_total": line_total,
+                "discountable": True,
                 "notes": line.get("notes"),
             })
             line_names.append(product.name)
@@ -630,6 +713,8 @@ def create_sales_order(
             line_total = unit_price * line["quantity"]
 
             validated_lines.append({
+                "line_type": "material",
+                "description": None,
                 "product": None,
                 "material": material,
                 "product_id": None,
@@ -637,6 +722,7 @@ def create_sales_order(
                 "quantity": line["quantity"],
                 "unit_price": unit_price,
                 "line_total": line_total,
+                "discountable": True,
                 "notes": line.get("notes"),
             })
             line_names.append(material.display_name)
@@ -653,6 +739,9 @@ def create_sales_order(
         # Apply discount to each line
         total_price = Decimal("0")
         for vl in validated_lines:
+            if not vl.get("discountable", True):
+                total_price += vl["line_total"]
+                continue
             original_price = vl["unit_price"]
             discounted_price = (
                 original_price * (Decimal("1") - discount_percent / Decimal("100"))
@@ -691,7 +780,7 @@ def create_sales_order(
     elif first_line["material"] and first_line["material"].material_type:
         material_type = first_line["material"].material_type.base_material
     else:
-        material_type = "Material"
+        material_type = "Service"
 
     # Use customer_id if provided, otherwise current user
     user_id = customer_id if customer_id else created_by_user_id
@@ -745,6 +834,8 @@ def create_sales_order(
     for line_data in validated_lines:
         order_line = SalesOrderLine(
             sales_order_id=sales_order.id,
+            line_type=line_data["line_type"],
+            description=line_data["description"],
             product_id=line_data["product_id"],
             material_inventory_id=line_data["material_inventory_id"],
             quantity=line_data["quantity"],
@@ -1282,11 +1373,11 @@ def edit_sales_order_lines(
     line_updates: list[dict],
     user_id: int,
 ) -> SalesOrder:
-    """Edit line quantities on a sales order.
+    """Edit line quantities and/or unit prices on a sales order.
 
     Args:
         order_id: Order to edit
-        line_updates: List of {line_id, new_quantity, reason}
+        line_updates: List of {line_id, new_quantity?, new_unit_price?, reason}
         user_id: Admin user making the change
 
     Returns:
@@ -1316,8 +1407,25 @@ def edit_sales_order_lines(
                 detail=f"Line {update['line_id']} not found on order {order.order_number}"
             )
 
-        new_qty = Decimal(str(update["new_quantity"]))
+        old_qty = line.quantity
+        old_unit_price = line.unit_price
+        new_qty = (
+            Decimal(str(update["new_quantity"]))
+            if update.get("new_quantity") is not None
+            else old_qty
+        )
+        new_unit_price = (
+            Decimal(str(update["new_unit_price"]))
+            if update.get("new_unit_price") is not None
+            else old_unit_price
+        )
         shipped = line.shipped_quantity or Decimal("0")
+
+        if line.product_id and new_qty != new_qty.to_integral_value():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Line {line.id} quantity must be a whole number for product-backed lines"
+            )
 
         if new_qty < shipped:
             raise HTTPException(
@@ -1325,15 +1433,22 @@ def edit_sales_order_lines(
                 detail=f"Cannot reduce line {line.id} below shipped quantity ({shipped})"
             )
 
-        old_qty = line.quantity
+        if new_unit_price < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Line {line.id} unit price must be >= 0"
+            )
+
+        quantity_changed = new_qty != old_qty
+        price_changed = new_unit_price != old_unit_price
 
         # Preserve original quantity on first edit only
-        if line.original_quantity is None:
+        if quantity_changed and line.original_quantity is None:
             line.original_quantity = old_qty
 
         line.quantity = new_qty
-        discount = line.discount or Decimal("0")
-        line.total = (new_qty * line.unit_price - discount).quantize(Decimal("0.01"))
+        line.unit_price = new_unit_price
+        line.total = (new_qty * new_unit_price).quantize(Decimal("0.01"))
 
         # Resolve product name for the event
         product_name = "Line"
@@ -1341,21 +1456,35 @@ def edit_sales_order_lines(
             product = db.query(Product).filter(Product.id == line.product_id).first()
             if product:
                 product_name = product.name
+        elif line.material_inventory_id:
+            material = db.query(MaterialInventory).filter(
+                MaterialInventory.id == line.material_inventory_id
+            ).first()
+            if material:
+                product_name = material.display_name
+
+        change_messages = []
+        if quantity_changed:
+            change_messages.append(f"quantity changed from {old_qty} to {new_qty}")
+        if price_changed:
+            change_messages.append(f"unit price changed from {old_unit_price} to {new_unit_price}")
+        change_description = "; ".join(change_messages) or "line reviewed without changes"
 
         record_order_event(
             db=db,
             order_id=order_id,
             event_type="line_edited",
-            title=f"{product_name} quantity changed",
-            description=f"Quantity changed from {old_qty} to {new_qty}. Reason: {update['reason']}",
+            title=f"{product_name} line changed",
+            description=f"{change_description}. Reason: {update['reason']}",
             old_value=str(old_qty),
             new_value=str(new_qty),
             user_id=user_id,
         )
 
         logger.info(
-            "SO %s line %d qty %s → %s (reason: %s)",
-            order.order_number, line.id, old_qty, new_qty, update["reason"],
+            "SO %s line %d qty %s -> %s price %s -> %s (reason: %s)",
+            order.order_number, line.id, old_qty, new_qty,
+            old_unit_price, new_unit_price, update["reason"],
         )
 
     _recalculate_order_totals(db, order)
