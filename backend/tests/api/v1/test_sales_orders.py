@@ -301,20 +301,20 @@ class TestCreateSalesOrder:
         assert data["status"] == "pending"
         assert data["order_type"] == "line_item"
 
-    def test_create_order_uses_catalog_price(self, client, db, make_product):
-        """Security: backend should use product.selling_price, not frontend-supplied price."""
+    def test_create_order_accepts_manual_line_price(self, client, db, make_product):
+        """Manual/admin order creation can override product catalog price per line."""
         product = make_product(selling_price=Decimal("25.00"))
         db.flush()
 
         response = client.post(BASE_URL, json={
             "lines": [
-                {"product_id": product.id, "quantity": 1, "unit_price": 1.00}
+                {"product_id": product.id, "quantity": 1, "unit_price": 30.00}
             ],
         })
         assert response.status_code == 201
         data = response.json()
-        # Should use catalog price ($25), not submitted price ($1)
-        assert Decimal(str(data["total_price"])) == Decimal("25.00")
+        assert Decimal(str(data["total_price"])) == Decimal("30.00")
+        assert Decimal(str(data["lines"][0]["unit_price"])) == Decimal("30.00")
 
     def test_create_order_missing_lines_fails(self, client):
         response = client.post(BASE_URL, json={

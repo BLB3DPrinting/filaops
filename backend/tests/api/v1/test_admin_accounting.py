@@ -225,6 +225,23 @@ class TestOrderCostBreakdown:
         # Revenue = grand_total - tax_amount = 108 - 8 = 100
         assert data["revenue"] == 100.0
 
+    def test_revenue_excludes_shipping(self, client, db, make_sales_order):
+        """Revenue should use order subtotal and keep shipping separate."""
+        so = make_sales_order(
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            tax_amount=Decimal("8.00"),
+        )
+        so.shipping_cost = Decimal("12.00")
+        so.grand_total = Decimal("120.00")
+        db.commit()
+
+        resp = client.get(f"{BASE}/order-cost-breakdown/{so.id}")
+        data = resp.json()
+
+        assert data["revenue"] == 100.0
+        assert data["shipping_expense"] == 12.0
+
 
 # =============================================================================
 # TEST: COGS Summary

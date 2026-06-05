@@ -94,6 +94,10 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
 
             lines.append(SalesOrderLineResponse(
                 id=line.id,
+                line_type=getattr(line, "line_type", None) or (
+                    "material" if line.material_inventory_id else "product"
+                ),
+                description=getattr(line, "description", None),
                 product_id=line.product_id,
                 material_inventory_id=line.material_inventory_id,
                 product_sku=product_sku,
@@ -249,6 +253,8 @@ async def create_sales_order(
     """
     lines = [
         {
+            "line_type": line.line_type,
+            "description": line.description,
             "product_id": line.product_id,
             "material_inventory_id": line.material_inventory_id,
             "quantity": line.quantity,
@@ -837,7 +843,12 @@ async def edit_order_lines(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     line_updates = [
-        {"line_id": ln.line_id, "new_quantity": ln.new_quantity, "reason": ln.reason}
+        {
+            "line_id": ln.line_id,
+            "new_quantity": ln.new_quantity,
+            "new_unit_price": ln.new_unit_price,
+            "reason": ln.reason,
+        }
         for ln in edit_request.lines
     ]
 

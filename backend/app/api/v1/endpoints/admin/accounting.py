@@ -383,8 +383,8 @@ async def get_order_cost_breakdown(
     # Total COGS (production costs only per GAAP)
     total_cogs = material_cost + labor_cost + packaging_cost
 
-    # Revenue and margin (excluding tax per GAAP)
-    revenue = (order.grand_total or order.total_price or Decimal("0")) - (order.tax_amount or Decimal("0"))
+    # Revenue and margin (subtotal only; tax is liability, shipping is operating expense)
+    revenue = order.total_price or Decimal("0")
     gross_profit = revenue - total_cogs
     margin_pct = (gross_profit / revenue * 100) if revenue > 0 else Decimal("0")
 

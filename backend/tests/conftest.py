@@ -96,6 +96,22 @@ def setup_database():
             "ADD COLUMN IF NOT EXISTS material_inventory_id INTEGER "
             "REFERENCES material_inventory(id)"
         ))
+        conn.execute(text(
+            "ALTER TABLE sales_order_lines "
+            "ADD COLUMN IF NOT EXISTS line_type VARCHAR(20) NOT NULL DEFAULT 'product'"
+        ))
+        conn.execute(text(
+            "ALTER TABLE sales_order_lines "
+            "ADD COLUMN IF NOT EXISTS description VARCHAR(255)"
+        ))
+        conn.execute(text(
+            "UPDATE sales_order_lines SET line_type = 'material' "
+            "WHERE product_id IS NULL AND material_inventory_id IS NOT NULL"
+        ))
+        conn.execute(text(
+            "UPDATE sales_order_lines SET line_type = 'product' "
+            "WHERE product_id IS NOT NULL AND material_inventory_id IS NULL"
+        ))
         # Migration 065: widen cost columns
         for col in ("standard_cost", "average_cost", "last_cost"):
             conn.execute(text(
@@ -124,7 +140,6 @@ def setup_database():
             "ALTER TABLE routing_operation_materials "
             "ADD COLUMN IF NOT EXISTS is_variable BOOLEAN NOT NULL DEFAULT FALSE"
         ))
-        # Add CHECK constraint if it doesn't already exist
         conn.execute(text("""
             DO $$
             BEGIN
@@ -134,8 +149,31 @@ def setup_database():
                 ) THEN
                     ALTER TABLE sales_order_lines ADD CONSTRAINT ck_sol_product_or_material
                     CHECK (
-                        (product_id IS NOT NULL AND material_inventory_id IS NULL) OR
-                        (product_id IS NULL AND material_inventory_id IS NOT NULL)
+                        (line_type = 'product' AND product_id IS NOT NULL AND material_inventory_id IS NULL) OR
+                        (line_type = 'material' AND product_id IS NULL AND material_inventory_id IS NOT NULL) OR
+                        (line_type = 'service' AND product_id IS NULL AND material_inventory_id IS NULL)
+                    );
+                END IF;
+            END
+            $$;
+        """))
+        conn.execute(text("""
+            DO $$
+            DECLARE
+                constraint_expr TEXT;
+            BEGIN
+                SELECT pg_get_constraintdef(oid)
+                INTO constraint_expr
+                FROM pg_constraint
+                WHERE conname = 'ck_sol_product_or_material';
+
+                IF constraint_expr IS NOT NULL AND constraint_expr NOT LIKE '%line_type%' THEN
+                    ALTER TABLE sales_order_lines DROP CONSTRAINT ck_sol_product_or_material;
+                    ALTER TABLE sales_order_lines ADD CONSTRAINT ck_sol_product_or_material
+                    CHECK (
+                        (line_type = 'product' AND product_id IS NOT NULL AND material_inventory_id IS NULL) OR
+                        (line_type = 'material' AND product_id IS NULL AND material_inventory_id IS NOT NULL) OR
+                        (line_type = 'service' AND product_id IS NULL AND material_inventory_id IS NULL)
                     );
                 END IF;
             END
