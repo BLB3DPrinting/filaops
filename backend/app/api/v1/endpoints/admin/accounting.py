@@ -35,6 +35,7 @@ from app.models.payment import Payment
 from app.models.company_settings import CompanySettings
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
+from app.services.payment_service import outstanding_balance_summary
 from app.schemas.accounting import (
     InventoryByAccountResponse,
     TransactionsJournalResponse,
@@ -610,31 +611,9 @@ async def get_accounting_dashboard(
         Payment.payment_type == "payment"
     ).scalar() or Decimal("0")
 
-    # Outstanding payments
-    # Batch query to avoid N+1: fetch all payment sums for outstanding orders in one query
-    outstanding_orders = db.query(SalesOrder).filter(
-        SalesOrder.payment_status.in_(["pending", "partial"]),
-        SalesOrder.status.notin_(["cancelled"])
-    ).all()
-
-    # Fetch all payment sums in one query
-    order_ids = [order.id for order in outstanding_orders]
-    payment_sums = {}
-    if order_ids:
-        payments_result = db.query(
-            Payment.sales_order_id,
-            func.coalesce(func.sum(Payment.amount), 0).label('paid')
-        ).filter(
-            Payment.sales_order_id.in_(order_ids),
-            Payment.status == "completed"
-        ).group_by(Payment.sales_order_id).all()
-        payment_sums = {row.sales_order_id: row.paid for row in payments_result}
-
-    total_outstanding = Decimal("0")
-    for order in outstanding_orders:
-        order_total = order.grand_total or order.total_price or Decimal("0")
-        paid = payment_sums.get(order.id, Decimal("0"))
-        total_outstanding += max(order_total - paid, Decimal("0"))
+    # Outstanding payments are computed from the payment ledger so stale
+    # SalesOrder.payment_status labels do not skew AR.
+    total_outstanding, outstanding_order_count = outstanding_balance_summary(db)
 
     # COGS this month (from shipped orders)
     shipped_mtd = db.query(SalesOrder).filter(
@@ -704,7 +683,7 @@ async def get_accounting_dashboard(
             "mtd_received": float(mtd_payments),
             "ytd_received": float(ytd_payments),
             "outstanding": float(total_outstanding),
-            "outstanding_orders": len(outstanding_orders),
+            "outstanding_orders": outstanding_order_count,
         },
         "tax": {
             "mtd_collected": mtd_tax,

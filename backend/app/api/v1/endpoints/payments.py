@@ -18,7 +18,9 @@ from app.models.payment import Payment
 from app.models.sales_order import SalesOrder
 from app.models.order_event import OrderEvent
 from app.services.payment_service import (
+    outstanding_balance_summary,
     generate_payment_number,
+    sales_order_total,
     update_order_payment_status,
 )
 from app.schemas.payment import (
@@ -289,22 +291,9 @@ async def get_payment_dashboard(
         Payment.payment_type == "payment"
     ).first()
 
-    # Outstanding balances - orders not fully paid
-    outstanding_query = db.query(SalesOrder).filter(
-        SalesOrder.payment_status.in_(["pending", "partial"]),
-        SalesOrder.status.notin_(["cancelled"])
-    ).all()
-
-    orders_with_balance = len(outstanding_query)
-    total_outstanding = Decimal("0")
-
-    for order in outstanding_query:
-        order_total = order.grand_total or order.total_price or Decimal("0")
-        paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
-            Payment.sales_order_id == order.id,
-            Payment.status == "completed"
-        ).scalar() or Decimal("0")
-        total_outstanding += max(order_total - paid, Decimal("0"))
+    # Outstanding balances are computed from the payment ledger so stale
+    # SalesOrder.payment_status labels do not skew AR.
+    total_outstanding, orders_with_balance = outstanding_balance_summary(db)
 
     # Payments by method (this month)
     by_method_query = db.query(
@@ -355,7 +344,7 @@ async def get_order_payment_summary(
 
     total_paid = sum(p.amount for p in payments if p.amount > 0)
     total_refunded = abs(sum(p.amount for p in payments if p.amount < 0))
-    order_total = order.grand_total or order.total_price or Decimal("0")
+    order_total = sales_order_total(order)
     balance_due = max(order_total - total_paid + total_refunded, Decimal("0"))
 
     last_payment = db.query(Payment).filter(

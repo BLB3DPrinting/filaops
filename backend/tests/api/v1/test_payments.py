@@ -14,6 +14,8 @@ Covers:
 - DELETE /api/v1/payments/{payment_id}  (void)
 """
 import pytest
+import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 BASE_URL = "/api/v1/payments"
@@ -273,6 +275,40 @@ class TestPaymentDashboard:
     def test_dashboard_unauthorized(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/dashboard")
         assert resp.status_code == 401
+
+    def test_dashboard_outstanding_uses_ledger_when_order_status_is_stale(
+        self, client, db, make_sales_order
+    ):
+        """Outstanding balance should come from payment ledger, not cached order status."""
+        from app.models.payment import Payment
+
+        before = client.get(f"{BASE_URL}/dashboard").json()
+
+        order = make_sales_order(
+            quantity=1,
+            unit_price=Decimal("120.00"),
+            status="confirmed",
+            payment_status="paid",
+        )
+        db.add(Payment(
+            payment_number=f"PAY-STALE-{uuid.uuid4().hex[:8]}",
+            sales_order_id=order.id,
+            amount=Decimal("50.00"),
+            payment_method="cash",
+            payment_type="payment",
+            status="completed",
+            payment_date=datetime.now(timezone.utc),
+        ))
+        db.commit()
+
+        after = client.get(f"{BASE_URL}/dashboard").json()
+
+        outstanding_delta = (
+            Decimal(str(after["total_outstanding"]))
+            - Decimal(str(before["total_outstanding"]))
+        )
+        assert outstanding_delta == Decimal("70.00")
+        assert after["orders_with_balance"] - before["orders_with_balance"] == 1
 
 
 # =============================================================================
