@@ -15,10 +15,9 @@ Tests the admin-scoped accounting view endpoints at /api/v1/admin/accounting/:
 These endpoints are view-only (GET) and sit under the /api/v1/admin/ router.
 Only /export/sales requires explicit staff auth; others rely on router-level access.
 """
-import pytest
 import uuid
 from decimal import Decimal
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone
 
 BASE = "/api/v1/admin/accounting"
 
@@ -882,9 +881,31 @@ class TestDashboardWithData:
         # Revenue MTD should be at least 50
         assert data["revenue"]["mtd"] >= 50.0
 
+    def test_dashboard_revenue_excludes_shipping(self, client, db, make_sales_order):
+        """Dashboard revenue should use order subtotal and keep shipping out of revenue."""
+        before = client.get(f"{BASE}/dashboard").json()["revenue"]
+
+        now = datetime.now(timezone.utc)
+        so = make_sales_order(
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            status="shipped",
+        )
+        so.shipped_at = now
+        so.total_price = Decimal("100.00")
+        so.tax_amount = Decimal("8.00")
+        so.shipping_cost = Decimal("12.00")
+        so.grand_total = Decimal("120.00")
+        db.commit()
+
+        after = client.get(f"{BASE}/dashboard").json()["revenue"]
+
+        assert round(after["mtd"] - before["mtd"], 2) == 100.00
+        assert round(after["ytd"] - before["ytd"], 2) == 100.00
+
     def test_outstanding_payments_tracked(self, client, db, make_sales_order):
         """Orders with pending payment should show in outstanding."""
-        so = make_sales_order(
+        make_sales_order(
             quantity=1,
             unit_price=Decimal("75.00"),
             status="confirmed",
