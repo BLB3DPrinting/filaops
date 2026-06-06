@@ -119,6 +119,8 @@ class CustomerListResponse(BaseModel):
     # Stats
     order_count: int = 0
     total_spent: float = 0.0
+    total_paid: float = 0.0
+    outstanding_balance: float = 0.0
     last_order_date: Optional[datetime] = None
 
     # PRO price level discount (None if PRO not installed)
@@ -153,6 +155,9 @@ class CustomerResponse(CustomerBase):
     order_count: int = 0
     quote_count: int = 0
     total_spent: float = 0.0
+    total_paid: float = 0.0
+    outstanding_balance: float = 0.0
+    last_order_date: Optional[datetime] = None
 
     # PRO price level discount (None if PRO not installed)
     discount_percent: Optional[float] = None
