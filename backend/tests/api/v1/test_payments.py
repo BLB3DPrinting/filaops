@@ -54,6 +54,34 @@ def test_payment(client, test_order):
 # POST /api/v1/payments (Record Payment)
 # =============================================================================
 
+class TestGeneratePaymentNumber:
+
+    def test_uses_numeric_sequence_after_four_digits(self, db, test_order):
+        from datetime import datetime, timezone
+
+        from app.models.payment import Payment
+        from app.services.payment_service import generate_payment_number
+
+        year = datetime.now(timezone.utc).year
+        db.add_all([
+            Payment(
+                payment_number=f"PAY-{year}-9999",
+                sales_order_id=test_order.id,
+                amount=Decimal("1.00"),
+                payment_method="cash",
+            ),
+            Payment(
+                payment_number=f"PAY-{year}-10000",
+                sales_order_id=test_order.id,
+                amount=Decimal("1.00"),
+                payment_method="cash",
+            ),
+        ])
+        db.flush()
+
+        assert generate_payment_number(db) == f"PAY-{year}-10001"
+
+
 class TestRecordPayment:
 
     def test_record_payment_success(self, client, test_order):

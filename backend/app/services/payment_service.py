@@ -2,32 +2,44 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import desc, func
+from sqlalchemy import Integer, cast, func, text
 from sqlalchemy.orm import Session
 
 from app.models.payment import Payment
 from app.models.sales_order import SalesOrder
 
+_PAYMENT_NUMBER_LOCK_NAMESPACE = 74001
+
 
 def generate_payment_number(db: Session) -> str:
-    """Generate next payment number: PAY-YYYY-NNNN."""
+    """Generate next payment number under a transaction-scoped DB lock."""
     year = datetime.now(timezone.utc).year
     prefix = f"PAY-{year}-"
 
-    last_payment = db.query(Payment).filter(
-        Payment.payment_number.like(f"{prefix}%")
-    ).order_by(desc(Payment.payment_number)).first()
+    db.execute(
+        text(
+            """
+            SELECT pg_advisory_xact_lock(
+                CAST(:namespace AS integer),
+                CAST(:year AS integer)
+            )
+            """
+        ),
+        {"namespace": _PAYMENT_NUMBER_LOCK_NAMESPACE, "year": year},
+    )
 
-    if last_payment:
-        try:
-            seq = int(last_payment.payment_number.split("-")[2])
-            next_seq = seq + 1
-        except (IndexError, ValueError):
-            next_seq = 1
-    else:
-        next_seq = 1
+    sequence_value = cast(func.replace(Payment.payment_number, prefix, ""), Integer)
+    max_seq = (
+        db.query(func.max(sequence_value))
+        .filter(
+            Payment.payment_number.like(f"{prefix}%"),
+            Payment.payment_number.op("~")(rf"^PAY-{year}-\d+$"),
+        )
+        .scalar()
+        or 0
+    )
 
-    return f"{prefix}{next_seq:04d}"
+    return f"{prefix}{max_seq + 1:04d}"
 
 
 def update_order_payment_status(db: Session, order: SalesOrder) -> None:
