@@ -195,6 +195,34 @@ class TestCreateInvoice:
         assert invoice.lines[0].product_id is None
         assert invoice.lines[0].line_total == Decimal("250.00")
 
+    def test_create_invoice_uses_adjusted_order_line_total(self, db, make_sales_order):
+        from app.models.sales_order import SalesOrderLine
+        from app.services.invoice_service import create_invoice
+
+        so = make_sales_order(
+            product_id=None,
+            product_name="Manual Order",
+            quantity=1,
+            unit_price=Decimal("90.00"),
+            status="confirmed",
+        )
+        db.add(SalesOrderLine(
+            sales_order_id=so.id,
+            line_type="service",
+            description="Discounted Engineering",
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("50.00"),
+            discount=Decimal("10.00"),
+            total=Decimal("90.00"),
+        ))
+        db.flush()
+
+        invoice = create_invoice(db, so.id)
+
+        assert invoice.lines[0].line_total == Decimal("90.00")
+        assert invoice.subtotal == Decimal("90.00")
+        assert invoice.total == Decimal("90.00")
+
     def test_duplicate_invoice_returns_400(self, db, make_product, make_sales_order):
         from fastapi import HTTPException
         from app.services.invoice_service import create_invoice
