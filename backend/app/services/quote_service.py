@@ -427,19 +427,23 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     # Handle lines update — replace all existing lines
     lines_data = update_data.pop("lines", None)
 
-    # Update fields (exclude apply_tax as it's not a model field)
+    # Update fields (exclude quote-calculation controls that are not model fields)
     apply_tax = update_data.pop("apply_tax", None)
+    tax_rate_id_updated = "tax_rate_id" in update_data
+    tax_rate_id = update_data.pop("tax_rate_id", None)
     shipping_cost_updated = "shipping_cost" in update_data
     shipping_state_updated = "shipping_state" in update_data
 
     for field, value in update_data.items():
         setattr(quote, field, value)
 
+    use_selected_tax_rate = tax_rate_id_updated and tax_rate_id is not None and apply_tax is not False
     should_recalculate = (
         lines_data is not None
         or request.unit_price is not None
         or request.quantity is not None
         or apply_tax is not None
+        or tax_rate_id_updated
         or shipping_cost_updated
         or shipping_state_updated
     )
@@ -510,8 +514,8 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
 
         # Resolve tax (respect apply_tax toggle during multi-line edit)
         shipping = quote.shipping_cost or Decimal("0")
-        if apply_tax is not None:
-            if apply_tax:
+        if use_selected_tax_rate or apply_tax is not None:
+            if use_selected_tax_rate or apply_tax:
                 tax_rate, _tax_amount, tax_name = _resolve_tax(db, subtotal, request, company_settings)
                 quote.tax_rate = tax_rate
                 quote.tax_amount = _calculate_quote_tax_amount(
@@ -551,8 +555,8 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         shipping = quote.shipping_cost or Decimal("0")
 
         # Handle tax calculation
-        if apply_tax is not None:
-            if apply_tax:
+        if use_selected_tax_rate or apply_tax is not None:
+            if use_selected_tax_rate or apply_tax:
                 tax_rate, _tax_amount, tax_name = _resolve_tax(db, subtotal, request, company_settings)
                 quote.tax_rate = tax_rate
                 quote.tax_amount = _calculate_quote_tax_amount(
@@ -723,7 +727,7 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
         quote_id=quote.id,
         user_id=quote.user_id,
         order_type="line_item" if has_lines else "quote_based",
-        source="portal",
+        source="quote",
         product_id=quote.product_id if not has_lines else None,
         product_name=quote.product_name,
         quantity=quote.quantity,
