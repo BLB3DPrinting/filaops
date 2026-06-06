@@ -549,6 +549,24 @@ class TestCreateSalesOrder:
         assert order.tax_amount == Decimal("7.70")
         assert order.grand_total == Decimal("117.70")
 
+    def test_customer_shipping_state_taxes_shipping_before_address_copy(self, db, make_product):
+        """Customer destination state should be known before calculating tax."""
+        customer = _make_user(db, status="active", shipping_state="IN")
+        product = make_product(selling_price=Decimal("100.00"))
+        _set_company_tax(db, tax_enabled=True, tax_rate=Decimal("0.07"))
+
+        order = sales_order_service.create_sales_order(
+            db,
+            customer_id=customer.id,
+            lines=[{"product_id": product.id, "quantity": 1}],
+            shipping_cost=Decimal("10.00"),
+            created_by_user_id=1,
+        )
+
+        assert order.shipping_state == "IN"
+        assert order.tax_amount == Decimal("7.70")
+        assert order.grand_total == Decimal("117.70")
+
     def test_creates_order_with_customer(self, db, make_product):
         """Order linked to a customer uses customer's user_id."""
         customer = _make_user(db, status="active")
@@ -1018,6 +1036,48 @@ class TestUpdateShippingAddress:
         )
         assert result.shipping_address_line1 == "Original St"
         assert result.shipping_city == "New City"
+
+
+# =============================================================================
+# edit_sales_order_lines
+# =============================================================================
+
+class TestEditSalesOrderLines:
+    def test_indiana_shipping_stays_taxable_after_line_edit(self, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("100.00"))
+        order = make_sales_order(
+            status="pending",
+            order_type="line_item",
+            quantity=2,
+            unit_price=Decimal("100.00"),
+            tax_rate=Decimal("0.07"),
+            tax_amount=Decimal("14.70"),
+            is_taxable=True,
+            shipping_cost=Decimal("10.00"),
+            shipping_state="IN",
+        )
+        line = _make_order_line(
+            db,
+            order.id,
+            product.id,
+            quantity=2,
+            unit_price=Decimal("100.00"),
+        )
+
+        result = sales_order_service.edit_sales_order_lines(
+            db,
+            order.id,
+            [{
+                "line_id": line.id,
+                "new_quantity": 1,
+                "reason": "Customer reduced quantity",
+            }],
+            user_id=1,
+        )
+
+        assert result.total_price == Decimal("100.00")
+        assert result.tax_amount == Decimal("7.70")
+        assert result.grand_total == Decimal("117.70")
 
 
 # =============================================================================

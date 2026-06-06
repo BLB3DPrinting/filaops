@@ -764,6 +764,18 @@ def create_sales_order(
     # Generate order number
     order_number = generate_order_number(db)
 
+    # Resolve customer shipping state before tax calculation.
+    if customer:
+        if not shipping_address_line1 and customer.shipping_address_line1:
+            shipping_address_line1 = customer.shipping_address_line1
+            shipping_address_line2 = customer.shipping_address_line2
+            shipping_city = customer.shipping_city
+            shipping_state = shipping_state or customer.shipping_state
+            shipping_zip = customer.shipping_zip
+            shipping_country = customer.shipping_country or "USA"
+        elif shipping_state is None and customer.shipping_state:
+            shipping_state = customer.shipping_state
+
     # Calculate tax
     company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
     tax_rate, is_taxable, tax_name = get_company_tax_settings(
@@ -803,16 +815,6 @@ def create_sales_order(
 
     # Use customer_id if provided, otherwise current user
     user_id = customer_id if customer_id else created_by_user_id
-
-    # Auto-copy customer shipping address if not provided
-    if customer and not shipping_address_line1:
-        if customer.shipping_address_line1:
-            shipping_address_line1 = customer.shipping_address_line1
-            shipping_address_line2 = customer.shipping_address_line2
-            shipping_city = customer.shipping_city
-            shipping_state = customer.shipping_state
-            shipping_zip = customer.shipping_zip
-            shipping_country = customer.shipping_country or "USA"
 
     # Create sales order
     sales_order = SalesOrder(
@@ -1371,13 +1373,21 @@ def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
     order.total_price = line_total
     order.quantity = int(line_qty)
 
+    shipping = order.shipping_cost or Decimal("0")
     # Recalculate tax if order is taxable
-    if order.is_taxable and order.tax_rate:
-        order.tax_amount = (line_total * order.tax_rate).quantize(Decimal("0.01"))
+    if order.is_taxable and order.tax_rate is not None:
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+        tax_result = calculate_sales_tax(
+            subtotal=line_total,
+            tax_rate=order.tax_rate,
+            shipping_cost=shipping,
+            ship_to_state=order.shipping_state,
+            seller_state=company_settings.company_state if company_settings else None,
+        )
+        order.tax_amount = tax_result.tax_amount
     else:
         order.tax_amount = order.tax_amount or Decimal("0")
 
-    shipping = order.shipping_cost or Decimal("0")
     tax = order.tax_amount or Decimal("0")
     order.grand_total = (line_total + tax + shipping).quantize(Decimal("0.01"))
 

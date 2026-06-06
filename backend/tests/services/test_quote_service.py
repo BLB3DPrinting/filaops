@@ -28,6 +28,7 @@ from app.models.quote import Quote, QuoteLine
 from app.models.company_settings import CompanySettings
 from app.models.user import User
 from app.models.sales_order import SalesOrder
+from app.models.tax_rate import TaxRate
 
 
 # =============================================================================
@@ -95,6 +96,7 @@ def _make_manual_quote_request(**overrides):
         customer_notes=None,
         admin_notes=None,
         lines=None,
+        shipping_state=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -267,6 +269,21 @@ class TestCreateQuote:
         assert quote.tax_amount == Decimal("7.70")
         assert quote.total_price == Decimal("117.70")
 
+    def test_persists_shipping_state_used_for_tax(self, db):
+        _make_company_settings(db, tax_enabled=True, tax_rate=Decimal("0.07"))
+        request = _make_manual_quote_request(
+            unit_price=Decimal("100.00"),
+            quantity=1,
+            apply_tax=True,
+            shipping_cost=Decimal("10.00"),
+            shipping_state="IN",
+        )
+
+        quote = quote_service.create_quote(db, request, user_id=1)
+
+        assert quote.shipping_state == "IN"
+        assert quote.tax_amount == Decimal("7.70")
+
     def test_no_tax_when_apply_tax_false(self, db):
         _make_company_settings(db, tax_enabled=True, tax_rate=Decimal("0.0825"))
         request = _make_manual_quote_request(
@@ -342,6 +359,9 @@ class TestUpdateQuote:
             customer_email=None,
             customer_notes=None,
             admin_notes=None,
+            apply_tax=None,
+            tax_rate_id=None,
+            shipping_state=None,
         )
         defaults.update(overrides)
 
@@ -410,6 +430,52 @@ class TestUpdateQuote:
 
         assert result.tax_amount == Decimal("7.70")
         assert result.total_price == Decimal("117.70")
+
+    def test_shipping_state_update_recalculates_taxable_base(self, db):
+        q = _make_quote(
+            db,
+            quote_number="Q-UPD-SHIP-STATE-01",
+            unit_price=Decimal("100.00"),
+            subtotal=Decimal("100.00"),
+            tax_rate=Decimal("0.07"),
+            tax_amount=Decimal("7.00"),
+            shipping_cost=Decimal("10.00"),
+            total_price=Decimal("117.00"),
+            quantity=1,
+            shipping_state="OH",
+        )
+
+        request = self._make_update_request(shipping_state="IN")
+        result = quote_service.update_quote(db, q.id, request)
+
+        assert result.shipping_state == "IN"
+        assert result.tax_amount == Decimal("7.70")
+        assert result.total_price == Decimal("117.70")
+
+    def test_apply_tax_true_uses_default_tax_rate_on_single_item_update(self, db):
+        db.add(TaxRate(
+            name="Default Local",
+            rate=Decimal("0.0500"),
+            is_default=True,
+            is_active=True,
+        ))
+        db.flush()
+        q = _make_quote(
+            db,
+            quote_number="Q-UPD-DEFAULT-TAX-01",
+            unit_price=Decimal("100.00"),
+            subtotal=Decimal("100.00"),
+            total_price=Decimal("100.00"),
+            quantity=1,
+        )
+
+        request = self._make_update_request(apply_tax=True)
+        result = quote_service.update_quote(db, q.id, request)
+
+        assert result.tax_rate == Decimal("0.0500")
+        assert result.tax_name == "Default Local"
+        assert result.tax_amount == Decimal("5.00")
+        assert result.total_price == Decimal("105.00")
 
 
 # =============================================================================

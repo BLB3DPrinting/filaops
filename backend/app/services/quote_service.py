@@ -319,6 +319,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         tax_name=tax_name,
         discount_percent=discount_percent,
         shipping_cost=shipping_cost if shipping_cost > 0 else None,
+        shipping_state=getattr(request, "shipping_state", None),
         total_price=total_price,
         material_type=effective_material_type if not has_lines else None,
         color=request.color if not has_lines else None,
@@ -429,6 +430,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     # Update fields (exclude apply_tax as it's not a model field)
     apply_tax = update_data.pop("apply_tax", None)
     shipping_cost_updated = "shipping_cost" in update_data
+    shipping_state_updated = "shipping_state" in update_data
 
     for field, value in update_data.items():
         setattr(quote, field, value)
@@ -439,6 +441,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         or request.quantity is not None
         or apply_tax is not None
         or shipping_cost_updated
+        or shipping_state_updated
     )
     company_settings = (
         db.query(CompanySettings).filter(CompanySettings.id == 1).first()
@@ -537,33 +540,34 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
             quote.total_price = subtotal + shipping
 
     # Recalculate pricing for single-item updates (only if no lines provided)
-    elif request.unit_price is not None or request.quantity is not None or apply_tax is not None or shipping_cost_updated:
-        unit_price = request.unit_price if request.unit_price is not None else quote.unit_price
-        quantity = request.quantity if request.quantity is not None else quote.quantity
-        subtotal = unit_price * quantity
+    elif should_recalculate:
+        if request.unit_price is None and quote.unit_price is None:
+            subtotal = quote.subtotal or Decimal("0")
+        else:
+            unit_price = request.unit_price if request.unit_price is not None else quote.unit_price
+            quantity = request.quantity if request.quantity is not None else quote.quantity
+            subtotal = unit_price * quantity
         quote.subtotal = subtotal
         shipping = quote.shipping_cost or Decimal("0")
 
         # Handle tax calculation
         if apply_tax is not None:
             if apply_tax:
-                if company_settings and company_settings.tax_rate is not None:
-                    quote.tax_rate = company_settings.tax_rate
-                    quote.tax_amount = _calculate_quote_tax_amount(
-                        subtotal=subtotal,
-                        tax_rate=company_settings.tax_rate,
-                        shipping_cost=shipping,
-                        ship_to_state=quote.shipping_state,
-                        company_settings=company_settings,
-                    )
-                    quote.total_price = subtotal + (quote.tax_amount or Decimal("0")) + shipping
-                else:
-                    quote.tax_rate = None
-                    quote.tax_amount = None
-                    quote.total_price = subtotal + shipping
+                tax_rate, _tax_amount, tax_name = _resolve_tax(db, subtotal, request, company_settings)
+                quote.tax_rate = tax_rate
+                quote.tax_amount = _calculate_quote_tax_amount(
+                    subtotal=subtotal,
+                    tax_rate=tax_rate,
+                    shipping_cost=shipping,
+                    ship_to_state=quote.shipping_state,
+                    company_settings=company_settings,
+                )
+                quote.tax_name = tax_name
+                quote.total_price = subtotal + (quote.tax_amount or Decimal("0")) + shipping
             else:
                 quote.tax_rate = None
                 quote.tax_amount = None
+                quote.tax_name = None
                 quote.total_price = subtotal + shipping
         else:
             if quote.tax_rate:
