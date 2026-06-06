@@ -264,6 +264,37 @@ class TestRecordPayment:
         assert updated.amount_paid == Decimal("20.00")
         assert updated.paid_at is not None
 
+    def test_record_payment_writes_sales_order_payment_ledger(
+        self, db, make_product, make_sales_order
+    ):
+        from app.models.payment import Payment
+        from app.services.invoice_service import create_invoice, record_payment
+
+        product = make_product(selling_price=Decimal("45.00"))
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("45.00"),
+            status="confirmed",
+            payment_status="pending",
+        )
+        invoice = create_invoice(db, so.id)
+
+        record_payment(
+            db, invoice.id, Decimal("45.00"), "card", reference="txn_invoice_123"
+        )
+        db.refresh(so)
+
+        payment = db.query(Payment).filter(Payment.sales_order_id == so.id).one()
+        assert payment.amount == Decimal("45.00")
+        assert payment.payment_method == "card"
+        assert payment.payment_type == "payment"
+        assert payment.status == "completed"
+        assert payment.transaction_id == "txn_invoice_123"
+        assert payment.payment_number.startswith("PAY-")
+        assert so.payment_status == "paid"
+        assert so.paid_at is not None
+
 
 class TestMarkSent:
     """Test mark_sent transition."""
