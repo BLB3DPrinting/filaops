@@ -152,7 +152,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
             sku = product.sku if product else ""
             description = ol.description or (product.name if product else "Item")
             base_price = product.selling_price if product else ol.unit_price
-            line_total = ol.quantity * ol.unit_price
+            line_total = ol.total if ol.total is not None else ol.quantity * ol.unit_price
 
             invoice_lines.append(InvoiceLine(
                 product_id=ol.product_id,
