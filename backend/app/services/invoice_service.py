@@ -11,9 +11,14 @@ from sqlalchemy.orm import Session
 from app.logging_config import get_logger
 from app.models.company_settings import CompanySettings
 from app.models.invoice import Invoice, InvoiceLine
+from app.models.payment import Payment
 from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
+from app.services.payment_service import (
+    generate_payment_number,
+    update_order_payment_status,
+)
 
 logger = get_logger(__name__)
 
@@ -258,6 +263,27 @@ def record_payment(
     invoice.amount_paid = new_paid
     invoice.payment_method = method
     invoice.payment_reference = reference
+
+    if invoice.sales_order_id:
+        order = (
+            db.query(SalesOrder)
+            .filter(SalesOrder.id == invoice.sales_order_id)
+            .first()
+        )
+        if order:
+            payment = Payment(
+                payment_number=generate_payment_number(db),
+                sales_order_id=order.id,
+                amount=amount,
+                payment_method=method,
+                payment_type="payment",
+                status="completed",
+                transaction_id=reference,
+                notes=f"Invoice {invoice.invoice_number}",
+            )
+            db.add(payment)
+            db.flush()
+            update_order_payment_status(db, order)
 
     if new_paid >= invoice.total:
         invoice.status = "paid"
