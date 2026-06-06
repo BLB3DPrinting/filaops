@@ -44,41 +44,21 @@ def _build_full_name(customer: User) -> Optional[str]:
 
 def _get_customer_stats(db: Session, customer_id: int) -> dict:
     """Fetch order, quote, booked, paid, and outstanding stats for a customer."""
-    order_customer_filter = _sales_order_customer_filter(customer_id)
-    quote_customer_filter = _quote_customer_filter(customer_id)
+    return _get_customers_stats_batch(db, [customer_id]).get(
+        customer_id,
+        _empty_customer_stats(),
+    )
 
-    orders = db.query(SalesOrder).filter(
-        order_customer_filter,
-        SalesOrder.status != "cancelled",
-    ).all()
 
-    order_ids = [order.id for order in orders]
-    paid_by_order = _completed_payment_totals_by_order(db, order_ids)
-
-    total_spent = Decimal("0")
-    total_paid = Decimal("0")
-    outstanding_balance = Decimal("0")
-    last_order_date = None
-    for order in orders:
-        order_total = _sales_order_total(order)
-        paid = paid_by_order.get(order.id, Decimal("0"))
-        total_spent += order_total
-        total_paid += paid
-        outstanding_balance += max(order_total - paid, Decimal("0"))
-        if order.created_at and (last_order_date is None or order.created_at > last_order_date):
-            last_order_date = order.created_at
-
-    quote_count = db.query(func.count(Quote.id)).filter(
-        quote_customer_filter,
-    ).scalar() or 0
-
+def _empty_customer_stats() -> dict:
+    """Return the zero-value shape used by customer stats responses."""
     return {
-        "order_count": len(orders),
-        "quote_count": quote_count,
-        "total_spent": float(total_spent),
-        "total_paid": float(total_paid),
-        "outstanding_balance": float(outstanding_balance),
-        "last_order_date": last_order_date,
+        "order_count": 0,
+        "quote_count": 0,
+        "total_spent": 0.0,
+        "total_paid": 0.0,
+        "outstanding_balance": 0.0,
+        "last_order_date": None,
     }
 
 
@@ -100,7 +80,88 @@ def _quote_customer_filter(customer_id: int):
 
 def _sales_order_total(order: SalesOrder) -> Decimal:
     """Return the customer-facing order total, including tax, fees, and shipping."""
-    return order.grand_total or order.total_price or Decimal("0")
+    if order.grand_total is not None:
+        return order.grand_total
+    if order.total_price is not None:
+        return order.total_price
+    return Decimal("0")
+
+
+def _get_customers_stats_batch(db: Session, customer_ids: list[int]) -> dict[int, dict]:
+    """Fetch order, quote, booked, paid, and outstanding stats for customers."""
+    if not customer_ids:
+        return {}
+
+    customer_ids_set = set(customer_ids)
+    stats_by_customer = {customer_id: _empty_customer_stats() for customer_id in customer_ids_set}
+
+    orders = db.query(SalesOrder).filter(
+        or_(
+            SalesOrder.customer_id.in_(customer_ids_set),
+            and_(
+                SalesOrder.customer_id.is_(None),
+                SalesOrder.user_id.in_(customer_ids_set),
+            ),
+        ),
+        SalesOrder.status != "cancelled",
+    ).all()
+
+    paid_by_order = _completed_payment_totals_by_order(db, [order.id for order in orders])
+    totals_by_customer = {
+        customer_id: {
+            "total_spent": Decimal("0"),
+            "total_paid": Decimal("0"),
+            "outstanding_balance": Decimal("0"),
+        }
+        for customer_id in customer_ids_set
+    }
+
+    for order in orders:
+        customer_id = order.customer_id
+        if customer_id not in customer_ids_set and order.customer_id is None:
+            customer_id = order.user_id
+        if customer_id not in customer_ids_set:
+            continue
+
+        order_total = _sales_order_total(order)
+        paid = paid_by_order.get(order.id, Decimal("0"))
+        stats = stats_by_customer[customer_id]
+        totals = totals_by_customer[customer_id]
+
+        stats["order_count"] += 1
+        totals["total_spent"] += order_total
+        totals["total_paid"] += paid
+        totals["outstanding_balance"] += max(order_total - paid, Decimal("0"))
+        if order.created_at and (
+            stats["last_order_date"] is None or order.created_at > stats["last_order_date"]
+        ):
+            stats["last_order_date"] = order.created_at
+
+    quote_customer_id = func.coalesce(Quote.customer_id, Quote.user_id)
+    quote_rows = db.query(
+        quote_customer_id.label("customer_id"),
+        func.count(Quote.id).label("quote_count"),
+    ).filter(
+        or_(
+            Quote.customer_id.in_(customer_ids_set),
+            and_(
+                Quote.customer_id.is_(None),
+                Quote.user_id.in_(customer_ids_set),
+            ),
+        ),
+    ).group_by(quote_customer_id).all()
+
+    for row in quote_rows:
+        if row.customer_id in stats_by_customer:
+            stats_by_customer[row.customer_id]["quote_count"] = row.quote_count
+
+    for customer_id, totals in totals_by_customer.items():
+        stats = stats_by_customer[customer_id]
+        stats["total_spent"] = float(totals["total_spent"])
+        stats["total_paid"] = float(totals["total_paid"])
+        stats["outstanding_balance"] = float(totals["outstanding_balance"])
+
+    return stats_by_customer
 
 
 def _completed_payment_totals_by_order(db: Session, order_ids: list[int]) -> dict[int, Decimal]:
@@ -285,10 +346,14 @@ def list_customers(
 
     query = query.order_by(desc(User.created_at))
     customers = query.offset(skip).limit(limit).all()
+    stats_by_customer = _get_customers_stats_batch(
+        db,
+        [customer.id for customer in customers],
+    )
 
     result = []
     for customer in customers:
-        stats = _get_customer_stats(db, customer.id)
+        stats = stats_by_customer.get(customer.id, _empty_customer_stats())
 
         result.append({
             "id": customer.id,

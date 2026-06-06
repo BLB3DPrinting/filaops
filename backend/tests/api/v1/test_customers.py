@@ -402,6 +402,60 @@ class TestListCustomers:
         assert match["total_paid"] == 40.0
         assert match["outstanding_balance"] == 80.0
 
+    def test_list_maps_payment_stats_to_each_customer(self, client, db, make_sales_order):
+        """Customer list batch stats are mapped back to the right customers."""
+        from app.models.payment import Payment
+
+        first_customer = _create_customer(client, first_name="BatchStatsA")
+        second_customer = _create_customer(client, first_name="BatchStatsB")
+        first_order = make_sales_order(
+            user_id=1,
+            customer_id=first_customer["id"],
+            status="confirmed",
+        )
+        first_order.grand_total = Decimal("120.00")
+        first_order.total_price = Decimal("120.00")
+        second_order = make_sales_order(
+            user_id=1,
+            customer_id=second_customer["id"],
+            status="confirmed",
+        )
+        second_order.grand_total = Decimal("80.00")
+        second_order.total_price = Decimal("80.00")
+        db.add_all([
+            Payment(
+                payment_number=f"PAY-{uuid.uuid4().hex[:8]}",
+                sales_order_id=first_order.id,
+                recorded_by_id=1,
+                amount=Decimal("50.00"),
+                payment_method="card",
+                payment_type="payment",
+                status="completed",
+            ),
+            Payment(
+                payment_number=f"PAY-{uuid.uuid4().hex[:8]}",
+                sales_order_id=second_order.id,
+                recorded_by_id=1,
+                amount=Decimal("80.00"),
+                payment_method="card",
+                payment_type="payment",
+                status="completed",
+            ),
+        ])
+        db.flush()
+
+        response = client.get(BASE_URL, params={"limit": 100})
+        assert response.status_code == 200
+        customers_by_id = {customer["id"]: customer for customer in response.json()}
+        first_stats = customers_by_id[first_customer["id"]]
+        second_stats = customers_by_id[second_customer["id"]]
+        assert first_stats["total_spent"] == 120.0
+        assert first_stats["total_paid"] == 50.0
+        assert first_stats["outstanding_balance"] == 70.0
+        assert second_stats["total_spent"] == 80.0
+        assert second_stats["total_paid"] == 80.0
+        assert second_stats["outstanding_balance"] == 0.0
+
 
 # =============================================================================
 # GET /api/v1/admin/customers/search?q=... - Quick search
@@ -539,6 +593,26 @@ class TestGetCustomer:
         data = response.json()
         assert data["order_count"] == 1
         assert data["total_spent"] == 123.45
+
+    def test_get_customer_preserves_zero_grand_total(self, client, db, make_sales_order):
+        """A zero grand_total is authoritative and does not fall back to total_price."""
+        customer = _create_customer(client)
+        customer_id = customer["id"]
+        order = make_sales_order(
+            user_id=1,
+            customer_id=customer_id,
+            status="confirmed",
+        )
+        order.grand_total = Decimal("0.00")
+        order.total_price = Decimal("99.99")
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{customer_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_count"] == 1
+        assert data["total_spent"] == 0.0
+        assert data["outstanding_balance"] == 0.0
 
     def test_get_customer_allocates_paid_and_outstanding(self, client, db, make_sales_order):
         """Customer detail separates booked order value from net paid cash."""
