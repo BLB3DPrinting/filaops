@@ -79,6 +79,17 @@ ACCOUNTS = {
 }
 
 
+def _order_revenue_amount(order: SalesOrder) -> Decimal:
+    """Return recognized order revenue, excluding tax and shipping."""
+    if order.total_price is not None:
+        return order.total_price
+
+    total = order.grand_total if order.grand_total is not None else Decimal("0")
+    tax = order.tax_amount if order.tax_amount is not None else Decimal("0")
+    shipping = order.shipping_cost if order.shipping_cost is not None else Decimal("0")
+    return max(total - tax - shipping, Decimal("0"))
+
+
 @router.get("/inventory-by-account", response_model=InventoryByAccountResponse)
 async def get_inventory_by_account(
     db: Session = Depends(get_db),
@@ -569,8 +580,8 @@ async def get_accounting_dashboard(
         SalesOrder.status.in_(["shipped", "completed"])
     ).all()
 
-    # Revenue excludes tax (tax is a liability, not revenue)
-    mtd_revenue = sum(float((o.grand_total or o.total_price or 0) - (o.tax_amount or 0)) for o in mtd_orders)
+    # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
+    mtd_revenue = sum(float(_order_revenue_amount(o)) for o in mtd_orders)
     mtd_tax = sum(float(o.tax_amount or 0) for o in mtd_orders)
     mtd_orders_count = len(mtd_orders)
 
@@ -580,8 +591,8 @@ async def get_accounting_dashboard(
         SalesOrder.status.in_(["shipped", "completed"])
     ).all()
 
-    # Revenue excludes tax (tax is a liability, not revenue)
-    ytd_revenue = sum(float((o.grand_total or o.total_price or 0) - (o.tax_amount or 0)) for o in ytd_orders)
+    # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
+    ytd_revenue = sum(float(_order_revenue_amount(o)) for o in ytd_orders)
     ytd_tax = sum(float(o.tax_amount or 0) for o in ytd_orders)
     ytd_orders_count = len(ytd_orders)
 
