@@ -1,4 +1,5 @@
 """Tests for invoice service and API endpoints."""
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -122,6 +123,49 @@ class TestCreateInvoice:
         assert len(invoice.lines) == 1
         assert invoice.lines[0].quantity == 2
         assert invoice.lines[0].unit_price == Decimal("25.00")
+
+    def test_create_invoice_uses_linked_customer_for_staff_order(self, db, make_product, make_sales_order):
+        from app.models.user import User
+        from app.services.invoice_service import create_invoice
+
+        uid = uuid.uuid4().hex[:8]
+        customer = User(
+            email=f"invoice-customer-{uid}@example.com",
+            password_hash="test-hash",
+            first_name="Invoice",
+            last_name="Customer",
+            company_name="Invoice Customer Co",
+            account_type="customer",
+            payment_terms="net30",
+            billing_address_line1="123 Billing Way",
+            billing_city="Billingtown",
+            billing_state="IN",
+            billing_zip="46204",
+        )
+        db.add(customer)
+        db.flush()
+
+        product = make_product(selling_price=Decimal("25.00"))
+        so = make_sales_order(
+            user_id=1,
+            customer_id=customer.id,
+            customer_name="Order Snapshot Name",
+            customer_email="snapshot@example.com",
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("25.00"),
+            status="confirmed",
+        )
+
+        invoice = create_invoice(db, so.id)
+
+        assert invoice.customer_id == customer.id
+        assert invoice.customer_name == "Order Snapshot Name"
+        assert invoice.customer_email == "snapshot@example.com"
+        assert invoice.customer_company == "Invoice Customer Co"
+        assert invoice.bill_to_line1 == "123 Billing Way"
+        assert invoice.bill_to_city == "Billingtown"
+        assert invoice.payment_terms == "net30"
 
     def test_duplicate_invoice_returns_400(self, db, make_product, make_sales_order):
         from fastapi import HTTPException
