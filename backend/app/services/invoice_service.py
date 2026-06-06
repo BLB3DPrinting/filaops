@@ -161,7 +161,6 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
                 quantity=ol.quantity,
                 unit_price=ol.unit_price,
                 base_price=base_price if base_price != ol.unit_price else None,
-                discount_percent=ol.discount if ol.discount else None,
                 line_total=line_total,
             ))
             subtotal += line_total

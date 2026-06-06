@@ -220,6 +220,7 @@ class TestCreateInvoice:
         invoice = create_invoice(db, so.id)
 
         assert invoice.lines[0].line_total == Decimal("90.00")
+        assert invoice.lines[0].discount_percent is None
         assert invoice.subtotal == Decimal("90.00")
         assert invoice.total == Decimal("90.00")
 
