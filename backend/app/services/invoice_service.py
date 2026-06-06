@@ -118,10 +118,11 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
             detail=f"Invoice {existing.invoice_number} already exists for this order",
         )
 
-    # Get customer info from User record
+    # Get customer info from the linked customer record, falling back to legacy user_id.
     customer = None
-    if order.user_id:
-        customer = db.query(User).filter(User.id == order.user_id).first()
+    invoice_customer_id = order.customer_id or order.user_id
+    if invoice_customer_id:
+        customer = db.query(User).filter(User.id == invoice_customer_id).first()
 
     # Payment terms: use customer's payment_terms if the column exists
     # (migration 069 is on a separate branch), else default to "cod"
@@ -199,7 +200,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     invoice = Invoice(
         invoice_number=invoice_number,
         sales_order_id=order.id,
-        customer_id=order.user_id,
+        customer_id=invoice_customer_id,
         customer_name=customer_name,
         customer_email=order.customer_email or (customer.email if customer else None),
         customer_company=customer.company_name if customer else None,
