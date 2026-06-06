@@ -920,6 +920,37 @@ class TestDashboardWithData:
         assert data["payments"]["outstanding_orders"] >= 1
         assert data["payments"]["outstanding"] >= 75.0
 
+    def test_dashboard_outstanding_ignores_stale_pending_fully_paid_order(
+        self, client, db, make_sales_order
+    ):
+        """Completed ledger payments should keep stale pending orders out of AR."""
+        from app.models.payment import Payment
+
+        before = client.get(f"{BASE}/dashboard").json()["payments"]
+
+        order = make_sales_order(
+            quantity=1,
+            unit_price=Decimal("90.00"),
+            status="confirmed",
+            payment_status="pending",
+        )
+        db.add(Payment(
+            payment_number=f"PAY-STALE-{_uid()}",
+            sales_order_id=order.id,
+            amount=Decimal("90.00"),
+            payment_method="cash",
+            payment_type="payment",
+            status="completed",
+            payment_date=datetime.now(timezone.utc),
+        ))
+        db.commit()
+
+        after = client.get(f"{BASE}/dashboard").json()["payments"]
+
+        outstanding_delta = round(after["outstanding"] - before["outstanding"], 2)
+        assert outstanding_delta == 0.00
+        assert after["outstanding_orders"] - before["outstanding_orders"] == 0
+
 
 # =============================================================================
 # TEST: COGS Summary with Shipped Orders
