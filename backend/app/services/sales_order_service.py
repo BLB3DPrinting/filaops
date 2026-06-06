@@ -31,6 +31,7 @@ from app.models.inventory import Inventory
 from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
 from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
+from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
 
@@ -489,7 +490,11 @@ def validate_material_for_order(db: Session, material_inventory_id: int) -> Mate
     return material
 
 
-def get_company_tax_settings(db: Session) -> tuple[Optional[Decimal], bool, Optional[str]]:
+def get_company_tax_settings(
+    db: Session,
+    *,
+    company_settings: Optional[CompanySettings] = None,
+) -> tuple[Optional[Decimal], bool, Optional[str]]:
     """
     Get company tax settings.
 
@@ -505,8 +510,13 @@ def get_company_tax_settings(db: Session) -> tuple[Optional[Decimal], bool, Opti
     if default_tr:
         return default_tr.rate, True, default_tr.name
 
-    company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-    if company_settings and company_settings.tax_enabled and company_settings.tax_rate:
+    if company_settings is None:
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+    if (
+        company_settings
+        and company_settings.tax_enabled
+        and company_settings.tax_rate is not None
+    ):
         return Decimal(str(company_settings.tax_rate)), True, company_settings.tax_name
     return None, False, None
 
@@ -755,10 +765,19 @@ def create_sales_order(
     order_number = generate_order_number(db)
 
     # Calculate tax
-    tax_rate, is_taxable, tax_name = get_company_tax_settings(db)
-    tax_amount = Decimal("0")
-    if tax_rate:
-        tax_amount = (total_price * tax_rate).quantize(Decimal("0.01"))
+    company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+    tax_rate, is_taxable, tax_name = get_company_tax_settings(
+        db,
+        company_settings=company_settings,
+    )
+    tax_result = calculate_sales_tax(
+        subtotal=total_price,
+        tax_rate=tax_rate,
+        shipping_cost=shipping_cost,
+        ship_to_state=shipping_state,
+        seller_state=company_settings.company_state if company_settings else None,
+    )
+    tax_amount = tax_result.tax_amount
 
     grand_total = total_price + shipping_cost + tax_amount
 

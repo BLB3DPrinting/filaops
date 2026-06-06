@@ -67,17 +67,19 @@ def _make_order_line(db, sales_order_id, product_id, quantity=1, unit_price=Deci
     return line
 
 
-def _set_company_tax(db, *, tax_enabled=True, tax_rate=Decimal("0.0825")):
+def _set_company_tax(db, *, tax_enabled=True, tax_rate=Decimal("0.0825"), company_state=None):
     """Insert or update company settings row with tax config."""
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
     if settings:
         settings.tax_enabled = tax_enabled
         settings.tax_rate = tax_rate
+        settings.company_state = company_state
     else:
         settings = CompanySettings(
             id=1,
             tax_enabled=tax_enabled,
             tax_rate=tax_rate,
+            company_state=company_state,
         )
         db.add(settings)
     db.flush()
@@ -506,6 +508,46 @@ class TestCreateSalesOrder:
 
         assert order.shipping_cost == Decimal("9.99")
         assert order.grand_total == Decimal("59.99")
+
+    def test_indiana_shipping_is_in_taxable_base(self, db, make_product):
+        """Indiana seller-billed shipping should be taxed with the order subtotal."""
+        product = make_product(selling_price=Decimal("100.00"))
+        _set_company_tax(db, tax_enabled=True, tax_rate=Decimal("0.07"))
+
+        order = sales_order_service.create_sales_order(
+            db,
+            customer_id=None,
+            lines=[{"product_id": product.id, "quantity": 1}],
+            shipping_state="IN",
+            shipping_cost=Decimal("10.00"),
+            created_by_user_id=1,
+        )
+
+        assert order.total_price == Decimal("100.00")
+        assert order.shipping_cost == Decimal("10.00")
+        assert order.tax_amount == Decimal("7.70")
+        assert order.grand_total == Decimal("117.70")
+
+    def test_indiana_company_state_taxes_shipping_without_destination(self, db, make_product):
+        """Manual local orders fall back to the company state for shipping tax."""
+        product = make_product(selling_price=Decimal("100.00"))
+        _set_company_tax(
+            db,
+            tax_enabled=True,
+            tax_rate=Decimal("0.07"),
+            company_state="IN",
+        )
+
+        order = sales_order_service.create_sales_order(
+            db,
+            customer_id=None,
+            lines=[{"product_id": product.id, "quantity": 1}],
+            shipping_cost=Decimal("10.00"),
+            created_by_user_id=1,
+        )
+
+        assert order.tax_amount == Decimal("7.70")
+        assert order.grand_total == Decimal("117.70")
 
     def test_creates_order_with_customer(self, db, make_product):
         """Order linked to a customer uses customer's user_id."""
@@ -2449,7 +2491,7 @@ class TestCopyRoutingToOperations:
             {"component_id": raw.id, "quantity": Decimal("100"), "unit": "G"},
         ])
 
-        routing = self._make_routing(db, fg.id, operations=[
+        self._make_routing(db, fg.id, operations=[
             {"sequence": 10, "operation_code": "PRINT", "operation_name": "3D Print",
              "setup_time_minutes": 5, "run_time_minutes": 60},
             {"sequence": 20, "operation_code": "QC", "operation_name": "Quality Check",
@@ -2477,8 +2519,6 @@ class TestCopyRoutingToOperations:
 
     def test_copy_routing_direct_call(self, db, make_product, make_bom):
         """Direct call to copy_routing_to_operations works correctly."""
-        from app.models.production_order import ProductionOrderOperation
-
         fg = make_product(selling_price=Decimal("50.00"), has_bom=True)
         routing = self._make_routing(db, fg.id, operations=[
             {"sequence": 10, "operation_code": "PRINT", "operation_name": "3D Print",
@@ -2520,7 +2560,7 @@ class TestCopyRoutingToOperations:
         make_bom(fg.id, lines=[
             {"component_id": raw.id, "quantity": Decimal("100"), "unit": "G"},
         ])
-        routing = self._make_routing(db, fg.id, operations=[
+        self._make_routing(db, fg.id, operations=[
             {"sequence": 10, "operation_code": "PRINT", "run_time_minutes": 30},
         ])
 
@@ -2553,7 +2593,7 @@ class TestCopyRoutingToOperations:
         make_bom(fg.id, lines=[
             {"component_id": raw.id, "quantity": Decimal("50"), "unit": "G"},
         ])
-        routing = self._make_routing(db, fg.id, operations=[
+        self._make_routing(db, fg.id, operations=[
             {"sequence": 10, "operation_code": "PRINT", "run_time_minutes": 20},
         ])
 

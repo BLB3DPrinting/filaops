@@ -248,6 +248,25 @@ class TestCreateQuote:
         assert quote.tax_amount == Decimal("8.25")
         assert quote.total_price == Decimal("108.25")
 
+    def test_indiana_company_state_taxes_shipping(self, db):
+        _make_company_settings(
+            db,
+            tax_enabled=True,
+            tax_rate=Decimal("0.07"),
+            company_state="IN",
+        )
+        request = _make_manual_quote_request(
+            unit_price=Decimal("100.00"),
+            quantity=1,
+            apply_tax=True,
+            shipping_cost=Decimal("10.00"),
+        )
+
+        quote = quote_service.create_quote(db, request, user_id=1)
+
+        assert quote.tax_amount == Decimal("7.70")
+        assert quote.total_price == Decimal("117.70")
+
     def test_no_tax_when_apply_tax_false(self, db):
         _make_company_settings(db, tax_enabled=True, tax_rate=Decimal("0.0825"))
         request = _make_manual_quote_request(
@@ -372,6 +391,25 @@ class TestUpdateQuote:
         result = quote_service.update_quote(db, q.id, request)
 
         assert result.subtotal == Decimal("50.00")
+
+    def test_indiana_shipping_update_recalculates_taxable_base(self, db):
+        q = _make_quote(
+            db,
+            quote_number="Q-UPD-IN-SHIP-01",
+            unit_price=Decimal("100.00"),
+            subtotal=Decimal("100.00"),
+            tax_rate=Decimal("0.07"),
+            tax_amount=Decimal("7.00"),
+            total_price=Decimal("107.00"),
+            quantity=1,
+            shipping_state="IN",
+        )
+
+        request = self._make_update_request(shipping_cost=Decimal("10.00"))
+        result = quote_service.update_quote(db, q.id, request)
+
+        assert result.tax_amount == Decimal("7.70")
+        assert result.total_price == Decimal("117.70")
 
 
 # =============================================================================
