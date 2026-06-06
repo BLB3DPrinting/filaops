@@ -150,7 +150,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
                 product = db.query(Product).filter(Product.id == ol.product_id).first()
 
             sku = product.sku if product else ""
-            description = product.name if product else "Item"
+            description = ol.description or (product.name if product else "Item")
             base_price = product.selling_price if product else ol.unit_price
             line_total = ol.quantity * ol.unit_price
 
