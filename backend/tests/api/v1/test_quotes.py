@@ -1912,6 +1912,64 @@ class TestConvertQuote:
         assert so["customer_email"] == "convert@test.com"
         assert so["source"] == "quote"
 
+    def test_convert_product_and_fee_lines_preserves_order_economics(self, client, make_product, db):
+        """Manual quote fee lines should survive API conversion into order totals."""
+        product = make_product(name="Bracket", sku="BRACKET-001", selling_price=Decimal("25.00"))
+        db.flush()
+        quote = _create_quote(
+            client,
+            lines=[
+                {
+                    "product_id": product.id,
+                    "product_name": "Bracket",
+                    "quantity": 2,
+                    "unit_price": "25.00",
+                    "notes": "Printed part",
+                },
+                {
+                    "product_id": None,
+                    "product_name": "Engineering fee",
+                    "quantity": 1,
+                    "unit_price": "50.00",
+                    "notes": "CAD cleanup",
+                },
+            ],
+            apply_tax=False,
+            shipping_cost="10.00",
+            customer_name="Fee Customer",
+            customer_email="fee@example.com",
+        )
+        client.patch(f"{BASE_URL}/{quote['id']}/status", json={"status": "approved"})
+
+        convert_response = client.post(f"{BASE_URL}/{quote['id']}/convert")
+        assert convert_response.status_code == 201
+        order_id = convert_response.json()["order_id"]
+
+        so_response = client.get(f"/api/v1/sales-orders/{order_id}")
+        assert so_response.status_code == 200
+        so = so_response.json()
+
+        assert so["source"] == "quote"
+        assert so["customer_name"] == "Fee Customer"
+        assert Decimal(str(so["total_price"])) == Decimal("100.00")
+        assert Decimal(str(so["shipping_cost"])) == Decimal("10.00")
+        assert Decimal(str(so["grand_total"])) == Decimal("110.00")
+
+        product_line = next(line for line in so["lines"] if line["line_type"] == "product")
+        assert product_line["product_id"] == product.id
+        assert product_line["product_name"] == "Bracket"
+        assert Decimal(str(product_line["quantity"])) == Decimal("2")
+        assert Decimal(str(product_line["unit_price"])) == Decimal("25.00")
+        assert Decimal(str(product_line["total"])) == Decimal("50.00")
+
+        fee_line = next(line for line in so["lines"] if line["line_type"] == "service")
+        assert fee_line["product_id"] is None
+        assert fee_line["description"] == "Engineering fee"
+        assert fee_line["notes"] == "CAD cleanup"
+        assert Decimal(str(fee_line["quantity"])) == Decimal("1")
+        assert Decimal(str(fee_line["unit_price"])) == Decimal("50.00")
+        assert Decimal(str(fee_line["total"])) == Decimal("50.00")
+
     def test_convert_pending_quote_fails(self, client):
         """Only approved/accepted quotes can be converted."""
         quote = _create_quote(client)
