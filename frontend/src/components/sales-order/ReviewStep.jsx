@@ -3,6 +3,23 @@
  * Displays order summary: customer info, shipping, line items with totals, tax, and notes.
  * Supports both product and raw material line items.
  */
+const STATE_ALIASES = {
+  INDIANA: "IN",
+};
+
+const SHIPPING_TAXABLE_STATES = new Set(["IN"]);
+
+const normalizeState = (value) => {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return STATE_ALIASES[normalized] || normalized;
+};
+
+const isShippingTaxable = ({ shipToState, sellerState }) => {
+  const state = normalizeState(shipToState) || normalizeState(sellerState);
+  return SHIPPING_TAXABLE_STATES.has(state);
+};
+
 export default function ReviewStep({
   selectedCustomer,
   orderData,
@@ -11,6 +28,22 @@ export default function ReviewStep({
   taxSettings,
   customerDiscount = null,
 }) {
+  const subtotal = Number.isFinite(orderTotal) ? orderTotal : 0;
+  const parsedShippingCost = parseFloat(orderData.shipping_cost);
+  const shippingCost = Number.isNaN(parsedShippingCost)
+    ? 0
+    : Math.max(0, parsedShippingCost);
+  const taxRate = taxSettings.tax_enabled && taxSettings.tax_rate > 0
+    ? taxSettings.tax_rate
+    : 0;
+  const shippingTaxable = shippingCost > 0 && isShippingTaxable({
+    shipToState: orderData.shipping_state,
+    sellerState: taxSettings.company_state,
+  });
+  const taxableBase = subtotal + (shippingTaxable ? shippingCost : 0);
+  const taxAmount = taxRate > 0 ? taxableBase * taxRate : 0;
+  const grandTotal = subtotal + shippingCost + taxAmount;
+
   return (
     <div className="space-y-6">
       <h3 className="text-lg font-semibold text-white">Review Order</h3>
@@ -149,19 +182,32 @@ export default function ReviewStep({
                 Subtotal
               </td>
               <td className="py-3 px-4 text-right text-white font-medium">
-                ${orderTotal.toFixed(2)}
+                ${subtotal.toFixed(2)}
               </td>
             </tr>
-            {taxSettings.tax_enabled && taxSettings.tax_rate > 0 && (
+            {shippingCost > 0 && (
               <tr>
                 <td
                   colSpan={3}
                   className="py-3 px-4 text-right text-gray-400"
                 >
-                  {taxSettings.tax_name} ({(taxSettings.tax_rate * 100).toFixed(2)}%)
+                  Shipping
                 </td>
                 <td className="py-3 px-4 text-right text-white font-medium">
-                  ${(orderTotal * taxSettings.tax_rate).toFixed(2)}
+                  ${shippingCost.toFixed(2)}
+                </td>
+              </tr>
+            )}
+            {taxRate > 0 && (
+              <tr>
+                <td
+                  colSpan={3}
+                  className="py-3 px-4 text-right text-gray-400"
+                >
+                  {taxSettings.tax_name} ({(taxRate * 100).toFixed(2)}%)
+                </td>
+                <td className="py-3 px-4 text-right text-white font-medium">
+                  ${taxAmount.toFixed(2)}
                 </td>
               </tr>
             )}
@@ -173,10 +219,7 @@ export default function ReviewStep({
                 Grand Total
               </td>
               <td className="py-3 px-4 text-right text-green-400 font-bold text-lg">
-                ${(taxSettings.tax_enabled && taxSettings.tax_rate > 0
-                  ? orderTotal * (1 + taxSettings.tax_rate)
-                  : orderTotal
-                ).toFixed(2)}
+                ${grandTotal.toFixed(2)}
               </td>
             </tr>
           </tfoot>
