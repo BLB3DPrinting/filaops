@@ -477,6 +477,32 @@ class TestUpdateQuote:
         assert result.tax_amount == Decimal("5.00")
         assert result.total_price == Decimal("105.00")
 
+    def test_tax_rate_id_update_recalculates_single_item_quote(self, db):
+        named_rate = TaxRate(
+            name="County Tax",
+            rate=Decimal("0.0650"),
+            is_default=False,
+            is_active=True,
+        )
+        db.add(named_rate)
+        db.flush()
+        q = _make_quote(
+            db,
+            quote_number="Q-UPD-NAMED-TAX-01",
+            unit_price=Decimal("100.00"),
+            subtotal=Decimal("100.00"),
+            total_price=Decimal("100.00"),
+            quantity=1,
+        )
+
+        request = self._make_update_request(tax_rate_id=named_rate.id)
+        result = quote_service.update_quote(db, q.id, request)
+
+        assert result.tax_rate == Decimal("0.0650")
+        assert result.tax_name == "County Tax"
+        assert result.tax_amount == Decimal("6.50")
+        assert result.total_price == Decimal("106.50")
+
 
 # =============================================================================
 # update_quote_status
@@ -560,6 +586,9 @@ class TestConvertQuoteToOrder:
         db.refresh(q)
         assert q.status == "converted"
         assert q.sales_order_id == result["order_id"]
+
+        order = db.query(SalesOrder).filter(SalesOrder.id == result["order_id"]).first()
+        assert order.source == "quote"
 
     def test_accepted_status_also_converts(self, db):
         q = _make_quote(

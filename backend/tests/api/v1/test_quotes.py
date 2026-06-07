@@ -1642,6 +1642,31 @@ class TestUpdateQuote:
         # total should equal subtotal without tax
         assert Decimal(str(data["total_price"])) == Decimal(str(data["subtotal"]))
 
+    def test_update_named_tax_rate(self, client, db):
+        """Quote update should accept tax_rate_id from the quote form payload."""
+        from app.models.tax_rate import TaxRate
+
+        named_rate = TaxRate(
+            name="County Tax",
+            rate=Decimal("0.0650"),
+            is_default=False,
+            is_active=True,
+        )
+        db.add(named_rate)
+        db.flush()
+
+        quote = _create_quote(client, quantity=1, unit_price="100.00", apply_tax=False)
+        response = client.patch(f"{BASE_URL}/{quote['id']}", json={
+            "tax_rate_id": named_rate.id,
+        })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert Decimal(str(data["tax_rate"])) == Decimal("0.0650")
+        assert data["tax_name"] == "County Tax"
+        assert Decimal(str(data["tax_amount"])) == Decimal("6.50")
+        assert Decimal(str(data["total_price"])) == Decimal("106.50")
+
     def test_update_nonexistent_quote_returns_404(self, client):
         response = client.patch(f"{BASE_URL}/999999", json={
             "product_name": "Ghost",
@@ -1885,6 +1910,7 @@ class TestConvertQuote:
         assert so["quantity"] == 5
         assert so["customer_name"] == "Convert Customer"
         assert so["customer_email"] == "convert@test.com"
+        assert so["source"] == "quote"
 
     def test_convert_pending_quote_fails(self, client):
         """Only approved/accepted quotes can be converted."""

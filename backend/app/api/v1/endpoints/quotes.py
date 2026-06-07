@@ -118,6 +118,7 @@ class ManualQuoteUpdate(BaseModel):
 
     # Tax
     apply_tax: Optional[bool] = Field(None, description="Whether to apply tax")
+    tax_rate_id: Optional[int] = Field(None, description="Specific TaxRate id to apply")
 
     # Shipping cost
     shipping_cost: Optional[Decimal] = Field(None, ge=0, description="Shipping cost")
@@ -154,6 +155,7 @@ class QuoteListItem(BaseModel):
     subtotal: Optional[Decimal]
     tax_rate: Optional[Decimal]
     tax_amount: Optional[Decimal]
+    tax_name: Optional[str] = None
     shipping_cost: Optional[Decimal] = None
     total_price: Decimal
     discount_percent: Optional[Decimal] = None
