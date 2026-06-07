@@ -1903,17 +1903,18 @@ class TestConvertQuoteToSalesOrder:
         assert exc_info.value.status_code == 400
         assert "product" in exc_info.value.detail.lower()
 
-    @pytest.mark.skip(
-        reason="Known bug: convert_quote_to_sales_order passes priority='normal' "
-        "(string) to ProductionOrder.priority (Integer column), causing DataError. "
-        "All validation paths are covered by the error-case tests above."
-    )
     def test_converts_valid_quote(self, db, make_product):
-        """Successfully converts an accepted quote to a sales order."""
+        """Successfully converts an accepted quote and preserves quote totals."""
         product = make_product(selling_price=Decimal("25.00"), has_bom=False)
         quote = self._make_quote(
             db, status="accepted", product_id=product.id,
-            total_price=Decimal("25.00"), unit_price=Decimal("25.00"),
+            subtotal=Decimal("25.00"),
+            total_price=Decimal("35.00"),
+            unit_price=Decimal("25.00"),
+            tax_rate=Decimal("0.0800"),
+            tax_amount=Decimal("2.00"),
+            tax_name="County Tax",
+            shipping_cost=Decimal("8.00"),
             quantity=1,
         )
 
@@ -1929,7 +1930,43 @@ class TestConvertQuoteToSalesOrder:
         assert order.order_type == "quote_based"
         assert order.status == "pending"
         assert order.total_price == Decimal("25.00")
+        assert order.tax_rate == Decimal("0.0800")
+        assert order.tax_amount == Decimal("2.00")
+        assert order.tax_name == "County Tax"
+        assert order.shipping_cost == Decimal("8.00")
+        assert order.grand_total == Decimal("35.00")
         assert order.shipping_address_line1 == "123 Main St"
+        db.refresh(quote)
+        assert quote.status == "converted"
+        assert quote.sales_order_id == order.id
+
+    def test_conversion_fallback_does_not_double_count_inconsistent_legacy_totals(self, db, make_product):
+        """Keeps converted totals balanced when legacy quote components exceed total."""
+        product = make_product(selling_price=Decimal("5.00"), has_bom=False)
+        quote = self._make_quote(
+            db, status="accepted", product_id=product.id,
+            subtotal=None,
+            total_price=Decimal("5.00"),
+            unit_price=Decimal("5.00"),
+            tax_rate=Decimal("0.0800"),
+            tax_amount=Decimal("2.00"),
+            tax_name="County Tax",
+            shipping_cost=Decimal("8.00"),
+            quantity=1,
+        )
+
+        order = sales_order_service.convert_quote_to_sales_order(
+            db, quote_id=quote.id, user_id=1,
+            shipping_address_line1="123 Main St",
+            shipping_city="Springfield",
+            shipping_state="IL",
+            shipping_zip="62701",
+        )
+
+        assert order.total_price == Decimal("5.00")
+        assert order.tax_amount == Decimal("0.00")
+        assert order.shipping_cost == Decimal("0.00")
+        assert order.grand_total == Decimal("5.00")
 
 
 # =============================================================================

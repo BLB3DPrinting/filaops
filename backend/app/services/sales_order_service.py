@@ -942,6 +942,20 @@ def convert_quote_to_sales_order(
     # Generate order number
     order_number = generate_order_number(db)
 
+    tax_amount = quote.tax_amount or Decimal("0.00")
+    shipping_cost = quote.shipping_cost or Decimal("0.00")
+    subtotal = quote.subtotal
+    if subtotal is None:
+        quote_total = quote.total_price or Decimal("0.00")
+        inferred_subtotal = quote_total - tax_amount - shipping_cost
+        if inferred_subtotal < Decimal("0.00"):
+            subtotal = quote_total
+            tax_amount = Decimal("0.00")
+            shipping_cost = Decimal("0.00")
+        else:
+            subtotal = inferred_subtotal
+    grand_total = subtotal + tax_amount + shipping_cost
+
     # Create sales order
     sales_order = SalesOrder(
         user_id=user_id,
@@ -953,13 +967,16 @@ def convert_quote_to_sales_order(
         color=quote.color,
         finish=quote.finish,
         unit_price=quote.unit_price,
-        total_price=quote.total_price,
-        tax_amount=Decimal('0.00'),
-        shipping_cost=Decimal('0.00'),
-        grand_total=quote.total_price,
+        total_price=subtotal,
+        tax_amount=tax_amount,
+        tax_rate=quote.tax_rate,
+        tax_name=quote.tax_name,
+        is_taxable=quote.tax_rate is not None,
+        shipping_cost=shipping_cost,
+        grand_total=grand_total,
         status="pending",
         payment_status="pending",
-        rush_level=quote.rush_level,
+        rush_level=quote.rush_level or "standard",
         shipping_address_line1=shipping_address_line1,
         shipping_address_line2=shipping_address_line2,
         shipping_city=shipping_city,
@@ -976,6 +993,7 @@ def convert_quote_to_sales_order(
     db.flush()
 
     # Update quote
+    quote.status = "converted"
     quote.sales_order_id = sales_order.id
     quote.converted_at = datetime.now(timezone.utc)
 
@@ -992,6 +1010,13 @@ def convert_quote_to_sales_order(
 
     # Generate production order with retry for code collisions
     estimated_time_minutes = int(quote.print_time_hours * 60) if quote.print_time_hours else None
+    priority_map = {
+        "standard": 3,
+        "rush": 2,
+        "super_rush": 2,
+        "urgent": 1,
+    }
+    priority = priority_map.get(quote.rush_level or "standard", 3)
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -1007,7 +1032,7 @@ def convert_quote_to_sales_order(
                 sales_order_id=sales_order.id,
                 quantity_ordered=quote.quantity,
                 status="scheduled",
-                priority="normal" if quote.rush_level == "standard" else "high",
+                priority=priority,
                 estimated_time_minutes=estimated_time_minutes,
                 notes=f"Auto-created from Sales Order {order_number}. Quote: {quote.quote_number}",
                 created_by=str(user_id),
