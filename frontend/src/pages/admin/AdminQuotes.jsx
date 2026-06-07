@@ -4,7 +4,7 @@
  * Sub-components extracted per ARCHITECT-002:
  *   QuoteFormModal, QuoteDetailModal, constants
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useApi } from "../../hooks/useApi";
@@ -30,12 +30,7 @@ export default function AdminQuotes() {
   const [editingQuote, setEditingQuote] = useState(null);
   const [viewingQuote, setViewingQuote] = useState(null);
 
-  useEffect(() => {
-    fetchQuotes();
-    fetchStats();
-  }, [filters.status]);
-
-  const fetchQuotes = async () => {
+  const fetchQuotes = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -49,16 +44,23 @@ export default function AdminQuotes() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [api, filters.status, toast]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const data = await api.get("/api/v1/quotes/stats");
       setStats(data);
     } catch {
       // Stats fetch failure is non-critical
     }
-  };
+  }, [api]);
+
+  useEffect(() => {
+    // Initial async fetch; state updates happen after the request settles.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchQuotes();
+    fetchStats();
+  }, [fetchQuotes, fetchStats]);
 
   const filteredQuotes = quotes.filter((quote) => {
     if (!filters.search) return true;
@@ -344,11 +346,11 @@ export default function AdminQuotes() {
               filters.status === "all" ? "border-purple-400 ring-1 ring-purple-400" : "border-purple-500/30"
             }`}
           >
-            <p className="text-gray-400 text-sm">Total Value</p>
+            <p className="text-gray-400 text-sm">Quote Pipeline</p>
             <p className="text-2xl font-bold text-white">
               ${parseFloat(stats.total_value || 0).toLocaleString()}
             </p>
-            <p className="text-purple-400 text-xs mt-1">{stats.total} quotes</p>
+            <p className="text-purple-400 text-xs mt-1">{stats.total} quotes, not revenue</p>
           </button>
         </div>
       )}
