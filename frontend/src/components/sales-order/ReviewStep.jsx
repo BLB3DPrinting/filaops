@@ -15,9 +15,9 @@ const normalizeState = (value) => {
   return STATE_ALIASES[normalized] || normalized;
 };
 
-const isShippingTaxable = ({ shipToState, sellerState }) => {
-  const state = normalizeState(shipToState) || normalizeState(sellerState);
-  return SHIPPING_TAXABLE_STATES.has(state);
+const isShippingTaxable = (shipToState) => {
+  const state = normalizeState(shipToState);
+  return state ? SHIPPING_TAXABLE_STATES.has(state) : false;
 };
 
 export default function ReviewStep({
@@ -36,10 +36,7 @@ export default function ReviewStep({
   const taxRate = taxSettings.tax_enabled && taxSettings.tax_rate > 0
     ? taxSettings.tax_rate
     : 0;
-  const shippingTaxable = shippingCost > 0 && isShippingTaxable({
-    shipToState: orderData.shipping_state,
-    sellerState: taxSettings.company_state,
-  });
+  const shippingTaxable = shippingCost > 0 && isShippingTaxable(orderData.shipping_state);
   const taxableBase = subtotal + (shippingTaxable ? shippingCost : 0);
   const taxAmount = taxRate > 0 ? taxableBase * taxRate : 0;
   const grandTotal = subtotal + shippingCost + taxAmount;

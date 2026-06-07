@@ -12,10 +12,7 @@ const lineItems = [
   },
 ];
 
-const renderReview = ({
-  shippingState = "IN",
-  companyState = "IN",
-} = {}) => render(
+const renderReview = ({ shippingState = "IN" } = {}) => render(
   <ReviewStep
     selectedCustomer={null}
     orderData={{
@@ -32,7 +29,6 @@ const renderReview = ({
       tax_enabled: true,
       tax_rate: 0.07,
       tax_name: "Sales Tax",
-      company_state: companyState,
     }}
   />,
 );
@@ -48,7 +44,15 @@ describe("ReviewStep order totals", () => {
   });
 
   it("keeps shipping out of the tax preview when destination state is not shipping-taxable", () => {
-    renderReview({ shippingState: "OH", companyState: "IN" });
+    renderReview({ shippingState: "OH" });
+
+    expect(screen.getByText("$10.00")).toBeTruthy();
+    expect(screen.getByText("$7.00")).toBeTruthy();
+    expect(screen.getByText("$117.00")).toBeTruthy();
+  });
+
+  it("keeps shipping out of the tax preview when destination state is missing", () => {
+    renderReview({ shippingState: "" });
 
     expect(screen.getByText("$10.00")).toBeTruthy();
     expect(screen.getByText("$7.00")).toBeTruthy();
