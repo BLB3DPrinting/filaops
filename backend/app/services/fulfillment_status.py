@@ -52,22 +52,25 @@ def get_fulfillment_status(db: Session, order_id: int) -> Optional[FulfillmentSt
         allocated = float(line.allocated_quantity or 0)
         shipped = float(line.shipped_quantity or 0)
         remaining = quantity_ordered - shipped
-        shortage = max(0, remaining - allocated)
-        is_ready = allocated >= remaining
+        product_id, product_sku, product_name = _line_product_identity(line)
+
+        if line.line_type == "service":
+            allocated = remaining
+            shortage = 0
+            is_ready = True
+        else:
+            shortage = max(0, remaining - allocated)
+            is_ready = allocated >= remaining
 
         if is_ready:
             lines_ready += 1
         else:
             lines_blocked += 1
 
-        # Get product info
-        product_sku = line.product.sku if line.product else "UNKNOWN"
-        product_name = line.product.name if line.product else "Unknown Product"
-
         lines_status.append(LineStatus(
             line_id=line.id,
             line_number=idx,
-            product_id=line.product_id,
+            product_id=product_id,
             product_sku=product_sku,
             product_name=product_name,
             quantity_ordered=quantity_ordered,
@@ -134,7 +137,9 @@ def _estimate_completion_date(db: Session, order: SalesOrder, lines_status: list
     Returns None if no incoming supply found for blocked items.
     """
     blocked_product_ids = [
-        line.product_id for line in lines_status if not line.is_ready
+        line.product_id
+        for line in lines_status
+        if not line.is_ready and line.product_id is not None
     ]
 
     if not blocked_product_ids:
@@ -165,14 +170,12 @@ def _build_shipped_status(db: Session, order: SalesOrder) -> FulfillmentStatus:
     for idx, line in enumerate(order.lines, start=1):
         quantity_ordered = float(line.quantity or 0)
         shipped = float(line.shipped_quantity or 0)
-
-        product_sku = line.product.sku if line.product else "UNKNOWN"
-        product_name = line.product.name if line.product else "Unknown Product"
+        product_id, product_sku, product_name = _line_product_identity(line)
 
         lines_status.append(LineStatus(
             line_id=line.id,
             line_number=idx,
-            product_id=line.product_id,
+            product_id=product_id,
             product_sku=product_sku,
             product_name=product_name,
             quantity_ordered=quantity_ordered,
@@ -216,14 +219,12 @@ def _build_cancelled_status(db: Session, order: SalesOrder) -> FulfillmentStatus
 
     for idx, line in enumerate(order.lines, start=1):
         quantity_ordered = float(line.quantity or 0)
-
-        product_sku = line.product.sku if line.product else "UNKNOWN"
-        product_name = line.product.name if line.product else "Unknown Product"
+        product_id, product_sku, product_name = _line_product_identity(line)
 
         lines_status.append(LineStatus(
             line_id=line.id,
             line_number=idx,
-            product_id=line.product_id,
+            product_id=product_id,
             product_sku=product_sku,
             product_name=product_name,
             quantity_ordered=quantity_ordered,
@@ -259,3 +260,21 @@ def _build_cancelled_status(db: Session, order: SalesOrder) -> FulfillmentStatus
         ),
         lines=lines_status
     )
+
+
+def _line_product_identity(line) -> tuple[Optional[int], str, str]:
+    """Return display identity for product, material, and service order lines."""
+    if line.line_type == "service":
+        return None, "SERVICE", line.description or "Service / Fee"
+
+    if line.line_type == "material":
+        material = line.material_inventory
+        if material:
+            return material.product_id, material.sku, material.display_name
+        return None, "MATERIAL", line.description or "Material"
+
+    product = line.product
+    if product:
+        return line.product_id, product.sku, product.name
+
+    return line.product_id, "UNKNOWN", line.description or "Unknown Product"
