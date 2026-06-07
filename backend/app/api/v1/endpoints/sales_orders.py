@@ -780,6 +780,7 @@ async def update_shipping_address(
         shipping_state=update.shipping_state,
         shipping_zip=update.shipping_zip,
         shipping_country=update.shipping_country,
+        shipping_cost=update.shipping_cost,
     )
 
     db.commit()

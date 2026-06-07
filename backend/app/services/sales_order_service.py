@@ -1256,6 +1256,13 @@ def update_shipping_info(
     return order
 
 
+def _decimal_or_zero(value) -> Decimal:
+    """Normalize SQLAlchemy numeric values for total recalculation."""
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(value))
+
+
 def update_shipping_address(
     db: Session,
     order_id: int,
@@ -1266,10 +1273,12 @@ def update_shipping_address(
     shipping_state: Optional[str] = None,
     shipping_zip: Optional[str] = None,
     shipping_country: Optional[str] = None,
+    shipping_cost: Optional[Decimal] = None,
 ) -> SalesOrder:
-    """Update shipping address for an order."""
+    """Update shipping address and customer-facing shipping charge for an order."""
     order = get_sales_order(db, order_id)
     address_changed = False
+    shipping_cost_changed = False
 
     if shipping_address_line1 is not None:
         order.shipping_address_line1 = shipping_address_line1
@@ -1289,8 +1298,19 @@ def update_shipping_address(
     if shipping_country is not None:
         order.shipping_country = shipping_country
         address_changed = True
+    if shipping_cost is not None:
+        new_shipping_cost = Decimal(str(shipping_cost)).quantize(Decimal("0.01"))
+        if new_shipping_cost < Decimal("0"):
+            raise HTTPException(status_code=400, detail="Shipping cost must be greater than or equal to 0")
+
+        old_shipping_cost = _decimal_or_zero(order.shipping_cost)
+        shipping_cost_changed = old_shipping_cost != new_shipping_cost
+        order.shipping_cost = new_shipping_cost
 
     order.updated_at = datetime.now(timezone.utc)
+
+    if address_changed or shipping_cost_changed:
+        _recalculate_order_totals(db, order)
 
     if address_changed:
         record_order_event(
@@ -1298,6 +1318,16 @@ def update_shipping_address(
             order_id=order_id,
             event_type="address_updated",
             title="Shipping address updated",
+            user_id=user_id,
+        )
+    if shipping_cost_changed:
+        record_order_event(
+            db=db,
+            order_id=order_id,
+            event_type="shipping_charge_updated",
+            title="Shipping charge updated",
+            old_value=str(old_shipping_cost),
+            new_value=str(new_shipping_cost),
             user_id=user_id,
         )
 
@@ -1389,16 +1419,16 @@ def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
         SalesOrderLine.sales_order_id == order.id
     ).all()
 
-    if not lines:
-        return
+    if lines:
+        line_total = sum((_decimal_or_zero(ln.total) for ln in lines), Decimal("0"))
+        line_qty = sum((_decimal_or_zero(ln.quantity) for ln in lines), Decimal("0"))
 
-    line_total = sum((ln.total or Decimal("0")) for ln in lines)
-    line_qty = sum((ln.quantity or Decimal("0")) for ln in lines)
+        order.total_price = line_total
+        order.quantity = int(line_qty)
+    else:
+        line_total = _decimal_or_zero(order.total_price)
 
-    order.total_price = line_total
-    order.quantity = int(line_qty)
-
-    shipping = order.shipping_cost or Decimal("0")
+    shipping = _decimal_or_zero(order.shipping_cost)
     # Recalculate tax if order is taxable
     if order.is_taxable and order.tax_rate is not None:
         company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
@@ -1411,9 +1441,9 @@ def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
         )
         order.tax_amount = tax_result.tax_amount
     else:
-        order.tax_amount = order.tax_amount or Decimal("0")
+        order.tax_amount = _decimal_or_zero(order.tax_amount)
 
-    tax = order.tax_amount or Decimal("0")
+    tax = _decimal_or_zero(order.tax_amount)
     order.grand_total = (line_total + tax + shipping).quantize(Decimal("0.01"))
 
     # For quote-based single-line orders, sync the header unit_price
