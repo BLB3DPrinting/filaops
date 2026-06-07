@@ -946,9 +946,14 @@ def convert_quote_to_sales_order(
     shipping_cost = quote.shipping_cost or Decimal("0.00")
     subtotal = quote.subtotal
     if subtotal is None:
-        subtotal = (quote.total_price or Decimal("0.00")) - tax_amount - shipping_cost
-        if subtotal < Decimal("0.00"):
-            subtotal = quote.total_price or Decimal("0.00")
+        quote_total = quote.total_price or Decimal("0.00")
+        inferred_subtotal = quote_total - tax_amount - shipping_cost
+        if inferred_subtotal < Decimal("0.00"):
+            subtotal = quote_total
+            tax_amount = Decimal("0.00")
+            shipping_cost = Decimal("0.00")
+        else:
+            subtotal = inferred_subtotal
     grand_total = subtotal + tax_amount + shipping_cost
 
     # Create sales order
