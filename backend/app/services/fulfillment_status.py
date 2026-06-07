@@ -55,7 +55,6 @@ def get_fulfillment_status(db: Session, order_id: int) -> Optional[FulfillmentSt
         product_id, product_sku, product_name = _line_product_identity(line)
 
         if line.line_type == "service":
-            allocated = remaining
             shortage = 0
             is_ready = True
         else:

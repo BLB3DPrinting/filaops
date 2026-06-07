@@ -51,5 +51,6 @@ class TestFulfillmentStatusService:
         fee_line = next(line for line in status.lines if line.product_name == "Design Fee")
         assert fee_line.product_id is None
         assert fee_line.product_sku == "SERVICE"
+        assert fee_line.quantity_allocated == 0
         assert fee_line.is_ready is True
         assert fee_line.shortage == 0
