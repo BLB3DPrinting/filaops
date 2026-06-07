@@ -33,6 +33,8 @@ const quote = {
   ],
 };
 
+let companySettingsResponse;
+
 const renderModal = (props = {}) => render(
   <ToastProvider>
     <QuoteFormModal
@@ -46,6 +48,7 @@ const renderModal = (props = {}) => render(
 
 describe("QuoteFormModal editing", () => {
   beforeEach(() => {
+    companySettingsResponse = { tax_enabled: false };
     vi.stubGlobal("fetch", vi.fn((url) => {
       const value = String(url);
       if (value.includes("/api/v1/items")) {
@@ -57,7 +60,7 @@ describe("QuoteFormModal editing", () => {
       if (value.includes("/api/v1/settings/company")) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ tax_enabled: false }),
+          json: () => Promise.resolve(companySettingsResponse),
         });
       }
       if (value.includes("/api/v1/tax-rates")) {
@@ -95,6 +98,65 @@ describe("QuoteFormModal editing", () => {
           }),
         ],
       }));
+    });
+  });
+
+  it("submits one-time fee lines without a product id", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    fireEvent.change(screen.getByPlaceholderText("Engineering fee"), {
+      target: { value: "Engineering fee" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("75.00"), {
+      target: { value: "75.00" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        lines: [
+          expect.objectContaining({
+            product_id: null,
+            product_name: "Engineering fee",
+            quantity: 1,
+            unit_price: 75,
+          }),
+        ],
+      }));
+    });
+  });
+
+  it("includes taxable shipping in the quote tax preview", async () => {
+    companySettingsResponse = {
+      tax_enabled: true,
+      tax_rate_percent: 7,
+      tax_name: "Sales Tax",
+      company_state: "IN",
+    };
+    renderModal({
+      quote: {
+        ...quote,
+        tax_rate: "0.07",
+        shipping_cost: "10.00",
+        lines: [
+          {
+            ...quote.lines[0],
+            quantity: 2,
+            unit_price: "50.00",
+            total: "100.00",
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("$7.70")).toBeTruthy();
+      expect(screen.getByText("$117.70")).toBeTruthy();
     });
   });
 });

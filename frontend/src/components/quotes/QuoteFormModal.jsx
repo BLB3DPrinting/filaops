@@ -11,6 +11,23 @@ import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
 
+const STATE_ALIASES = {
+  INDIANA: "IN",
+};
+
+const SHIPPING_TAXABLE_STATES = new Set(["IN"]);
+
+const normalizeState = (value) => {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return STATE_ALIASES[normalized] || normalized;
+};
+
+const isShippingTaxable = (state) => {
+  const normalized = normalizeState(state);
+  return normalized ? SHIPPING_TAXABLE_STATES.has(normalized) : false;
+};
+
 export default function QuoteFormModal({ quote, onSave, onClose }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -367,8 +384,9 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     return sum + linePrice * (li.quantity || 1);
   }, 0);
   const taxRate = form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0;
-  const taxAmount = subtotal * taxRate;
   const shippingCost = parseFloat(form.shipping_cost) || 0;
+  const taxableBase = subtotal + (isShippingTaxable(companySettings?.company_state) ? shippingCost : 0);
+  const taxAmount = taxRate > 0 ? taxableBase * taxRate : 0;
   const grandTotal = subtotal + taxAmount + shippingCost;
 
   return (
