@@ -9,6 +9,15 @@
  */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  CreditCard,
+  Factory,
+  FileText,
+  Truck,
+} from "lucide-react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { API_URL } from "../../config/api";
@@ -30,6 +39,9 @@ const getInvoiceBalanceDue = (invoice) =>
 
 const formatMoney = (value) => `$${parseFloat(value || 0).toFixed(2)}`;
 
+const COMPLETE_PRODUCTION_STATUSES = new Set(["complete", "completed", "closed"]);
+const SHIPPED_ORDER_STATUSES = new Set(["shipped", "delivered", "completed"]);
+
 export default function OrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -50,25 +62,19 @@ export default function OrderDetail() {
   };
 
   const hasMainProductWO = () => {
-    if (
-      order?.product_id &&
-      productionOrders.some((po) => po.product_id === order.product_id)
-    ) {
-      return true;
+    const productLines = order?.lines?.filter((line) => line.product_id) || [];
+    if (productLines.length > 0) {
+      const woLineIds = new Set(
+        productionOrders
+          .map((po) => po.sales_order_line_id)
+          .filter((lineId) => lineId !== null && lineId !== undefined)
+      );
+      return productLines.every((line) => woLineIds.has(line.id));
     }
-    if (!order?.lines || order.lines.length === 0) {
-      return false;
+    if (order?.product_id) {
+      return productionOrders.some((po) => po.product_id === order.product_id);
     }
-    const lineProductIds = order.lines
-      .filter((line) => line.product_id)
-      .map((line) => line.product_id);
-    if (lineProductIds.length === 0) {
-      return false;
-    }
-    const woProductIds = productionOrders
-      .filter((po) => po.sales_order_line_id)
-      .map((po) => po.product_id);
-    return lineProductIds.every((pid) => woProductIds.includes(pid));
+    return false;
   };
 
   const [error, setError] = useState(null);
@@ -687,6 +693,222 @@ export default function OrderDetail() {
     return order && !orderInvoice && invoiceableStatuses.includes(order.status);
   };
 
+  const getProductionComplete = () => {
+    return (
+      productionOrders.length > 0 &&
+      productionOrders.every((po) => COMPLETE_PRODUCTION_STATUSES.has(po.status))
+    );
+  };
+
+  const getShipBlockReason = () => {
+    if (!order) return "Order is still loading";
+    if (SHIPPED_ORDER_STATUSES.has(order.status)) return "Order already shipped";
+    if (productionOrders.length === 0) return "Create production order first";
+    if (!getProductionComplete()) return "Production must be complete";
+    if (materialRequirements.some((req) => req.net_shortage > 0)) {
+      return "Material shortages must be resolved";
+    }
+    return "";
+  };
+
+  const canShipOrder = () => !getShipBlockReason();
+
+  const getStepState = ({ done, active, blocked }) => {
+    if (done) return "done";
+    if (active) return "active";
+    if (blocked) return "blocked";
+    return "waiting";
+  };
+
+  const getStepClasses = (state) => {
+    if (state === "done") {
+      return {
+        panel: "border-emerald-500/40 bg-emerald-950/20",
+        icon: "bg-emerald-500/20 text-emerald-300",
+        label: "text-emerald-300",
+      };
+    }
+    if (state === "active") {
+      return {
+        panel: "border-blue-500/50 bg-blue-950/30",
+        icon: "bg-blue-500/20 text-blue-300",
+        label: "text-blue-300",
+      };
+    }
+    if (state === "blocked") {
+      return {
+        panel: "border-amber-500/40 bg-amber-950/20",
+        icon: "bg-amber-500/20 text-amber-300",
+        label: "text-amber-300",
+      };
+    }
+    return {
+      panel: "border-gray-700 bg-gray-900/60",
+      icon: "bg-gray-800 text-gray-400",
+      label: "text-gray-400",
+    };
+  };
+
+  const renderStepIcon = (step) => {
+    if (step.state === "done") {
+      return <CheckCircle2 className="h-5 w-5" />;
+    }
+    if (step.state === "blocked") {
+      return <AlertTriangle className="h-5 w-5" />;
+    }
+    if (step.Icon) {
+      return <step.Icon className="h-5 w-5" />;
+    }
+    return <Circle className="h-5 w-5" />;
+  };
+
+  const getOrderWorkflowSteps = () => {
+    const status = order?.status || "";
+    const orderConfirmed = !["draft", "pending", "pending_confirmation"].includes(status);
+    const canConfirmOrder = ["pending", "pending_confirmation"].includes(status);
+    const hasInvoice = Boolean(orderInvoice);
+    const invoiceStatus = orderInvoice?.status || "";
+    const hasPayment = Number(paymentSummary?.total_paid || 0) > 0;
+    const billingReleased = isBillingReleaseSatisfied();
+    const productionReleased = hasMainProductWO();
+    const productionComplete = getProductionComplete();
+    const shipped = SHIPPED_ORDER_STATUSES.has(status);
+    const noProductionNeeded = !hasOrderProduct();
+    const releaseBlockReason = getProductionReleaseBlockReason();
+    const shipBlockReason = getShipBlockReason();
+
+    const billingAction = (() => {
+      if (canGenerateInvoice()) {
+        return {
+          label: generatingInvoice ? "Creating..." : "Create Invoice",
+          onClick: handleGenerateInvoice,
+          disabled: generatingInvoice,
+        };
+      }
+      if (orderInvoice?.status === "draft") {
+        return {
+          label: sendingInvoice ? "Sending..." : "Send Invoice",
+          onClick: handleSendOrderInvoice,
+          disabled: sendingInvoice,
+        };
+      }
+      if (!billingReleased && orderConfirmed) {
+        return {
+          label: "Record Payment",
+          onClick: () => {
+            setIsRefund(false);
+            setShowPaymentModal(true);
+          },
+        };
+      }
+      if (orderInvoice) {
+        return {
+          label: "Open Invoice",
+          onClick: () => navigate(`/admin/invoices?invoice=${orderInvoice.id}`),
+        };
+      }
+      return null;
+    })();
+
+    return [
+      {
+        id: "confirm",
+        title: "Confirm Order",
+        Icon: CheckCircle2,
+        state: getStepState({
+          done: orderConfirmed,
+          active: canConfirmOrder,
+          blocked: status === "draft",
+        }),
+        meta: canConfirmOrder ? "Needs review" : status.replace(/_/g, " "),
+        detail: canConfirmOrder
+          ? "Review customer, lines, pricing, shipping, and tax."
+          : "Commercial order is ready for billing.",
+        action: canConfirmOrder
+          ? {
+              label: confirmingOrder ? "Confirming..." : "Confirm",
+              onClick: handleConfirmOrder,
+              disabled: confirmingOrder,
+            }
+          : null,
+      },
+      {
+        id: "billing",
+        title: "Invoice / Payment",
+        Icon: hasInvoice ? FileText : CreditCard,
+        state: getStepState({
+          done: billingReleased,
+          active: orderConfirmed && !billingReleased,
+          blocked: !orderConfirmed,
+        }),
+        meta: hasInvoice
+          ? `${orderInvoice.invoice_number} · ${invoiceStatus.replace(/_/g, " ")}`
+          : hasPayment
+          ? `${formatMoney(paymentSummary?.total_paid)} paid`
+          : "Not released",
+        detail: billingReleased
+          ? "Billing requirement is satisfied for production release."
+          : "Send an invoice or record payment before production.",
+        action: billingAction,
+      },
+      {
+        id: "production",
+        title: "Production Release",
+        Icon: Factory,
+        state: getStepState({
+          done: productionReleased || noProductionNeeded,
+          active: !productionReleased && !noProductionNeeded && !releaseBlockReason,
+          blocked: Boolean(releaseBlockReason) && !productionReleased && !noProductionNeeded,
+        }),
+        meta: noProductionNeeded
+          ? "No product line"
+          : productionReleased
+          ? `${productionOrders.length} work order${productionOrders.length === 1 ? "" : "s"}`
+          : "Not released",
+        detail: noProductionNeeded
+          ? "No production release is required for service-only lines."
+          : productionReleased
+          ? "Work orders are linked to this sales order."
+          : releaseBlockReason || "Ready to create work orders.",
+        action: productionReleased && productionOrders.length > 0
+          ? {
+              label: "View Production",
+              onClick: () => navigate(`/admin/production?order=${productionOrders[0].id}`),
+            }
+          : !releaseBlockReason
+          ? {
+              label: "Release Production",
+              onClick: handleCreateProductionOrder,
+            }
+          : null,
+      },
+      {
+        id: "fulfillment",
+        title: "Fulfillment",
+        Icon: Truck,
+        state: getStepState({
+          done: shipped,
+          active: canShipOrder(),
+          blocked: !shipped && Boolean(shipBlockReason),
+        }),
+        meta: shipped
+          ? status.replace(/_/g, " ")
+          : productionComplete
+          ? "Ready to ship"
+          : "Waiting",
+        detail: shipped
+          ? "Shipment is already in progress or complete."
+          : shipBlockReason || "Production is complete and materials are clear.",
+        action: canShipOrder()
+          ? {
+              label: "Ship Order",
+              onClick: () => navigate(`/admin/shipping?orderId=${order.id}`),
+            }
+          : null,
+      },
+    ];
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -778,24 +1000,12 @@ export default function OrderDetail() {
           >
             Print Packing Slip
           </button>
-          {order.status !== "shipped" && order.status !== "delivered" && (
+          {!SHIPPED_ORDER_STATUSES.has(order.status) && (
             <button
               onClick={() => navigate(`/admin/shipping?orderId=${order.id}`)}
-              disabled={
-                productionOrders.length === 0 ||
-                !productionOrders.every((po) => po.status === "complete") ||
-                materialRequirements.some((req) => req.net_shortage > 0)
-              }
+              disabled={!canShipOrder()}
               className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              title={
-                productionOrders.length === 0
-                  ? "Create work order first"
-                  : !productionOrders.every((po) => po.status === "complete")
-                  ? "Production must be complete"
-                  : materialRequirements.some((req) => req.net_shortage > 0)
-                  ? "Material shortages must be resolved"
-                  : "Ship order"
-              }
+              title={getShipBlockReason() || "Ship order"}
             >
               Ship Order
             </button>
@@ -835,6 +1045,70 @@ export default function OrderDetail() {
               Close Short
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Order Workflow */}
+      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-5">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Order Workflow</h2>
+            <p className="text-sm text-gray-400">
+              Confirm, bill, release production, then fulfill.
+            </p>
+          </div>
+          <span className="w-fit rounded-full bg-gray-800 px-3 py-1 text-xs font-medium text-gray-300">
+            {order.status?.replace(/_/g, " ") || "unknown"}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+          {getOrderWorkflowSteps().map((step, index) => {
+            const classes = getStepClasses(step.state);
+            return (
+              <div
+                key={step.id}
+                className={`flex min-h-[210px] flex-col rounded-lg border p-4 ${classes.panel}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${classes.icon}`}>
+                      {renderStepIcon(step)}
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Step {index + 1}
+                      </div>
+                      <h3 className="text-sm font-semibold text-white">
+                        {step.title}
+                      </h3>
+                    </div>
+                  </div>
+                  <span className={`rounded-full bg-gray-950/50 px-2 py-1 text-xs font-medium capitalize ${classes.label}`}>
+                    {step.state}
+                  </span>
+                </div>
+
+                <div className="mt-4 flex-1">
+                  <div className={`text-sm font-medium capitalize ${classes.label}`}>
+                    {step.meta || "Waiting"}
+                  </div>
+                  <p className="mt-2 text-sm leading-5 text-gray-300">
+                    {step.detail}
+                  </p>
+                </div>
+
+                {step.action && (
+                  <button
+                    onClick={step.action.onClick}
+                    disabled={step.action.disabled}
+                    className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {step.action.label}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
