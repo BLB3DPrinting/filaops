@@ -93,6 +93,44 @@ class TestListProductionOrders:
         assert resp.status_code == 200
         assert len(resp.json()) <= 2
 
+    def test_list_includes_sales_order_line_id(
+        self, client, db, make_product, make_sales_order, make_production_order
+    ):
+        """Line-item order views need the linked SO line id to recognize existing WOs."""
+        from app.models.sales_order import SalesOrderLine
+
+        product = make_product(item_type="finished_good", procurement_type="make")
+        sales_order = make_sales_order(
+            product_id=None,
+            status="in_production",
+            order_type="line_item",
+        )
+        line = SalesOrderLine(
+            sales_order_id=sales_order.id,
+            product_id=product.id,
+            line_type="product",
+            quantity=Decimal("1"),
+            unit_price=Decimal("15.00"),
+            total=Decimal("15.00"),
+        )
+        db.add(line)
+        db.flush()
+
+        po = make_production_order(
+            product_id=product.id,
+            sales_order_id=sales_order.id,
+            sales_order_line_id=line.id,
+            status="draft",
+        )
+
+        resp = client.get(
+            f"/api/v1/production-orders/?sales_order_id={sales_order.id}"
+        )
+
+        assert resp.status_code == 200
+        row = next(item for item in resp.json() if item["id"] == po.id)
+        assert row["sales_order_line_id"] == line.id
+
 
 # =============================================================================
 # GET /api/v1/production-orders/{id} — Get Detail

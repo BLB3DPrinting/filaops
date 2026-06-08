@@ -284,6 +284,7 @@ def build_list_response(order: ProductionOrder, db: Session) -> ProductionOrderL
         scheduled_end=order.scheduled_end,
         sales_order_id=order.sales_order_id,
         sales_order_code=sales_order.order_number if sales_order else None,
+        sales_order_line_id=order.sales_order_line_id,
         assigned_to=order.assigned_to,
         operation_count=op_count,
         current_operation=current_op.operation_name if current_op else None,
