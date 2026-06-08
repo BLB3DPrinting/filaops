@@ -254,6 +254,7 @@ class ProductionOrderListResponse(BaseModel):
 
     sales_order_id: Optional[int] = None
     sales_order_code: Optional[str] = None
+    sales_order_line_id: Optional[int] = None
 
     assigned_to: Optional[str] = None
     operation_count: int = 0

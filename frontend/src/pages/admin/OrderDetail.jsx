@@ -41,6 +41,7 @@ const formatMoney = (value) => `$${parseFloat(value || 0).toFixed(2)}`;
 
 const COMPLETE_PRODUCTION_STATUSES = new Set(["complete", "completed", "closed"]);
 const SHIPPED_ORDER_STATUSES = new Set(["shipped", "delivered", "completed"]);
+const UNCONFIRMED_ORDER_STATUSES = new Set(["draft", "pending", "pending_confirmation"]);
 
 export default function OrderDetail() {
   const { orderId } = useParams();
@@ -113,7 +114,7 @@ export default function OrderDetail() {
     if (!order) return "Order is still loading";
     if (!hasOrderProduct()) return "Order must have a product line";
     if (hasMainProductWO()) return "Production order already exists";
-    if (order.status !== "confirmed") {
+    if (UNCONFIRMED_ORDER_STATUSES.has(order.status)) {
       return "Order must be confirmed before production release";
     }
     if (!isBillingReleaseSatisfied()) {
@@ -665,20 +666,34 @@ export default function OrderDetail() {
     try {
       const invoice = await api.post(`/api/v1/invoices/${orderInvoice.id}/send`);
       setOrderInvoice(invoice);
-      toast.success(`Invoice ${invoice.invoice_number} sent`);
+      toast.success(`Invoice ${invoice.invoice_number} marked as sent`);
     } catch (err) {
-      toast.error(err.response?.data?.detail || err.message || "Failed to send invoice");
+      toast.error(err.response?.data?.detail || err.message || "Failed to mark invoice sent");
     } finally {
       setSendingInvoice(false);
     }
   };
 
-  const handleDownloadOrderInvoice = () => {
+  const handleDownloadOrderInvoice = async () => {
     if (!orderInvoice) return;
-    window.open(
-      `${API_URL}/api/v1/invoices/${orderInvoice.id}/pdf`,
-      "_blank"
-    );
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/invoices/${orderInvoice.id}/pdf`,
+        { credentials: "include" }
+      );
+      if (!response.ok) throw new Error("Failed to download invoice PDF");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${orderInvoice.invoice_number || "invoice"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err.message || "Failed to download invoice PDF");
+    }
   };
 
   const canGenerateInvoice = () => {
@@ -764,7 +779,7 @@ export default function OrderDetail() {
 
   const getOrderWorkflowSteps = () => {
     const status = order?.status || "";
-    const orderConfirmed = !["draft", "pending", "pending_confirmation"].includes(status);
+    const orderConfirmed = !UNCONFIRMED_ORDER_STATUSES.has(status);
     const canConfirmOrder = ["pending", "pending_confirmation"].includes(status);
     const hasInvoice = Boolean(orderInvoice);
     const invoiceStatus = orderInvoice?.status || "";
@@ -787,7 +802,7 @@ export default function OrderDetail() {
       }
       if (orderInvoice?.status === "draft") {
         return {
-          label: sendingInvoice ? "Sending..." : "Send Invoice",
+          label: sendingInvoice ? "Marking..." : "Mark Sent",
           onClick: handleSendOrderInvoice,
           disabled: sendingInvoice,
         };
@@ -853,7 +868,7 @@ export default function OrderDetail() {
       },
       {
         id: "production",
-        title: "Production Release",
+        title: "Production Orders",
         Icon: Factory,
         state: getStepState({
           done: productionReleased || noProductionNeeded,
@@ -868,16 +883,16 @@ export default function OrderDetail() {
         detail: noProductionNeeded
           ? "No production release is required for service-only lines."
           : productionReleased
-          ? "Work orders are linked to this sales order."
+          ? "Work orders are created and linked. Open production to release, start, and complete them."
           : releaseBlockReason || "Ready to create work orders.",
         action: productionReleased && productionOrders.length > 0
           ? {
-              label: "View Production",
-              onClick: () => navigate(`/admin/production?order=${productionOrders[0].id}`),
+              label: "Open Work Order",
+              onClick: () => navigate(`/admin/production/${productionOrders[0].id}`),
             }
           : !releaseBlockReason
           ? {
-              label: "Release Production",
+              label: "Create Work Orders",
               onClick: handleCreateProductionOrder,
             }
           : null,
@@ -1155,9 +1170,10 @@ export default function OrderDetail() {
                   <button
                     onClick={handleSendOrderInvoice}
                     disabled={sendingInvoice}
+                    title="Marks this invoice as sent in FilaOps. This does not email the customer."
                     className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {sendingInvoice ? "Sending..." : "Send Invoice"}
+                    {sendingInvoice ? "Marking..." : "Mark Sent"}
                   </button>
                 )}
                 <button
@@ -1194,7 +1210,7 @@ export default function OrderDetail() {
           </button>
           {productionOrders.length > 0 && (
             <button
-              onClick={() => navigate(`/admin/production?order=${productionOrders[0].id}`)}
+              onClick={() => navigate(`/admin/production/${productionOrders[0].id}`)}
               className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1542,7 +1558,7 @@ export default function OrderDetail() {
         orderQuantity={order.quantity}
       />
 
-      {/* Production Orders - Read-Only Status Display */}
+      {/* Production Orders - Status Display */}
       {productionOrders.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <button
@@ -1567,7 +1583,7 @@ export default function OrderDetail() {
                   key={po.id}
                   order={po}
                   onViewInProduction={() =>
-                    navigate(`/admin/production?search=${encodeURIComponent(po.code || `WO-${po.id}`)}`)
+                    navigate(`/admin/production/${po.id}`)
                   }
                   onAcceptShort={handleAcceptShortPO}
                 />

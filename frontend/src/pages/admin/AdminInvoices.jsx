@@ -137,12 +137,12 @@ export default function AdminInvoices() {
     setSendingInvoice(true);
     try {
       const updated = await api.post(`/api/v1/invoices/${selectedInvoice.id}/send`);
-      toast.success("Invoice sent");
+      toast.success("Invoice marked as sent");
       setSelectedInvoice(updated);
       fetchInvoices();
       fetchSummary();
     } catch (err) {
-      toast.error(err.response?.data?.detail || err.message || "Failed to send invoice");
+      toast.error(err.response?.data?.detail || err.message || "Failed to mark invoice sent");
     } finally {
       setSendingInvoice(false);
     }
@@ -622,12 +622,13 @@ export default function AdminInvoices() {
                       <button
                         onClick={handleSendInvoice}
                         disabled={sendingInvoice}
+                        title="Marks this invoice as sent in FilaOps. This does not email the customer."
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                         </svg>
-                        {sendingInvoice ? "Sending..." : "Send Invoice"}
+                        {sendingInvoice ? "Marking..." : "Mark Sent"}
                       </button>
                     )}
                     <button
