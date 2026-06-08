@@ -2679,18 +2679,30 @@ def generate_production_orders(
         )
 
     # Check for existing production orders
+    producible_line_ids: list[int] = []
+    existing_po_line_ids: set[int] = set()
     if order.order_type == "line_item":
-        line_product_ids = [line.product_id for line in order.lines if line.product_id]
-        existing_pos = db.query(ProductionOrder).filter(
-            ProductionOrder.sales_order_id == order_id,
-            ProductionOrder.product_id.in_(line_product_ids)
-        ).all()
+        producible_line_ids = [line.id for line in order.lines if line.product_id]
+        existing_pos = []
+        if producible_line_ids:
+            existing_pos = db.query(ProductionOrder).filter(
+                ProductionOrder.sales_order_id == order_id,
+                ProductionOrder.sales_order_line_id.in_(producible_line_ids)
+            ).all()
+            existing_po_line_ids = {
+                po.sales_order_line_id
+                for po in existing_pos
+                if po.sales_order_line_id is not None
+            }
     else:
         existing_pos = db.query(ProductionOrder).filter(
             ProductionOrder.sales_order_id == order_id
         ).all()
 
-    if existing_pos:
+    if existing_pos and (
+        order.order_type != "line_item"
+        or len(existing_po_line_ids) == len(producible_line_ids)
+    ):
         return {
             "message": "Production orders already exist",
             "existing_orders": [po.code for po in existing_pos],
@@ -2733,6 +2745,9 @@ def generate_production_orders(
             )
 
         for idx, line in enumerate(lines, start=1):
+            if line.id in existing_po_line_ids:
+                continue
+
             # Skip material-only lines — raw materials don't need production orders
             if not line.product_id:
                 continue
@@ -2868,7 +2883,7 @@ def generate_production_orders(
     return {
         "message": f"Created {len(created_orders)} production order(s)",
         "created_orders": created_orders,
-        "existing_orders": []
+        "existing_orders": [po.code for po in existing_pos]
     }
 
 

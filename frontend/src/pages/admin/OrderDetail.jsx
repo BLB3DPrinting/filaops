@@ -50,8 +50,14 @@ export default function OrderDetail() {
   };
 
   const hasMainProductWO = () => {
+    if (
+      order?.product_id &&
+      productionOrders.some((po) => po.product_id === order.product_id)
+    ) {
+      return true;
+    }
     if (!order?.lines || order.lines.length === 0) {
-      return productionOrders.some((po) => po.product_id === order?.product_id);
+      return false;
     }
     const lineProductIds = order.lines
       .filter((line) => line.product_id)
@@ -101,8 +107,8 @@ export default function OrderDetail() {
     if (!order) return "Order is still loading";
     if (!hasOrderProduct()) return "Order must have a product line";
     if (hasMainProductWO()) return "Production order already exists";
-    if (order.status === "pending" || order.status === "pending_confirmation") {
-      return "Confirm the order before production release";
+    if (order.status !== "confirmed") {
+      return "Order must be confirmed before production release";
     }
     if (!isBillingReleaseSatisfied()) {
       return "Create/send an invoice or record payment before production release";
@@ -570,13 +576,16 @@ export default function OrderDetail() {
         });
       }
       toast.success(`Order ${order.order_number} confirmed`);
-      await Promise.all([
+      const refreshResults = await Promise.allSettled([
         fetchOrder(),
         fetchOrderInvoice(),
         fetchPaymentData(),
         fetchProductionOrders(),
         refetchFulfillment(),
       ]);
+      if (refreshResults.some((result) => result.status === "rejected")) {
+        toast.error("Order confirmed, but some related data failed to refresh");
+      }
     } catch (err) {
       toast.error(err.message || "Failed to confirm order");
     } finally {

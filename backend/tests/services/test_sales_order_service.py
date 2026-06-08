@@ -1624,13 +1624,14 @@ class TestGenerateProductionOrders:
         """If POs already exist for a line_item order, returns them."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(status="pending", order_type="line_item")
-        _make_order_line(db, so.id, product.id, quantity=2)
+        line = _make_order_line(db, so.id, product.id, quantity=2)
 
         # Create existing production order linked to this SO
         po = ProductionOrder(
             code="PO-EXIST-LI-001",
             product_id=product.id,
             sales_order_id=so.id,
+            sales_order_line_id=line.id,
             quantity_ordered=2,
             quantity_completed=0,
             quantity_scrapped=0,
@@ -1644,6 +1645,39 @@ class TestGenerateProductionOrders:
         assert result["message"] == "Production orders already exist"
         assert "PO-EXIST-LI-001" in result["existing_orders"]
         assert result["created_orders"] == []
+
+    def test_creates_pos_for_uncovered_line_items(
+        self, db, make_sales_order, make_product
+    ):
+        """Existing line-level POs do not block release of uncovered lines."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        line1 = _make_order_line(db, so.id, product.id, quantity=1)
+        line2 = _make_order_line(db, so.id, product.id, quantity=2)
+
+        existing_po = ProductionOrder(
+            code="PO-EXIST-PARTIAL-001",
+            product_id=product.id,
+            sales_order_id=so.id,
+            sales_order_line_id=line1.id,
+            quantity_ordered=1,
+            quantity_completed=0,
+            quantity_scrapped=0,
+            status="draft",
+            created_by="test",
+        )
+        db.add(existing_po)
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+
+        linked_pos = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == so.id
+        ).all()
+        linked_line_ids = {po.sales_order_line_id for po in linked_pos}
+        assert len(result["created_orders"]) == 1
+        assert result["existing_orders"] == ["PO-EXIST-PARTIAL-001"]
+        assert linked_line_ids == {line1.id, line2.id}
 
     def test_returns_existing_pos_for_quote_based_order(self, db, make_sales_order, make_product):
         """If POs already exist for a quote_based order, returns them."""
