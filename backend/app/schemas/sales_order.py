@@ -141,6 +141,7 @@ class SalesOrderUpdateAddress(BaseModel):
     shipping_state: Optional[str] = Field(None, max_length=50)
     shipping_zip: Optional[str] = Field(None, max_length=20)
     shipping_country: Optional[str] = Field(None, max_length=100)
+    shipping_cost: Optional[Decimal] = Field(None, ge=0)
 
 
 class SalesOrderCancel(BaseModel):

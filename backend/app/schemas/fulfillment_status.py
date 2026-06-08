@@ -22,7 +22,7 @@ class LineStatus(BaseModel):
     """Status of a single order line."""
     line_id: int
     line_number: int
-    product_id: int
+    product_id: Optional[int] = None
     product_sku: str
     product_name: str
     quantity_ordered: float

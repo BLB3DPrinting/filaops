@@ -22,6 +22,7 @@ class EventType(str, Enum):
     SHIPPED = "shipped"
     DELIVERED = "delivered"
     ADDRESS_UPDATED = "address_updated"
+    SHIPPING_CHARGE_UPDATED = "shipping_charge_updated"
     CANCELLED = "cancelled"
     ON_HOLD = "on_hold"
     RESUMED = "resumed"

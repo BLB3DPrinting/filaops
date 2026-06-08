@@ -12,6 +12,8 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [addressForm, setAddressForm] = useState({});
+  const shippingCharge = Number.parseFloat(order.shipping_cost || 0);
+  const grandTotal = Number.parseFloat(order.grand_total ?? order.total_price ?? 0);
 
   const handleEditAddress = () => {
     setAddressForm({
@@ -21,6 +23,7 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
       shipping_state: order.shipping_state || "",
       shipping_zip: order.shipping_zip || "",
       shipping_country: order.shipping_country || "USA",
+      shipping_cost: order.shipping_cost || "0.00",
     });
     setEditingAddress(true);
   };
@@ -28,13 +31,18 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
   const handleSaveAddress = async () => {
     setSavingAddress(true);
     try {
+      const parsedShippingCost = Number.parseFloat(addressForm.shipping_cost);
+      const payload = {
+        ...addressForm,
+        shipping_cost: Number.isNaN(parsedShippingCost) ? 0 : parsedShippingCost,
+      };
       const res = await fetch(
         `${API_URL}/api/v1/sales-orders/${order.id}/address`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify(addressForm),
+          body: JSON.stringify(payload),
         }
       );
 
@@ -70,6 +78,24 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
       {editingAddress ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 md:col-span-1">
+              <label className="block text-sm text-gray-400 mb-1">
+                Shipping Charge
+              </label>
+              <input
+                type="number"
+                value={addressForm.shipping_cost}
+                onChange={(e) =>
+                  setAddressForm({
+                    ...addressForm,
+                    shipping_cost: e.target.value,
+                  })
+                }
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                min="0"
+                step="0.01"
+              />
+            </div>
             <div className="col-span-2">
               <label className="block text-sm text-gray-400 mb-1">
                 Address Line 1
@@ -184,7 +210,21 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
           </div>
         </div>
       ) : (
-        <div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm text-gray-400">Shipping Charge</div>
+              <div className="text-white font-medium">
+                ${Number.isNaN(shippingCharge) ? "0.00" : shippingCharge.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-400">Order Total</div>
+              <div className="text-white font-medium">
+                ${Number.isNaN(grandTotal) ? "0.00" : grandTotal.toFixed(2)}
+              </div>
+            </div>
+          </div>
           {order.shipping_address_line1 ? (
             <div className="text-white">
               <div>{order.shipping_address_line1}</div>

@@ -26,6 +26,7 @@ from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.production_order import ProductionOrder
 from app.models.order_event import OrderEvent
 from app.models.company_settings import CompanySettings
+from app.schemas.order_event import OrderEventCreate
 from app.services import sales_order_service
 
 
@@ -1036,6 +1037,52 @@ class TestUpdateShippingAddress:
         )
         assert result.shipping_address_line1 == "Original St"
         assert result.shipping_city == "New City"
+
+    def test_shipping_cost_update_recalculates_taxable_order_total(self, db, make_sales_order, make_product):
+        """Updating order shipping cost after creation updates tax and grand total."""
+        product = make_product(selling_price=Decimal("100.00"))
+        order = make_sales_order(
+            status="pending",
+            order_type="line_item",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            tax_rate=Decimal("0.07"),
+            tax_amount=Decimal("7.00"),
+            is_taxable=True,
+            shipping_cost=Decimal("0.00"),
+            shipping_state="OH",
+        )
+        _make_order_line(
+            db,
+            order.id,
+            product.id,
+            quantity=1,
+            unit_price=Decimal("100.00"),
+        )
+
+        result = sales_order_service.update_shipping_address(
+            db,
+            order.id,
+            user_id=1,
+            shipping_state="IN",
+            shipping_cost=Decimal("10.00"),
+        )
+        db.flush()
+
+        assert result.total_price == Decimal("100.00")
+        assert result.shipping_cost == Decimal("10.00")
+        assert result.tax_amount == Decimal("7.70")
+        assert result.grand_total == Decimal("117.70")
+
+        events = db.query(OrderEvent).filter(
+            OrderEvent.sales_order_id == order.id,
+            OrderEvent.event_type == "shipping_charge_updated",
+        ).all()
+        assert len(events) == 1
+        assert OrderEventCreate(
+            event_type="shipping_charge_updated",
+            title="Shipping charge updated",
+        ).event_type.value == "shipping_charge_updated"
 
 
 # =============================================================================
