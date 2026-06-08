@@ -115,133 +115,7 @@ export default function OrderDetail() {
     refetch: refetchFulfillment,
   } = useFulfillmentStatus(orderId);
 
-  const fetchOrder = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await api.get(`/api/v1/sales-orders/${orderId}`);
-      setOrder(data);
-
-      // Explode BOM for material requirements
-      if (
-        data.order_type === "line_item" &&
-        data.lines &&
-        data.lines.length > 0
-      ) {
-        const firstLine = data.lines[0];
-        if (firstLine.product_id) {
-          // eslint-disable-next-line react-hooks/immutability
-          await explodeBOM(firstLine.product_id, firstLine.quantity);
-        }
-      } else if (data.product_id) {
-        await explodeBOM(data.product_id, data.quantity);
-      } else if (data.quote_id) {
-        try {
-          const quoteData = await api.get(`/api/v1/quotes/${data.quote_id}`);
-          if (quoteData.product_id) {
-            await explodeBOM(quoteData.product_id, data.quantity);
-          }
-        } catch {
-          // Quote fetch failure is non-critical
-        }
-      }
-    } catch (err) {
-      setError(err.message || "Failed to fetch order");
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchProductionOrders = async () => {
-    if (!orderId) return;
-    try {
-      const data = await api.get(
-        `/api/v1/production-orders?sales_order_id=${orderId}`
-      );
-      setProductionOrders(data.items || data || []);
-    } catch {
-      // Production orders fetch failure is non-critical
-    }
-  };
-
-  const fetchPaymentData = async () => {
-    if (!orderId) return;
-    try {
-      const summary = await api.get(
-        `/api/v1/payments/order/${orderId}/summary`
-      );
-      setPaymentSummary(summary);
-    } catch {
-      // Payment summary fetch failure is non-critical
-    }
-    try {
-      const data = await api.get(`/api/v1/payments?order_id=${orderId}`);
-      setPayments(data.items || []);
-    } catch {
-      // Payment list fetch failure is non-critical
-    }
-  };
-
-  const fetchOrderInvoice = async () => {
-    if (!orderId) return null;
-    setInvoiceLoading(true);
-    try {
-      const data = await api.get(
-        `/api/v1/invoices?sales_order_id=${orderId}&limit=1`
-      );
-      const invoices = data.items || data || [];
-      const invoice = invoices.length > 0 ? invoices[0] : null;
-      setOrderInvoice(invoice);
-      return invoice;
-    } catch {
-      setOrderInvoice(null);
-      return null;
-    } finally {
-      setInvoiceLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (orderId) {
-      void Promise.resolve().then(() => {
-        fetchOrder();
-        fetchProductionOrders();
-        fetchPaymentData();
-        fetchOrderInvoice();
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
-
-  const handlePaymentRecorded = () => {
-    setShowPaymentModal(false);
-    setIsRefund(false);
-    fetchPaymentData();
-    fetchOrder();
-    fetchOrderInvoice();
-    toast.success(isRefund ? "Refund recorded" : "Payment recorded");
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await Promise.all([
-        fetchOrder(),
-        fetchProductionOrders(),
-        fetchPaymentData(),
-        fetchOrderInvoice(),
-      ]);
-      toast.success("Data refreshed");
-    } catch {
-      toast.error("Failed to refresh");
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  async function explodeBOM(productId, quantity) {
+  const explodeBOM = async (productId, quantity) => {
     setExploding(true);
     try {
       // PRIMARY: Use the new material-requirements endpoint (routing-first approach)
@@ -360,7 +234,152 @@ export default function OrderDetail() {
     } finally {
       setExploding(false);
     }
-  }
+  };
+
+  const fetchOrder = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await api.get(`/api/v1/sales-orders/${orderId}`);
+      setOrder(data);
+
+      // Explode BOM for material requirements
+      if (
+        data.order_type === "line_item" &&
+        data.lines &&
+        data.lines.length > 0
+      ) {
+        const firstLine = data.lines[0];
+        if (firstLine.product_id) {
+          await explodeBOM(firstLine.product_id, firstLine.quantity);
+        }
+      } else if (data.product_id) {
+        await explodeBOM(data.product_id, data.quantity);
+      } else if (data.quote_id) {
+        try {
+          const quoteData = await api.get(`/api/v1/quotes/${data.quote_id}`);
+          if (quoteData.product_id) {
+            await explodeBOM(quoteData.product_id, data.quantity);
+          }
+        } catch {
+          // Quote fetch failure is non-critical
+        }
+      }
+    } catch (err) {
+      setError(err.message || "Failed to fetch order");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchProductionOrders = async () => {
+    if (!orderId) return;
+    try {
+      const data = await api.get(
+        `/api/v1/production-orders?sales_order_id=${orderId}`
+      );
+      setProductionOrders(data.items || data || []);
+    } catch {
+      // Production orders fetch failure is non-critical
+    }
+  };
+
+  const fetchPaymentData = async () => {
+    if (!orderId) return;
+    try {
+      const summary = await api.get(
+        `/api/v1/payments/order/${orderId}/summary`
+      );
+      setPaymentSummary(summary);
+    } catch {
+      // Payment summary fetch failure is non-critical
+    }
+    try {
+      const data = await api.get(`/api/v1/payments?order_id=${orderId}`);
+      setPayments(data.items || []);
+    } catch {
+      // Payment list fetch failure is non-critical
+    }
+  };
+
+  const fetchOrderInvoice = async ({ shouldApply = () => true } = {}) => {
+    if (!orderId) return null;
+    if (shouldApply()) {
+      setInvoiceLoading(true);
+    }
+    try {
+      const data = await api.get(
+        `/api/v1/invoices?sales_order_id=${orderId}&limit=1`
+      );
+      const invoices = data.items || data || [];
+      const invoice = invoices.length > 0 ? invoices[0] : null;
+      if (shouldApply()) {
+        setOrderInvoice(invoice);
+      }
+      return invoice;
+    } catch {
+      if (shouldApply()) {
+        setOrderInvoice(null);
+      }
+      return null;
+    } finally {
+      if (shouldApply()) {
+        setInvoiceLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!orderId) return undefined;
+    let cancelled = false;
+    const shouldApply = () => !cancelled;
+
+    void (async () => {
+      try {
+        await Promise.all([
+          fetchOrder(),
+          fetchProductionOrders(),
+          fetchPaymentData(),
+          fetchOrderInvoice({ shouldApply }),
+        ]);
+      } catch {
+        // Individual fetchers own user-visible error state.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId]);
+
+  const handlePaymentRecorded = () => {
+    setShowPaymentModal(false);
+    setIsRefund(false);
+    fetchPaymentData();
+    fetchOrder();
+    fetchOrderInvoice();
+    toast.success(isRefund ? "Refund recorded" : "Payment recorded");
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchOrder(),
+        fetchProductionOrders(),
+        fetchPaymentData(),
+        fetchOrderInvoice(),
+      ]);
+      toast.success("Data refreshed");
+    } catch {
+      toast.error("Failed to refresh");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleCreateProductionOrder = async () => {
     const hasProduct =
