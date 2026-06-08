@@ -764,9 +764,41 @@ class TestUpdateSalesOrderStatus:
         )
         assert result.confirmed_at is not None
 
+    def test_pending_to_confirmed_does_not_create_production_order(
+        self, db, make_sales_order, make_product
+    ):
+        """Commercial confirmation does not release the order to production."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="pending", order_type="line_item")
+        _make_order_line(db, so.id, product.id, quantity=1)
+
+        result = sales_order_service.update_sales_order_status(
+            db, so.id, "confirmed", user_id=1, user_email="test@filaops.dev"
+        )
+
+        linked_pos = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == so.id
+        ).all()
+        assert result.status == "confirmed"
+        assert result.confirmed_at is not None
+        assert linked_pos == []
+
+    def test_invalid_status_transition_is_rejected(self, db, make_sales_order):
+        """Status updates must follow the configured sales order state machine."""
+        so = make_sales_order(status="pending")
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.update_sales_order_status(
+                db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid sales order status transition" in exc_info.value.detail
+        assert so.status == "pending"
+
     def test_shipped_sets_shipped_at(self, db, make_sales_order):
         """Setting status to shipped sets shipped_at."""
-        so = make_sales_order(status="in_production")
+        so = make_sales_order(status="ready_to_ship")
         result = sales_order_service.update_sales_order_status(
             db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
         )
@@ -810,7 +842,7 @@ class TestUpdateSalesOrderStatus:
         """Status change records an event in the timeline."""
         so = make_sales_order(status="pending")
         sales_order_service.update_sales_order_status(
-            db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
+            db, so.id, "confirmed", user_id=1, user_email="test@filaops.dev"
         )
         db.flush()
 
@@ -821,7 +853,7 @@ class TestUpdateSalesOrderStatus:
         assert len(events) >= 1
         latest = events[-1]
         assert latest.old_value == "pending"
-        assert latest.new_value == "shipped"
+        assert latest.new_value == "confirmed"
 
     def test_raises_404_for_missing_order(self, db):
         """Raises 404 when order does not exist."""
@@ -1574,17 +1606,32 @@ class TestGenerateProductionOrders:
         assert exc_info.value.status_code == 400
         assert "cancelled" in exc_info.value.detail.lower()
 
+    def test_rejects_unconfirmed_order_without_existing_pos(
+        self, db, make_sales_order, make_product
+    ):
+        """New work orders cannot be released before commercial confirmation."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="pending", order_type="line_item")
+        _make_order_line(db, so.id, product.id, quantity=1)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+
+        assert exc_info.value.status_code == 400
+        assert "confirm" in exc_info.value.detail.lower()
+
     def test_returns_existing_pos_for_line_item_order(self, db, make_sales_order, make_product):
         """If POs already exist for a line_item order, returns them."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(status="pending", order_type="line_item")
-        _make_order_line(db, so.id, product.id, quantity=2)
+        line = _make_order_line(db, so.id, product.id, quantity=2)
 
         # Create existing production order linked to this SO
         po = ProductionOrder(
             code="PO-EXIST-LI-001",
             product_id=product.id,
             sales_order_id=so.id,
+            sales_order_line_id=line.id,
             quantity_ordered=2,
             quantity_completed=0,
             quantity_scrapped=0,
@@ -1598,6 +1645,39 @@ class TestGenerateProductionOrders:
         assert result["message"] == "Production orders already exist"
         assert "PO-EXIST-LI-001" in result["existing_orders"]
         assert result["created_orders"] == []
+
+    def test_creates_pos_for_uncovered_line_items(
+        self, db, make_sales_order, make_product
+    ):
+        """Existing line-level POs do not block release of uncovered lines."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        line1 = _make_order_line(db, so.id, product.id, quantity=1)
+        line2 = _make_order_line(db, so.id, product.id, quantity=2)
+
+        existing_po = ProductionOrder(
+            code="PO-EXIST-PARTIAL-001",
+            product_id=product.id,
+            sales_order_id=so.id,
+            sales_order_line_id=line1.id,
+            quantity_ordered=1,
+            quantity_completed=0,
+            quantity_scrapped=0,
+            status="draft",
+            created_by="test",
+        )
+        db.add(existing_po)
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+
+        linked_pos = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == so.id
+        ).all()
+        linked_line_ids = {po.sales_order_line_id for po in linked_pos}
+        assert len(result["created_orders"]) == 1
+        assert result["existing_orders"] == ["PO-EXIST-PARTIAL-001"]
+        assert linked_line_ids == {line1.id, line2.id}
 
     def test_returns_existing_pos_for_quote_based_order(self, db, make_sales_order, make_product):
         """If POs already exist for a quote_based order, returns them."""
@@ -1627,7 +1707,7 @@ class TestGenerateProductionOrders:
 
     def test_rejects_line_item_order_with_no_lines(self, db, make_sales_order):
         """line_item order with no lines raises 400."""
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
 
         with pytest.raises(HTTPException) as exc_info:
             sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1637,7 +1717,7 @@ class TestGenerateProductionOrders:
     def test_creates_po_for_line_item_order(self, db, make_sales_order, make_product):
         """Creates a production order for each line item."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=3)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1650,13 +1730,12 @@ class TestGenerateProductionOrders:
         db.flush()
         db.refresh(so)
         assert so.status == "in_production"
-        assert so.confirmed_at is not None
 
     def test_creates_po_for_multiple_line_items(self, db, make_sales_order, make_product):
         """Creates one PO per line item."""
         p1 = make_product(selling_price=Decimal("10.00"))
         p2 = make_product(selling_price=Decimal("20.00"))
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
         _make_order_line(db, so.id, p1.id, quantity=2)
         _make_order_line(db, so.id, p2.id, quantity=5)
 
@@ -1677,7 +1756,7 @@ class TestGenerateProductionOrders:
     def test_records_production_started_event(self, db, make_sales_order, make_product):
         """Records a production_started event after PO creation."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=1)
 
         sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1691,7 +1770,7 @@ class TestGenerateProductionOrders:
 
     def test_rejects_quote_based_order_without_quote(self, db, make_sales_order):
         """quote_based order without a quote_id raises 400."""
-        so = make_sales_order(status="pending", order_type="quote_based")
+        so = make_sales_order(status="confirmed", order_type="quote_based")
         # quote_id is None by default
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1725,7 +1804,7 @@ class TestGenerateProductionOrders:
         db.flush()
 
         so = make_sales_order(
-            status="pending",
+            status="confirmed",
             order_type="quote_based",
             product_id=product.id,
             quote_id=quote.id,
@@ -2395,7 +2474,7 @@ class TestGenerateProductionOrdersQuoteBased:
         db.flush()
 
         so = make_sales_order(
-            status="pending",
+            status="confirmed",
             order_type="quote_based",
             quote_id=quote.id,
         )
@@ -2642,7 +2721,7 @@ class TestCopyRoutingToOperations:
              "setup_time_minutes": 0, "run_time_minutes": 10},
         ])
 
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
         _make_order_line(db, so.id, fg.id, quantity=2)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
