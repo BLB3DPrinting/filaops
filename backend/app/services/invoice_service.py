@@ -302,14 +302,18 @@ def list_invoices(
     db: Session,
     status: Optional[str] = None,
     customer_search: Optional[str] = None,
+    sales_order_id: Optional[int] = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[Invoice]:
-    """List invoices with optional status and customer search filters.
+    """List invoices with optional status, customer, and order filters.
 
     Special status value 'overdue' returns sent invoices past their due date.
     """
     query = db.query(Invoice).order_by(desc(Invoice.created_at))
+
+    if sales_order_id is not None:
+        query = query.filter(Invoice.sales_order_id == sales_order_id)
 
     if status and status != "all":
         if status == "overdue":

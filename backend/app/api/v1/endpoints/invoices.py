@@ -48,13 +48,19 @@ def create_invoice(
 def list_invoices(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    sales_order_id: Optional[int] = Query(None),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_staff_user),
 ):
     invoices = invoice_service.list_invoices(
-        db, status=status, customer_search=search, limit=limit, offset=offset,
+        db,
+        status=status,
+        customer_search=search,
+        sales_order_id=sales_order_id,
+        limit=limit,
+        offset=offset,
     )
     results = []
     for inv in invoices:
