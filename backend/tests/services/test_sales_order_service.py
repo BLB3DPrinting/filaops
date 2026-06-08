@@ -1673,7 +1673,7 @@ class TestGenerateProductionOrders:
 
     def test_rejects_line_item_order_with_no_lines(self, db, make_sales_order):
         """line_item order with no lines raises 400."""
-        so = make_sales_order(status="pending", order_type="line_item")
+        so = make_sales_order(status="confirmed", order_type="line_item")
 
         with pytest.raises(HTTPException) as exc_info:
             sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
