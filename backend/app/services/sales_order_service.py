@@ -27,7 +27,7 @@ from app.models.manufacturing import Routing, RoutingOperation, RoutingOperation
 from app.models.product import Product
 from app.models.material import MaterialInventory
 from app.models.bom import BOM, BOMLine
-from app.models.inventory import Inventory
+from app.models.inventory import Inventory, InventoryTransaction
 from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
 from app.core.status_config import StatusTransitionError, validate_sales_order_transition
@@ -2501,43 +2501,93 @@ def get_material_requirements(
 # Shipping
 # =============================================================================
 
-def _create_shipment_gl_entry(db: Session, order: "SalesOrder", user_id: int) -> None:
+def _create_shipment_gl_entry(
+    db: Session,
+    order: "SalesOrder",
+    user_id: int,
+    shipment_transactions: Optional[list[InventoryTransaction]] = None,
+) -> None:
     """
     Create GL journal entry for a sales order shipment.
 
-    DR COGS (5000), CR FG Inventory (1220) for each shipped product line.
-    Uses standard_cost → average_cost → last_cost as the cost basis.
+    DR COGS (5000), CR FG Inventory (1220) for shipped goods.
+    DR Shipping Supplies (5010), CR Packaging Inventory (1230) for packaging.
+    Uses the inventory transactions created by process_shipment() when provided.
     Skips lines with no cost set — no entry is created if total is zero.
 
     Called from ship_order() AFTER process_shipment() handles inventory
-    transactions, so this only creates the accounting entry (no double-count).
+    transactions, so this only creates the accounting entry and links those
+    inventory transactions to it.
     """
+    from app.models.accounting import GLJournalEntry
     from app.services.transaction_service import TransactionService
 
-    total_cost = Decimal("0")
-    for line in (order.lines or []):
-        if not line.product_id or not line.product:
-            continue
-        product = line.product
-        cost = product.standard_cost or product.average_cost or product.last_cost
-        if not cost or cost <= 0:
-            continue
-        total_cost += Decimal(str(line.quantity)) * Decimal(str(cost))
+    existing = db.query(GLJournalEntry.id).filter(
+        GLJournalEntry.source_type == "sales_order",
+        GLJournalEntry.source_id == order.id,
+        GLJournalEntry.status != "voided",
+    ).first()
+    if existing:
+        return
 
-    if total_cost <= 0:
+    if shipment_transactions is None:
+        shipment_transactions = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "sales_order",
+            InventoryTransaction.reference_id == order.id,
+            InventoryTransaction.transaction_type.in_(["shipment", "consumption"]),
+        ).all()
+
+    def txn_cost(txn: InventoryTransaction) -> Decimal:
+        if txn.total_cost is not None:
+            return Decimal(str(txn.total_cost or 0)).quantize(Decimal("0.01"))
+        quantity = abs(Decimal(str(txn.quantity or 0)))
+        unit_cost = Decimal(str(txn.cost_per_unit or 0))
+        return (quantity * unit_cost).quantize(Decimal("0.01"))
+
+    product_cost = Decimal("0")
+    packaging_cost = Decimal("0")
+    for txn in shipment_transactions:
+        if txn.transaction_type == "shipment":
+            product_cost += txn_cost(txn)
+        elif txn.transaction_type == "consumption":
+            packaging_cost += txn_cost(txn)
+
+    if product_cost <= 0 and not shipment_transactions:
+        for line in (order.lines or []):
+            if not line.product_id or not line.product:
+                continue
+            product = line.product
+            cost = product.standard_cost or product.average_cost or product.last_cost
+            if not cost or cost <= 0:
+                continue
+            product_cost += Decimal(str(line.quantity)) * Decimal(str(cost))
+
+    lines = []
+    if product_cost > 0:
+        lines.extend([
+            ("5000", product_cost, "DR"),   # Cost of Goods Sold
+            ("1220", product_cost, "CR"),   # Finished Goods Inventory
+        ])
+    if packaging_cost > 0:
+        lines.extend([
+            ("5010", packaging_cost, "DR"),  # Shipping Supplies Expense
+            ("1230", packaging_cost, "CR"),  # Packaging Inventory
+        ])
+
+    if not lines:
         return  # No costed items — skip GL entry
 
     ts = TransactionService(db)
-    ts._create_journal_entry(
+    journal_entry = ts._create_journal_entry(
         description=f"Shipment for SO#{order.order_number}",
-        lines=[
-            ("5000", total_cost, "DR"),   # Cost of Goods Sold
-            ("1220", total_cost, "CR"),   # Finished Goods Inventory
-        ],
+        lines=lines,
         source_type="sales_order",
         source_id=order.id,
         user_id=user_id,
     )
+
+    for txn in shipment_transactions:
+        txn.journal_entry_id = journal_entry.id
 
 
 def ship_order(
@@ -2592,14 +2642,14 @@ def ship_order(
     order.updated_at = datetime.now(timezone.utc)
 
     # Process inventory transactions
-    process_shipment(
+    packaging_txns, issue_txns = process_shipment(
         db=db,
         sales_order=order,
         created_by=user_email,
     )
 
     # Create GL journal entry for COGS and FG inventory relief
-    _create_shipment_gl_entry(db, order, user_id)
+    _create_shipment_gl_entry(db, order, user_id, [*packaging_txns, *issue_txns])
 
     # Record order event
     record_order_event(

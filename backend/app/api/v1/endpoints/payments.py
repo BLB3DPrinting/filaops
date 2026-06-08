@@ -20,6 +20,7 @@ from app.models.order_event import OrderEvent
 from app.services.payment_service import (
     outstanding_balance_summary,
     generate_payment_number,
+    reverse_payment_receipt,
     sales_order_total,
     update_order_payment_status,
 )
@@ -413,6 +414,13 @@ async def update_payment(
 
     if update_data.status is not None:
         old_status = payment.status
+        if old_status == "completed" and update_data.status != "completed":
+            reverse_payment_receipt(
+                db,
+                payment,
+                user_id=current_user.id,
+                reason=f"status changed to {update_data.status}",
+            )
         payment.status = update_data.status
 
         # If status changed, update order payment status
@@ -448,6 +456,13 @@ async def void_payment(
             detail="Payment is already voided"
         )
 
+    if payment.status == "completed":
+        reverse_payment_receipt(
+            db,
+            payment,
+            user_id=current_user.id,
+            reason="payment voided",
+        )
     payment.status = "voided"
 
     # Update order payment status
