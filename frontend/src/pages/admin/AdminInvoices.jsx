@@ -31,6 +31,9 @@ const PAYMENT_METHODS = [
   { value: "other", label: "Other" },
 ];
 
+const getInvoiceBalanceDue = (invoice) =>
+  invoice?.balance_due ?? invoice?.amount_due ?? 0;
+
 export default function AdminInvoices() {
   const api = useApi();
   const toast = useToast();
@@ -39,6 +42,7 @@ export default function AdminInvoices() {
 
   const statusFilter = searchParams.get("status") || "";
   const searchQuery = searchParams.get("search") || "";
+  const invoiceIdParam = searchParams.get("invoice") || "";
 
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,12 +64,6 @@ export default function AdminInvoices() {
 
   // Send invoice state
   const [sendingInvoice, setSendingInvoice] = useState(false);
-
-  useEffect(() => {
-    fetchInvoices();
-    fetchSummary();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -93,6 +91,14 @@ export default function AdminInvoices() {
     }
   };
 
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      fetchInvoices();
+      fetchSummary();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
   const handleViewInvoice = async (invoice) => {
     setDetailLoading(true);
     try {
@@ -104,6 +110,27 @@ export default function AdminInvoices() {
       setDetailLoading(false);
     }
   };
+
+  useEffect(() => {
+    const invoiceId = Number(invoiceIdParam);
+    if (!invoiceId || selectedInvoice?.id === invoiceId) return;
+    let cancelled = false;
+
+    api.get(`/api/v1/invoices/${invoiceId}`)
+      .then((data) => {
+        if (!cancelled) setSelectedInvoice(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error(err.message || "Failed to load invoice details");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceIdParam]);
 
   const handleSendInvoice = async () => {
     if (!selectedInvoice) return;
@@ -366,7 +393,7 @@ export default function AdminInvoices() {
                       {formatCurrency(invoice.amount_paid || 0)}
                     </td>
                     <td className="py-3 px-4 text-right text-white font-medium">
-                      {formatCurrency(invoice.balance_due || 0)}
+                      {formatCurrency(getInvoiceBalanceDue(invoice))}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span
@@ -582,8 +609,8 @@ export default function AdminInvoices() {
                       </div>
                       <div className="flex justify-between border-t border-gray-700 pt-2 font-semibold">
                         <span className="text-white">Balance Due</span>
-                        <span className={parseFloat(selectedInvoice.balance_due || 0) > 0 ? "text-red-400" : "text-green-400"}>
-                          {formatCurrency(selectedInvoice.balance_due || 0)}
+                        <span className={parseFloat(getInvoiceBalanceDue(selectedInvoice)) > 0 ? "text-red-400" : "text-green-400"}>
+                          {formatCurrency(getInvoiceBalanceDue(selectedInvoice))}
                         </span>
                       </div>
                     </div>
@@ -638,7 +665,7 @@ export default function AdminInvoices() {
                             onChange={(e) =>
                               setPaymentForm({ ...paymentForm, amount: e.target.value })
                             }
-                            placeholder={`${parseFloat(selectedInvoice.balance_due || 0).toFixed(2)}`}
+                            placeholder={`${parseFloat(getInvoiceBalanceDue(selectedInvoice)).toFixed(2)}`}
                             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm"
                           />
                         </div>

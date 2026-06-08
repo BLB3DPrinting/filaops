@@ -25,6 +25,11 @@ import PaymentsSection from "../../components/orders/PaymentsSection";
 import ShippingAddressSection from "../../components/orders/ShippingAddressSection";
 import { CancelOrderModal, DeleteOrderModal } from "../../components/orders/OrderModals";
 
+const getInvoiceBalanceDue = (invoice) =>
+  invoice?.balance_due ?? invoice?.amount_due ?? 0;
+
+const formatMoney = (value) => `$${parseFloat(value || 0).toFixed(2)}`;
+
 export default function OrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -68,6 +73,9 @@ export default function OrderDetail() {
 
   // Invoice generation state
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  const [orderInvoice, setOrderInvoice] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [sendingInvoice, setSendingInvoice] = useState(false);
 
   // Line editing state
   const [editingLineId, setEditingLineId] = useState(null);
@@ -106,107 +114,6 @@ export default function OrderDetail() {
     error: fulfillmentError,
     refetch: refetchFulfillment,
   } = useFulfillmentStatus(orderId);
-
-  useEffect(() => {
-    if (orderId) {
-      fetchOrder();
-      fetchProductionOrders();
-      fetchPaymentData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
-
-  const fetchOrder = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await api.get(`/api/v1/sales-orders/${orderId}`);
-      setOrder(data);
-
-      // Explode BOM for material requirements
-      if (
-        data.order_type === "line_item" &&
-        data.lines &&
-        data.lines.length > 0
-      ) {
-        const firstLine = data.lines[0];
-        if (firstLine.product_id) {
-          await explodeBOM(firstLine.product_id, firstLine.quantity);
-        }
-      } else if (data.product_id) {
-        await explodeBOM(data.product_id, data.quantity);
-      } else if (data.quote_id) {
-        try {
-          const quoteData = await api.get(`/api/v1/quotes/${data.quote_id}`);
-          if (quoteData.product_id) {
-            await explodeBOM(quoteData.product_id, data.quantity);
-          }
-        } catch {
-          // Quote fetch failure is non-critical
-        }
-      }
-    } catch (err) {
-      setError(err.message || "Failed to fetch order");
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchProductionOrders = async () => {
-    if (!orderId) return;
-    try {
-      const data = await api.get(
-        `/api/v1/production-orders?sales_order_id=${orderId}`
-      );
-      setProductionOrders(data.items || data || []);
-    } catch {
-      // Production orders fetch failure is non-critical
-    }
-  };
-
-  const fetchPaymentData = async () => {
-    if (!orderId) return;
-    try {
-      const summary = await api.get(
-        `/api/v1/payments/order/${orderId}/summary`
-      );
-      setPaymentSummary(summary);
-    } catch {
-      // Payment summary fetch failure is non-critical
-    }
-    try {
-      const data = await api.get(`/api/v1/payments?order_id=${orderId}`);
-      setPayments(data.items || []);
-    } catch {
-      // Payment list fetch failure is non-critical
-    }
-  };
-
-  const handlePaymentRecorded = () => {
-    setShowPaymentModal(false);
-    setIsRefund(false);
-    fetchPaymentData();
-    fetchOrder();
-    toast.success(isRefund ? "Refund recorded" : "Payment recorded");
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await Promise.all([
-        fetchOrder(),
-        fetchProductionOrders(),
-        fetchPaymentData(),
-      ]);
-      toast.success("Data refreshed");
-    } catch {
-      toast.error("Failed to refresh");
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const explodeBOM = async (productId, quantity) => {
     setExploding(true);
@@ -326,6 +233,151 @@ export default function OrderDetail() {
       // BOM explosion failure - material requirements section will be empty
     } finally {
       setExploding(false);
+    }
+  };
+
+  const fetchOrder = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await api.get(`/api/v1/sales-orders/${orderId}`);
+      setOrder(data);
+
+      // Explode BOM for material requirements
+      if (
+        data.order_type === "line_item" &&
+        data.lines &&
+        data.lines.length > 0
+      ) {
+        const firstLine = data.lines[0];
+        if (firstLine.product_id) {
+          await explodeBOM(firstLine.product_id, firstLine.quantity);
+        }
+      } else if (data.product_id) {
+        await explodeBOM(data.product_id, data.quantity);
+      } else if (data.quote_id) {
+        try {
+          const quoteData = await api.get(`/api/v1/quotes/${data.quote_id}`);
+          if (quoteData.product_id) {
+            await explodeBOM(quoteData.product_id, data.quantity);
+          }
+        } catch {
+          // Quote fetch failure is non-critical
+        }
+      }
+    } catch (err) {
+      setError(err.message || "Failed to fetch order");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchProductionOrders = async () => {
+    if (!orderId) return;
+    try {
+      const data = await api.get(
+        `/api/v1/production-orders?sales_order_id=${orderId}`
+      );
+      setProductionOrders(data.items || data || []);
+    } catch {
+      // Production orders fetch failure is non-critical
+    }
+  };
+
+  const fetchPaymentData = async () => {
+    if (!orderId) return;
+    try {
+      const summary = await api.get(
+        `/api/v1/payments/order/${orderId}/summary`
+      );
+      setPaymentSummary(summary);
+    } catch {
+      // Payment summary fetch failure is non-critical
+    }
+    try {
+      const data = await api.get(`/api/v1/payments?order_id=${orderId}`);
+      setPayments(data.items || []);
+    } catch {
+      // Payment list fetch failure is non-critical
+    }
+  };
+
+  const fetchOrderInvoice = async ({ shouldApply = () => true } = {}) => {
+    if (!orderId) return null;
+    if (shouldApply()) {
+      setInvoiceLoading(true);
+    }
+    try {
+      const data = await api.get(
+        `/api/v1/invoices?sales_order_id=${orderId}&limit=1`
+      );
+      const invoices = data.items || data || [];
+      const invoice = invoices.length > 0 ? invoices[0] : null;
+      if (shouldApply()) {
+        setOrderInvoice(invoice);
+      }
+      return invoice;
+    } catch {
+      if (shouldApply()) {
+        setOrderInvoice(null);
+      }
+      return null;
+    } finally {
+      if (shouldApply()) {
+        setInvoiceLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!orderId) return undefined;
+    let cancelled = false;
+    const shouldApply = () => !cancelled;
+
+    void (async () => {
+      try {
+        await Promise.all([
+          fetchOrder(),
+          fetchProductionOrders(),
+          fetchPaymentData(),
+          fetchOrderInvoice({ shouldApply }),
+        ]);
+      } catch {
+        // Individual fetchers own user-visible error state.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId]);
+
+  const handlePaymentRecorded = () => {
+    setShowPaymentModal(false);
+    setIsRefund(false);
+    fetchPaymentData();
+    fetchOrder();
+    fetchOrderInvoice();
+    toast.success(isRefund ? "Refund recorded" : "Payment recorded");
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchOrder(),
+        fetchProductionOrders(),
+        fetchPaymentData(),
+        fetchOrderInvoice(),
+      ]);
+      toast.success("Data refreshed");
+    } catch {
+      toast.error("Failed to refresh");
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -537,13 +589,36 @@ export default function OrderDetail() {
       const invoice = await api.post("/api/v1/invoices", {
         sales_order_id: order.id,
       });
+      setOrderInvoice(invoice);
       toast.success(`Invoice ${invoice.invoice_number} created`);
-      navigate("/admin/invoices");
+      await Promise.all([fetchOrder(), fetchOrderInvoice(), fetchPaymentData()]);
     } catch (err) {
       toast.error(err.response?.data?.detail || err.message || "Failed to generate invoice");
     } finally {
       setGeneratingInvoice(false);
     }
+  };
+
+  const handleSendOrderInvoice = async () => {
+    if (!orderInvoice) return;
+    setSendingInvoice(true);
+    try {
+      const invoice = await api.post(`/api/v1/invoices/${orderInvoice.id}/send`);
+      setOrderInvoice(invoice);
+      toast.success(`Invoice ${invoice.invoice_number} sent`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || err.message || "Failed to send invoice");
+    } finally {
+      setSendingInvoice(false);
+    }
+  };
+
+  const handleDownloadOrderInvoice = () => {
+    if (!orderInvoice) return;
+    window.open(
+      `${API_URL}/api/v1/invoices/${orderInvoice.id}/pdf`,
+      "_blank"
+    );
   };
 
   const canGenerateInvoice = () => {
@@ -555,7 +630,7 @@ export default function OrderDetail() {
       "delivered",
       "completed",
     ];
-    return order && invoiceableStatuses.includes(order.status);
+    return order && !orderInvoice && invoiceableStatuses.includes(order.status);
   };
 
   if (loading) {
@@ -715,6 +790,56 @@ export default function OrderDetail() {
           </svg>
           Quick Actions
         </h2>
+        {invoiceLoading && !orderInvoice && (
+          <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/70 px-4 py-3 text-sm text-gray-400">
+            Checking invoice status...
+          </div>
+        )}
+        {orderInvoice && (
+          <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-emerald-300">
+                  Invoice on this order
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-3">
+                  <span className="font-mono text-sm font-semibold text-white">
+                    {orderInvoice.invoice_number}
+                  </span>
+                  <span className="rounded-full bg-gray-900 px-2 py-1 text-xs text-gray-300">
+                    {orderInvoice.status?.replace(/_/g, " ") || "draft"}
+                  </span>
+                  <span className="text-sm text-gray-300">
+                    Balance {formatMoney(getInvoiceBalanceDue(orderInvoice))}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => navigate(`/admin/invoices?invoice=${orderInvoice.id}`)}
+                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-600"
+                >
+                  Open Invoice
+                </button>
+                {orderInvoice.status === "draft" && (
+                  <button
+                    onClick={handleSendOrderInvoice}
+                    disabled={sendingInvoice}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {sendingInvoice ? "Sending..." : "Send Invoice"}
+                  </button>
+                )}
+                <button
+                  onClick={handleDownloadOrderInvoice}
+                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-600"
+                >
+                  Download PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <button
             onClick={handleCreateProductionOrder}
@@ -761,7 +886,7 @@ export default function OrderDetail() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              {generatingInvoice ? "Generating..." : "Generate Invoice"}
+              {generatingInvoice ? "Creating..." : "Create Invoice"}
             </button>
           )}
         </div>

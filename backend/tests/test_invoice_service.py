@@ -352,6 +352,40 @@ class TestInvoiceAPI:
         assert response.status_code == 200
         assert isinstance(response.json(), list)
 
+    def test_list_invoices_filters_by_sales_order_id(
+        self, client, db, make_product, make_sales_order
+    ):
+        product = make_product(selling_price=Decimal("30.00"))
+        target_order = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("30.00"),
+            status="confirmed",
+        )
+        other_order = make_sales_order(
+            product_id=product.id,
+            quantity=2,
+            unit_price=Decimal("30.00"),
+            status="confirmed",
+        )
+
+        target_response = client.post(
+            "/api/v1/invoices", json={"sales_order_id": target_order.id}
+        )
+        other_response = client.post(
+            "/api/v1/invoices", json={"sales_order_id": other_order.id}
+        )
+        assert target_response.status_code == 200
+        assert other_response.status_code == 200
+
+        response = client.get(f"/api/v1/invoices?sales_order_id={target_order.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["sales_order_id"] == target_order.id
+        assert data[0]["invoice_number"] == target_response.json()["invoice_number"]
+
     def test_get_invoice_not_found(self, client):
         response = client.get("/api/v1/invoices/999999")
         assert response.status_code == 404
