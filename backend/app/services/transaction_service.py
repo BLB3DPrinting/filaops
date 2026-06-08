@@ -100,6 +100,23 @@ class TransactionService:
 
         return f"JE-{year}-{seq:06d}"
 
+    def create_journal_entry(
+        self,
+        description: str,
+        lines: List[Tuple[str, Decimal, str]],
+        source_type: str = None,
+        source_id: int = None,
+        user_id: int = None,
+    ) -> GLJournalEntry:
+        """Create a balanced posted journal entry for service-level callers."""
+        return self._create_journal_entry(
+            description=description,
+            lines=lines,
+            source_type=source_type,
+            source_id=source_id,
+            user_id=user_id,
+        )
+
     def _create_journal_entry(
         self,
         description: str,

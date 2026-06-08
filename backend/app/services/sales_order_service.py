@@ -36,6 +36,16 @@ from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
 
+_SHIPMENT_COST_ACCOUNTS = {
+    "shipment": ("5000", "1220"),
+    "consumption": ("5010", "1230"),
+}
+_SHIPMENT_TRANSACTION_COST_TYPES = {
+    "shipment": "shipment",
+    "consumption": "consumption",
+}
+_NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE = "negative_adjustment"
+
 
 # =============================================================================
 # Code Generation Helpers
@@ -2520,6 +2530,7 @@ def _create_shipment_gl_entry(
     inventory transactions to it.
     """
     from app.models.accounting import GLJournalEntry
+    from app.services.payment_service import ensure_core_sales_accounts
     from app.services.transaction_service import TransactionService
 
     existing = db.query(GLJournalEntry.id).filter(
@@ -2534,8 +2545,31 @@ def _create_shipment_gl_entry(
         shipment_transactions = db.query(InventoryTransaction).filter(
             InventoryTransaction.reference_type == "sales_order",
             InventoryTransaction.reference_id == order.id,
-            InventoryTransaction.transaction_type.in_(["shipment", "consumption"]),
+            InventoryTransaction.transaction_type.in_([
+                *_SHIPMENT_TRANSACTION_COST_TYPES,
+                _NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE,
+            ]),
         ).all()
+
+    def shipment_cost_type(txn: InventoryTransaction) -> str | None:
+        if txn.transaction_type in _SHIPMENT_TRANSACTION_COST_TYPES:
+            return _SHIPMENT_TRANSACTION_COST_TYPES[txn.transaction_type]
+        if txn.transaction_type == _NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE:
+            if txn.product and txn.product.item_type == "packaging":
+                return "consumption"
+            return "shipment"
+        return None
+
+    unexpected_types = sorted({
+        txn.transaction_type
+        for txn in shipment_transactions
+        if shipment_cost_type(txn) is None
+    })
+    if unexpected_types:
+        raise ValueError(
+            "Unexpected shipment transaction types for "
+            f"SO#{order.order_number}: {', '.join(unexpected_types)}"
+        )
 
     def txn_cost(txn: InventoryTransaction) -> Decimal:
         if txn.total_cost is not None:
@@ -2544,15 +2578,16 @@ def _create_shipment_gl_entry(
         unit_cost = Decimal(str(txn.cost_per_unit or 0))
         return (quantity * unit_cost).quantize(Decimal("0.01"))
 
-    product_cost = Decimal("0")
-    packaging_cost = Decimal("0")
+    cost_by_transaction_type = {
+        transaction_type: Decimal("0")
+        for transaction_type in _SHIPMENT_COST_ACCOUNTS
+    }
     for txn in shipment_transactions:
-        if txn.transaction_type == "shipment":
-            product_cost += txn_cost(txn)
-        elif txn.transaction_type == "consumption":
-            packaging_cost += txn_cost(txn)
+        cost_type = shipment_cost_type(txn)
+        if cost_type is not None:
+            cost_by_transaction_type[cost_type] += txn_cost(txn)
 
-    if product_cost <= 0 and not shipment_transactions:
+    if cost_by_transaction_type["shipment"] <= 0 and not shipment_transactions:
         for line in (order.lines or []):
             if not line.product_id or not line.product:
                 continue
@@ -2560,25 +2595,24 @@ def _create_shipment_gl_entry(
             cost = product.standard_cost or product.average_cost or product.last_cost
             if not cost or cost <= 0:
                 continue
-            product_cost += Decimal(str(line.quantity)) * Decimal(str(cost))
+            cost_by_transaction_type["shipment"] += Decimal(str(line.quantity)) * Decimal(str(cost))
 
     lines = []
-    if product_cost > 0:
+    for transaction_type, amount in cost_by_transaction_type.items():
+        if amount <= 0:
+            continue
+        debit_account, credit_account = _SHIPMENT_COST_ACCOUNTS[transaction_type]
         lines.extend([
-            ("5000", product_cost, "DR"),   # Cost of Goods Sold
-            ("1220", product_cost, "CR"),   # Finished Goods Inventory
-        ])
-    if packaging_cost > 0:
-        lines.extend([
-            ("5010", packaging_cost, "DR"),  # Shipping Supplies Expense
-            ("1230", packaging_cost, "CR"),  # Packaging Inventory
+            (debit_account, amount, "DR"),
+            (credit_account, amount, "CR"),
         ])
 
     if not lines:
         return  # No costed items — skip GL entry
 
+    ensure_core_sales_accounts(db)
     ts = TransactionService(db)
-    journal_entry = ts._create_journal_entry(
+    journal_entry = ts.create_journal_entry(
         description=f"Shipment for SO#{order.order_number}",
         lines=lines,
         source_type="sales_order",

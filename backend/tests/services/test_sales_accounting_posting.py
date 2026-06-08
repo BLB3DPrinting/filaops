@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.bom import BOM, BOMLine
 from app.models.inventory import Inventory, InventoryTransaction
@@ -227,6 +229,12 @@ def test_ship_order_posts_product_and_packaging_costs(
     )
     db.flush()
 
+    for account in db.query(GLAccount).filter(
+        GLAccount.account_code.in_(["1220", "1230", "5000", "5010"])
+    ).all():
+        account.account_code = f"OLD-{account.account_code}-{order.id}"[:20]
+    db.flush()
+
     ship_order(
         db,
         order.id,
@@ -251,3 +259,38 @@ def test_ship_order_posts_product_and_packaging_costs(
     assert lines["5010"]["debit"] == Decimal("3.00")
     assert lines["1230"]["credit"] == Decimal("3.00")
     assert linked_txn_count == 2
+
+
+def test_shipment_gl_entry_rejects_unexpected_transaction_type(
+    db, make_product, make_sales_order
+):
+    from app.services.inventory_service import get_or_create_default_location
+    from app.services.sales_order_service import _create_shipment_gl_entry
+
+    product = make_product(
+        item_type="finished_good",
+        cost_method="standard",
+        standard_cost=Decimal("8.00"),
+    )
+    order = make_sales_order(
+        product_id=product.id,
+        quantity=1,
+        unit_price=Decimal("20.00"),
+        status="ready_to_ship",
+    )
+    location = get_or_create_default_location(db)
+    txn = InventoryTransaction(
+        product_id=product.id,
+        location_id=location.id,
+        transaction_type="adjustment",
+        reference_type="sales_order",
+        reference_id=order.id,
+        quantity=Decimal("-1.00"),
+        cost_per_unit=Decimal("8.00"),
+        total_cost=Decimal("8.00"),
+    )
+    db.add(txn)
+    db.flush()
+
+    with pytest.raises(ValueError, match="Unexpected shipment transaction types"):
+        _create_shipment_gl_entry(db, order, user_id=1, shipment_transactions=[txn])

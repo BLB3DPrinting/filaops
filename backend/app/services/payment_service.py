@@ -15,9 +15,13 @@ _PAYMENT_NUMBER_LOCK_NAMESPACE = 74001
 _CORE_SALES_ACCOUNTS = {
     "1000": ("Cash", "asset", None, True, "Cash on hand and in bank accounts"),
     "1100": ("Accounts Receivable", "asset", None, True, "Amounts owed by customers"),
+    "1220": ("Finished Goods Inventory", "asset", None, True, "Finished goods held for sale"),
+    "1230": ("Packaging Inventory", "asset", None, True, "Packaging materials inventory"),
     "2100": ("Sales Tax Payable", "liability", None, False, "Collected sales tax owed to government"),
     "4000": ("Sales Revenue", "revenue", "1", True, "Gross receipts from sales"),
     "4200": ("Shipping Revenue", "revenue", "1", False, "Shipping charges collected"),
+    "5000": ("Cost of Goods Sold", "expense", "36", True, "Cost of goods sold for shipped products"),
+    "5010": ("Shipping Supplies Expense", "expense", "22", False, "Packaging consumed when shipping"),
 }
 
 
@@ -47,6 +51,11 @@ def _ensure_core_sales_accounts(db: Session) -> None:
             description=description,
         ))
     db.flush()
+
+
+def ensure_core_sales_accounts(db: Session) -> None:
+    """Public wrapper for services that need canonical sales accounts."""
+    _ensure_core_sales_accounts(db)
 
 
 def _posted_entry_exists(db: Session, *, source_type: str, source_id: int) -> bool:
@@ -81,7 +90,7 @@ def post_invoice_receivable(db: Session, invoice, user_id: int | None = None) ->
         return None
 
     _ensure_core_sales_accounts(db)
-    return TransactionService(db)._create_journal_entry(
+    return TransactionService(db).create_journal_entry(
         description=f"Invoice {invoice.invoice_number}",
         lines=[("1100", receivable, "DR"), *credit_lines],
         source_type="invoice",
@@ -116,7 +125,7 @@ def post_payment_receipt(db: Session, payment: Payment) -> GLJournalEntry | None
         description = f"Refund {payment.payment_number}"
 
     _ensure_core_sales_accounts(db)
-    return TransactionService(db)._create_journal_entry(
+    return TransactionService(db).create_journal_entry(
         description=description,
         lines=lines,
         source_type="payment",
@@ -159,7 +168,7 @@ def reverse_payment_receipt(
     description = f"Reverse payment {payment.payment_number}"
     if reason:
         description = f"{description}: {reason}"[:255]
-    return TransactionService(db)._create_journal_entry(
+    return TransactionService(db).create_journal_entry(
         description=description,
         lines=lines,
         source_type="payment_reversal",
