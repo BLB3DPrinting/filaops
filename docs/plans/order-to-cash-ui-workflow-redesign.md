@@ -440,6 +440,24 @@ describe("deriveOrderWorkflow", () => {
     expect(result.stages.production_release.state).toBe("skipped");
     expect(getRecommendedOrderAction(result).id).toBe("complete_order");
   });
+
+  it("skips production but keeps fulfillment current for material-only paid orders", () => {
+    const result = deriveOrderWorkflow({
+      order: {
+        status: "confirmed",
+        payment_status: "paid",
+        lines: [{ line_type: "material", product_id: null, material_inventory_id: 5 }],
+      },
+      invoice: { status: "paid" },
+      paymentSummary: { total_paid: 50, balance_due: 0 },
+      productionOrders: [],
+      fulfillmentStatus: { state: "ready" },
+    });
+
+    expect(result.stages.production_release.state).toBe("skipped");
+    expect(result.currentStage).toBe("fulfillment");
+    expect(getRecommendedOrderAction(result).id).toBe("ship_order");
+  });
 });
 ```
 
@@ -472,9 +490,27 @@ function hasProductLines(order) {
   return (order?.lines || []).some((line) => Boolean(line.product_id));
 }
 
+function isMaterialOrStockLine(line) {
+  return (
+    line.line_type === "material" ||
+    line.line_type === "stock" ||
+    Boolean(line.material_inventory_id || line.material_id)
+  );
+}
+
+function hasStockOrMaterialLines(order) {
+  return (order?.lines || []).some(isMaterialOrStockLine);
+}
+
 function hasOnlyServiceLines(order) {
   const lines = order?.lines || [];
-  return lines.length > 0 && lines.every((line) => line.line_type === "service" || !line.product_id);
+  return lines.length > 0 && lines.every((line) => {
+    const hasProduct = Boolean(line.product_id);
+    const hasMaterial = Boolean(line.material_inventory_id || line.material_id);
+    const explicitlyService = line.line_type === "service" && !hasProduct && !hasMaterial;
+    const untypedFreeform = !line.line_type && !hasProduct && !hasMaterial;
+    return explicitlyService || untypedFreeform;
+  });
 }
 
 function isInvoiceSentOrPaid(invoice) {
@@ -503,6 +539,7 @@ export function deriveOrderWorkflow({
 
   const terminal = ["completed", "cancelled", "delivered"].includes(order?.status);
   const productLines = hasProductLines(order);
+  const stockOrMaterialLines = hasStockOrMaterialLines(order);
   const serviceOnly = hasOnlyServiceLines(order);
   const invoiceReady = Boolean(invoice);
   const billingSatisfied = isPaid(order, paymentSummary) || isInvoiceSentOrPaid(invoice);
@@ -512,7 +549,7 @@ export function deriveOrderWorkflow({
     stages.billing.state = "blocked";
     stages.production_release.state = productLines ? "blocked" : "skipped";
     stages.fulfillment.state = "blocked";
-    return { stages, currentStage: "commercial_review", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+    return { stages, currentStage: "commercial_review", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
   }
 
   if (!invoiceReady) {
@@ -520,7 +557,7 @@ export function deriveOrderWorkflow({
     stages.billing.state = "current";
     stages.production_release.state = productLines ? "blocked" : "skipped";
     stages.fulfillment.state = "blocked";
-    return { stages, currentStage: "billing", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+    return { stages, currentStage: "billing", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
   }
 
   if (!billingSatisfied) {
@@ -528,23 +565,29 @@ export function deriveOrderWorkflow({
     stages.billing.state = "current";
     stages.production_release.state = productLines ? "blocked" : "skipped";
     stages.fulfillment.state = "blocked";
-    return { stages, currentStage: "billing", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+    return { stages, currentStage: "billing", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
   }
 
   stages.commercial_review.state = "complete";
   stages.billing.state = "complete";
 
-  if (serviceOnly || !productLines) {
+  if (serviceOnly) {
     stages.production_release.state = "skipped";
     stages.fulfillment.state = "skipped";
     stages.closed.state = terminal ? "complete" : "current";
-    return { stages, currentStage: "closed", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+    return { stages, currentStage: "closed", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+  }
+
+  if (!productLines) {
+    stages.production_release.state = "skipped";
+    stages.fulfillment.state = "current";
+    return { stages, currentStage: "fulfillment", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
   }
 
   if (!hasProduction) {
     stages.production_release.state = "current";
     stages.fulfillment.state = "blocked";
-    return { stages, currentStage: "production_release", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+    return { stages, currentStage: "production_release", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
   }
 
   const fulfillmentState = fulfillmentStatus?.summary?.state || fulfillmentStatus?.state;
@@ -552,7 +595,7 @@ export function deriveOrderWorkflow({
   stages.fulfillment.state = ["ready_to_ship", "partial", "blocked"].includes(fulfillmentState) || order?.status !== "completed" ? "current" : "complete";
   stages.closed.state = terminal ? "complete" : "available";
 
-  return { stages, currentStage: "fulfillment", terminal, productLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
+  return { stages, currentStage: "fulfillment", terminal, productLines, stockOrMaterialLines, serviceOnly, invoiceReady, billingSatisfied, hasProduction };
 }
 
 export function getRecommendedOrderAction(workflow) {
@@ -772,6 +815,8 @@ In `backend/app/api/v1/endpoints/invoices.py`, include both names during the com
 
 ```python
 "amount_due": amount_due,
+# Temporary compatibility shim for existing frontend consumers. Remove
+# `balance_due` after all Core invoice UI reads use `amount_due`.
 "balance_due": amount_due,
 ```
 
@@ -1149,6 +1194,8 @@ existing_paid = (
 Set:
 
 ```python
+# One-time import only: later order-ledger Payment rows will not update
+# invoice.amount_paid until the follow-up reconciliation strategy is chosen.
 amount_paid=max(existing_paid, Decimal("0")),
 status="paid" if existing_paid >= total else "partially_paid" if existing_paid > 0 else "draft",
 ```
@@ -1230,6 +1277,10 @@ if order.status == "pending":
         status_code=400,
         detail="Order requires commercial release before production orders can be generated",
     )
+# TODO(order-to-cash): Add payment_status validation after Net terms and
+# admin override workflow are implemented. The full target guard should match
+# SalesOrder.can_start_production: status == "confirmed" and payment_status in
+# ("paid", "partial").
 ```
 
 This first guard is deliberately conservative. More nuanced Net terms and override logic should be added after the UI workflow is in place.
@@ -1328,16 +1379,23 @@ git commit -m "fix: gate production release behind commercial review"
    - Import order ledger payments when creating invoice.
    - Clarify payment section.
    - Add API tests.
+   - Document that the first pass imports existing `Payment` totals into `invoice.amount_paid` once; a follow-up decision must prevent drift after later order-ledger payments.
 
 5. **PR E: Production release gate**
    - Block production order generation from unconfirmed orders.
    - Add override design if Brandan wants it after seeing PR C.
+   - Expand the first guard to match `SalesOrder.can_start_production` once Net terms and override behavior are settled.
+
+6. **PR F: Remove invoice balance compatibility shim**
+   - Remove `balance_due` from invoice responses after all Core frontend invoice consumers read canonical `amount_due`.
+   - Verify `rg "balance_due" frontend/src backend/app` shows no required consumers before deleting the shim.
 
 ## Open Product Decisions
 
 - Should Core store a separate `commercial_status`, or should the workflow remain derived from order/invoice/payment state for now?
 - For Net terms customers, is "invoice sent" enough to release production, or should staff explicitly click `Approve Terms`?
 - Should deposits be represented as payment records only, or should orders store a required deposit amount?
+- Should `Payment` remain order-ledger canonical while invoice `amount_paid` is synchronized in real time, should invoices become the canonical payment record after creation, or should a reconciliation job periodically align `invoice.amount_paid` with the order ledger write path?
 - Should service-only orders close as `completed`, or should they use a distinct non-shipping completion path?
 - Should the packing slip button be hidden until billing/fulfillment stage, or remain globally available for warehouse prep?
 
