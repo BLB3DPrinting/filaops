@@ -26,6 +26,7 @@ from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.production_order import ProductionOrder
 from app.models.order_event import OrderEvent
 from app.models.company_settings import CompanySettings
+from app.schemas.order_event import OrderEventCreate
 from app.services import sales_order_service
 
 
@@ -1078,6 +1079,10 @@ class TestUpdateShippingAddress:
             OrderEvent.event_type == "shipping_charge_updated",
         ).all()
         assert len(events) == 1
+        assert OrderEventCreate(
+            event_type="shipping_charge_updated",
+            title="Shipping charge updated",
+        ).event_type.value == "shipping_charge_updated"
 
 
 # =============================================================================
