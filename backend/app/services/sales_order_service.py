@@ -30,6 +30,7 @@ from app.models.bom import BOM, BOMLine
 from app.models.inventory import Inventory
 from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
+from app.core.status_config import StatusTransitionError, validate_sales_order_transition
 from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
 from app.services.tax_calculation_service import calculate_sales_tax
 
@@ -1109,35 +1110,17 @@ def update_sales_order_status(
     """
     order = get_sales_order(db, order_id)
     old_status = order.status
+
+    try:
+        validate_sales_order_transition(old_status, new_status)
+    except StatusTransitionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     order.status = new_status
 
     # Set timestamps based on status
-    if new_status == "confirmed" and old_status == "pending":
+    if new_status == "confirmed" and old_status in ("pending", "pending_confirmation"):
         order.confirmed_at = datetime.now(timezone.utc)
-
-        # Auto-create production orders
-        existing_pos = db.query(ProductionOrder).filter(
-            ProductionOrder.sales_order_id == order_id
-        ).all()
-
-        if not existing_pos:
-            created_orders = create_production_orders_for_sales_order(db, order, user_email)
-            if created_orders:
-                order.status = "in_production"
-
-                # Trigger MRP check if enabled
-                try:
-                    from app.services.mrp_trigger_service import trigger_mrp_check
-                    from app.core.settings import get_settings
-                    settings = get_settings()
-
-                    if settings.AUTO_MRP_ON_CONFIRMATION:
-                        trigger_mrp_check(db, order.id)
-                except Exception as e:
-                    logger.warning(
-                        f"MRP trigger failed after order confirmation {order.id}: {str(e)}",
-                        exc_info=True
-                    )
 
     if new_status == "shipped":
         order.shipped_at = datetime.now(timezone.utc)
@@ -2714,6 +2697,12 @@ def generate_production_orders(
             "created_orders": []
         }
 
+    if order.status != "confirmed":
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm the sales order before generating production orders"
+        )
+
     created_orders = []
     year = datetime.now(timezone.utc).year
 
@@ -2869,16 +2858,12 @@ def generate_production_orders(
         )
 
         # Update order status — only move to in_production when work orders exist
-        if order.status == "pending":
-            order.status = "in_production"
-            order.confirmed_at = datetime.now(timezone.utc)
-        elif order.status == "confirmed":
+        if order.status == "confirmed":
             order.status = "in_production"
     elif order.order_type == "line_item":
         # All lines are material-only — no production needed (pick and ship)
-        if order.status == "pending":
-            order.status = "confirmed"
-            order.confirmed_at = datetime.now(timezone.utc)
+        if order.status == "confirmed":
+            logger.info("No production orders created for material-only sales order %s", order.id)
 
     return {
         "message": f"Created {len(created_orders)} production order(s)",

@@ -42,6 +42,13 @@ export default function OrderDetail() {
   const [productionOrders, setProductionOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const hasOrderProduct = () => {
+    return Boolean(
+      order?.product_id ||
+        order?.lines?.some((line) => Boolean(line.product_id))
+    );
+  };
+
   const hasMainProductWO = () => {
     if (!order?.lines || order.lines.length === 0) {
       return productionOrders.some((po) => po.product_id === order?.product_id);
@@ -49,6 +56,9 @@ export default function OrderDetail() {
     const lineProductIds = order.lines
       .filter((line) => line.product_id)
       .map((line) => line.product_id);
+    if (lineProductIds.length === 0) {
+      return false;
+    }
     const woProductIds = productionOrders
       .filter((po) => po.sales_order_line_id)
       .map((po) => po.product_id);
@@ -76,6 +86,31 @@ export default function OrderDetail() {
   const [orderInvoice, setOrderInvoice] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [sendingInvoice, setSendingInvoice] = useState(false);
+
+  const isBillingReleaseSatisfied = () => {
+    const invoiceStatus = orderInvoice?.status || "";
+    const totalPaid = Number(paymentSummary?.total_paid || 0);
+    return (
+      order?.payment_status === "paid" ||
+      totalPaid > 0 ||
+      ["sent", "partially_paid", "paid"].includes(invoiceStatus)
+    );
+  };
+
+  const getProductionReleaseBlockReason = () => {
+    if (!order) return "Order is still loading";
+    if (!hasOrderProduct()) return "Order must have a product line";
+    if (hasMainProductWO()) return "Production order already exists";
+    if (order.status === "pending" || order.status === "pending_confirmation") {
+      return "Confirm the order before production release";
+    }
+    if (!isBillingReleaseSatisfied()) {
+      return "Create/send an invoice or record payment before production release";
+    }
+    return "";
+  };
+
+  const canGenerateProductionOrder = () => !getProductionReleaseBlockReason();
 
   // Line editing state
   const [editingLineId, setEditingLineId] = useState(null);
@@ -382,11 +417,9 @@ export default function OrderDetail() {
   };
 
   const handleCreateProductionOrder = async () => {
-    const hasProduct =
-      order?.product_id ||
-      (order?.lines && order.lines.length > 0 && order.lines[0].product_id);
-    if (!order || !hasProduct) {
-      toast.error("Order must have a product to create production order");
+    const blockReason = getProductionReleaseBlockReason();
+    if (blockReason) {
+      toast.error(blockReason);
       return;
     }
 
@@ -529,9 +562,21 @@ export default function OrderDetail() {
   const handleConfirmOrder = async () => {
     setConfirmingOrder(true);
     try {
-      await api.post(`/api/v1/sales-orders/${orderId}/confirm`);
+      if (order.status === "pending_confirmation") {
+        await api.post(`/api/v1/sales-orders/${orderId}/confirm`);
+      } else {
+        await api.patch(`/api/v1/sales-orders/${orderId}/status`, {
+          status: "confirmed",
+        });
+      }
       toast.success(`Order ${order.order_number} confirmed`);
-      fetchOrder();
+      await Promise.all([
+        fetchOrder(),
+        fetchOrderInvoice(),
+        fetchPaymentData(),
+        fetchProductionOrders(),
+        refetchFulfillment(),
+      ]);
     } catch (err) {
       toast.error(err.message || "Failed to confirm order");
     } finally {
@@ -650,7 +695,7 @@ export default function OrderDetail() {
   }
 
   const handleCheckAvailability = async () => {
-    if (!order.product_id && !(order.lines?.length > 0 && order.lines[0].product_id)) {
+    if (!hasOrderProduct()) {
       toast.error("Order must have a product to check availability");
       return;
     }
@@ -746,7 +791,7 @@ export default function OrderDetail() {
               Ship Order
             </button>
           )}
-          {order.status === "pending_confirmation" && (
+          {(order.status === "pending" || order.status === "pending_confirmation") && (
             <>
               <button
                 onClick={handleConfirmOrder}
@@ -755,12 +800,14 @@ export default function OrderDetail() {
               >
                 {confirmingOrder ? "Confirming..." : "Confirm Order"}
               </button>
-              <button
-                onClick={() => setShowRejectModal(true)}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
-              >
-                Reject Order
-              </button>
+              {order.status === "pending_confirmation" && (
+                <button
+                  onClick={() => setShowRejectModal(true)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+                >
+                  Reject Order
+                </button>
+              )}
             </>
           )}
           {canCancelOrder() && (
@@ -843,12 +890,9 @@ export default function OrderDetail() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <button
             onClick={handleCreateProductionOrder}
-            disabled={
-              (!order.product_id &&
-                !(order.lines?.length > 0 && order.lines[0].product_id)) ||
-              hasMainProductWO()
-            }
+            disabled={!canGenerateProductionOrder()}
             className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            title={getProductionReleaseBlockReason() || "Generate production order"}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
