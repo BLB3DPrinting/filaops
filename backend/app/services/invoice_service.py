@@ -17,6 +17,7 @@ from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 from app.services.payment_service import (
     generate_payment_number,
+    post_invoice_receivable,
     update_order_payment_status,
 )
 
@@ -263,6 +264,7 @@ def record_payment(
     invoice.amount_paid = new_paid
     invoice.payment_method = method
     invoice.payment_reference = reference
+    post_invoice_receivable(db, invoice)
 
     if invoice.sales_order_id:
         order = (
@@ -389,6 +391,7 @@ def mark_sent(db: Session, invoice_id: int) -> Invoice:
         raise HTTPException(status_code=400, detail="Only draft invoices can be sent")
     invoice.status = "sent"
     invoice.sent_at = datetime.now(timezone.utc)
+    post_invoice_receivable(db, invoice)
     db.commit()
     db.refresh(invoice)
     return invoice

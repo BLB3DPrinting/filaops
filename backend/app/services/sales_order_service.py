@@ -27,7 +27,7 @@ from app.models.manufacturing import Routing, RoutingOperation, RoutingOperation
 from app.models.product import Product
 from app.models.material import MaterialInventory
 from app.models.bom import BOM, BOMLine
-from app.models.inventory import Inventory
+from app.models.inventory import Inventory, InventoryTransaction
 from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
 from app.core.status_config import StatusTransitionError, validate_sales_order_transition
@@ -35,6 +35,27 @@ from app.services.customer_service import get_customer_discount_percent as _get_
 from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
+
+_SHIPMENT_COST_ACCOUNTS = {
+    "shipment": ("5000", "1220"),
+    "consumption": ("5010", "1230"),
+}
+_SHIPMENT_TRANSACTION_COST_TYPES = {
+    "shipment": "shipment",
+    "consumption": "consumption",
+}
+_NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE = "negative_adjustment"
+_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE = (
+    "Shipment GL posting for material-backed sales orders needs raw-material account mapping"
+)
+
+
+def _has_material_backed_lines(order: "SalesOrder") -> bool:
+    return any(
+        (getattr(line, "line_type", None) or "").lower() == "material"
+        or getattr(line, "material_inventory_id", None) is not None
+        for line in (order.lines or [])
+    )
 
 
 # =============================================================================
@@ -2501,43 +2522,120 @@ def get_material_requirements(
 # Shipping
 # =============================================================================
 
-def _create_shipment_gl_entry(db: Session, order: "SalesOrder", user_id: int) -> None:
+def _create_shipment_gl_entry(
+    db: Session,
+    order: "SalesOrder",
+    user_id: int,
+    shipment_transactions: Optional[list[InventoryTransaction]] = None,
+) -> None:
     """
     Create GL journal entry for a sales order shipment.
 
-    DR COGS (5000), CR FG Inventory (1220) for each shipped product line.
-    Uses standard_cost → average_cost → last_cost as the cost basis.
+    DR COGS (5000), CR FG Inventory (1220) for shipped goods.
+    DR Shipping Supplies (5010), CR Packaging Inventory (1230) for packaging.
+    Uses the inventory transactions created by process_shipment() when provided.
     Skips lines with no cost set — no entry is created if total is zero.
 
     Called from ship_order() AFTER process_shipment() handles inventory
-    transactions, so this only creates the accounting entry (no double-count).
+    transactions, so this only creates the accounting entry and links those
+    inventory transactions to it.
     """
+    from app.models.accounting import GLJournalEntry
+    from app.services.payment_service import ensure_core_sales_accounts
     from app.services.transaction_service import TransactionService
 
-    total_cost = Decimal("0")
-    for line in (order.lines or []):
-        if not line.product_id or not line.product:
-            continue
-        product = line.product
-        cost = product.standard_cost or product.average_cost or product.last_cost
-        if not cost or cost <= 0:
-            continue
-        total_cost += Decimal(str(line.quantity)) * Decimal(str(cost))
+    if _has_material_backed_lines(order):
+        raise ValueError(_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE)
 
-    if total_cost <= 0:
+    existing = db.query(GLJournalEntry.id).filter(
+        GLJournalEntry.source_type == "sales_order",
+        GLJournalEntry.source_id == order.id,
+        GLJournalEntry.status != "voided",
+    ).first()
+    if existing:
+        return
+
+    if shipment_transactions is None:
+        shipment_transactions = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "sales_order",
+            InventoryTransaction.reference_id == order.id,
+            InventoryTransaction.transaction_type.in_([
+                *_SHIPMENT_TRANSACTION_COST_TYPES,
+                _NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE,
+            ]),
+        ).all()
+
+    def shipment_cost_type(txn: InventoryTransaction) -> str | None:
+        if txn.transaction_type in _SHIPMENT_TRANSACTION_COST_TYPES:
+            return _SHIPMENT_TRANSACTION_COST_TYPES[txn.transaction_type]
+        if txn.transaction_type == _NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE:
+            if txn.product and txn.product.item_type == "packaging":
+                return "consumption"
+            return "shipment"
+        return None
+
+    unexpected_types = sorted({
+        txn.transaction_type
+        for txn in shipment_transactions
+        if shipment_cost_type(txn) is None
+    })
+    if unexpected_types:
+        raise ValueError(
+            "Unexpected shipment transaction types for "
+            f"SO#{order.order_number}: {', '.join(unexpected_types)}"
+        )
+
+    def txn_cost(txn: InventoryTransaction) -> Decimal:
+        if txn.total_cost is not None:
+            return Decimal(str(txn.total_cost or 0)).quantize(Decimal("0.01"))
+        quantity = abs(Decimal(str(txn.quantity or 0)))
+        unit_cost = Decimal(str(txn.cost_per_unit or 0))
+        return (quantity * unit_cost).quantize(Decimal("0.01"))
+
+    cost_by_transaction_type = {
+        transaction_type: Decimal("0")
+        for transaction_type in _SHIPMENT_COST_ACCOUNTS
+    }
+    for txn in shipment_transactions:
+        cost_type = shipment_cost_type(txn)
+        if cost_type is not None:
+            cost_by_transaction_type[cost_type] += txn_cost(txn)
+
+    if cost_by_transaction_type["shipment"] <= 0 and not shipment_transactions:
+        for line in (order.lines or []):
+            if not line.product_id or not line.product:
+                continue
+            product = line.product
+            cost = product.standard_cost or product.average_cost or product.last_cost
+            if not cost or cost <= 0:
+                continue
+            cost_by_transaction_type["shipment"] += Decimal(str(line.quantity)) * Decimal(str(cost))
+
+    lines = []
+    for transaction_type, amount in cost_by_transaction_type.items():
+        if amount <= 0:
+            continue
+        debit_account, credit_account = _SHIPMENT_COST_ACCOUNTS[transaction_type]
+        lines.extend([
+            (debit_account, amount, "DR"),
+            (credit_account, amount, "CR"),
+        ])
+
+    if not lines:
         return  # No costed items — skip GL entry
 
+    ensure_core_sales_accounts(db)
     ts = TransactionService(db)
-    ts._create_journal_entry(
+    journal_entry = ts.create_journal_entry(
         description=f"Shipment for SO#{order.order_number}",
-        lines=[
-            ("5000", total_cost, "DR"),   # Cost of Goods Sold
-            ("1220", total_cost, "CR"),   # Finished Goods Inventory
-        ],
+        lines=lines,
         source_type="sales_order",
         source_id=order.id,
         user_id=user_id,
     )
+
+    for txn in shipment_transactions:
+        txn.journal_entry_id = journal_entry.id
 
 
 def ship_order(
@@ -2576,6 +2674,11 @@ def ship_order(
             status_code=400,
             detail="Order has no shipping address. Please add one first."
         )
+    if _has_material_backed_lines(order):
+        raise HTTPException(
+            status_code=400,
+            detail=_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE,
+        )
 
     # Generate tracking number if not provided
     if not tracking_number:
@@ -2592,14 +2695,14 @@ def ship_order(
     order.updated_at = datetime.now(timezone.utc)
 
     # Process inventory transactions
-    process_shipment(
+    packaging_txns, issue_txns = process_shipment(
         db=db,
         sales_order=order,
         created_by=user_email,
     )
 
     # Create GL journal entry for COGS and FG inventory relief
-    _create_shipment_gl_entry(db, order, user_id)
+    _create_shipment_gl_entry(db, order, user_id, [*packaging_txns, *issue_txns])
 
     # Record order event
     record_order_event(

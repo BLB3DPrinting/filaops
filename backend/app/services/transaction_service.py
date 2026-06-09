@@ -18,12 +18,14 @@ from decimal import Decimal
 from typing import List, Tuple, Optional, NamedTuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.production_order import ScrapRecord
 from app.models.product import Product
+
+_JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
 
 
 class MaterialConsumption(NamedTuple):
@@ -83,13 +85,26 @@ class TransactionService:
         return self._account_cache[account_code]
 
     def _next_entry_number(self) -> str:
-        """Generate next journal entry number: JE-{year}-{seq:06d}"""
+        """Generate next journal entry number under a transaction-scoped DB lock."""
         year = datetime.now(timezone.utc).year
+
+        self.db.execute(
+            text(
+                """
+                SELECT pg_advisory_xact_lock(
+                    CAST(:namespace AS integer),
+                    CAST(:year AS integer)
+                )
+                """
+            ),
+            {"namespace": _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE, "year": year},
+        )
 
         # Find max entry number for this year
         pattern = f"JE-{year}-%"
         result = self.db.query(func.max(GLJournalEntry.entry_number)).filter(
-            GLJournalEntry.entry_number.like(pattern)
+            GLJournalEntry.entry_number.like(pattern),
+            GLJournalEntry.entry_number.op("~")(rf"^JE-{year}-\d{{6}}$"),
         ).scalar()
 
         if result:
@@ -99,6 +114,23 @@ class TransactionService:
             seq = 1
 
         return f"JE-{year}-{seq:06d}"
+
+    def create_journal_entry(
+        self,
+        description: str,
+        lines: List[Tuple[str, Decimal, str]],
+        source_type: Optional[str] = None,
+        source_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> GLJournalEntry:
+        """Create a balanced posted journal entry for service-level callers."""
+        return self._create_journal_entry(
+            description=description,
+            lines=lines,
+            source_type=source_type,
+            source_id=source_id,
+            user_id=user_id,
+        )
 
     def _create_journal_entry(
         self,
