@@ -93,6 +93,50 @@ def test_record_payment_posts_invoice_if_needed_and_payment_receipt(
     assert payment_lines["1100"]["credit"] == Decimal("53.15")
 
 
+def test_create_invoice_for_prepaid_order_posts_invoice_receivable(
+    db, make_product, make_sales_order
+):
+    from app.services.invoice_service import create_invoice
+
+    product = make_product(selling_price=Decimal("45.00"))
+    order = make_sales_order(
+        product_id=product.id,
+        quantity=1,
+        unit_price=Decimal("45.00"),
+        status="confirmed",
+        payment_status="pending",
+    )
+    order.tax_amount = Decimal("3.15")
+    order.shipping_cost = Decimal("5.00")
+    order.grand_total = Decimal("53.15")
+    payment = Payment(
+        payment_number=f"PAY-PREPAID-{order.id}",
+        sales_order_id=order.id,
+        amount=Decimal("53.15"),
+        payment_method="credit_card",
+        payment_type="payment",
+        status="completed",
+        transaction_id="txn-prepaid",
+        payment_date=datetime.now(timezone.utc),
+    )
+    db.add(payment)
+    db.flush()
+
+    invoice = create_invoice(db, order.id)
+
+    invoice_lines = _entry_lines(db, source_type="invoice", source_id=invoice.id)
+    payment_lines = _entry_lines(db, source_type="payment", source_id=payment.id)
+
+    assert invoice.status == "paid"
+    assert invoice.amount_paid == Decimal("53.15")
+    assert invoice_lines["1100"]["debit"] == Decimal("53.15")
+    assert invoice_lines["4000"]["credit"] == Decimal("45.00")
+    assert invoice_lines["2100"]["credit"] == Decimal("3.15")
+    assert invoice_lines["4200"]["credit"] == Decimal("5.00")
+    assert payment_lines["1000"]["debit"] == Decimal("53.15")
+    assert payment_lines["1100"]["credit"] == Decimal("53.15")
+
+
 def test_update_order_payment_status_posts_manual_payment_once(db, make_sales_order):
     from app.services.payment_service import update_order_payment_status
 

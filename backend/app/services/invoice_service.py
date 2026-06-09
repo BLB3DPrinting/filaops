@@ -87,6 +87,29 @@ def _calculate_due_date(payment_terms: str, from_date: Optional[date] = None) ->
     return base + timedelta(days=days)
 
 
+def _completed_payment_total(db: Session, sales_order_id: int) -> Decimal:
+    """Return net completed payments already recorded against the order."""
+    total = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.sales_order_id == sales_order_id,
+        Payment.status == "completed",
+    ).scalar()
+    return Decimal(str(total or "0"))
+
+
+def _latest_completed_payment(db: Session, sales_order_id: int) -> Payment | None:
+    """Return the latest positive completed payment for invoice display fields."""
+    return (
+        db.query(Payment)
+        .filter(
+            Payment.sales_order_id == sales_order_id,
+            Payment.status == "completed",
+            Payment.amount > 0,
+        )
+        .order_by(desc(Payment.payment_date), desc(Payment.id))
+        .first()
+    )
+
+
 # ============================================================================
 # Create Invoice
 # ============================================================================
@@ -195,6 +218,20 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     tax_amount = order.tax_amount or Decimal("0")
     shipping = order.shipping_cost or Decimal("0")
     total = subtotal + tax_amount + shipping
+    existing_paid = _completed_payment_total(db, order.id)
+    latest_payment = None
+
+    if existing_paid != 0:
+        update_order_payment_status(db, order)
+        existing_paid = _completed_payment_total(db, order.id)
+        latest_payment = _latest_completed_payment(db, order.id)
+
+    amount_paid = max(existing_paid, Decimal("0"))
+    invoice_status = "paid" if total > 0 and amount_paid >= total else "draft"
+    paid_at = latest_payment.payment_date if invoice_status == "paid" and latest_payment else None
+    payment_reference = None
+    if latest_payment:
+        payment_reference = latest_payment.transaction_id or latest_payment.check_number
 
     # Build customer name from order or User record
     customer_name = order.customer_name or (
@@ -220,6 +257,11 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
         tax_amount=tax_amount,
         shipping_amount=shipping,
         total=total,
+        status=invoice_status,
+        amount_paid=amount_paid,
+        paid_at=paid_at,
+        payment_method=latest_payment.payment_method if latest_payment else None,
+        payment_reference=payment_reference,
     )
 
     db.add(invoice)
@@ -228,6 +270,9 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     for il in invoice_lines:
         il.invoice_id = invoice.id
         db.add(il)
+
+    if invoice_status == "paid":
+        post_invoice_receivable(db, invoice)
 
     db.commit()
     db.refresh(invoice)

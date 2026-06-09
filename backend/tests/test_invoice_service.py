@@ -1,6 +1,6 @@
 """Tests for invoice service and API endpoints."""
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -242,6 +242,79 @@ class TestCreateInvoice:
             create_invoice(db, so.id)
         assert exc_info.value.status_code == 400
         assert "already exists" in exc_info.value.detail
+
+    def test_create_invoice_reflects_existing_order_payment(
+        self, db, make_product, make_sales_order
+    ):
+        from app.models.payment import Payment
+        from app.services.invoice_service import create_invoice
+
+        product = make_product(selling_price=Decimal("50.00"))
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("50.00"),
+            status="confirmed",
+            payment_status="pending",
+        )
+        paid_at = datetime.now(timezone.utc)
+        db.add(Payment(
+            payment_number=f"PAY-EXISTING-{so.id}",
+            sales_order_id=so.id,
+            amount=Decimal("50.00"),
+            payment_method="cash",
+            payment_type="payment",
+            status="completed",
+            transaction_id="cash-50",
+            payment_date=paid_at,
+        ))
+        db.flush()
+
+        invoice = create_invoice(db, so.id)
+        db.refresh(so)
+
+        assert invoice.amount_paid == Decimal("50.00")
+        assert invoice.status == "paid"
+        assert invoice.paid_at is not None
+        assert invoice.payment_method == "cash"
+        assert invoice.payment_reference == "cash-50"
+        assert so.payment_status == "paid"
+
+    def test_create_invoice_reflects_existing_partial_order_payment(
+        self, db, make_product, make_sales_order
+    ):
+        from app.models.payment import Payment
+        from app.services.invoice_service import create_invoice
+
+        product = make_product(selling_price=Decimal("80.00"))
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("80.00"),
+            status="confirmed",
+            payment_status="pending",
+        )
+        db.add(Payment(
+            payment_number=f"PAY-PARTIAL-{so.id}",
+            sales_order_id=so.id,
+            amount=Decimal("25.00"),
+            payment_method="card",
+            payment_type="payment",
+            status="completed",
+            transaction_id="txn-25",
+            payment_date=datetime.now(timezone.utc),
+        ))
+        db.flush()
+
+        invoice = create_invoice(db, so.id)
+        db.refresh(so)
+
+        assert invoice.amount_paid == Decimal("25.00")
+        assert invoice.status == "draft"
+        assert invoice.paid_at is None
+        assert invoice.payment_method == "card"
+        assert invoice.payment_reference == "txn-25"
+        assert so.payment_status == "partial"
 
 
 class TestRecordPayment:
