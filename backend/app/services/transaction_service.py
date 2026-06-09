@@ -119,9 +119,9 @@ class TransactionService:
         self,
         description: str,
         lines: List[Tuple[str, Decimal, str]],
-        source_type: str = None,
-        source_id: int = None,
-        user_id: int = None,
+        source_type: Optional[str] = None,
+        source_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> GLJournalEntry:
         """Create a balanced posted journal entry for service-level callers."""
         return self._create_journal_entry(
