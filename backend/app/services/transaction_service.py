@@ -18,12 +18,14 @@ from decimal import Decimal
 from typing import List, Tuple, Optional, NamedTuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.production_order import ScrapRecord
 from app.models.product import Product
+
+_JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
 
 
 class MaterialConsumption(NamedTuple):
@@ -83,13 +85,26 @@ class TransactionService:
         return self._account_cache[account_code]
 
     def _next_entry_number(self) -> str:
-        """Generate next journal entry number: JE-{year}-{seq:06d}"""
+        """Generate next journal entry number under a transaction-scoped DB lock."""
         year = datetime.now(timezone.utc).year
+
+        self.db.execute(
+            text(
+                """
+                SELECT pg_advisory_xact_lock(
+                    CAST(:namespace AS integer),
+                    CAST(:year AS integer)
+                )
+                """
+            ),
+            {"namespace": _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE, "year": year},
+        )
 
         # Find max entry number for this year
         pattern = f"JE-{year}-%"
         result = self.db.query(func.max(GLJournalEntry.entry_number)).filter(
-            GLJournalEntry.entry_number.like(pattern)
+            GLJournalEntry.entry_number.like(pattern),
+            GLJournalEntry.entry_number.op("~")(rf"^JE-{year}-\d{{6}}$"),
         ).scalar()
 
         if result:

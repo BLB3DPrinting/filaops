@@ -7,6 +7,7 @@ import pytest
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.bom import BOM, BOMLine
 from app.models.inventory import Inventory, InventoryTransaction
+from app.models.material import Color, MaterialInventory, MaterialType
 from app.models.payment import Payment
 from app.models.sales_order import SalesOrderLine
 
@@ -294,3 +295,52 @@ def test_shipment_gl_entry_rejects_unexpected_transaction_type(
 
     with pytest.raises(ValueError, match="Unexpected shipment transaction types"):
         _create_shipment_gl_entry(db, order, user_id=1, shipment_transactions=[txn])
+
+
+def test_shipment_gl_entry_rejects_material_backed_order_lines(
+    db, make_sales_order
+):
+    from app.services.sales_order_service import _create_shipment_gl_entry
+
+    order = make_sales_order(
+        quantity=1,
+        unit_price=Decimal("20.00"),
+        status="ready_to_ship",
+    )
+    material_type = MaterialType(
+        code=f"CR-MT-{order.id}",
+        name=f"CodeRabbit Material {order.id}",
+        base_material="PLA",
+        density=Decimal("1.2400"),
+        base_price_per_kg=Decimal("20.00"),
+    )
+    color = Color(
+        code=f"CR-C-{order.id}",
+        name=f"CodeRabbit Color {order.id}",
+        hex_code="#000000",
+    )
+    db.add_all([material_type, color])
+    db.flush()
+    material = MaterialInventory(
+        material_type_id=material_type.id,
+        color_id=color.id,
+        sku=f"CR-MAT-{order.id}",
+        quantity_kg=Decimal("1.000"),
+        cost_per_kg=Decimal("20.00"),
+    )
+    db.add(material)
+    db.flush()
+    db.add(
+        SalesOrderLine(
+            sales_order_id=order.id,
+            line_type="material",
+            material_inventory_id=material.id,
+            quantity=Decimal("1.00"),
+            unit_price=Decimal("20.00"),
+            total=Decimal("20.00"),
+        )
+    )
+    db.flush()
+
+    with pytest.raises(ValueError, match="raw-material account mapping"):
+        _create_shipment_gl_entry(db, order, user_id=1, shipment_transactions=[])

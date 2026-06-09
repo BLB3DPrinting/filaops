@@ -45,6 +45,17 @@ _SHIPMENT_TRANSACTION_COST_TYPES = {
     "consumption": "consumption",
 }
 _NEGATIVE_SHIPMENT_ADJUSTMENT_TYPE = "negative_adjustment"
+_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE = (
+    "Shipment GL posting for material-backed sales orders needs raw-material account mapping"
+)
+
+
+def _has_material_backed_lines(order: "SalesOrder") -> bool:
+    return any(
+        (getattr(line, "line_type", None) or "").lower() == "material"
+        or getattr(line, "material_inventory_id", None) is not None
+        for line in (order.lines or [])
+    )
 
 
 # =============================================================================
@@ -2533,6 +2544,9 @@ def _create_shipment_gl_entry(
     from app.services.payment_service import ensure_core_sales_accounts
     from app.services.transaction_service import TransactionService
 
+    if _has_material_backed_lines(order):
+        raise ValueError(_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE)
+
     existing = db.query(GLJournalEntry.id).filter(
         GLJournalEntry.source_type == "sales_order",
         GLJournalEntry.source_id == order.id,
@@ -2659,6 +2673,11 @@ def ship_order(
         raise HTTPException(
             status_code=400,
             detail="Order has no shipping address. Please add one first."
+        )
+    if _has_material_backed_lines(order):
+        raise HTTPException(
+            status_code=400,
+            detail=_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE,
         )
 
     # Generate tracking number if not provided
