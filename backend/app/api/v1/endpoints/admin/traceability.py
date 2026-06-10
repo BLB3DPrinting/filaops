@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.traceability import (
     # Customer Profiles
@@ -40,7 +40,11 @@ from app.schemas.traceability import (
 )
 from app.services import traceability_service as svc
 
-router = APIRouter(prefix="/traceability", tags=["Traceability"])
+router = APIRouter(
+    prefix="/traceability",
+    tags=["Traceability"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # =============================================================================
@@ -51,7 +55,7 @@ router = APIRouter(prefix="/traceability", tags=["Traceability"])
 async def list_traceability_profiles(
     traceability_level: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List all customer traceability profiles."""
     return svc.list_traceability_profiles(db, traceability_level=traceability_level)
@@ -61,7 +65,7 @@ async def list_traceability_profiles(
 async def get_traceability_profile(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get traceability profile for a specific customer."""
     return svc.get_traceability_profile(db, user_id)
@@ -71,7 +75,7 @@ async def get_traceability_profile(
 async def create_traceability_profile(
     request: CustomerTraceabilityProfileCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a traceability profile for a customer."""
     return svc.create_traceability_profile(db, request)
@@ -82,7 +86,7 @@ async def update_traceability_profile(
     user_id: int,
     request: CustomerTraceabilityProfileUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update a customer's traceability profile."""
     return svc.update_traceability_profile(db, user_id, request)
@@ -101,7 +105,7 @@ async def list_material_lots(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List material lots with filtering and pagination."""
     return svc.list_material_lots(
@@ -119,7 +123,7 @@ async def list_material_lots(
 async def get_material_lot(
     lot_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get a specific material lot by ID."""
     return svc.get_material_lot(db, lot_id)
@@ -129,7 +133,7 @@ async def get_material_lot(
 async def create_material_lot(
     request: MaterialLotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a new material lot (typically when receiving materials)."""
     return svc.create_material_lot(db, request)
@@ -140,7 +144,7 @@ async def update_material_lot(
     lot_id: int,
     request: MaterialLotUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update a material lot."""
     return svc.update_material_lot(db, lot_id, request)
@@ -150,7 +154,7 @@ async def update_material_lot(
 async def generate_lot_number(
     material_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Generate the next lot number for a material."""
     return svc.generate_lot_number(db, material_code)
@@ -170,7 +174,7 @@ async def list_serial_numbers(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List serial numbers with filtering and pagination."""
     return svc.list_serial_numbers(
@@ -189,7 +193,7 @@ async def list_serial_numbers(
 async def get_serial_number(
     serial_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get a specific serial number by ID."""
     return svc.get_serial_number(db, serial_id)
@@ -199,7 +203,7 @@ async def get_serial_number(
 async def lookup_serial_number(
     serial_number: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Look up a serial number by the serial string."""
     return svc.lookup_serial_number(db, serial_number)
@@ -209,7 +213,7 @@ async def lookup_serial_number(
 async def create_serial_numbers(
     request: SerialNumberCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Generate serial numbers for a production order."""
     return svc.create_serial_numbers(db, request)
@@ -220,7 +224,7 @@ async def update_serial_number(
     serial_id: int,
     request: SerialNumberUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update a serial number (e.g., mark as sold, shipped, returned)."""
     return svc.update_serial_number(db, serial_id, request)
@@ -234,7 +238,7 @@ async def update_serial_number(
 async def record_lot_consumption(
     request: ProductionLotConsumptionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Record material lot consumption for a production order."""
     return svc.record_lot_consumption(db, request)
@@ -244,7 +248,7 @@ async def record_lot_consumption(
 async def get_production_lot_consumptions(
     production_order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get all lot consumptions for a production order."""
     return svc.get_production_lot_consumptions(db, production_order_id)
@@ -258,7 +262,7 @@ async def get_production_lot_consumptions(
 async def recall_forward_query(
     lot_number: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Forward recall query: What did we make with this lot?
@@ -272,7 +276,7 @@ async def recall_forward_query(
 async def recall_backward_query(
     serial_number: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Backward recall query: What material lots went into this serial number?

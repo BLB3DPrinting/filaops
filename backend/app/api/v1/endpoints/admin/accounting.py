@@ -48,7 +48,11 @@ from app.schemas.accounting import (
 )
 
 
-router = APIRouter(prefix="/accounting", tags=["Accounting"])
+router = APIRouter(
+    prefix="/accounting",
+    tags=["Accounting"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # ============================================================================

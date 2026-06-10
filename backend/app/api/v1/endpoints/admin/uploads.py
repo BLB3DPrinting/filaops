@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from app.core.paths import resolve_static_dir, resolve_upload_products_dir
 from app.core.settings import settings
 from app.models.user import User
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.logging_config import get_logger
 router = APIRouter()
 logger = get_logger(__name__)
@@ -55,7 +55,7 @@ def is_allowed_file(filename: str) -> bool:
 @router.post("/product-image", response_model=UploadResponse)
 async def upload_product_image(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Upload a product image.
@@ -121,7 +121,7 @@ async def upload_product_image(
 @router.delete("/product-image/{filename}")
 async def delete_product_image(
     filename: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Delete a previously uploaded product image.
