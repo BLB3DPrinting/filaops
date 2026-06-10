@@ -14,6 +14,7 @@ from app.core.version import VersionManager
 from app.core.plugin_registry import get_tier, get_features
 from app.core.settings import settings
 from app.db.session import get_db
+from app.api.v1.deps import get_current_staff_user
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,8 @@ async def get_system_version():
     """
     Get current FilaOps version and build date.
 
-    Returns only public-safe version info for bug reporting.
+    Intentionally unauthenticated: the SPA shows the version pre-login and
+    users include it in bug reports. Returns only public-safe version info.
     Sensitive fields (environment, database_version, etc.) are redacted.
     """
     try:
@@ -123,6 +125,10 @@ async def get_system_info():
     """
     Get system tier and enabled features.
 
+    Intentionally unauthenticated: AppContext fetches this at SPA mount —
+    before login — to gate PRO-only UI. Keep the response limited to
+    feature-gating flags; nothing here may be sensitive.
+
     Core always returns tier="community" with no features.
     When a plugin (e.g. filaops-pro) is installed, its register()
     updates the plugin registry to advertise tier and features.
@@ -147,10 +153,17 @@ async def get_system_info():
         )
 
 
-@router.get("/updates/check", response_model=UpdateCheckResponse)
+@router.get(
+    "/updates/check",
+    response_model=UpdateCheckResponse,
+    dependencies=[Depends(get_current_staff_user)],
+)
 async def check_for_updates():
     """
     Check GitHub releases for available updates
+
+    Requires staff authentication: exposes the exact running version and
+    update channel, and each cache miss spends a GitHub API request.
 
     Returns update availability, version info, and upgrade instructions.
     Uses server-side caching (1 hour) to avoid GitHub API rate limits.
@@ -171,10 +184,17 @@ async def check_for_updates():
         )
 
 
-@router.get("/updates/instructions", response_model=UpdateInstructionsResponse)
+@router.get(
+    "/updates/instructions",
+    response_model=UpdateInstructionsResponse,
+    dependencies=[Depends(get_current_staff_user)],
+)
 async def get_update_instructions():
     """
     Get step-by-step update instructions for current deployment method
+
+    Requires staff authentication: reveals the deployment shape
+    (docker/tauri/manual) and operator runbook steps.
 
     Returns the manual upgrade steps for Phase 1 implementation.
     Future versions may include automated update capabilities.
@@ -194,6 +214,9 @@ async def get_update_instructions():
 async def system_health(db: Session = Depends(get_db)):
     """
     System health check endpoint
+
+    Intentionally unauthenticated: used as a liveness/readiness probe by
+    monitoring and container orchestration, which have no credentials.
 
     Returns basic system status including version, database connectivity,
     and service availability. Used for monitoring and diagnostics.

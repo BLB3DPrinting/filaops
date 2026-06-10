@@ -1,7 +1,6 @@
 """
 API v1 Router - FilaOps Open Source Core
 """
-import os
 from fastapi import APIRouter
 from app.api.v1.endpoints import (
     accounting,
@@ -42,6 +41,7 @@ from app.api.v1.endpoints import (
     system_license,
 )
 from app.api.v1.endpoints.admin import router as admin_router
+from app.api.v1.endpoints.test import test_endpoints_enabled
 
 router = APIRouter()
 
@@ -250,8 +250,10 @@ router.include_router(
 
 # License activation is a PRO feature
 
-# Test endpoints - only enabled in non-production environments
-# These endpoints allow E2E tests to seed test data
-if os.getenv("ENVIRONMENT", "development").lower() != "production":
+# Test endpoints - opt-in only (ENVIRONMENT=test/ci/e2e or TESTING=true).
+# These endpoints allow E2E tests to seed test data. They are NOT registered
+# in plain development deployments: /test/seed creates users with a
+# well-known password, so it must never be reachable on a real instance.
+if test_endpoints_enabled():
     from app.api.v1.endpoints import test as test_endpoints
     router.include_router(test_endpoints.router)

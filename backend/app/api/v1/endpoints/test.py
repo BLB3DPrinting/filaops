@@ -2,16 +2,29 @@
 Test data seeding endpoints.
 
 WARNING: These endpoints are for testing only!
-They are disabled in production via ENVIRONMENT check, AND require staff
-authentication so unauthenticated actors on a dev/staging server cannot
-trigger seeding or wipe operations.
+
+They are OPT-IN: the router is only registered (see app/api/v1/__init__.py)
+and requests only allowed when ENVIRONMENT is "test"/"ci"/"e2e" or
+TESTING=true. They are never available when ENVIRONMENT=production.
+Plain development deployments do NOT get them by default — /seed creates
+users with a well-known password, so exposing it on a reachable instance
+is an account-takeover vector.
+
+Within an opted-in test environment the endpoints are intentionally
+unauthenticated: the Playwright E2E bootstrap (frontend/tests/e2e/
+auth.setup.ts) calls /seed before any user exists — seeding is what
+CREATES the login user — so per-request auth here would deadlock E2E.
+The gate is the registration opt-in, not per-request credentials.
+
+The GitHub Actions E2E workflow already starts the backend with
+TESTING=true; to run Playwright E2E locally, do the same.
 
 Endpoints:
-    GET  /api/v1/test/scenarios  - List available test scenarios (staff only)
-    POST /api/v1/test/seed       - Seed database with a scenario (staff only)
-    POST /api/v1/test/cleanup    - Remove all test data (staff only)
-    GET  /api/v1/test/health     - Health check (intentionally public — no
-                                   sensitive data, helps CI detect misconfiguration)
+    GET  /api/v1/test/scenarios  - List available test scenarios
+    POST /api/v1/test/seed       - Seed database with a scenario
+    POST /api/v1/test/cleanup    - Remove all test data (also requires
+                                   ALLOW_TEST_DATA_WIPE=true)
+    GET  /api/v1/test/health     - Health check for test endpoints
 """
 import os
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,28 +33,47 @@ from pydantic import BaseModel
 from typing import Dict, Any, List
 
 from app.db.session import get_db
-from app.models.user import User
-from app.api.v1.deps import get_current_staff_user
 
 
 router = APIRouter(prefix="/test", tags=["testing"])
 
 
 # =============================================================================
-# GUARD: Only allow in non-production environments
+# GUARD: Opt-in only (never production, never plain development)
 # =============================================================================
 
-def require_test_mode():
+def test_endpoints_enabled() -> bool:
     """
-    Dependency that blocks requests in production.
+    Whether test endpoints are enabled for this process.
 
-    Raises HTTPException 403 if ENVIRONMENT is 'production'.
+    Enabled only when explicitly opted in:
+    - ENVIRONMENT is "test", "ci", or "e2e", or
+    - TESTING is truthy ("1"/"true"/"yes") and ENVIRONMENT is not production.
+
+    Production always wins: TESTING cannot re-enable them there.
     """
     env = os.getenv("ENVIRONMENT", "development").lower()
     if env == "production":
+        return False
+    if env in ("test", "ci", "e2e"):
+        return True
+    return os.getenv("TESTING", "").lower() in ("1", "true", "yes")
+
+
+def require_test_mode():
+    """
+    Dependency that blocks requests unless test endpoints are enabled.
+
+    Defense in depth behind the conditional router registration in
+    app/api/v1/__init__.py. Raises HTTPException 403 when disabled.
+    """
+    if not test_endpoints_enabled():
         raise HTTPException(
             status_code=403,
-            detail="Test endpoints are disabled in production"
+            detail=(
+                "Test endpoints are disabled. Set TESTING=true "
+                "(non-production only) to enable them."
+            )
         )
     return True
 
@@ -114,7 +146,6 @@ class HealthResponse(BaseModel):
 @router.get("/scenarios", response_model=ScenariosResponse)
 async def list_scenarios(
     _: bool = Depends(require_test_mode),
-    _staff: User = Depends(get_current_staff_user),
 ):
     """
     List available test scenarios.
@@ -130,7 +161,6 @@ async def seed_test_data(
     request: SeedRequest,
     db: Session = Depends(get_db),
     _: bool = Depends(require_test_mode),
-    _staff: User = Depends(get_current_staff_user),
 ):
     """
     Seed the database with a test scenario.
@@ -168,7 +198,6 @@ async def cleanup_data(
     db: Session = Depends(get_db),
     _test_mode: bool = Depends(require_test_mode),
     _wipe_allowed: bool = Depends(require_data_wipe_allowed),
-    _staff: User = Depends(get_current_staff_user),
 ):
     """
     Remove all test data from the database.
