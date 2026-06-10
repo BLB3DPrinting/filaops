@@ -1721,15 +1721,33 @@ def swap_material_variant(
 
     is_no_op = new_component_id == mat.component_id
 
-    if not is_no_op and new_component.parent_product_id != mat.component_id:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Target {new_component.sku} is not a variant of current component "
-                f"{mat.component_id} (expected parent_product_id={mat.component_id}, "
-                f"got {new_component.parent_product_id})"
-            ),
-        )
+    if not is_no_op:
+        # Delegate child-of-current check to ComponentTemplateResolver.
+        # The resolver's list_options against parent=current_component is the
+        # canonical set of valid swap targets — we just check membership.
+        from app.services.variant_axis import registry as axis_registry
+
+        class _MaterialStub:
+            """Minimal RoutingOperationMaterial-shaped object for resolver query."""
+            component_id = mat.component_id
+
+        valid_target_ids = {
+            opt.value["component_id"]
+            for opt in axis_registry.get("component_template").list_options(
+                db,
+                template=new_component,  # unused by component_template resolver
+                routing_material=_MaterialStub(),  # type: ignore[arg-type]
+            )
+        }
+        if new_component_id not in valid_target_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Target {new_component.sku} is not a variant of current component "
+                    f"{mat.component_id} (expected parent_product_id={mat.component_id}, "
+                    f"got {new_component.parent_product_id})"
+                ),
+            )
 
     old_component_id = mat.component_id
     if not is_no_op:

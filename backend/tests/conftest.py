@@ -699,3 +699,1154 @@ def finished_good(make_product):
         procurement_type="make",
         name="Test Widget (FG)",
     )
+
+
+# =============================================================================
+# Variant-axis fixtures (Task 2 — MaterialColorResolver)
+# =============================================================================
+
+@pytest.fixture
+def material_type_pla(db):
+    """A MaterialType with a unique test-only code to avoid seed-data collisions."""
+    from app.models.material import MaterialType
+
+    uid = _uid()
+    mt = MaterialType(
+        code=f"PLA_BASIC_TEST_{uid}",
+        name="PLA Basic Test",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(mt)
+    db.flush()
+    return mt
+
+
+@pytest.fixture
+def color_black(db):
+    """A Color with a unique test-only code to avoid seed-data collisions."""
+    from app.models.material import Color
+
+    uid = _uid()
+    color = Color(
+        code=f"BLK_TEST_{uid}",
+        name="Black Test",
+        hex_code="#000000",
+    )
+    db.add(color)
+    db.flush()
+    return color
+
+
+@pytest.fixture
+def supply_product_pla_black(db, make_product, material_type_pla, color_black):
+    """Active supply Product linked to the PLA Basic Test material_type + Black Test color."""
+    uid = _uid()
+    return make_product(
+        sku=f"SUP-PLA-BLK-TEST-{uid}",
+        name=f"PLA Basic Black Filament Test {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=material_type_pla.id,
+        color_id=color_black.id,
+    )
+
+
+@pytest.fixture
+def fg004_template_with_material_color_axis(db, make_product, make_work_center):
+    """Fixture returning a dict used by test_list_options_returns_one_per_materialcolor_row.
+
+    Creates:
+      - 1 MaterialType (pla_for_fg) with a unique code
+      - 3 Colors with unique codes
+      - 3 MaterialColor rows (junction)
+      - 3 supply Products (one per combo)
+      - 1 finished-good template Product
+      - 1 Routing → 1 RoutingOperation → 1 RoutingOperationMaterial (is_variable=True)
+        whose component_id points at one of the supply products
+
+    Returns:
+      {
+          "template": Product,
+          "variable_material": RoutingOperationMaterial,
+          "expected_combo_count": 3,
+      }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- MaterialType ---
+    pla_for_fg = MaterialType(
+        code=f"PLA_FG_{uid}",
+        name=f"PLA FG Test {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(pla_for_fg)
+    db.flush()
+
+    # --- Colors + MaterialColor rows + supply Products ---
+    color_codes = [f"FG_C1_{uid}", f"FG_C2_{uid}", f"FG_C3_{uid}"]
+    supply_products = []
+    for i, code in enumerate(color_codes):
+        c = Color(code=code, name=f"FG Color {i+1} {uid}", hex_code=f"#0{i}0{i}0{i}")
+        db.add(c)
+        db.flush()
+
+        mc = MaterialColor(material_type_id=pla_for_fg.id, color_id=c.id)
+        db.add(mc)
+        db.flush()
+
+        sp = make_product(
+            sku=f"SUP-FG-{code}",
+            name=f"Supply FG {code}",
+            item_type="supply",
+            unit="G",
+            purchase_uom="KG",
+            purchase_factor=Decimal("1000"),
+            cost_method="average",
+            average_cost=Decimal("0.02"),
+            is_raw_material=True,
+            active=True,
+            material_type_id=pla_for_fg.id,
+            color_id=c.id,
+        )
+        supply_products.append(sp)
+
+    # --- Finished-good template ---
+    template = make_product(
+        sku=f"FG004-TMPL-{uid}",
+        name=f"FG004 Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+    )
+
+    # --- Work center (required by RoutingOperation) ---
+    wc = make_work_center(name=f"FDM Pool {uid}", code=f"WC-FDM-{uid}")
+
+    # --- Routing ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-FG004-{uid}",
+        name=f"Routing FG004 {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    # --- RoutingOperation ---
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="PRINT",
+        operation_name="Print",
+        run_time_minutes=Decimal("150"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    # --- RoutingOperationMaterial (variable = True, component = first supply product) ---
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=supply_products[0].id,
+        quantity=Decimal("37"),
+        unit="G",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_combo_count": len(color_codes),  # 3
+    }
+
+
+# =============================================================================
+# Variant-axis fixtures (Task 4 — ComponentTemplateResolver)
+# =============================================================================
+
+@pytest.fixture
+def fg004_component_template_axis(db, make_product, make_work_center):
+    """Fixture: FG template with a variable RoutingOperationMaterial whose
+    component_id points at a COMP template that has 9 active children.
+
+    Returns:
+        {
+            "template": Product (is_template=True, FG-style),
+            "variable_material": RoutingOperationMaterial (is_variable=True),
+            "children": list[Product],  # 9 active children of comp_template
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template: the parent whose children are the variant options ---
+    comp_template = make_product(
+        sku=f"COMP-005-TMPL-{uid}",
+        name=f"Comp Template {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 9 active children of the COMP template ---
+    children = []
+    for i in range(9):
+        child = make_product(
+            sku=f"COMP-005-V{i+1:02d}-{uid}",
+            name=f"Comp Variant {i+1} {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+        children.append(child)
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG004-CT-TMPL-{uid}",
+        name=f"FG004 Component Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"FDM Pool CT {uid}", code=f"WC-CT-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-CT-{uid}",
+        name=f"Routing CT {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "children": children,
+    }
+
+
+@pytest.fixture
+def fg004_component_template_axis_with_inactive(db, make_product, make_work_center):
+    """Fixture: same shape as fg004_component_template_axis but with 4 active
+    children + 1 inactive child. Resolver must exclude the inactive one.
+
+    Returns:
+        {
+            "template": Product,
+            "variable_material": RoutingOperationMaterial,
+            "active_count": 4,
+            "inactive_child_id": int,
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template ---
+    comp_template = make_product(
+        sku=f"COMP-006-TMPL-{uid}",
+        name=f"Comp Template Inactive {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 4 active children ---
+    for i in range(4):
+        make_product(
+            sku=f"COMP-006-V{i+1:02d}-{uid}",
+            name=f"Comp Variant Active {i+1} {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+
+    # --- 1 inactive child ---
+    inactive_child = make_product(
+        sku=f"COMP-006-VOFF-{uid}",
+        name=f"Comp Variant Inactive {uid}",
+        item_type="component",
+        unit="EA",
+        active=False,
+        parent_product_id=comp_template.id,
+    )
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG004-CTI-TMPL-{uid}",
+        name=f"FG004 Component Template Inactive {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"FDM Pool CTI {uid}", code=f"WC-CTI-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-CTI-{uid}",
+        name=f"Routing CTI {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "active_count": 4,
+        "inactive_child_id": inactive_child.id,
+    }
+
+
+@pytest.fixture
+def manufactured_template_with_children(db, make_product, make_work_center):
+    """Fixture for Rule-1 test: COMP template with item_type='manufactured'
+    (a sub-assembly) and 3 active children.
+
+    Returns:
+        {
+            "template": Product (is_template=True, item_type='manufactured'),
+            "variable_material": RoutingOperationMaterial (is_variable=True),
+            "expected_count": 3,
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template: item_type='manufactured' (sub-assembly) ---
+    comp_template = make_product(
+        sku=f"SUB-MFG-TMPL-{uid}",
+        name=f"Sub-Assembly Manufactured Template {uid}",
+        item_type="manufactured",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 3 active children ---
+    for i in range(3):
+        make_product(
+            sku=f"SUB-MFG-V{i+1:02d}-{uid}",
+            name=f"Sub-Assembly Variant {i+1} {uid}",
+            item_type="manufactured",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG-MFG-TMPL-{uid}",
+        name=f"FG Manufactured Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"Assembly WC MFG {uid}", code=f"WC-MFG-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-MFG-{uid}",
+        name=f"Routing MFG {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_count": 3,
+    }
+
+
+@pytest.fixture
+def supply_template_with_children(db, make_product, make_work_center):
+    """Fixture for Rule-1 test: COMP template with item_type='supply'
+    (purchased component) and 2 active children.
+
+    Returns:
+        {
+            "template": Product (is_template=True, item_type='supply'),
+            "variable_material": RoutingOperationMaterial (is_variable=True),
+            "expected_count": 2,
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template: item_type='supply' (purchased component) ---
+    comp_template = make_product(
+        sku=f"SUP-TMPL-{uid}",
+        name=f"Supply Component Template {uid}",
+        item_type="supply",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 2 active children ---
+    for i in range(2):
+        make_product(
+            sku=f"SUP-V{i+1:02d}-{uid}",
+            name=f"Supply Variant {i+1} {uid}",
+            item_type="supply",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG-SUP-TMPL-{uid}",
+        name=f"FG Supply Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"Assembly WC SUP {uid}", code=f"WC-SUP-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-SUP-{uid}",
+        name=f"Routing SUP {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_count": 2,
+    }
+
+
+@pytest.fixture
+def component_template_with_children(db, make_product, make_work_center):
+    """Fixture for Rule-1 test: COMP template with item_type='component'
+    (a discrete component / sub-part) and 2 active children.
+
+    Used to pin Rule 1 for the 'component' item_type variant of the resolver.
+
+    Returns:
+        {
+            "template": Product (is_template=True, item_type='component'),
+            "variable_material": RoutingOperationMaterial (is_variable=True),
+            "expected_count": 2,
+        }
+    """
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- COMP template: item_type='component' ---
+    comp_template = make_product(
+        sku=f"COMP-RULE1-{uid}",
+        name=f"Rule1 Comp Template {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 2 active children ---
+    for i in range(2):
+        make_product(
+            sku=f"COMP-RULE1-{uid}-V{i}",
+            name=f"Rule1 Comp Child {uid} {i}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_template.id,
+        )
+
+    # --- FG template ---
+    template = make_product(
+        sku=f"FG-RULE1-{uid}",
+        name=f"Rule1 FG {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"Assembly WC COMP {uid}", code=f"WC-COMP-{uid}")
+
+    # --- Routing → RoutingOperation → RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-COMP-{uid}",
+        name=f"Routing COMP {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    variable_material = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(variable_material)
+    db.flush()
+
+    return {
+        "template": template,
+        "variable_material": variable_material,
+        "expected_count": 2,
+    }
+
+
+# =============================================================================
+# Variant-axis fixtures (Task 8 -- mixed-axis sync_routing_to_variants)
+# =============================================================================
+
+@pytest.fixture
+def mixed_axis_template_with_one_variant(db, make_product, make_work_center):
+    """Fixture: FG template with 4 routing material lines (2 variable, 2 fixed)
+    and one variant with v2 axis_selections metadata keyed by
+    RoutingOperationMaterial.id.
+
+    Line layout:
+      rom_a  is_variable=True   component=pla_placeholder  axis=material_color
+      rom_b  is_variable=True   component=comp_x template  axis=component_template
+      rom_c  is_variable=False  component=fixed_1           preserved verbatim
+      rom_d  is_variable=False  component=fixed_2           preserved verbatim
+
+    Returns:
+        {
+            "template": Product,
+            "variant": Product,
+            "expected_color_target_id": int,     # pla_blk_supply.id
+            "expected_component_target_id": int, # chosen_child.id
+            "fixed_component_ids": [int, int],   # [fixed_1.id, fixed_2.id]
+        }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # 1. Material+color setup
+    pla_material_type = MaterialType(
+        code=f"PLA_MX_{uid}",
+        name=f"PLA Mixed-Axis Test {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(pla_material_type)
+    db.flush()
+
+    black_color = Color(
+        code=f"BLK_MX_{uid}",
+        name=f"Black Mixed-Axis Test {uid}",
+        hex_code="#000000",
+    )
+    db.add(black_color)
+    db.flush()
+
+    mc_junction = MaterialColor(
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+    db.add(mc_junction)
+    db.flush()
+
+    # The supply product the material_color axis resolves to
+    pla_blk_supply = make_product(
+        sku=f"PLA-BLK-MX-{uid}",
+        name=f"PLA Black Mixed-Axis Supply {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+
+    # Placeholder: template variable line points at this.
+    # active=False so the material_color resolver's active=True filter excludes it,
+    # leaving pla_blk_supply as the only valid match and eliminating fixture-order fragility.
+    pla_placeholder = make_product(
+        sku=f"PLA-PLACEHOLDER-MX-{uid}",
+        name=f"PLA Placeholder Mixed-Axis {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=False,
+        material_type_id=pla_material_type.id,
+        color_id=black_color.id,
+    )
+
+    # 2. Component-template setup
+    comp_x_template = make_product(
+        sku=f"COMP-X-TMPL-MX-{uid}",
+        name=f"COMP-X Template Mixed-Axis {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    children = []
+    for i in range(3):
+        child = make_product(
+            sku=f"COMP-X-V{i+1:02d}-MX-{uid}",
+            name=f"COMP-X Variant {i+1} Mixed-Axis {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=comp_x_template.id,
+        )
+        children.append(child)
+    chosen_child = children[1]  # deterministic pick
+
+    # 3. Fixed-line products
+    fixed_1 = make_product(
+        sku=f"FIXED-1-MX-{uid}",
+        name=f"Fixed Component 1 Mixed-Axis {uid}",
+        item_type="supply",
+        unit="EA",
+        active=True,
+    )
+    fixed_2 = make_product(
+        sku=f"FIXED-2-MX-{uid}",
+        name=f"Fixed Component 2 Mixed-Axis {uid}",
+        item_type="supply",
+        unit="EA",
+        active=True,
+    )
+
+    # 4. FG template
+    template = make_product(
+        sku=f"FG-MX-TMPL-{uid}",
+        name=f"FG Mixed-Axis Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # 5. Routing: 1 operation, 4 material lines
+    wc = make_work_center(name=f"Mixed-Axis WC {uid}", code=f"WC-MX-{uid}")
+
+    routing = Routing(
+        product_id=template.id,
+        code=f"RT-MX-{uid}",
+        name=f"Routing Mixed-Axis {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="PRINT-MX",
+        operation_name="Print Mixed-Axis",
+        run_time_minutes=Decimal("150"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    # rom_a: material_color variable line
+    rom_a = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=pla_placeholder.id,
+        quantity=Decimal("37"),
+        unit="G",
+        is_variable=True,
+    )
+    db.add(rom_a)
+    db.flush()
+
+    # rom_b: component_template variable line
+    rom_b = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=comp_x_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(rom_b)
+    db.flush()
+
+    # rom_c: fixed line
+    rom_c = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=fixed_1.id,
+        quantity=Decimal("2"),
+        unit="EA",
+        is_variable=False,
+    )
+    db.add(rom_c)
+    db.flush()
+
+    # rom_d: fixed line
+    rom_d = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=fixed_2.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=False,
+    )
+    db.add(rom_d)
+    db.flush()
+
+    # 6. Variant with v2 axis_selections metadata keyed by rom.id
+    variant = make_product(
+        sku=f"FG-MX-VAR-BLK-{uid}",
+        name=f"FG Mixed-Axis Variant BLK {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("5.00"),
+        selling_price=Decimal("15.00"),
+        procurement_type="make",
+        is_template=False,
+        active=True,
+        parent_product_id=template.id,
+    )
+    variant.variant_metadata = {
+        "schema_version": 2,
+        "axis_selections": {
+            str(rom_a.id): {
+                "type": "material_color",
+                "label": "Color",
+                "value": {
+                    "material_type_id": pla_material_type.id,
+                    "color_id": black_color.id,
+                },
+            },
+            str(rom_b.id): {
+                "type": "component_template",
+                "label": "Variant",
+                "value": {
+                    "component_id": chosen_child.id,
+                },
+            },
+        },
+        "axis_count": 2,
+    }
+    db.flush()
+
+    return {
+        "template": template,
+        "variant": variant,
+        "expected_color_target_id": pla_blk_supply.id,
+        "expected_component_target_id": chosen_child.id,
+        "fixed_component_ids": [fixed_1.id, fixed_2.id],
+    }
+
+
+# =============================================================================
+# Task 10 fixtures — recursive 2-deep resolve + 6-deep perf canary
+# =============================================================================
+
+@pytest.fixture
+def fg_with_variable_manuf_component_with_variable_material(db, make_product, make_work_center):
+    """2-deep recursive scenario.
+
+    Outer layer:
+      FG template → variable RoutingOperationMaterial → BALL-template (is_template=True)
+        BALL-template has 3 active children (BALL-RED, BALL-BLU, BALL-BLK).
+        chosen_ball = BALL-BLU (index 1).
+
+    Inner layer:
+      The inner axis uses a synthetic integer key (not a real DB row).
+      A MaterialType + Color + MaterialColor + supply Product are created for the
+      "finish" dimension; chosen_finish resolves via material_color resolver.
+
+    Returns:
+        {
+            "fg_template": Product,
+            "ball_template": Product,
+            "outer_routing_material_id": int,   # real RoutingOperationMaterial.id
+            "chosen_ball_id": int,
+            "inner_routing_material_id": int,   # synthetic integer key
+            "chosen_finish_mt_id": int,
+            "chosen_finish_color_id": int,
+        }
+    """
+    from app.models.material import MaterialType, Color, MaterialColor
+    from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+
+    uid = _uid()
+
+    # --- BALL template ---
+    ball_template = make_product(
+        sku=f"BALL-TMPL-{uid}",
+        name=f"Ball Template {uid}",
+        item_type="component",
+        unit="EA",
+        is_template=True,
+        active=True,
+    )
+
+    # --- 3 active children of BALL template ---
+    suffixes = ["RED", "BLU", "BLK"]
+    ball_children = []
+    for suffix in suffixes:
+        child = make_product(
+            sku=f"BALL-{suffix}-{uid}",
+            name=f"Ball {suffix} {uid}",
+            item_type="component",
+            unit="EA",
+            active=True,
+            parent_product_id=ball_template.id,
+        )
+        ball_children.append(child)
+
+    chosen_ball = ball_children[1]  # BALL-BLU
+
+    # --- FG template ---
+    fg = make_product(
+        sku=f"FG-REC2-TMPL-{uid}",
+        name=f"FG Recursive 2-deep Template {uid}",
+        item_type="finished_good",
+        unit="EA",
+        cost_method="standard",
+        standard_cost=Decimal("10.00"),
+        selling_price=Decimal("30.00"),
+        procurement_type="make",
+        is_template=True,
+        active=True,
+    )
+
+    # --- Work center ---
+    wc = make_work_center(name=f"WC REC2 {uid}", code=f"WC-REC2-{uid}")
+
+    # --- Routing → RoutingOperation → outer RoutingOperationMaterial ---
+    routing = Routing(
+        product_id=fg.id,
+        code=f"RT-REC2-{uid}",
+        name=f"Routing REC2 {uid}",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+
+    op = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=wc.id,
+        sequence=10,
+        operation_code="ASSEMBLE",
+        operation_name="Assemble",
+        run_time_minutes=Decimal("30"),
+        setup_time_minutes=Decimal("5"),
+    )
+    db.add(op)
+    db.flush()
+
+    outer_rom = RoutingOperationMaterial(
+        routing_operation_id=op.id,
+        component_id=ball_template.id,
+        quantity=Decimal("1"),
+        unit="EA",
+        is_variable=True,
+    )
+    db.add(outer_rom)
+    db.flush()
+
+    # --- Inner axis: MaterialType + Color + MaterialColor + supply Product ---
+    finish_mt = MaterialType(
+        code=f"FINISH_MT_{uid}",
+        name=f"Finish Material Type {uid}",
+        base_material="PLA",
+        process_type="FDM",
+        density=1.24,
+        base_price_per_kg=20.00,
+    )
+    db.add(finish_mt)
+    db.flush()
+
+    matte_color = Color(
+        code=f"MATTE_{uid}",
+        name=f"Matte {uid}",
+        hex_code="#CCCCCC",
+    )
+    db.add(matte_color)
+    db.flush()
+
+    mc_junction = MaterialColor(
+        material_type_id=finish_mt.id,
+        color_id=matte_color.id,
+    )
+    db.add(mc_junction)
+    db.flush()
+
+    finish_supply = make_product(
+        sku=f"SUP-FINISH-MATTE-{uid}",
+        name=f"Finish Supply Matte {uid}",
+        item_type="supply",
+        unit="G",
+        purchase_uom="KG",
+        purchase_factor=Decimal("1000"),
+        cost_method="average",
+        average_cost=Decimal("0.02"),
+        is_raw_material=True,
+        active=True,
+        material_type_id=finish_mt.id,
+        color_id=matte_color.id,
+    )
+
+    # Synthetic inner key — not a real RoutingOperationMaterial row; the test
+    # calls resolvers directly and never touches sync_routing_to_variants.
+    inner_rom_id = 99_998 + int(uid[:4], 16) % 1000
+
+    return {
+        "fg_template": fg,
+        "ball_template": ball_template,
+        "outer_routing_material_id": outer_rom.id,
+        "chosen_ball_id": chosen_ball.id,
+        "inner_routing_material_id": inner_rom_id,
+        "chosen_finish_mt_id": finish_mt.id,
+        "chosen_finish_color_id": matte_color.id,
+        # carry the supply product so tests can assert identity if needed
+        "finish_supply_id": finish_supply.id,
+    }
+
+
+@pytest.fixture
+def deeply_nested_template_6_axes(db, make_product):
+    """6 independent component templates, each with 2 active children.
+
+    Produces 6 (type, value) resolve_calls, one per template, targeting
+    the second child of each. Used purely as a perf canary — we time 6
+    sequential resolver invocations.
+
+    Returns:
+        {
+            "resolve_calls": list of 6 ("component_template", {"component_id": <id>}) tuples,
+            "templates": list of 6 Product (is_template=True),
+            "chosen_children": list of 6 Product (index-1 child of each template),
+        }
+    """
+    uid = _uid()
+
+    templates = []
+    chosen_children = []
+    resolve_calls = []
+
+    for i in range(6):
+        tmpl = make_product(
+            sku=f"PERF-TMPL-{i+1}-{uid}",
+            name=f"Perf Template {i+1} {uid}",
+            item_type="component",
+            unit="EA",
+            is_template=True,
+            active=True,
+        )
+
+        # 2 active children per template
+        children = []
+        for j in range(2):
+            child = make_product(
+                sku=f"PERF-{i+1}-C{j+1}-{uid}",
+                name=f"Perf Child {i+1}-{j+1} {uid}",
+                item_type="component",
+                unit="EA",
+                active=True,
+                parent_product_id=tmpl.id,
+            )
+            children.append(child)
+
+        chosen = children[1]  # pick second child
+
+        templates.append(tmpl)
+        chosen_children.append(chosen)
+        resolve_calls.append(
+            ("component_template", {"component_id": chosen.id})
+        )
+
+    return {
+        "resolve_calls": resolve_calls,
+        "templates": templates,
+        "chosen_children": chosen_children,
+    }
