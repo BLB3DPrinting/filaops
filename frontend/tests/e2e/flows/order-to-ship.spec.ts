@@ -367,8 +367,8 @@ test.describe('Order-to-Ship Workflow', () => {
     await expect(page).toHaveURL('/admin/manufacturing');
     await page.waitForLoadState('networkidle');
 
-    // Verify Manufacturing page loaded
-    await expect(page.locator('h1:has-text("Manufacturing")')).toBeVisible();
+    // Verify Work Centers & Routings page loaded
+    await expect(page.locator('h1:has-text("Work Centers")')).toBeVisible();
 
     // Check for Work Centers tab button
     const workCentersTab = page.getByRole('button', { name: /Work Centers/i });
@@ -386,7 +386,7 @@ test.describe('Order-to-Ship Workflow', () => {
     await routingsTab.click();
     await page.waitForTimeout(500);
 
-    console.log('✅ Manufacturing page accessible with Work Centers and Routings');
+    console.log('✅ Work Centers & Routings page accessible with Work Centers and Routings tabs');
   });
 
   test('verify production kanban board shows all status columns', async ({ authenticatedPage: page }) => {

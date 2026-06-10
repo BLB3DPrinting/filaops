@@ -34,7 +34,7 @@ export const ROUTE_LABELS = {
   "/admin/spools": "Material Spools",
   // Operations
   "/admin/production": "Production",
-  "/admin/manufacturing": "Manufacturing",
+  "/admin/manufacturing": "Work Centers & Routings",
   "/admin/printers": "Printers",
   "/admin/bambuddy": "Bambuddy",
   "/admin/purchasing": "Purchasing",
