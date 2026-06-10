@@ -217,10 +217,18 @@ class TransactionService:
         Signed delta: positive increases stock. Writes the transaction row
         and mutates on_hand together; no commit (caller owns the boundary).
         """
+        if location_id is None:
+            # Resolve the real default warehouse — the old helpers assumed
+            # primary key 1, which is wrong on any DB where MAIN isn't id 1.
+            from app.services.inventory_service import (
+                get_or_create_default_location,
+            )
+            location_id = get_or_create_default_location(self.db).id
+
         return inventory_ledger.post(
             self.db,
             product_id=product_id,
-            location_id=location_id or 1,
+            location_id=location_id,
             transaction_type=transaction_type,
             quantity_delta=quantity_delta,
             cost_per_unit=unit_cost,

@@ -404,7 +404,7 @@ async def create_material_item(
                     db,
                     product_id=existing.id,
                     location_id=location_id,
-                    transaction_type="adjustment",
+                    transaction_type="initial" if current_qty == 0 else "adjustment",
                     quantity_delta=delta,
                     reference_type="material_item",
                     reference_id=existing.id,

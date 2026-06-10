@@ -57,13 +57,23 @@ VALID_TYPES = INCREASE_TYPES | DECREASE_TYPES | SIGNED_TYPES
 def get_or_create_inventory_row(
     db: Session, product_id: int, location_id: int
 ) -> Inventory:
-    """Fetch the inventory row for (product, location), creating it at zero."""
+    """Fetch the inventory row for (product, location), creating it at zero.
+
+    The fetch takes a row lock (SELECT ... FOR UPDATE) so concurrent posts
+    against the same row serialize instead of losing updates. The
+    create-when-missing path has a benign first-post race: the inventory
+    table has no unique constraint on (product_id, location_id) — a
+    pre-existing schema gap shared by every legacy get_or_create helper —
+    so adding the constraint plus a dedupe of existing data is HARD-4b/4c
+    work, not this module's.
+    """
     inventory = (
         db.query(Inventory)
         .filter(
             Inventory.product_id == product_id,
             Inventory.location_id == location_id,
         )
+        .with_for_update()
         .first()
     )
     if not inventory:

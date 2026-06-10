@@ -247,7 +247,17 @@ async def update_spool(
             
             # For materials: Store transaction in GRAMS (star schema - transactions are source of truth)
             is_mat = is_material(product)
-            transaction_quantity = adjustment_g if is_mat else adjustment_g / Decimal("1000")
+            if not is_mat:
+                # The old fallback divided grams by 1000 and posted the result
+                # in the product's own unit — fiction unless that unit is KG.
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Spool weight adjustments require a material product; "
+                        f"{product.sku} is not a material"
+                    ),
+                )
+            transaction_quantity = adjustment_g
 
             # Cost per inventory unit: $/gram for materials, $/unit for others
             from app.services.inventory_service import get_effective_cost_per_inventory_unit

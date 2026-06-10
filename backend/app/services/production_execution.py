@@ -422,20 +422,23 @@ class ProductionExecutionService:
 
         # Add finished goods through the canonical ledger (HARD-4a):
         # transaction row + on_hand mutated together, Decimal-only.
-        from app.services import inventory_ledger
-        inventory_ledger.post(
-            db,
-            product_id=po.product_id,
-            location_id=location_id,
-            transaction_type="production",
-            quantity_delta=Decimal(str(good_quantity)),
-            cost_per_unit=production_cost_per_unit,
-            reference_type="production_order",
-            reference_id=po.id,
-            unit=product.unit or "EA",
-            notes=f"Produced {good_quantity:.2f} units for {po.code}",
-            created_by=created_by,
-        )
+        # Zero good units (scrap-only completion) is a valid workflow —
+        # nothing to receipt, so skip the post.
+        if good_quantity:
+            from app.services import inventory_ledger
+            inventory_ledger.post(
+                db,
+                product_id=po.product_id,
+                location_id=location_id,
+                transaction_type="production",
+                quantity_delta=Decimal(str(good_quantity)),
+                cost_per_unit=production_cost_per_unit,
+                reference_type="production_order",
+                reference_id=po.id,
+                unit=product.unit or "EA",
+                notes=f"Produced {good_quantity:.2f} units for {po.code}",
+                created_by=created_by,
+            )
 
         return {
             "product_id": po.product_id,
