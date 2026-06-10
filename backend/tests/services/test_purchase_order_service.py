@@ -2017,6 +2017,646 @@ class TestReceivePurchaseOrder:
 
 
 # =============================================================================
+# HARD-8: Landed cost capitalization
+# =============================================================================
+
+class TestLandedCostCapitalization:
+    """Tests for HARD-8: landed cost (shipping + tax) capitalized into item cost
+    and inventory GL.
+
+    Allocation rule: pro-rata by line value (qty_received × unit_cost in
+    purchase-unit dollars) for this receipt.  Partial receipts capitalize
+    freight proportionally to the value received; summed over all receipts
+    the full freight is capitalized with no penny drift.
+    """
+
+    def test_full_receipt_single_line_ea(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Full receipt of one EA line: landed cost fully folds into unit cost
+        and into the inventory GL debit (via TransactionService)."""
+        vendor = make_vendor()
+        # $20 shipping + $8 tax = $28 landed on a PO of 10 × $50 = $500
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("20.00"),
+            tax_amount=Decimal("8.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("50.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("10")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        # Landed per unit = $28 / 10 = $2.80; total per unit = $52.80
+        assert float(product.average_cost) == pytest.approx(52.80, rel=1e-4)
+        assert float(product.last_cost) == pytest.approx(52.80, rel=1e-4)
+
+    def test_full_receipt_two_lines_proportional_allocation(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Two lines, equal value: each gets 50% of landed cost.
+        Allocation sums exactly to total freight (no penny drift)."""
+        vendor = make_vendor()
+        # $20 freight, two lines each $100 value → $10 each
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("20.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        p1 = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        p2 = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        l1 = _add_po_line(
+            db, po, p1, Decimal("10"), Decimal("10.00"), purchase_unit="EA"
+        )
+        l2 = _add_po_line(
+            db, po, p2, Decimal("10"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[
+                {"line_id": l1.id, "quantity_received": Decimal("10")},
+                {"line_id": l2.id, "quantity_received": Decimal("10")},
+            ],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(p1)
+        db.refresh(p2)
+        # Each line: $10 base + $1 landed ($10 / 10 units) = $11 per unit
+        assert float(p1.average_cost) == pytest.approx(11.00, rel=1e-4)
+        assert float(p2.average_cost) == pytest.approx(11.00, rel=1e-4)
+
+    def test_two_lines_unequal_value_allocation(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Two lines of unequal value: freight allocates proportionally.
+        Allocations must sum exactly to total freight (Decimal, no penny drift)."""
+        vendor = make_vendor()
+        # Line A: 4 × $25 = $100 value (40% of $250)
+        # Line B: 6 × $25 = $150 value (60% of $250)
+        # Total freight: $50 → A gets $20, B gets $30
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("50.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        p_a = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        p_b = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        la = _add_po_line(
+            db, po, p_a, Decimal("4"), Decimal("25.00"), purchase_unit="EA"
+        )
+        lb = _add_po_line(
+            db, po, p_b, Decimal("6"), Decimal("25.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[
+                {"line_id": la.id, "quantity_received": Decimal("4")},
+                {"line_id": lb.id, "quantity_received": Decimal("6")},
+            ],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(p_a)
+        db.refresh(p_b)
+        # A: $25 + ($20/4) = $25 + $5 = $30
+        assert float(p_a.average_cost) == pytest.approx(30.00, rel=1e-4)
+        # B: $25 + ($30/6) = $25 + $5 = $30
+        assert float(p_b.average_cost) == pytest.approx(30.00, rel=1e-4)
+
+    def test_partial_receipt_allocates_proportionally(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Partial receipt capitalizes its proportional share of freight.
+
+        Sum-once invariant: proportion = this_receipt_value / total_PO_line_value.
+        PO: 10 × $20 = $200 total value; freight $50.
+        Receipt 1: 4 units → receipt value $80 → proportion $80/$200 = 40%
+        → freight for this receipt = $50 × 40% = $20
+        → landed per unit = $20 / 4 = $5 → total cost = $20 + $5 = $25/unit.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("50.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("20.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # First receipt: 4 units → 40% of PO value → 40% of freight = $20
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("4")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        # Landed for this receipt = $50 × (4×$20 / 10×$20) = $50 × 0.4 = $20
+        # Landed per unit = $20 / 4 = $5 → total cost per unit = $20 + $5 = $25
+        assert float(product.average_cost) == pytest.approx(25.00, rel=1e-4)
+
+    def test_two_partial_receipts_sum_once_invariant(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Two equal partial receipts: freight is capitalised exactly ONCE in total.
+
+        Sum-once invariant: total capitalised landed cost across all receipts ==
+        po.shipping_cost + po.tax_amount, regardless of how many partial receipts
+        are made.
+
+        Setup: PO 10 × $10 = $100 total value; freight $20.
+        Receipt 1 (5 units, 50% of PO): freight share = $20 × 50% = $10
+          landed/unit = $10 / 5 = $2  →  cost/unit = $12
+        Receipt 2 (5 units, 50% of PO, completes it): absorbs remaining $10
+          landed/unit = $10 / 5 = $2  →  cost/unit = $12
+        Weighted avg after both: (5×$12 + 5×$12) / 10 = $12
+        Total freight capitalised: $10 + $10 = $20  ✓  (not $40)
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("20.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # Receipt 1: 5 units → 50% of PO value → 50% of freight = $10
+        # Landed per unit = $10 / 5 = $2 → unit cost = $10 + $2 = $12
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "First partial receipt should capitalise 50% of freight ($10), "
+            "giving $10 base + $2 landed = $12/unit"
+        )
+
+        # Receipt 2: remaining 5 units → absorbs remaining $10 freight (residual)
+        # Landed per unit = $10 / 5 = $2 → unit cost = $10 + $2 = $12
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Second receipt should absorb remaining $10 freight, "
+            "giving same $12/unit — weighted avg stays $12"
+        )
+
+        # Verify the PO tracker: total allocated must equal total_landed exactly
+        db.refresh(po)
+        assert Decimal(str(po.landed_cost_allocated)) == Decimal("20.00"), (
+            "Sum-once invariant: landed_cost_allocated must equal total freight "
+            "after PO is fully received"
+        )
+
+    def test_three_partial_receipts_uneven_split_sum_once(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Three partial receipts with uneven splits: sum-once invariant holds.
+
+        PO: 10 × $10 = $100 total value; freight $20.
+        Receipt 1: 2 units (20% of PO) → freight = $20 × 0.2 = $4.00 → cost $14/unit
+        Receipt 2: 3 units (30% of PO) → freight = $20 × 0.3 = $6.00 → cost $14/unit
+        Receipt 3: 5 units (final, absorbs residual $10) → freight = $10.00 → cost $12/unit
+        Total freight capitalised: $4 + $6 + $10 = $20 EXACTLY.
+
+        Weighted average after all 3:
+          (2×$14 + 3×$14 + 5×$12) / 10 = (28 + 42 + 60) / 10 = 130 / 10 = $13
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("20.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # Receipt 1: 2 units → 20% of PO → freight $4 → landed $4/2 = $2/unit
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # 2 units at $12/unit (base $10 + $2 landed)
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 1 (20%): landed = $4, cost/unit = $12"
+        )
+
+        db.refresh(po)
+        # Tracker should show $4 allocated after receipt 1
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("4.00"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 2: 3 units → 30% of PO → freight $6 → landed $6/3 = $2/unit
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("3")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # Weighted avg: (2×$12 + 3×$12) / 5 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 2 (30%): landed = $6, cost/unit = $12, w-avg stays $12"
+        )
+
+        db.refresh(po)
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("10.00"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 3: 5 units (final) → absorbs remaining $10
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        # Wait — receipt 3 gets $10 freight / 5 units = $2/unit → cost $12/unit
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 3 (final, 50%): absorbs remaining $10, $2/unit → w-avg $12"
+        )
+
+        db.refresh(po)
+        # Sum-once invariant: total allocated == total freight exactly
+        assert Decimal(str(po.landed_cost_allocated)) == Decimal("20.00"), (
+            "Sum-once invariant: landed_cost_allocated must equal $20 after all receipts"
+        )
+        assert po.status == "received"
+
+    def test_zero_freight_no_behavior_change(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """PO with zero freight and zero tax: behavior identical to pre-HARD-8.
+        Average cost = simple unit cost."""
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("0.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("25.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("10")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        assert float(product.average_cost) == pytest.approx(25.00, rel=1e-4)
+
+    def test_zero_freight_null_fields_no_behavior_change(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """PO with NULL shipping_cost / tax_amount (legacy rows): no error, no
+        landed allocation."""
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            # No explicit shipping_cost/tax_amount → defaults to 0 on the model
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("5"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        assert float(product.average_cost) == pytest.approx(10.00, rel=1e-4)
+
+    def test_gl_journal_entry_includes_landed_cost(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """The inventory GL debit includes the landed cost component so the
+        journal entry balances against the full AP credit (base + freight + tax)."""
+        from app.models.accounting import GLJournalEntry, GLJournalEntryLine, GLAccount
+        from app.models.inventory import InventoryTransaction
+
+        vendor = make_vendor()
+        # 5 × $10 = $50 base; $7 freight + $3 tax = $10 landed → total AP $60
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("7.00"),
+            tax_amount=Decimal("3.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("5"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        result = receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        # Find the journal entry via inventory transaction
+        assert result["transactions_created"], "Expected inventory transactions"
+        txn_id = result["transactions_created"][0]
+        txn = db.query(InventoryTransaction).filter(
+            InventoryTransaction.id == txn_id
+        ).first()
+        assert txn is not None
+        je_id = txn.journal_entry_id
+        assert je_id is not None, "Inventory transaction must be linked to a JE"
+
+        je = db.query(GLJournalEntry).filter(GLJournalEntry.id == je_id).first()
+        assert je is not None
+
+        je_lines = (
+            db.query(GLJournalEntryLine)
+            .filter(GLJournalEntryLine.journal_entry_id == je_id)
+            .all()
+        )
+
+        # Gather DR / CR totals
+        total_dr = sum(Decimal(str(jl.debit_amount)) for jl in je_lines)
+        total_cr = sum(Decimal(str(jl.credit_amount)) for jl in je_lines)
+
+        # Journal must balance
+        assert total_dr == total_cr, f"JE not balanced: DR={total_dr} CR={total_cr}"
+
+        # Total should be $60 (base $50 + landed $10)
+        assert total_dr == pytest.approx(Decimal("60.00"), rel=1e-4)
+
+        # Confirm accounts: 1200 DR, 2000 CR
+        account_ids_dr = {
+            jl.account_id for jl in je_lines if Decimal(str(jl.debit_amount)) > 0
+        }
+        account_ids_cr = {
+            jl.account_id for jl in je_lines if Decimal(str(jl.credit_amount)) > 0
+        }
+        inv_acct = db.query(GLAccount).filter(GLAccount.account_code == "1200").first()
+        ap_acct = db.query(GLAccount).filter(GLAccount.account_code == "2000").first()
+        assert inv_acct.id in account_ids_dr, "1200 (Inventory) must be debited"
+        assert ap_acct.id in account_ids_cr, "2000 (AP) must be credited"
+
+    def test_decimal_precision_no_penny_drift(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Allocation across 3 lines of unequal value sums exactly to total
+        freight — Decimal quantization must not create penny drift."""
+        vendor = make_vendor()
+        # $10 freight, three lines with values $100, $200, $300 = $600 total
+        # Shares: 1/6 ($1.6667), 2/6 ($3.3333), 3/6 ($5.0000)
+        # With 4dp rounding: $1.6667, $3.3333 → last line = $10 - $1.6667 - $3.3333 = $5.0000
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("10.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        p1 = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        p2 = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        p3 = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        l1 = _add_po_line(
+            db, po, p1, Decimal("1"), Decimal("100.00"), purchase_unit="EA"
+        )
+        l2 = _add_po_line(
+            db, po, p2, Decimal("1"), Decimal("200.00"), purchase_unit="EA"
+        )
+        l3 = _add_po_line(
+            db, po, p3, Decimal("1"), Decimal("300.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[
+                {"line_id": l1.id, "quantity_received": Decimal("1")},
+                {"line_id": l2.id, "quantity_received": Decimal("1")},
+                {"line_id": l3.id, "quantity_received": Decimal("1")},
+            ],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(p1)
+        db.refresh(p2)
+        db.refresh(p3)
+
+        # Reconstruct allocations from the resulting average costs
+        # landed_p1 = avg_cost_p1 - 100.00 (1 unit received at $100 base)
+        # etc.
+        landed_p1 = float(p1.average_cost) - 100.00
+        landed_p2 = float(p2.average_cost) - 200.00
+        landed_p3 = float(p3.average_cost) - 300.00
+
+        total_capitalized = landed_p1 + landed_p2 + landed_p3
+        # Must equal total freight with no penny drift (within floating-point tolerance)
+        assert total_capitalized == pytest.approx(
+            10.00, abs=0.0001
+        ), f"Landed cost drift: expected $10.00, got {total_capitalized}"
+
+    # -------------------------------------------------------------------------
+    # CR-2: Zero-value PO + positive freight (free-sample with shipping)
+    # -------------------------------------------------------------------------
+
+    def test_zero_value_po_freight_capitalized_by_quantity(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-2: Free-sample PO (unit_cost=0) with $15 shipping.
+
+        When total_po_line_value == 0, value-proportion allocation is undefined.
+        The code falls back to quantity-proportion so the full $15 freight is
+        still capitalised exactly once across all receipts.
+
+        PO: 3 × $0.00 = $0 value; freight $15.
+        Single full receipt: 3 units.
+        Expected: $15 / 3 = $5.00 landed per unit → average_cost = $5.00.
+        po.landed_cost_allocated must equal $15.00 exactly (sum-once invariant).
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("15.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("3"), Decimal("0.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("3")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        db.refresh(po)
+        # $15 freight / 3 units = $5.00 per unit; base cost $0 → average_cost $5.00
+        assert float(product.average_cost) == pytest.approx(5.00, rel=1e-4), (
+            "Free-sample PO: $15 freight / 3 units = $5.00/unit average_cost"
+        )
+        # Sum-once invariant: full $15 capitalized in one receipt
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("15.00"), abs=Decimal("0.0001")
+        ), "CR-2: landed_cost_allocated must equal $15.00 after single full receipt"
+
+    def test_zero_value_po_two_partial_receipts_sum_once(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-2: Free-sample PO with two partial receipts — sum-once invariant holds.
+
+        PO: 4 × $0.00 = $0 value; freight $15.
+        Receipt 1: 2 units → 50% of PO qty → freight $7.50.
+        Receipt 2: 2 units (final) → absorbs remaining $7.50.
+        Total capitalized: $15 exactly.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("15.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("4"), Decimal("0.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # Receipt 1: 2 units → 50% of qty (2/4) → freight $7.50
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        db.refresh(po)
+        assert float(product.average_cost) == pytest.approx(3.75, rel=1e-4), (
+            "First partial receipt (50%): $7.50 / 2 units = $3.75/unit"
+        )
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("7.50"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 2: remaining 2 units (final) → absorbs remaining $7.50
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        db.refresh(po)
+        # Sum-once invariant: $7.50 + $7.50 = $15.00
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("15.00"), abs=Decimal("0.0001")
+        ), "CR-2 sum-once: landed_cost_allocated must equal $15 after all receipts"
+
+    # -------------------------------------------------------------------------
+    # CR-3: Duplicate line_id in receipt payload
+    # -------------------------------------------------------------------------
+
+    def test_duplicate_line_id_rejected_with_400(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-3: Payload with a repeated line_id must be rejected with HTTP 400.
+
+        Silently aggregating duplicates would cause receipt_values / this_batch_qty
+        to undercount the receipt and can skip residual absorption on the final
+        receipt, breaking the sum-once invariant.  Rejecting early is the simpler
+        and safer behaviour.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("10.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("5.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            receive_purchase_order(
+                db, po.id,
+                lines=[
+                    {"line_id": line.id, "quantity_received": Decimal("3")},
+                    {"line_id": line.id, "quantity_received": Decimal("2")},  # duplicate
+                ],
+                user_id=1,
+                user_email="test@filaops.dev",
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "Duplicate line_id" in exc_info.value.detail
+
+
+# =============================================================================
 # upload_po_document
 # =============================================================================
 

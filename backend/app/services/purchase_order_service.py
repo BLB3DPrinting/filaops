@@ -5,6 +5,7 @@ Extracted from purchase_orders.py (ARCHITECT-003).
 """
 import io
 import os
+from collections import Counter
 from datetime import datetime, timezone, date
 from decimal import Decimal
 from typing import Optional
@@ -477,9 +478,18 @@ def receive_purchase_order(
         po_number, lines_received, total_quantity, inventory_updated,
         transactions_created, spools_created, material_lots_created
     """
-    po = db.query(PurchaseOrder).options(
-        joinedload(PurchaseOrder.lines)
-    ).filter(PurchaseOrder.id == po_id).first()
+    # CR-1: Acquire a row-level lock on the PO before reading landed_cost_allocated.
+    # Two concurrent receives would otherwise both read the same running total,
+    # each allocate the same remainder, and both commit — over-allocating freight.
+    # with_for_update() issues SELECT … FOR UPDATE, serializing concurrent receives.
+    # Lines are loaded lazily after the lock is acquired; no separate lock on lines
+    # is needed because landed_cost_allocated lives on the PO row itself.
+    po = (
+        db.query(PurchaseOrder)
+        .filter(PurchaseOrder.id == po_id)
+        .with_for_update()
+        .first()
+    )
 
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -507,6 +517,21 @@ def receive_purchase_order(
             db.flush()
             location_id = default_loc.id
 
+    # CR-3: Reject duplicate line_id entries in the receipt payload up front.
+    # receipt_values and this_batch_qty dicts overwrite by key, but the main loop
+    # processes every item — a repeated line_id causes the pre-pass to undercount
+    # completion and can skip residual absorption on the actual final receipt.
+    # Rejecting early is simpler and safer than silently aggregating; callers
+    # should deduplicate before submission.
+    _line_ids_in_payload = [item["line_id"] for item in lines]
+    if len(_line_ids_in_payload) != len(set(_line_ids_in_payload)):
+        dupes = [lid for lid, n in Counter(_line_ids_in_payload).items() if n > 1]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Duplicate line_id(s) in receipt payload: {dupes}. "
+                   "Each line must appear at most once per receive call.",
+        )
+
     line_map = {line.id: line for line in po.lines}
 
     transaction_ids = []
@@ -519,6 +544,181 @@ def receive_purchase_order(
     # Track cumulative per-product receipt quantities/costs within this batch
     # to avoid weighted average drift when the same product appears multiple times
     product_receipt_accum: dict[int, dict] = {}  # product_id -> {qty, cost_sum}
+
+    # ---------------------------------------------------------------------------
+    # Landed-cost pre-pass (HARD-8, sum-once invariant)
+    # ---------------------------------------------------------------------------
+    # Allocate po.shipping_cost + po.tax_amount pro-rata by line value so that
+    # across ANY number of partial receipts the TOTAL capitalised freight equals
+    # po.shipping_cost + po.tax_amount EXACTLY ONCE.
+    #
+    # DENOMINATOR: total_PO_line_value = Σ(qty_ordered × unit_cost) over ALL
+    # lines.  This is a stable, up-front number that does not change between
+    # receipts — it is the correct basis for "what fraction of the PO does this
+    # receipt represent?"
+    #
+    # ALLOCATION per receipt:
+    #   this_receipt_value = Σ(qty_received_this_receipt × unit_cost) per line
+    #   this_receipt_freight = total_landed × (this_receipt_value / total_PO_line_value)
+    #
+    # RESIDUAL ABSORPTION: po.landed_cost_allocated tracks the cumulative amount
+    # already capitalised (updated atomically inside this transaction).  The
+    # receipt that COMPLETES the PO receives:
+    #   alloc = total_landed - po.landed_cost_allocated
+    # instead of the formula above, absorbing the Decimal rounding residual and
+    # guaranteeing the sum-once invariant.  "Completes" = all lines reach
+    # qty_ordered after this receipt (which is determined further below; here we
+    # use the stable-denominator formula and correct it for the final receipt).
+    #
+    # ZERO-FREIGHT RULE: if shipping_cost + tax_amount == 0 the landed map is
+    # empty and the rest of the loop behaves identically to before this change.
+    # ---------------------------------------------------------------------------
+    total_landed = (
+        Decimal(str(po.shipping_cost or 0))
+        + Decimal(str(po.tax_amount or 0))
+    ).quantize(Decimal("0.0001"))
+
+    # line_id -> landed allocation in purchase-unit dollars for this receipt
+    landed_alloc: dict[int, Decimal] = {}
+
+    if total_landed > Decimal("0"):
+        # Stable denominator: total ordered value of the WHOLE PO
+        total_po_line_value = sum(
+            Decimal(str(po_line.quantity_ordered or 0))
+            * Decimal(str(po_line.unit_cost or 0))
+            for po_line in po.lines
+        )
+
+        # Compute each line's receipt value (qty_received × unit_cost) AND
+        # raw receipt quantity in one pass.  Both are needed for CR-2 below.
+        receipt_values: dict[int, Decimal] = {}
+        receipt_qtys: dict[int, Decimal] = {}
+        total_receipt_value = Decimal("0")
+        total_receipt_qty = Decimal("0")
+        for item in lines:
+            lid = item["line_id"]
+            if lid not in line_map:
+                # Validation happens again in the main loop; skip here to avoid
+                # duplicating the error message.
+                continue
+            po_line = line_map[lid]
+            qty = Decimal(str(item["quantity_received"]))
+            val = qty * Decimal(str(po_line.unit_cost or 0))
+            receipt_values[lid] = val
+            receipt_qtys[lid] = qty
+            total_receipt_value += val
+            total_receipt_qty += qty
+
+        # CR-2: Zero-value PO (e.g. free-sample shipment with positive shipping).
+        # When total_po_line_value == 0, value-proportion allocation is undefined.
+        # Fall back to quantity-proportion: allocate by (this_receipt_qty / total_PO_qty).
+        # This preserves the sum-once invariant on free-sample POs — the freight is
+        # still capitalized exactly once, spread by the quantity each receipt
+        # represents rather than by dollar value.
+        #
+        # If total_po_qty is also 0 (empty PO with no lines), skip allocation — no
+        # items were received so there is nothing to capitalize into.
+        total_po_qty = sum(
+            Decimal(str(po_line.quantity_ordered or 0))
+            for po_line in po.lines
+        )
+
+        # Choose the denominator: value-based (normal) or quantity-based (free-sample).
+        use_qty_proportion = (total_po_line_value == Decimal("0") and total_po_qty > Decimal("0"))
+
+        # receipt_weights: per-lid weight for proportion calculation this receipt.
+        # For value-based: weight = qty_received × unit_cost (same as receipt_values).
+        # For qty-based: weight = qty_received.
+        if use_qty_proportion:
+            receipt_weights = receipt_qtys
+            total_receipt_weight = total_receipt_qty
+            total_denominator = total_po_qty
+        else:
+            receipt_weights = receipt_values
+            total_receipt_weight = total_receipt_value
+            total_denominator = total_po_line_value
+
+        can_allocate = (
+            total_receipt_weight > Decimal("0")
+            and total_denominator > Decimal("0")
+        )
+
+        if can_allocate:
+            # Compute already-allocated from the PO tracker
+            already_allocated = Decimal(str(po.landed_cost_allocated or 0))
+
+            # Determine whether this receipt will COMPLETE the PO so we can
+            # decide whether to absorb the residual.  "Completes" means: for
+            # every line in the PO, (qty_already_received + qty_in_this_batch)
+            # >= qty_ordered.
+            this_batch_qty: dict[int, Decimal] = {
+                item["line_id"]: Decimal(str(item["quantity_received"]))
+                for item in lines
+                if item["line_id"] in line_map
+            }
+            is_final_receipt = all(
+                (po_line.quantity_received + this_batch_qty.get(po_line.id, Decimal("0")))
+                >= po_line.quantity_ordered
+                for po_line in po.lines
+            )
+
+            if is_final_receipt:
+                # Absorb the full remaining amount so sum == total_landed exactly.
+                remaining_to_allocate = total_landed - already_allocated
+                # Distribute the remainder proportionally across this receipt's
+                # lines; give the Decimal residual to the last line.
+                allocated_this_receipt = Decimal("0")
+                sorted_lids = list(receipt_weights.keys())
+                for i, lid in enumerate(sorted_lids):
+                    if i < len(sorted_lids) - 1:
+                        alloc = (
+                            remaining_to_allocate
+                            * receipt_weights[lid]
+                            / total_receipt_weight
+                        ).quantize(Decimal("0.0001"))
+                    else:
+                        alloc = (
+                            remaining_to_allocate - allocated_this_receipt
+                        ).quantize(Decimal("0.0001"))
+                    landed_alloc[lid] = alloc
+                    allocated_this_receipt += alloc
+            else:
+                # Non-final receipt: allocate proportionally against total PO denominator.
+                # Normal formula: this_receipt_freight = total_landed × (weight / denominator)
+                allocated_this_receipt = Decimal("0")
+                sorted_lids = list(receipt_weights.keys())
+                for i, lid in enumerate(sorted_lids):
+                    if i < len(sorted_lids) - 1:
+                        alloc = (
+                            total_landed * receipt_weights[lid] / total_denominator
+                        ).quantize(Decimal("0.0001"))
+                    else:
+                        # Last line in THIS receipt absorbs intra-receipt rounding
+                        # residual so per-receipt allocations are internally exact.
+                        # The cross-receipt residual is handled on the final receipt.
+                        this_receipt_total = (
+                            total_landed * total_receipt_weight / total_denominator
+                        ).quantize(Decimal("0.0001"))
+                        alloc = (
+                            this_receipt_total - allocated_this_receipt
+                        ).quantize(Decimal("0.0001"))
+                    landed_alloc[lid] = alloc
+                    allocated_this_receipt += alloc
+
+            # Advance the PO's running tracker (will be committed with the receipt)
+            po.landed_cost_allocated = (
+                already_allocated + allocated_this_receipt
+            ).quantize(Decimal("0.0001"))
+
+            logger.info(
+                f"PO {po.po_number}: landed-cost ${total_landed} allocated across "
+                f"{len(sorted_lids)} receipt line(s) "
+                f"({'qty-proportion' if use_qty_proportion else 'value-proportion'}, "
+                f"receipt weight {total_receipt_weight} / PO denominator {total_denominator}, "
+                f"final_receipt={is_final_receipt}, "
+                f"already_allocated=${already_allocated}): "
+                + ", ".join(f"line {lid}=${amt}" for lid, amt in landed_alloc.items())
+            )
 
     for item in lines:
         line_id = item["line_id"]
@@ -735,6 +935,45 @@ def receive_purchase_order(
                         f"Material {product.sku} has unknown unit '{product_unit}', "
                         f"cost not normalized. This may cause incorrect COGS calculations!"
                     )
+
+        # -----------------------------------------------------------------------
+        # Landed-cost injection (HARD-8)
+        # -----------------------------------------------------------------------
+        # Fold the pro-rata share of freight + tax into cost_per_unit_for_inventory
+        # BEFORE weighted-average update and BEFORE passing to TransactionService.
+        # The allocation is already in purchase-unit dollars (e.g. $/KG).
+        # We must convert it to the same per-storage-unit basis that
+        # cost_per_unit_for_inventory has been normalised to ($/G for materials).
+        #
+        # For non-material items the allocation is already $/transaction-unit
+        # because no UOM conversion was applied (effective_unit == product_unit
+        # or the line fell back to purchase_unit).
+        # -----------------------------------------------------------------------
+        line_landed_alloc = landed_alloc.get(line.id, Decimal("0"))
+        if line_landed_alloc > Decimal("0") and transaction_quantity > Decimal("0"):
+            # Convert the purchase-unit allocation to per-storage-unit cost
+            if is_mat:
+                # transaction_quantity is in grams; divide purchase-unit dollars
+                # by that gram count to get $/G
+                landed_per_storage_unit = (
+                    line_landed_alloc / transaction_quantity
+                ).quantize(Decimal("0.00000001"))
+            else:
+                # For non-material items transaction_quantity is in the
+                # effective_unit (same unit as cost_per_unit_for_inventory)
+                landed_per_storage_unit = (
+                    line_landed_alloc / transaction_quantity
+                ).quantize(Decimal("0.00000001"))
+
+            logger.info(
+                f"PO {po.po_number} line {line.line_number} ({product.sku}): "
+                f"adding landed ${line_landed_alloc} / {transaction_quantity} units "
+                f"= +${landed_per_storage_unit}/unit to cost "
+                f"(was ${cost_per_unit_for_inventory})"
+            )
+            cost_per_unit_for_inventory = (
+                cost_per_unit_for_inventory + landed_per_storage_unit
+            )
 
         # Collect for TransactionService
         transaction_unit = "G" if is_mat else effective_unit

@@ -39,6 +39,12 @@ class PurchaseOrder(Base):
     tax_amount = Column(Numeric(18, 4), default=0, nullable=False)
     shipping_cost = Column(Numeric(18, 4), default=0, nullable=False)
     total_amount = Column(Numeric(18, 4), default=0, nullable=False)
+    # Cumulative landed cost (shipping + tax) already capitalised across all
+    # prior receipts for this PO.  Updated atomically inside receive_purchase_order
+    # under the same transaction.  Used to enforce the sum-once invariant: the
+    # last receipt absorbs whatever residual remains so total == shipping_cost +
+    # tax_amount exactly.  Default 0 is correct for all existing POs.
+    landed_cost_allocated = Column(Numeric(18, 4), default=0, nullable=False, server_default="0")
 
     # Payment
     payment_method = Column(String(100), nullable=True)  # Card, Check, etc.
