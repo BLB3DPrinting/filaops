@@ -135,6 +135,16 @@ class InventoryTransaction(Base):
     approved_by = Column(String(100), nullable=True)
     approved_at = Column(DateTime, nullable=True)
 
+    # Rejection / void (HARD-11). A rejected held transaction is voided
+    # in-place — the row is kept for audit, on_hand is never mutated.
+    # A row is "pending" when requires_approval=True AND voided_by IS NULL
+    # AND approved_by IS NULL.
+    # A row is "voided" when voided_by IS NOT NULL — it must be excluded
+    # from COGS and any on_hand calculations.
+    voided_by = Column(String(100), nullable=True)
+    voided_at = Column(DateTime, nullable=True)
+    void_reason = Column(Text, nullable=True)
+
     # Metadata
     # transaction_date: User-entered date when the transaction actually occurred
     # (e.g., when goods were physically received, not when entered in system)

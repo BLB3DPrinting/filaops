@@ -234,6 +234,280 @@ function FallbackModal({ onClose, onSuccess }) {
 }
 
 // ---------------------------------------------------------------------------
+// PendingApprovalsSection — held-transaction queue with approve/reject actions
+// (HARD-11: requires_approval=True rows awaiting staff decision)
+// ---------------------------------------------------------------------------
+
+function PendingApprovalsSection() {
+  const api = useApi();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(false);
+  const [actionState, setActionState] = useState({}); // txnId -> {loading, error}
+  const [rejectModal, setRejectModal] = useState(null); // {txnId, productSku}
+  const [rejectReason, setRejectReason] = useState("");
+
+  const fetchPending = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await api.get(
+        "/api/v1/inventory/negative-inventory-report?include_approved=false&include_pending=true"
+      );
+      // Filter to only pending (not yet voided/approved)
+      const pending = (result.transactions || []).filter(
+        (t) => t.display_status === "pending"
+      );
+      setData({ ...result, pending });
+    } catch (err) {
+      setError(err.message || "Failed to load pending approvals");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (expanded) {
+      fetchPending();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  const handleApprove = async (txnId) => {
+    const reason = window.prompt(
+      "Reason for approving this transaction (required):"
+    );
+    if (!reason) return;
+    setActionState((s) => ({ ...s, [txnId]: { loading: true, error: null } }));
+    try {
+      await api.post(
+        `/api/v1/inventory/transactions/${txnId}/approve-negative?approval_reason=${encodeURIComponent(reason)}`
+      );
+      await fetchPending();
+    } catch (err) {
+      setActionState((s) => ({
+        ...s,
+        [txnId]: { loading: false, error: err.message || "Approve failed" },
+      }));
+    }
+  };
+
+  const handleRejectOpen = (txn) => {
+    setRejectReason("");
+    setRejectModal({ txnId: txn.transaction_id, productSku: txn.product_sku });
+  };
+
+  const handleRejectSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectReason.trim()) return;
+    const { txnId } = rejectModal;
+    setActionState((s) => ({ ...s, [txnId]: { loading: true, error: null } }));
+    setRejectModal(null);
+    try {
+      await api.post(
+        `/api/v1/inventory/transactions/${txnId}/reject-held?void_reason=${encodeURIComponent(rejectReason)}`
+      );
+      await fetchPending();
+    } catch (err) {
+      setActionState((s) => ({
+        ...s,
+        [txnId]: { loading: false, error: err.message || "Reject failed" },
+      }));
+    }
+  };
+
+  const pendingCount = data ? data.pending.length : null;
+
+  return (
+    <>
+      {/* Reject reason modal */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md mx-4">
+            <div className="px-5 py-4 border-b border-gray-800">
+              <h3 className="text-white font-semibold">Reject held transaction</h3>
+              <p className="text-gray-400 text-xs mt-0.5">
+                {rejectModal.productSku} — transaction {rejectModal.txnId}
+              </p>
+            </div>
+            <form onSubmit={handleRejectSubmit} className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Void reason <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Explain why this consumption is being rejected…"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-red-500"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={!rejectReason.trim()}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 font-medium text-sm"
+                >
+                  Reject &amp; void
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRejectModal(null)}
+                  className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <button
+          className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-800/40 transition-colors"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                Pending Approvals
+                {pendingCount != null && pendingCount > 0 && (
+                  <span className="bg-yellow-500/20 text-yellow-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                    {pendingCount}
+                  </span>
+                )}
+              </h2>
+              <p className="text-gray-400 text-sm mt-0.5">
+                Held inventory transactions waiting for staff approve or reject.
+                Unapplied rows are excluded from COGS until resolved.
+              </p>
+            </div>
+          </div>
+          <svg
+            className={`w-5 h-5 text-gray-400 flex-shrink-0 ml-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {expanded && (
+          <>
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-500" />
+              </div>
+            )}
+
+            {error && (
+              <div className="mx-6 my-3 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+
+            {!loading && data && (
+              data.pending.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500 text-sm">
+                  No pending approvals — all held transactions have been resolved.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-800/50">
+                      <tr>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">ID</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Product</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Type</th>
+                        <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Qty</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Reference</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Created</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Created by</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Notes</th>
+                        <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.pending.map((txn) => {
+                        const state = actionState[txn.transaction_id] || {};
+                        return (
+                          <tr
+                            key={txn.transaction_id}
+                            className="border-b border-gray-800 hover:bg-gray-800/30 bg-yellow-500/5"
+                          >
+                            <td className="py-2.5 px-4 text-gray-400 text-sm tabular-nums">
+                              #{txn.transaction_id}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <span className="font-mono text-sm text-white">{txn.product_sku}</span>
+                              <div className="text-gray-500 text-xs truncate max-w-[12rem]">{txn.product_name}</div>
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-300">
+                                {txn.transaction_type}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-white tabular-nums">
+                              {Number(txn.quantity).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-400 text-sm">
+                              {txn.reference_type && txn.reference_id
+                                ? `${txn.reference_type} #${txn.reference_id}`
+                                : "—"}
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-400 text-sm">
+                              {txn.created_at
+                                ? new Date(txn.created_at).toLocaleString()
+                                : "—"}
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-400 text-sm">
+                              {txn.created_by || "—"}
+                            </td>
+                            <td className="py-2.5 px-4 text-gray-500 text-xs max-w-[10rem] truncate">
+                              {txn.notes || "—"}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              {state.error && (
+                                <div className="text-red-400 text-xs mb-1">{state.error}</div>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  disabled={state.loading}
+                                  onClick={() => handleApprove(txn.transaction_id)}
+                                  className="px-2 py-1 text-xs bg-green-600/80 hover:bg-green-600 text-white rounded disabled:opacity-50"
+                                >
+                                  {state.loading ? "…" : "Approve"}
+                                </button>
+                                <button
+                                  disabled={state.loading}
+                                  onClick={() => handleRejectOpen(txn)}
+                                  className="px-2 py-1 text-xs bg-red-600/80 hover:bg-red-600 text-white rounded disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // Reconciliation report — counting work queue (HARD-4b + HARD-4c)
 // ---------------------------------------------------------------------------
 
@@ -669,6 +943,9 @@ export default function AdminInventoryTransactions() {
           {showForm ? "Cancel" : "+ New Transaction"}
         </button>
       </div>
+
+      {/* Pending Approvals — held-transaction queue (HARD-11) */}
+      <PendingApprovalsSection />
 
       {/* Reconciliation Report — counting work queue (HARD-4b) */}
       <ReconciliationReport />

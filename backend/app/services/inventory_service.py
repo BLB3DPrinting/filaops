@@ -932,6 +932,42 @@ def consume_operation_material(
     return txn
 
 
+def _consumption_already_posted(
+    db: Session,
+    production_order_id: int,
+    component_id: int,
+) -> bool:
+    """Return True if a non-voided consumption transaction already exists for
+    this (production_order, component) pair.
+
+    Used by consume_production_materials to prevent double-posting when
+    per-operation consumption (consume_operation_material) already fired for
+    the same component before the BOM-level completion backflush runs.
+
+    A transaction counts as "already posted" when:
+      - reference_type == 'production_order'
+      - reference_id   == production_order_id
+      - transaction_type == 'consumption'
+      - voided_by IS NULL  (not rejected/voided)
+
+    Pending held rows (requires_approval=True, approved_by=None) ARE counted
+    as "already posted" — they represent a real consumption event that is
+    waiting for inventory-level approval; the component was physically consumed.
+    """
+    existing = (
+        db.query(InventoryTransaction)
+        .filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == production_order_id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == component_id,
+            InventoryTransaction.voided_by.is_(None),
+        )
+        .first()
+    )
+    return existing is not None
+
+
 def consume_production_materials(
     db: Session,
     production_order: ProductionOrder,
@@ -943,8 +979,16 @@ def consume_production_materials(
     Consume raw materials based on BOM when production order completes.
 
     Only consumes items with consume_stage='production' and cost_only=False.
-    
-    If release_reservations=True (default), first releases any existing 
+
+    IDEMPOTENCY (HARD-11): Before posting each BOM-line consumption, checks
+    whether a non-voided consumption transaction already exists for
+    (production_order, component).  If per-operation consumption
+    (consume_operation_material) already posted a transaction for a given
+    component, this backflush skips it with a log entry.  The check is
+    keyed on component_id so that if the same component appears on multiple
+    BOM lines (unusual but possible) each line is guarded independently.
+
+    If release_reservations=True (default), first releases any existing
     reservations before consuming actual quantities.
 
     Args:
@@ -987,6 +1031,21 @@ def consume_production_materials(
         # Skip non-inventory items
         component = db.query(Product).filter(Product.id == line.component_id).first()
         if not component:
+            continue
+
+        # IDEMPOTENCY (HARD-11): skip this BOM-line backflush if per-operation
+        # consumption already posted a non-voided consumption transaction for
+        # this component on the same production order.  The two paths
+        # (per-operation vs BOM-level backflush) consume the same physical
+        # inventory; the first one to post wins.
+        if _consumption_already_posted(db, production_order.id, line.component_id):
+            logger.info(
+                "Skipping BOM-line backflush for component %s (PO %s) — "
+                "a non-voided consumption transaction already exists "
+                "(per-operation consumption or prior call)",
+                component.sku,
+                production_order.code,
+            )
             continue
 
         # Calculate quantity to consume (BOM qty per unit * completed units)
