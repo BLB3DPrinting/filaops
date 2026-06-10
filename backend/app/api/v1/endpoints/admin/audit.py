@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.api.v1.deps import get_current_staff_user
 from app.services.transaction_audit_service import TransactionAuditService
 from app.schemas.audit import (
     AuditTransactionsResponse,
@@ -17,7 +18,11 @@ from app.schemas.audit import (
 )
 
 
-router = APIRouter(prefix="/audit", tags=["Audit"])
+router = APIRouter(
+    prefix="/audit",
+    tags=["Audit"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 @router.get("/transactions", response_model=AuditTransactionsResponse)
