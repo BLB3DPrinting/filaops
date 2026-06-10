@@ -299,9 +299,13 @@ HIERARCHICAL, not rivals:
   fallback for legacy rows, never for new data. Wire `ProductionOrderSpool`
   consumption into production completion.
 
-**Enforcement is a COMPANY SETTING (off by default), not a global behavior:**
+**Enforcement is a COMPANY SETTING (off by default), not a global behavior.**
+The batch layer (MaterialLot) is FOUNDATIONAL and runs in both modes — lots are
+created at PO receipt and FIFO-attributed at consumption regardless of the setting.
+The setting governs only the serial layer:
 - Setting ON (regulated mode): spool assignment is MANDATORY at consumption —
-  production completion blocks without it. Full chain answerable: SO → SKU →
+  production completion blocks without it. Both layers enforced at their events
+  (lot at receipt, spool at consumption). Full chain answerable: SO → SKU →
   material item → spool serial → receiving PO → vendor.
 - Setting OFF: current behavior stands (item-level backflush, lot-FIFO attribution,
   no spool requirement). Spools page remains available as an optional registry.
@@ -312,7 +316,13 @@ a sales feature instead of universal friction.
 
 Scope: design doc first (consumption UX when ON — spool picker/auto-pick-by-printer,
 partial-spool handling, weight reconciliation; setting placement in company settings;
-what the traceability report renders for OFF-mode history). Then implementation.
+what the traceability report renders for OFF-mode history; AND a
+migration/first-enablement strategy — regulated customers are brownfield
+conversions, not greenfield installs: how the flip-to-ON moment handles
+in-progress production orders without spool assignments, how historical
+consumption with no spool records is rendered/annotated, and how the report
+presents mixed epochs of OFF-mode history followed by ON-mode current data).
+Then implementation.
 Unblocks plan-v1 PR-14 (consumption visibility), whose Materials card should render
 spool serials when the setting is ON and lot attribution when OFF.
 Impact: strategic (GTM differentiator for regulated buyers). Effort: L.
