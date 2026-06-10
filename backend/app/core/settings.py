@@ -405,7 +405,15 @@ class Settings(BaseSettings):
     # MRP Settings (safe defaults)
     # ===================
     INCLUDE_SALES_ORDERS_IN_MRP: bool = True
+    # AUTO_MRP_ON_ORDER_CREATE — NOT YET FUNCTIONAL.
+    # Enabling this flag arms trigger_mrp_check on every sales-order creation.
+    # The trigger currently returns {"status": "not_implemented"} because the
+    # MRP engine requires background-task wiring before it can run inline.
+    # Do not enable in production until the wiring is complete (HARD-3 follow-up).
     AUTO_MRP_ON_ORDER_CREATE: bool = False
+    # AUTO_MRP_ON_SHIPMENT — NOT YET FUNCTIONAL.
+    # Enabling this flag arms trigger_mrp_recalculation on every shipment.
+    # Same constraint as AUTO_MRP_ON_ORDER_CREATE above.
     AUTO_MRP_ON_SHIPMENT: bool = False
     AUTO_MRP_ON_CONFIRMATION: bool = False
     MRP_ENABLE_SUB_ASSEMBLY_CASCADING: bool = False
