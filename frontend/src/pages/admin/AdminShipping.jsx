@@ -612,26 +612,41 @@ export default function AdminShipping() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-800">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
-                ? `border-${tab.color}-500 text-${tab.color}-400`
-                : "border-transparent text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            {tab.label}
-            <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
-              activeTab === tab.key ? `bg-${tab.color}-500/20` : "bg-gray-800"
-            }`}>
-              {tab.count}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* TAB_STYLES: literal class map so Tailwind's purger can detect all classes. */}
+      {/* Dynamic class construction (e.g. `border-${color}-500`) is invisible to the */}
+      {/* purger and will be stripped from the production bundle. */}
+      {(() => {
+        const TAB_STYLES = {
+          blue:   { border: "border-blue-500 text-blue-400",     badge: "bg-blue-500/20"   },
+          yellow: { border: "border-yellow-500 text-yellow-400", badge: "bg-yellow-500/20" },
+          green:  { border: "border-green-500 text-green-400",   badge: "bg-green-500/20"  },
+        };
+        return (
+          <div className="flex gap-1 border-b border-gray-800">
+            {tabs.map((tab) => {
+              const styles = TAB_STYLES[tab.color] ?? TAB_STYLES.blue;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? styles.border
+                      : "border-transparent text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  {tab.label}
+                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
+                    activeTab === tab.key ? styles.badge : "bg-gray-800"
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Loading */}
       {loading && (
