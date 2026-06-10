@@ -4,7 +4,7 @@ Inventory API Endpoints
 Handles inventory transactions, negative inventory approvals, and reporting.
 """
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.models import User, InventoryTransaction, Inventory, Product
 from app.services import inventory_ledger
+from app.services.inventory_ledger import apply_held_transaction
 from app.services.inventory_service import get_or_create_inventory
 from app.logging_config import get_logger
 
@@ -54,37 +55,20 @@ async def approve_negative_inventory(
             detail="Transaction already approved"
         )
     
-    # Get inventory record
-    inventory = get_or_create_inventory(
-        db,
-        transaction.product_id,
-        transaction.location_id
-    )
-    
-    # Update transaction with approval
-    transaction.requires_approval = False
-    transaction.approval_reason = approval_reason
-    transaction.approved_by = current_user.email if current_user else "system"
-    transaction.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Stamp the type before apply so the ledger row carries the correct
+    # semantic.  apply_held_transaction acquires a FOR UPDATE lock on the
+    # inventory row (via inventory_ledger.get_or_create_inventory_row)
+    # before mutating on_hand, which prevents the concurrent-approval
+    # double-add race (HARD-4a follow-up).
     transaction.transaction_type = "negative_adjustment"
 
-    # Apply the held movement. Rows written through inventory_ledger
-    # (HARD-4a) store SIGNED quantities, so applying is on_hand += quantity.
-    # Legacy held rows store positive magnitudes; the pre-HARD-4a apply
-    # path was dead code (its type check never matched the stored type),
-    # so those rows were never applied — keep that no-op rather than
-    # guessing their direction. HARD-11's resolution flow handles them.
-    if transaction.quantity < 0:
-        inventory.on_hand_quantity = (
-            Decimal(str(inventory.on_hand_quantity)) + transaction.quantity
-        )
-        inventory.updated_at = datetime.now(timezone.utc)
-    else:
-        logger.warning(
-            f"Approved legacy held transaction {transaction.id} with "
-            f"positive-magnitude quantity {transaction.quantity}; on_hand "
-            f"NOT mutated (pre-HARD-4a rows need HARD-11 resolution)"
-        )
+    approver = current_user.email if current_user else "system"
+    apply_held_transaction(
+        db,
+        transaction=transaction,
+        approved_by=approver,
+        approval_reason=approval_reason,
+    )
 
     db.commit()
     db.refresh(transaction)
@@ -261,7 +245,6 @@ async def adjust_inventory_quantity(
     - Positive quantity if increasing inventory (receipt/adjustment)
     - Negative quantity if decreasing inventory (issue/adjustment)
     """
-    from app.services.inventory_service import get_or_create_inventory
     from app.services.inventory_helpers import is_material
     
     # Get product to check unit

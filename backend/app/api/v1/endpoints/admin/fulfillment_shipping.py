@@ -33,6 +33,8 @@ from app.models.inventory import Inventory, InventoryTransaction
 from app.models.traceability import SerialNumber
 from app.services.shipping_service import shipping_service
 from app.services.transaction_service import TransactionService, ShipmentItem, PackagingUsed
+from app.services import inventory_ledger
+from app.services.inventory_service import get_effective_cost_per_inventory_unit, get_or_create_default_location
 from app.api.v1.deps import get_current_staff_user
 
 router = APIRouter(prefix="/fulfillment", tags=["Admin - Fulfillment Shipping"])
@@ -415,47 +417,49 @@ async def buy_consolidated_shipping_label(
             if not res_txn:
                 continue
 
-            reserved_qty = abs(float(res_txn.quantity))
+            reserved_qty_dec = Decimal(str(abs(float(res_txn.quantity))))
+            component = db.query(Product).filter(Product.id == res_txn.product_id).first()
+            unit_cost = get_effective_cost_per_inventory_unit(component) if component else None
 
-            inventory = db.query(Inventory).filter(
+            # Resolve the location: use the reservation's location if
+            # present, otherwise fall back to the default warehouse.
+            location_id = res_txn.location_id or get_or_create_default_location(db).id
+
+            # Release the allocation first (no on_hand change).
+            inv_row = db.query(Inventory).filter(
                 Inventory.product_id == res_txn.product_id,
-                Inventory.location_id == res_txn.location_id
+                Inventory.location_id == location_id,
             ).first()
-
-            if inventory:
-                inventory.allocated_quantity = Decimal(str(
-                    max(0, float(inventory.allocated_quantity) - reserved_qty)
-                ))
-                inventory.on_hand_quantity = Decimal(str(
-                    max(0, float(inventory.on_hand_quantity) - reserved_qty)
+            if inv_row:
+                inv_row.allocated_quantity = Decimal(str(
+                    max(Decimal("0"), Decimal(str(inv_row.allocated_quantity)) - reserved_qty_dec)
                 ))
 
-                component = db.query(Product).filter(Product.id == res_txn.product_id).first()
+            # Route the consumption through the canonical poster.
+            # The poster acquires a FOR UPDATE lock via
+            # get_or_create_inventory_row and writes both the ledger
+            # row and the on_hand delta atomically (HARD-4a contract).
+            inventory_ledger.post(
+                db,
+                product_id=res_txn.product_id,
+                location_id=location_id,
+                transaction_type="consumption",
+                quantity_delta=-reserved_qty_dec,
+                cost_per_unit=unit_cost,
+                reference_type="consolidated_shipment",
+                reference_id=first_order.id,
+                unit=component.unit if component else "EA",
+                notes=(
+                    "Packaging for consolidated shipment: "
+                    + ", ".join(o.order_number for o in orders)
+                ),
+                created_by="system",
+            )
 
-                # Get cost for accounting
-                from app.services.inventory_service import get_effective_cost_per_inventory_unit
-                unit_cost = get_effective_cost_per_inventory_unit(component) if component else None
-                total_cost = Decimal(str(reserved_qty)) * unit_cost if unit_cost else None
-
-                consumption_txn = InventoryTransaction(
-                    product_id=res_txn.product_id,
-                    location_id=res_txn.location_id,
-                    transaction_type="consumption",
-                    reference_type="consolidated_shipment",
-                    reference_id=first_order.id,
-                    quantity=Decimal(str(-reserved_qty)),
-                    cost_per_unit=unit_cost,
-                    total_cost=total_cost,
-                    unit=component.unit if component else "EA",
-                    notes=f"Packaging for consolidated shipment: {', '.join([o.order_number for o in orders])}",
-                    created_by="system",
-                )
-                db.add(consumption_txn)
-
-                packaging_consumed.append({
-                    "component_sku": component.sku if component else "N/A",
-                    "quantity_consumed": round(reserved_qty, 4),
-                })
+            packaging_consumed.append({
+                "component_sku": component.sku if component else "N/A",
+                "quantity_consumed": round(float(reserved_qty_dec), 4),
+            })
 
     # Release packaging reservations from OTHER orders (not consumed, just released)
     for order in orders[1:]:
@@ -1153,37 +1157,38 @@ async def mark_order_shipped(
             ).first()
 
             if fg_inventory:
-                qty_shipped = order.quantity or 1
-
-                # Decrement inventory
-                fg_inventory.on_hand_quantity = Decimal(str(
-                    max(0, float(fg_inventory.on_hand_quantity) - qty_shipped)
-                ))
+                qty_shipped = Decimal(str(order.quantity or 1))
 
                 # Get product for cost calculation
                 product = db.query(Product).filter(Product.id == quote.product_id).first()
-                from app.services.inventory_service import get_effective_cost_per_inventory_unit
                 unit_cost = get_effective_cost_per_inventory_unit(product) if product else None
-                total_cost = Decimal(str(qty_shipped)) * unit_cost if unit_cost else None
 
-                # Create shipment transaction
-                shipment_txn = InventoryTransaction(
+                # Route through the canonical poster (HARD-4a).  The
+                # poster acquires a FOR UPDATE lock, writes the signed
+                # ledger row, and decrements on_hand atomically —
+                # replacing the float-math direct mutation and the
+                # hand-built InventoryTransaction that bypassed locking.
+                location_id = fg_inventory.location_id or get_or_create_default_location(db).id
+                inventory_ledger.post(
+                    db,
                     product_id=quote.product_id,
-                    location_id=fg_inventory.location_id,
+                    location_id=location_id,
                     transaction_type="shipment",
+                    quantity_delta=-qty_shipped,
+                    cost_per_unit=unit_cost,
                     reference_type="sales_order",
                     reference_id=sales_order_id,
-                    quantity=Decimal(str(-qty_shipped)),  # Negative = outgoing
-                    cost_per_unit=unit_cost,
-                    total_cost=total_cost,
                     unit=product.unit if product else "EA",
                     notes=f"Shipped {qty_shipped} units for {order.order_number}",
                     created_by="system",
                 )
-                db.add(shipment_txn)
+
+                # Read back the updated on_hand for the response payload.
+                db.flush()
+                db.refresh(fg_inventory)
                 finished_goods_shipped = {
                     "product_sku": product.sku if product else "N/A",
-                    "quantity_shipped": qty_shipped,
+                    "quantity_shipped": int(qty_shipped),
                     "inventory_remaining": float(fg_inventory.on_hand_quantity),
                 }
 

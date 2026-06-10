@@ -31,6 +31,10 @@ in the calling services — this module is mechanism only. The one policy
 hook is `requires_approval`: when True the row is written for the
 approval queue but on_hand is NOT mutated (HARD-11 builds the
 approve/reject resolution flow on top of this).
+
+`apply_held_transaction` is the approval-path helper: it acquires a
+FOR UPDATE lock on the inventory row before mutating on_hand, eliminating
+the concurrent-approval double-add race described in HARD-4a follow-up.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -197,3 +201,86 @@ def post(
 
     db.flush()
     return transaction
+
+
+def apply_held_transaction(
+    db: Session,
+    transaction: "InventoryTransaction",
+    approved_by: str,
+    approval_reason: str,
+) -> None:
+    """Apply a held (requires_approval=True) transaction to on_hand.
+
+    This is the canonical path for the approval endpoint. It acquires a
+    FOR UPDATE lock on the inventory row via get_or_create_inventory_row
+    BEFORE mutating on_hand, so concurrent approvals of the same held
+    transaction serialize rather than double-applying the delta.
+
+    Only rows written through inventory_ledger.post (HARD-4a, signed
+    quantity) are applied here. Legacy held rows with positive-magnitude
+    quantity are detected and skipped with a warning — HARD-11 resolves
+    them with explicit direction information.
+
+    Args:
+        transaction: The InventoryTransaction row to apply. Must have
+            requires_approval=True and approved_by=None (not yet applied).
+        approved_by: Email or username of the approver.
+        approval_reason: Human-readable reason for the approval.
+
+    Raises:
+        ValueError: if the transaction is not held, already approved, or
+            the on_hand mutation would produce an obviously incorrect result.
+    """
+    if not transaction.requires_approval:
+        raise ValueError(
+            f"Transaction {transaction.id} does not require approval"
+        )
+    if transaction.approved_by is not None:
+        raise ValueError(
+            f"Transaction {transaction.id} is already approved by "
+            f"{transaction.approved_by}"
+        )
+
+    # Acquire FOR UPDATE lock on the inventory row.  This serializes
+    # concurrent approval attempts on the same product/location pair so
+    # on_hand can only be incremented once per held row.
+    inventory = get_or_create_inventory_row(
+        db, transaction.product_id, transaction.location_id
+    )
+
+    now = datetime.now(timezone.utc)
+    transaction.requires_approval = False
+    transaction.approved_by = approved_by
+    transaction.approval_reason = approval_reason
+    transaction.approved_at = now
+
+    qty = Decimal(str(transaction.quantity))
+
+    if qty < 0:
+        # HARD-4a signed row: apply the delta.
+        inventory.on_hand_quantity = (
+            Decimal(str(inventory.on_hand_quantity or 0)) + qty
+        )
+        inventory.updated_at = now
+        logger.info(
+            "Applied held transaction %s for product %s (delta %s) "
+            "approved by %s; new on_hand=%s",
+            transaction.id,
+            transaction.product_id,
+            qty,
+            approved_by,
+            inventory.on_hand_quantity,
+        )
+    else:
+        # Positive-magnitude row written before HARD-4a.  Direction cannot
+        # be inferred safely here; leave on_hand untouched and log so
+        # HARD-11 can resolve it.
+        logger.warning(
+            "Approved legacy held transaction %s with positive-magnitude "
+            "quantity %s; on_hand NOT mutated (pre-HARD-4a rows need "
+            "HARD-11 resolution).",
+            transaction.id,
+            qty,
+        )
+
+    db.flush()
