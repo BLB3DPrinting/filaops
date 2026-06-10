@@ -224,7 +224,10 @@ architecture HARD-7 implements and the AUTO_MRP_* follow-up inherits):
 Scope: read-only aggregate endpoint per Layer 1 — grouped by preferred vendor,
 sorted by earliest need; frontend page/section under Purchasing ("Buy List") with
 line-level "Create PO" that pre-fills vendor + qty (this is also where the
-quick-reorder concept salvaged from HARD-9/#684 lands). Layer 2's Plan-and-firm may
+quick-reorder concept gets RE-IMPLEMENTED — PR #684 deleted the broken low_stock
+module entirely and flagged quick-reorder as a future enhancement; no code was
+carried over, only the idea: one click → PO to preferred vendor at reorder qty).
+Layer 2's Plan-and-firm may
 ship in the same PR or the next one — Layer 1 alone is already the honest MVP. Do
 NOT build time-phasing yet (Phase C candidate); single-bucket netting is the MVP.
 DEPENDS ON: HARD-6 definitions (share the netting helper).
