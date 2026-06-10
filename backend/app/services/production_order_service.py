@@ -26,6 +26,7 @@ from app.models.manufacturing import Routing, RoutingOperation, Resource
 from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
+from app.services.supply_netting import get_projected_available
 logger = get_logger(__name__)
 
 
@@ -1421,15 +1422,31 @@ def get_material_availability(db: Session, order_id: int) -> dict:
         for mat in op.materials:
             component = db.query(Product).filter(Product.id == mat.component_id).first()
 
-            # Get available inventory
-            inv_qty = db.query(func.sum(Inventory.available_quantity)).filter(
-                Inventory.product_id == mat.component_id
-            ).scalar() or Decimal("0")
+            qty_required = Decimal(str(mat.quantity_required))
+            qty_allocated = Decimal(str(mat.quantity_allocated or 0))
 
-            qty_required = float(mat.quantity_required)
-            qty_available = float(inv_qty)
-            qty_allocated = float(mat.quantity_allocated or 0)
-            qty_short = max(0, qty_required - qty_available)
+            # HARD-6: use projected balance (available + open-PO supply)
+            proj = get_projected_available(db, mat.component_id)
+            qty_available = proj.available
+            qty_short_projected = max(Decimal("0"), qty_required - proj.projected)
+            qty_short_now = max(Decimal("0"), qty_required - qty_available)
+            covered_by_incoming = (
+                qty_short_now > Decimal("0")
+                and qty_short_projected == Decimal("0")
+                and proj.incoming_qty > Decimal("0")
+            )
+
+            # Build incoming supply detail for response
+            incoming_supply = None
+            if proj.best_detail:
+                detail = proj.best_detail
+                incoming_supply = {
+                    "purchase_order_id": detail.purchase_order_id,
+                    "po_number": detail.po_number,
+                    "quantity": float(detail.quantity),
+                    "expected_date": detail.expected_date.isoformat() if detail.expected_date else None,
+                    "status": detail.status,
+                }
 
             materials.append({
                 "operation_id": op.id,
@@ -1438,16 +1455,22 @@ def get_material_availability(db: Session, order_id: int) -> dict:
                 "component_sku": component.sku if component else None,
                 "component_name": component.name if component else None,
                 "unit": mat.unit,
-                "quantity_required": qty_required,
-                "quantity_available": qty_available,
-                "quantity_allocated": qty_allocated,
-                "quantity_short": qty_short,
-                "status": "ok" if qty_short == 0 else "short",
+                "quantity_required": float(qty_required),
+                "quantity_available": float(qty_available),
+                "quantity_allocated": float(qty_allocated),
+                "quantity_projected": float(proj.projected),
+                "quantity_incoming": float(proj.incoming_qty),
+                # shortage is net of incoming PO supply (HARD-6)
+                "quantity_short": float(qty_short_projected),
+                "quantity_short_now": float(qty_short_now),
+                "covered_by_incoming": covered_by_incoming,
+                "status": "ok" if qty_short_projected == Decimal("0") else "short",
+                "incoming_supply": incoming_supply,
             })
 
-            total_required += qty_required
-            total_available += min(qty_available, qty_required)
-            total_short += qty_short
+            total_required += float(qty_required)
+            total_available += float(min(max(qty_available, Decimal("0")), qty_required))
+            total_short += float(qty_short_projected)
 
     return {
         "order_id": order_id,

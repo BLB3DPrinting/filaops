@@ -2346,7 +2346,7 @@ def get_material_requirements(
     Returns:
         Dict with requirements list and summary
     """
-    from app.services.blocking_issues import get_material_available, get_pending_purchase_orders
+    from app.services.supply_netting import get_projected_available
 
     order = get_sales_order(db, order_id)
 
@@ -2361,20 +2361,23 @@ def get_material_requirements(
     ):
         """Add a material requirement, aggregating duplicates."""
         key = component.id
-        qty_available = get_material_available(db, component.id)
-        qty_short = max(Decimal("0"), qty_required - qty_available)
-
-        # Check for incoming supply
-        pending_pos = get_pending_purchase_orders(db, component.id)
-        has_incoming = len(pending_pos) > 0
+        # HARD-6: use projected balance (available + open-PO supply)
+        proj = get_projected_available(db, component.id)
+        qty_available = proj.available
+        qty_short_projected = max(Decimal("0"), qty_required - proj.projected)
+        qty_short_now = max(Decimal("0"), qty_required - qty_available)
+        has_incoming = proj.incoming_qty > Decimal("0")
+        covered_by_incoming = (qty_short_now > Decimal("0")) and (qty_short_projected == Decimal("0")) and has_incoming
         incoming_details = None
-        if has_incoming:
-            po, po_qty = pending_pos[0]
+        if proj.best_detail:
+            detail = proj.best_detail
             incoming_details = {
-                "purchase_order_id": po.id,
-                "purchase_order_code": po.po_number,
-                "quantity": float(po_qty),
-                "expected_date": po.expected_date.isoformat() if po.expected_date else None
+                "purchase_order_id": detail.purchase_order_id,
+                "purchase_order_code": detail.po_number,
+                "quantity": float(detail.quantity),
+                "expected_date": detail.expected_date.isoformat() if detail.expected_date else None,
+                "status": detail.status,
+                "covers_shortage": covered_by_incoming,
             }
 
         # Check if component can be manufactured
@@ -2393,7 +2396,20 @@ def get_material_requirements(
         if key in seen_products:
             existing = seen_products[key]
             existing["quantity_required"] += qty_required
-            existing["quantity_short"] = max(Decimal("0"), existing["quantity_required"] - qty_available)
+            # Re-net projected shortage against (potentially larger) aggregated requirement
+            existing["quantity_short"] = max(
+                Decimal("0"),
+                existing["quantity_required"] - proj.projected,
+            )
+            existing["quantity_short_now"] = max(
+                Decimal("0"),
+                existing["quantity_required"] - qty_available,
+            )
+            existing["covered_by_incoming"] = (
+                existing["quantity_short_now"] > Decimal("0")
+                and existing["quantity_short"] == Decimal("0")
+                and has_incoming
+            )
         else:
             seen_products[key] = {
                 "product_id": component.id,
@@ -2402,7 +2418,12 @@ def get_material_requirements(
                 "unit": unit or component.unit or "EA",
                 "quantity_required": qty_required,
                 "quantity_available": qty_available,
-                "quantity_short": qty_short,
+                "quantity_projected": float(proj.projected),
+                "quantity_incoming": float(proj.incoming_qty),
+                # shortage is net of incoming PO supply (HARD-6)
+                "quantity_short": qty_short_projected,
+                "quantity_short_now": float(qty_short_now),
+                "covered_by_incoming": covered_by_incoming,
                 "operation_code": operation_code,
                 "material_source": material_source,
                 "has_incoming_supply": has_incoming,
@@ -2500,8 +2521,10 @@ def get_material_requirements(
     requirements = list(seen_products.values())
 
     total_materials = len(requirements)
+    # HARD-6: quantity_short is now the NET projected shortage (after POs)
     materials_short = sum(1 for r in requirements if r["quantity_short"] > 0)
     materials_with_incoming = sum(1 for r in requirements if r["has_incoming_supply"])
+    materials_covered_by_incoming = sum(1 for r in requirements if r.get("covered_by_incoming"))
 
     return {
         "sales_order_id": order.id,
@@ -2512,8 +2535,10 @@ def get_material_requirements(
             "materials_available": total_materials - materials_short,
             "materials_short": materials_short,
             "materials_with_incoming_supply": materials_with_incoming,
+            # short now but covered by open POs (expedite vs create-PO distinction)
+            "materials_covered_by_incoming": materials_covered_by_incoming,
             "can_fulfill": materials_short == 0,
-            "has_shortages": materials_short > 0
+            "has_shortages": materials_short > 0,
         }
     }
 
