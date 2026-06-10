@@ -154,6 +154,38 @@ describe("ApiErrorToaster", () => {
       );
     });
 
+    it("matches the exact printers.py brand-gate string (uses 'require', no trailing s)", () => {
+      // backend/app/api/v1/endpoints/printers.py lines 99-103 says:
+      // "Klipper, OctoPrint, Prusa, and Creality require a PRO license with the filafarm feature enabled."
+      // The word is "require" (no 's'), so \brequires\b would miss it; \brequires?\b must match.
+      render(<ApiErrorToaster />);
+      fireApiError({
+        status: 403,
+        detail:
+          "Brand 'klipper' is not available on this install. " +
+          "Klipper, OctoPrint, Prusa, and Creality require a PRO license " +
+          "with the filafarm feature enabled.",
+      });
+      expect(mocks.toastInfo).toHaveBeenCalledWith(
+        "This is a PRO feature — view upgrade options at Settings → License."
+      );
+    });
+
+    it("does NOT match 'required' (trailing d) — word boundary prevents it", () => {
+      // "required" ends in 'd'; \brequires?\b cannot match because after "require"
+      // the next char is 'd' (not a word boundary), and after "requires" there is
+      // no 'd' — so the regex correctly rejects "Admin approval required".
+      render(<ApiErrorToaster />);
+      fireApiError({
+        status: 403,
+        detail: "Admin approval required",
+      });
+      expect(mocks.toastInfo).not.toHaveBeenCalled();
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "You don't have permission to perform this action."
+      );
+    });
+
     it("matches case-insensitively on the word 'requires' + tier keyword", () => {
       render(<ApiErrorToaster />);
       fireApiError({
