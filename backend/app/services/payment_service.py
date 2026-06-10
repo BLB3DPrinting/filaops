@@ -1,11 +1,13 @@
 """Shared payment ledger helpers."""
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import Integer, cast, func, text
 from sqlalchemy.orm import Session
 
 from app.models.accounting import GLAccount, GLJournalEntry
+from app.models.order_event import OrderEvent
 from app.models.payment import Payment
 from app.models.sales_order import SalesOrder
 from app.services.transaction_service import TransactionService
@@ -295,3 +297,102 @@ def update_order_payment_status(db: Session, order: SalesOrder) -> None:
             order.paid_at = datetime.now(timezone.utc)
     else:
         order.payment_status = "partial"
+
+
+def record_payment_and_reconcile(
+    db: Session,
+    *,
+    sales_order_id: int,
+    amount: Decimal,
+    payment_method: str,
+    recorded_by_id: Optional[int] = None,
+    payment_date: Optional[datetime] = None,
+    transaction_id: Optional[str] = None,
+    check_number: Optional[str] = None,
+    notes: Optional[str] = None,
+    invoice=None,
+) -> Payment:
+    """Canonical payment-recording path shared by both API entry points.
+
+    Creates a Payment row with full attribution, posts GL entries
+    (payment receipt + invoice receivable if a linked invoice is provided),
+    updates the order's payment_status, records an OrderEvent on the order
+    timeline, and reconciles the invoice's amount_paid / status.
+
+    Multi-invoice rule: the ``invoice`` argument is the specific Invoice to
+    reconcile.  When paying through the Invoices page the caller passes the
+    open invoice directly.  When paying through the Payments/OrderDetail page
+    ``invoice`` is None and invoice reconciliation is skipped (the invoice
+    ``amount_paid`` will sync the next time it is re-opened, or when the
+    invoice is explicitly paid via the Invoices page).  In practice each
+    confirmed sales order has exactly one invoice (the service enforces a
+    uniqueness constraint), so the two paths converge naturally.
+
+    This function does NOT commit. Callers must call db.commit().
+    """
+    order = db.query(SalesOrder).filter(SalesOrder.id == sales_order_id).first()
+    if order is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Sales order {sales_order_id} not found")
+
+    payment = Payment(
+        payment_number=generate_payment_number(db),
+        sales_order_id=order.id,
+        recorded_by_id=recorded_by_id,
+        amount=amount,
+        payment_method=payment_method,
+        payment_type="payment",
+        status="completed",
+        payment_date=payment_date or datetime.now(timezone.utc),
+        transaction_id=transaction_id,
+        check_number=check_number,
+        notes=notes,
+    )
+    db.add(payment)
+    db.flush()  # assign payment.id before GL posting
+
+    # Update order payment_status (also posts unposted completed payments)
+    update_order_payment_status(db, order)
+
+    # Post payment receipt GL: DR 1000 Cash / CR 1100 AR
+    post_payment_receipt(db, payment)
+
+    # Record activity event on the order timeline
+    event = OrderEvent(
+        sales_order_id=order.id,
+        user_id=recorded_by_id,
+        event_type="payment_received",
+        title="Payment received",
+        description=f"{payment.payment_number}: ${payment.amount:.2f} via {payment.payment_method}",
+        metadata_key="payment_number",
+        metadata_value=payment.payment_number,
+    )
+    db.add(event)
+
+    # Reconcile the linked invoice if one was provided
+    if invoice is not None:
+        _reconcile_invoice(db, invoice=invoice, payment=payment)
+
+    return payment
+
+
+def _reconcile_invoice(db: Session, *, invoice, payment: Payment) -> None:
+    """Update invoice.amount_paid / status and post the AR accrual GL entry.
+
+    Called only when an invoice is explicitly supplied (Invoices page path).
+    The invoice receivable GL entry is idempotent (guarded by source_type/id).
+    """
+    new_paid = (invoice.amount_paid or Decimal("0")) + _money(payment.amount)
+    invoice.amount_paid = new_paid
+    invoice.payment_method = payment.payment_method
+    invoice.payment_reference = payment.transaction_id or payment.check_number
+
+    # Post invoice receivable: DR 1100 AR / CR 4000 Revenue + 2100 Tax + 4200 Shipping
+    post_invoice_receivable(db, invoice, user_id=payment.recorded_by_id)
+
+    # Set invoice status
+    if new_paid >= invoice.total:
+        invoice.status = "paid"
+        invoice.paid_at = payment.payment_date or datetime.now(timezone.utc)
+    elif new_paid > 0:
+        invoice.status = "partially_paid"

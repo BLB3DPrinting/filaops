@@ -16,8 +16,8 @@ from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 from app.services.payment_service import (
-    generate_payment_number,
     post_invoice_receivable,
+    record_payment_and_reconcile,
     update_order_payment_status,
 )
 
@@ -289,11 +289,13 @@ def record_payment(
     amount: Decimal,
     method: str,
     reference: Optional[str] = None,
+    recorded_by_id: Optional[int] = None,
 ) -> Invoice:
-    """Record a payment against an invoice.
+    """Record a payment against an invoice via the shared canonical path.
 
-    When total amount paid reaches or exceeds the invoice total,
-    the invoice is automatically marked as paid.
+    Delegates to ``record_payment_and_reconcile`` so both API entry points
+    (PATCH /invoices/{id} and POST /payments) produce identical Payment rows,
+    GL entries, OrderEvents, and invoice status transitions.
     """
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
@@ -305,36 +307,33 @@ def record_payment(
             detail=f"Cannot record payment on {invoice.status} invoice",
         )
 
-    new_paid = (invoice.amount_paid or Decimal("0")) + amount
-    invoice.amount_paid = new_paid
-    invoice.payment_method = method
-    invoice.payment_reference = reference
-    post_invoice_receivable(db, invoice)
+    if not invoice.sales_order_id:
+        # Invoice without a linked order: update invoice fields directly and
+        # post the AR accrual GL entry; no Payment row or OrderEvent needed.
+        new_paid = (invoice.amount_paid or Decimal("0")) + amount
+        invoice.amount_paid = new_paid
+        invoice.payment_method = method
+        invoice.payment_reference = reference
+        post_invoice_receivable(db, invoice, user_id=recorded_by_id)
+        if new_paid >= invoice.total:
+            invoice.status = "paid"
+            invoice.paid_at = datetime.now(timezone.utc)
+        elif new_paid > 0:
+            invoice.status = "partially_paid"
+        db.commit()
+        db.refresh(invoice)
+        return invoice
 
-    if invoice.sales_order_id:
-        order = (
-            db.query(SalesOrder)
-            .filter(SalesOrder.id == invoice.sales_order_id)
-            .first()
-        )
-        if order:
-            payment = Payment(
-                payment_number=generate_payment_number(db),
-                sales_order_id=order.id,
-                amount=amount,
-                payment_method=method,
-                payment_type="payment",
-                status="completed",
-                transaction_id=reference,
-                notes=f"Invoice {invoice.invoice_number}",
-            )
-            db.add(payment)
-            db.flush()
-            update_order_payment_status(db, order)
-
-    if new_paid >= invoice.total:
-        invoice.status = "paid"
-        invoice.paid_at = datetime.now(timezone.utc)
+    record_payment_and_reconcile(
+        db,
+        sales_order_id=invoice.sales_order_id,
+        amount=amount,
+        payment_method=method,
+        recorded_by_id=recorded_by_id,
+        transaction_id=reference,
+        notes=f"Invoice {invoice.invoice_number}",
+        invoice=invoice,
+    )
 
     db.commit()
     db.refresh(invoice)
