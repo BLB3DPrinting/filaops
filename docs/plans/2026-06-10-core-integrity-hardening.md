@@ -280,15 +280,52 @@ buy-list PO creation prefers `VendorItem.default_unit_cost` for the chosen vendo
 receiving optionally upserts VendorItem from actuals ("remember this price?"); simple
 management UI on the vendor detail. Impact: MED. Effort: M.
 
-### HARD-14: Traceability spine decision  [DESIGN — needs user, gates plan-v1 PR-14]
+### HARD-14: Traceability spine  [DECIDED 2026-06-10 — design doc next; gates plan-v1 PR-14]
 
-Two spines: MaterialLot (wired: 7 lots, FIFO consumption, recall queries work) vs
-MaterialSpool/ProductionOrderSpool (fully built, ZERO rows ever). The spool→product
-GTM story currently returns empty. Decide: (a) spools become the consumption unit for
-filament (wire spool selection/auto-pick into production completion, spools reference
-lots), or (b) lots are canonical and spools are a labeled view of lot quantity.
-Recommendation: (a) for print-farm differentiation, but it's real work — design doc
-first. Impact: strategic. Effort: L.
+OWNER DECISION (med-dev traceability model applied to printing): **spool = serial,
+PO/receipt = batch; lot-as-mill-cert is not meaningful for filament sourcing** (you
+don't get a mill cert from a filament vendor). The two existing spines are therefore
+HIERARCHICAL, not rivals:
+
+- **Batch layer = MaterialLot** (exists, wired, has data): created at PO receipt,
+  carries PO + vendor identity. Keep as-is — it already IS the batch record.
+- **Serial layer = MaterialSpool** (built, currently unwired). SCHEMA NOTE: today
+  `MaterialSpool` has NO direct link to `MaterialLot` — the relationship is only
+  inferable by correlating `ProductionOrderSpool` with `ProductionLotConsumption`
+  on the same production order. The implementation MUST add a direct
+  `MaterialSpool.material_lot_id` FK (nullable — legacy/manually-registered spools
+  may predate any receipt), populated at PO receiving where lots and spools are
+  already created together. The correlation join is acceptable only as a read-side
+  fallback for legacy rows, never for new data. Wire `ProductionOrderSpool`
+  consumption into production completion.
+
+**Enforcement is a COMPANY SETTING (off by default), not a global behavior.**
+The batch layer (MaterialLot) is FOUNDATIONAL and runs in both modes — lots are
+created at PO receipt and FIFO-attributed at consumption regardless of the setting.
+The setting governs only the serial layer:
+- Setting ON (regulated mode): spool assignment is MANDATORY at consumption —
+  production completion blocks without it. Both layers enforced at their events
+  (lot at receipt, spool at consumption). Full chain answerable: SO → SKU →
+  material item → spool serial → receiving PO → vendor.
+- Setting OFF: current behavior stands (item-level backflush, lot-FIFO attribution,
+  no spool requirement). Spools page remains available as an optional registry.
+
+Rationale: full serial traceability is real up-front operator work; most farms don't
+need it, regulated customers (med-dev, aerospace) MUST have it. The setting makes it
+a sales feature instead of universal friction.
+
+Scope: design doc first (consumption UX when ON — spool picker/auto-pick-by-printer,
+partial-spool handling, weight reconciliation; setting placement in company settings;
+what the traceability report renders for OFF-mode history; AND a
+migration/first-enablement strategy — regulated customers are brownfield
+conversions, not greenfield installs: how the flip-to-ON moment handles
+in-progress production orders without spool assignments, how historical
+consumption with no spool records is rendered/annotated, and how the report
+presents mixed epochs of OFF-mode history followed by ON-mode current data).
+Then implementation.
+Unblocks plan-v1 PR-14 (consumption visibility), whose Materials card should render
+spool serials when the setting is ON and lot attribution when OFF.
+Impact: strategic (GTM differentiator for regulated buyers). Effort: L.
 
 ### HARD-15: Small-fix batch (one PR)
 
