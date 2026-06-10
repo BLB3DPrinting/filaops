@@ -118,6 +118,7 @@ def update_invoice(
             amount=data.amount_paid,
             method=data.payment_method,
             reference=data.payment_reference,
+            recorded_by_id=current_user.id,
         )
     else:
         invoice = invoice_service.get_invoice(db, invoice_id)

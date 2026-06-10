@@ -5,6 +5,7 @@ import { useToast } from "../../components/Toast";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 import StatCard from "../../components/StatCard";
 import { API_URL } from "../../config/api";
+import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 
 const STATUS_TABS = [
   { value: "", label: "All" },
@@ -22,14 +23,6 @@ const STATUS_STYLES = {
   partially_paid: "bg-yellow-500/20 text-yellow-400",
   void: "bg-gray-500/20 text-gray-500",
 };
-
-const PAYMENT_METHODS = [
-  { value: "check", label: "Check" },
-  { value: "cash", label: "Cash" },
-  { value: "credit_card", label: "Credit Card" },
-  { value: "bank_transfer", label: "Bank Transfer" },
-  { value: "other", label: "Other" },
-];
 
 const getInvoiceBalanceDue = (invoice) =>
   invoice?.balance_due ?? invoice?.amount_due ?? 0;
@@ -54,14 +47,8 @@ export default function AdminInvoices() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // Payment sub-form state
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({
-    amount: "",
-    method: "bank_transfer",
-    reference: "",
-  });
-  const [recordingPayment, setRecordingPayment] = useState(false);
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   // Send invoice state
   const [sendingInvoice, setSendingInvoice] = useState(false);
@@ -146,32 +133,6 @@ export default function AdminInvoices() {
       toast.error(err.response?.data?.detail || err.message || "Failed to mark invoice sent");
     } finally {
       setSendingInvoice(false);
-    }
-  };
-
-  const handleRecordPayment = async () => {
-    if (!selectedInvoice) return;
-    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
-      toast.error("Please enter a valid payment amount");
-      return;
-    }
-    setRecordingPayment(true);
-    try {
-      const updated = await api.patch(`/api/v1/invoices/${selectedInvoice.id}`, {
-        amount_paid: parseFloat(paymentForm.amount),
-        payment_method: paymentForm.method,
-        payment_reference: paymentForm.reference,
-      });
-      toast.success("Payment recorded");
-      setSelectedInvoice(updated);
-      setShowPaymentForm(false);
-      setPaymentForm({ amount: "", method: "bank_transfer", reference: "" });
-      fetchInvoices();
-      fetchSummary();
-    } catch (err) {
-      toast.error(err.response?.data?.detail || err.message || "Failed to record payment");
-    } finally {
-      setRecordingPayment(false);
     }
   };
 
@@ -438,7 +399,7 @@ export default function AdminInvoices() {
               className="fixed inset-0 bg-black/70"
               onClick={() => {
                 setSelectedInvoice(null);
-                setShowPaymentForm(false);
+                setShowPaymentModal(false);
               }}
             />
             <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-3xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
@@ -473,7 +434,7 @@ export default function AdminInvoices() {
                     <button
                       onClick={() => {
                         setSelectedInvoice(null);
-                        setShowPaymentForm(false);
+                        setShowPaymentModal(false);
                       }}
                       className="text-gray-400 hover:text-white p-1"
                     >
@@ -661,15 +622,17 @@ export default function AdminInvoices() {
                         {sendingInvoice ? "Marking..." : "Mark Sent"}
                       </button>
                     )}
-                    <button
-                      onClick={() => setShowPaymentForm(!showPaymentForm)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Record Payment
-                    </button>
+                    {selectedInvoice.status !== "paid" && selectedInvoice.status !== "cancelled" && (
+                      <button
+                        onClick={() => setShowPaymentModal(true)}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Record Payment
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDownloadPDF(selectedInvoice.id, selectedInvoice.invoice_number)}
                       className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 flex items-center gap-2"
@@ -681,76 +644,35 @@ export default function AdminInvoices() {
                     </button>
                   </div>
 
-                  {/* Record Payment Sub-Form */}
-                  {showPaymentForm && (
-                    <div className="mt-4 bg-gray-800 rounded-lg p-4">
-                      <h4 className="text-sm font-medium text-white mb-3">Record Payment</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Amount</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={paymentForm.amount}
-                            onChange={(e) =>
-                              setPaymentForm({ ...paymentForm, amount: e.target.value })
-                            }
-                            placeholder={`${parseFloat(getInvoiceBalanceDue(selectedInvoice)).toFixed(2)}`}
-                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Method</label>
-                          <select
-                            value={paymentForm.method}
-                            onChange={(e) =>
-                              setPaymentForm({ ...paymentForm, method: e.target.value })
-                            }
-                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm"
-                          >
-                            {PAYMENT_METHODS.map((m) => (
-                              <option key={m.value} value={m.value}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Reference</label>
-                          <input
-                            type="text"
-                            value={paymentForm.reference}
-                            onChange={(e) =>
-                              setPaymentForm({ ...paymentForm, reference: e.target.value })
-                            }
-                            placeholder="Check #, txn ID, etc."
-                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2 mt-3">
-                        <button
-                          onClick={() => setShowPaymentForm(false)}
-                          className="px-3 py-1.5 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 text-sm"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleRecordPayment}
-                          disabled={recordingPayment}
-                          className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
-                        >
-                          {recordingPayment ? "Recording..." : "Submit Payment"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </>
               ) : null}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Record Payment Modal — shared component, same path as OrderDetail/AdminPayments */}
+      {showPaymentModal && selectedInvoice && (
+        <RecordPaymentModal
+          orderId={selectedInvoice.sales_order_id}
+          invoiceId={selectedInvoice.id}
+          invoiceBalanceDue={getInvoiceBalanceDue(selectedInvoice)}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={async () => {
+            setShowPaymentModal(false);
+            toast.success("Payment recorded");
+            // Refresh invoice details and list
+            try {
+              const updated = await api.get(`/api/v1/invoices/${selectedInvoice.id}`);
+              setSelectedInvoice(updated);
+            } catch {
+              setSelectedInvoice(null);
+            setShowPaymentModal(false);
+            }
+            fetchInvoices();
+            fetchSummary();
+          }}
+        />
       )}
     </div>
   );

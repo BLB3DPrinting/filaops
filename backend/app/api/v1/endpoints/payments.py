@@ -13,6 +13,7 @@ import logging
 
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
+from app.models.invoice import Invoice
 from app.models.user import User
 from app.models.payment import Payment
 from app.models.sales_order import SalesOrder
@@ -20,6 +21,7 @@ from app.models.order_event import OrderEvent
 from app.services.payment_service import (
     outstanding_balance_summary,
     generate_payment_number,
+    record_payment_and_reconcile,
     reverse_payment_receipt,
     sales_order_total,
     update_order_payment_status,
@@ -73,51 +75,35 @@ async def record_payment(
 
     Automatically updates the order's payment_status based on total paid.
     """
-    # Verify order exists
-    order = db.query(SalesOrder).filter(SalesOrder.id == payment_data.sales_order_id).first()
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Sales order {payment_data.sales_order_id} not found"
-        )
+    # Resolve linked open invoice for this order (if any) so the canonical
+    # path can reconcile invoice.amount_paid and invoice.status in one shot.
+    # Rule: apply to the single open (non-paid, non-cancelled) invoice for the
+    # order.  If multiple open invoices exist (should not happen — the service
+    # enforces uniqueness — but defensively handled), skip reconciliation
+    # rather than double-apply.
+    open_invoices = db.query(Invoice).filter(
+        Invoice.sales_order_id == payment_data.sales_order_id,
+        Invoice.status.notin_(["paid", "cancelled"]),
+    ).all()
+    linked_invoice = open_invoices[0] if len(open_invoices) == 1 else None
 
-    # Create payment record
-    payment = Payment(
-        payment_number=generate_payment_number(db),
+    payment = record_payment_and_reconcile(
+        db,
         sales_order_id=payment_data.sales_order_id,
-        recorded_by_id=current_user.id,
         amount=payment_data.amount,
         payment_method=payment_data.payment_method,
-        payment_type="payment",
-        status="completed",
-        payment_date=payment_data.payment_date or datetime.now(timezone.utc),
+        recorded_by_id=current_user.id,
+        payment_date=payment_data.payment_date,
         transaction_id=payment_data.transaction_id,
         check_number=payment_data.check_number,
         notes=payment_data.notes,
+        invoice=linked_invoice,
     )
-
-    db.add(payment)
-    db.flush()  # Flush to make payment visible in subsequent queries
-
-    # Update order payment status
-    update_order_payment_status(db, order)
-
-    # Record order event for activity timeline
-    event = OrderEvent(
-        sales_order_id=order.id,
-        user_id=current_user.id,
-        event_type="payment_received",
-        title="Payment received",
-        description=f"{payment.payment_number}: ${payment.amount:.2f} via {payment.payment_method}",
-        metadata_key="payment_number",
-        metadata_value=payment.payment_number,
-    )
-    db.add(event)
 
     db.commit()
     db.refresh(payment)
 
-    logger.info(f"Payment {payment.payment_number} recorded for order {order.order_number} by {current_user.email}")
+    logger.info(f"Payment {payment.payment_number} recorded for order {payment_data.sales_order_id} by {current_user.email}")
 
     return payment_to_response(payment)
 
