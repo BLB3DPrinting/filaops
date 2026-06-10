@@ -1322,25 +1322,31 @@ class TestUpdatePoStatus:
         assert updated.status == "shipped"
         assert updated.shipped_date is not None
 
-    def test_shipped_to_received(self, db, make_vendor, make_purchase_order):
-        """Valid transition: shipped -> received. Sets received_date."""
+    def test_shipped_to_received_via_status_patch_is_blocked(
+        self, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: update_po_status rejects 'received' even from shipped — use /receive."""
         vendor = make_vendor()
         po = make_purchase_order(vendor_id=vendor.id, status="shipped")
         db.commit()
 
-        updated = update_po_status(db, po.id, new_status="received", user_id=1)
-        assert updated.status == "received"
-        assert updated.received_date is not None
+        with pytest.raises(HTTPException) as exc_info:
+            update_po_status(db, po.id, new_status="received", user_id=1)
+        assert exc_info.value.status_code == 400
+        assert "receive" in str(exc_info.value.detail).lower()
 
-    def test_ordered_to_received_direct(self, db, make_vendor, make_purchase_order):
-        """Valid transition: ordered -> received (skip shipped)."""
+    def test_ordered_to_received_direct_via_status_patch_is_blocked(
+        self, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: update_po_status rejects 'received' from ordered — use /receive."""
         vendor = make_vendor()
         po = make_purchase_order(vendor_id=vendor.id, status="ordered")
         db.commit()
 
-        updated = update_po_status(db, po.id, new_status="received", user_id=1)
-        assert updated.status == "received"
-        assert updated.received_date is not None
+        with pytest.raises(HTTPException) as exc_info:
+            update_po_status(db, po.id, new_status="received", user_id=1)
+        assert exc_info.value.status_code == 400
+        assert "receive" in str(exc_info.value.detail).lower()
 
     def test_received_to_closed(self, db, make_vendor, make_purchase_order):
         """Valid transition: received -> closed."""
