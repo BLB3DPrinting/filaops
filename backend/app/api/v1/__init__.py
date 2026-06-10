@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     resources,
     routings,
     mrp,
+    buy_list,
     setup,
     quotes,
     settings,
@@ -169,6 +170,9 @@ router.include_router(
 
 # MRP (Material Requirements Planning)
 router.include_router(mrp.router)
+
+# Buy List (HARD-7 — consolidated demand netting, Layer 1 live view)
+router.include_router(buy_list.router)
 
 # Features/Licensing is a PRO feature
 
