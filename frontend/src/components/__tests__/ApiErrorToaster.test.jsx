@@ -154,13 +154,26 @@ describe("ApiErrorToaster", () => {
       );
     });
 
-    it("matches case-insensitively on the word 'requires'", () => {
+    it("matches case-insensitively on the word 'requires' + tier keyword", () => {
       render(<ApiErrorToaster />);
       fireApiError({
         status: 403,
         detail: "REQUIRES enterprise tier",
       });
       expect(mocks.toastInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT misclassify non-tier 'requires' messages as PRO upsells", () => {
+      render(<ApiErrorToaster />);
+      // "requires" present but no tier/plan keyword — should fall through to generic 403
+      fireApiError({
+        status: 403,
+        detail: "Admin approval requires manager role",
+      });
+      expect(mocks.toastInfo).not.toHaveBeenCalled();
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "You don't have permission to perform this action."
+      );
     });
 
     it("does NOT emit tier:limit-reached for string 403", () => {

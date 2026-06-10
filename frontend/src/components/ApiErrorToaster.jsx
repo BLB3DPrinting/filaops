@@ -77,13 +77,17 @@ export default function ApiErrorToaster() {
       // PRO-feature 403: backend's require_tier decorator sends a plain string
       // like "This feature requires Professional tier or higher".  Show an
       // actionable message linking straight to the License page.
-      if (
-        status === 403 &&
-        typeof detail === "string" &&
-        detail.toLowerCase().includes("requires")
-      ) {
-        toast.info("This is a PRO feature — view upgrade options at Settings → License.");
-        return;
+      // Guard: require both "requires" AND a whole-word tier/plan keyword so
+      // strings like "Admin approval requires manager role" are not misclassified
+      // ("approval" contains "pro" as a substring — use \b word boundaries).
+      if (status === 403 && typeof detail === "string") {
+        const isTierRequirement =
+          /\brequires\b/i.test(detail) &&
+          /\b(tier|professional|enterprise|pro)\b/i.test(detail);
+        if (isTierRequirement) {
+          toast.info("This is a PRO feature — view upgrade options at Settings → License.");
+          return;
+        }
       }
 
       // Structured 403 with a message field (other PRO-endpoint errors)
