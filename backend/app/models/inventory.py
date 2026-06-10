@@ -2,6 +2,7 @@
 Inventory models
 """
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, Boolean, Computed
+from sqlalchemy.dialects.postgresql import TIMESTAMP as PG_TIMESTAMP
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -47,6 +48,19 @@ class Inventory(Base):
 
     # Metadata
     last_counted = Column(DateTime, nullable=True)
+    # HARD-4b: epoch anchor for reconciliation report.
+    # NULL = never baselined (item never physically counted).
+    # When a reconciliation_baseline transaction is posted (HARD-4c), this is
+    # stamped with the transaction timestamp. The reconciliation report then
+    # sums only transactions >= baseline_timestamp; NULL rows sum ALL history.
+    baseline_timestamp = Column(
+        PG_TIMESTAMP(timezone=True),
+        nullable=True,
+        comment=(
+            "UTC timestamp of the last reconciliation_baseline (physical count). "
+            "NULL means the item has never been counted."
+        ),
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 

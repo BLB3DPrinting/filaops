@@ -253,6 +253,11 @@ def setup_database():
             "SET filament_diameter = 1.75 "
             "WHERE filament_diameter IS NULL"
         ))
+        # Migration 086: HARD-4b reconciliation baseline epoch column
+        conn.execute(text(
+            "ALTER TABLE inventory "
+            "ADD COLUMN IF NOT EXISTS baseline_timestamp TIMESTAMPTZ"
+        ))
         conn.commit()
 
     # Seed required data
@@ -699,3 +704,14 @@ def finished_good(make_product):
         procurement_type="make",
         name="Test Widget (FG)",
     )
+
+
+@pytest.fixture
+def location(db):
+    """Default inventory location (id=1, seeded by setup_database).
+
+    Used by reconciliation tests and any other test that needs a real
+    InventoryLocation row without building one from scratch.
+    """
+    from app.services.inventory_service import get_or_create_default_location
+    return get_or_create_default_location(db)

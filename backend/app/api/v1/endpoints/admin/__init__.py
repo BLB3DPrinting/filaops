@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from . import (
     bom, dashboard, fulfillment_queue, fulfillment_shipping, audit, accounting, traceability,
     customers, inventory_transactions, analytics, export, data_import, orders,
-    users, uom, locations, system, uploads, pro_install
+    users, uom, locations, system, uploads, pro_install, reconciliation
 )
 
 router = APIRouter()
@@ -40,6 +40,9 @@ router.include_router(traceability.router)
 
 # Inventory Transactions
 router.include_router(inventory_transactions.router)
+
+# Inventory Reconciliation Report (HARD-4b)
+router.include_router(reconciliation.router)
 
 # Export/Import
 router.include_router(export.router)

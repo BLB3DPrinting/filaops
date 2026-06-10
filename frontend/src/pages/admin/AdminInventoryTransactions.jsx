@@ -3,6 +3,205 @@ import { Link } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 
+// ---------------------------------------------------------------------------
+// Reconciliation report — counting work queue (HARD-4b)
+// ---------------------------------------------------------------------------
+
+function ReconciliationReport() {
+  const api = useApi();
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [driftedOnly, setDriftedOnly] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const fetchReport = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const params = driftedOnly ? "?drifted_only=true" : "";
+      const data = await api.get(`/api/v1/admin/inventory/reconciliation${params}`);
+      setReport(data);
+    } catch (err) {
+      setError(err.message || "Failed to load reconciliation report");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch whenever the filter or expanded state changes
+  useEffect(() => {
+    if (expanded) {
+      fetchReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, driftedOnly]);
+
+  const formatQty = (val) =>
+    val == null ? "—" : Number(val).toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+  const driftColor = (drift) => {
+    if (drift === 0) return "text-gray-400";
+    return drift > 0 ? "text-yellow-400" : "text-red-400";
+  };
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      {/* Collapsible header */}
+      <button
+        className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-800/40 transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Reconciliation — items needing a count
+          </h2>
+          <p className="text-gray-400 text-sm mt-0.5">
+            Compares stored on-hand against the transaction ledger to identify
+            drift. Items without a baseline have never been physically counted.
+          </p>
+        </div>
+        <svg
+          className={`w-5 h-5 text-gray-400 flex-shrink-0 ml-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-800">
+          {/* Controls */}
+          <div className="flex items-center gap-4 px-6 py-3 bg-gray-900/60">
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={driftedOnly}
+                onChange={(e) => setDriftedOnly(e.target.checked)}
+                className="rounded border-gray-600 bg-gray-800 text-blue-500"
+              />
+              Show drifted items only
+            </label>
+            <button
+              onClick={fetchReport}
+              disabled={loading}
+              className="ml-auto px-3 py-1.5 text-xs bg-gray-700 text-gray-200 rounded hover:bg-gray-600 disabled:opacity-50"
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+
+          {/* Summary badges */}
+          {report && !loading && (
+            <div className="flex gap-4 px-6 py-3 border-b border-gray-800">
+              <div className="text-sm text-gray-400">
+                <span className="font-medium text-white">{report.total_items}</span> total items
+              </div>
+              <div className="text-sm text-gray-400">
+                <span className={`font-medium ${report.drifted_items > 0 ? "text-yellow-400" : "text-green-400"}`}>
+                  {report.drifted_items}
+                </span> drifted
+              </div>
+              <div className="text-sm text-gray-400">
+                <span className={`font-medium ${report.uncounted_items > 0 ? "text-orange-400" : "text-gray-300"}`}>
+                  {report.uncounted_items}
+                </span> uncounted
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="mx-6 my-3 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Loading spinner */}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+            </div>
+          )}
+
+          {/* Table */}
+          {!loading && report && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-800/50">
+                  <tr>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">SKU</th>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Name</th>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Location</th>
+                    <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Stored</th>
+                    <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Ledger Sum</th>
+                    <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Drift</th>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Baseline</th>
+                    <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-gray-500 text-sm">
+                        {driftedOnly ? "No drifted items — all balanced." : "No inventory rows found."}
+                      </td>
+                    </tr>
+                  ) : (
+                    report.items.map((item) => (
+                      <tr
+                        key={`${item.product_id}-${item.location_id}`}
+                        className={`border-b border-gray-800 hover:bg-gray-800/30 ${
+                          item.has_drift ? "bg-yellow-500/5" : ""
+                        }`}
+                      >
+                        <td className="py-2.5 px-4 font-mono text-sm text-white">{item.sku}</td>
+                        <td className="py-2.5 px-4 text-gray-300 text-sm max-w-xs truncate">{item.name}</td>
+                        <td className="py-2.5 px-4 text-gray-400 text-sm">{item.location_name || "—"}</td>
+                        <td className="py-2.5 px-4 text-right text-white tabular-nums">{formatQty(item.stored_on_hand)}</td>
+                        <td className="py-2.5 px-4 text-right text-gray-300 tabular-nums">{formatQty(item.ledger_sum)}</td>
+                        <td className={`py-2.5 px-4 text-right font-semibold tabular-nums ${driftColor(item.drift)}`}>
+                          {item.drift > 0 ? "+" : ""}{formatQty(item.drift)}
+                        </td>
+                        <td className="py-2.5 px-4 text-gray-500 text-xs">
+                          {item.baseline_timestamp
+                            ? new Date(item.baseline_timestamp).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {item.is_counted ? (
+                            item.has_drift ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-400">
+                                drifted
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">
+                                clean
+                              </span>
+                            )
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-xs bg-orange-500/20 text-orange-400">
+                              uncounted
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function AdminInventoryTransactions() {
   const api = useApi();
   const formatCurrency = useFormatCurrency();
@@ -170,6 +369,9 @@ export default function AdminInventoryTransactions() {
           {showForm ? "Cancel" : "+ New Transaction"}
         </button>
       </div>
+
+      {/* Reconciliation Report — counting work queue */}
+      <ReconciliationReport />
 
       {/* Error Message */}
       {error && (
