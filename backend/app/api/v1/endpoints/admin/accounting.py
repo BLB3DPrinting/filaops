@@ -218,8 +218,19 @@ async def get_transactions_as_journal(
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # Exclude unapplied held rows and voided/rejected rows — matching the
+    # same exclusion logic used in get_cogs_summary (see that function for
+    # the canonical rationale).
+    # Held rows (requires_approval=True, approved_by=None) have not yet
+    # affected on_hand; voided rows were explicitly rejected.  Neither
+    # represents a real economic event for the journal.
     query = db.query(InventoryTransaction).filter(
-        InventoryTransaction.created_at >= cutoff
+        InventoryTransaction.created_at >= cutoff,
+        InventoryTransaction.voided_by.is_(None),
+        ~(
+            InventoryTransaction.requires_approval.is_(True)
+            & InventoryTransaction.approved_by.is_(None)
+        ),
     ).order_by(InventoryTransaction.created_at.desc())
 
     if order_id:
@@ -339,19 +350,32 @@ async def get_order_cost_breakdown(
 
     po_ids = [po.id for po in production_orders]
 
-    # Get all consumption and scrap transactions
-    # Scrap transactions from failed WOs also count as COGS (materials consumed with no output)
+    # Get all consumption and scrap transactions.
+    # Scrap transactions from failed WOs also count as COGS (materials consumed with no output).
+    # Exclude unapplied held rows and voided/rejected rows — same policy as get_cogs_summary
+    # and get_transactions_as_journal.  Ghost rows from cancelled or rejected transactions
+    # must not inflate the order cost breakdown.
     consumptions = db.query(InventoryTransaction).filter(
         InventoryTransaction.reference_type == 'production_order',
         InventoryTransaction.reference_id.in_(po_ids),
-        InventoryTransaction.transaction_type.in_(['consumption', 'scrap'])
+        InventoryTransaction.transaction_type.in_(['consumption', 'scrap']),
+        InventoryTransaction.voided_by.is_(None),
+        ~(
+            InventoryTransaction.requires_approval.is_(True)
+            & InventoryTransaction.approved_by.is_(None)
+        ),
     ).all()
 
-    # Packaging consumptions
+    # Packaging consumptions — same exclusions.
     packaging = db.query(InventoryTransaction).filter(
         InventoryTransaction.reference_type.in_(['shipment', 'consolidated_shipment']),
         InventoryTransaction.reference_id == order_id,
-        InventoryTransaction.transaction_type == 'consumption'
+        InventoryTransaction.transaction_type == 'consumption',
+        InventoryTransaction.voided_by.is_(None),
+        ~(
+            InventoryTransaction.requires_approval.is_(True)
+            & InventoryTransaction.approved_by.is_(None)
+        ),
     ).all()
 
     # Calculate costs

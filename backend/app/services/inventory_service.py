@@ -851,7 +851,13 @@ def consume_operation_material(
         The created InventoryTransaction, or None if material was already consumed
     """
 
-    # Skip already consumed materials
+    # Idempotency guard — keyed on THIS material row's status, not the
+    # ledger-level (production_order, component) pair.  The per-row guard is
+    # intentional: the same component can appear in multiple routing operations
+    # (each with its own ProductionOrderOperationMaterial row), and each
+    # occurrence is a legitimate independent consumption.  Using
+    # _consumption_already_posted here would silently suppress all but the
+    # first per-operation consumption of a given component.
     if material.status == 'consumed':
         logger.info(f"Material {material.id} already consumed, skipping")
         return None
@@ -940,9 +946,20 @@ def _consumption_already_posted(
     """Return True if a non-voided consumption transaction already exists for
     this (production_order, component) pair.
 
-    Used by consume_production_materials to prevent double-posting when
-    per-operation consumption (consume_operation_material) already fired for
-    the same component before the BOM-level completion backflush runs.
+    **BOM-BACKFLUSH USE ONLY** — this helper is scoped to the completion
+    backflush path (consume_production_materials).  It MUST NOT be called
+    from consume_operation_material, which uses the per-material-row
+    ``material.status == 'consumed'`` guard instead.  That per-row guard is
+    correct for the per-operation path because the same physical component can
+    legitimately appear in multiple routing operations (each with its own
+    material row), and each occurrence deserves its own consumption
+    transaction.  The ledger-level guard here would erroneously block the
+    second (and later) per-operation consumptions of the same component.
+
+    For the backflush path the opposite semantic is correct: skip the entire
+    BOM line if ANY per-operation consumption already posted for this
+    component — both paths consume the same physical inventory, and the
+    per-operation one wins.
 
     A transaction counts as "already posted" when:
       - reference_type == 'production_order'

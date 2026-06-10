@@ -341,3 +341,95 @@ class TestBuyListEndpoint:
         assert response.status_code == 200
         body = response.json()
         assert body["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# Phase-B sweep: Finding 3 — buy-list netting must not double-count allocations
+# ---------------------------------------------------------------------------
+
+class TestBuyListNoDoubleCount:
+    """
+    Regression: open WOs that created allocations must not cause double-counting.
+
+    Scenario:
+    - Component C has on_hand=100, allocated=60 (by an open WO).
+    - The same open WO also generates gross_demand=60 for C via BOM explosion.
+    - Old formula: net = gross − (on_hand − allocated + incoming) + ss
+                       = 60 − (100 − 60 + 0) + 0 = 60 − 40 = 20  ← WRONG
+    - Fixed formula: net = gross − (on_hand + incoming) + ss
+                        = 60 − (100 + 0) + 0 = 0  ← covered, not on buy list
+    """
+
+    def test_component_reserved_by_open_wo_not_double_shorted(
+        self, db, make_product, make_bom, make_production_order
+    ):
+        """An open WO's allocations must not generate a false shortage.
+
+        If on_hand fully covers gross demand and the allocations are already
+        captured inside gross_demand, net_shortage must be zero and the
+        component must NOT appear on the buy list.
+        """
+        from app.models.inventory import Inventory as InvModel
+
+        fg = make_product(item_type="finished_good", unit="EA", has_bom=True)
+        comp = make_product(item_type="supply", unit="EA", standard_cost=Decimal("1.00"))
+        make_bom(
+            product_id=fg.id,
+            lines=[{"component_id": comp.id, "quantity": Decimal("3"), "unit": "EA"}],
+        )
+
+        # Open WO for 10 units → gross_demand for comp = 30
+        make_production_order(product_id=fg.id, status="released", quantity=10)
+
+        # on_hand=30, allocated=30 (represents the reservations the WO created)
+        # available = 30 − 30 = 0, but on_hand alone covers the demand
+        inv = InvModel(
+            product_id=comp.id,
+            location_id=1,
+            on_hand_quantity=Decimal("30"),
+            allocated_quantity=Decimal("30"),
+        )
+        db.add(inv)
+        db.flush()
+
+        result = get_buy_list(db)
+        ids = {item.product_id for item in result.items}
+        assert comp.id not in ids, (
+            "Component whose WO-driven allocations match on_hand must NOT appear "
+            "on the buy list (double-count regression)"
+        )
+
+    def test_component_reserved_by_wo_in_gross_demand_shortage_correct(
+        self, db, make_product, make_bom, make_production_order
+    ):
+        """When on_hand is genuinely insufficient (even ignoring allocations),
+        the shortage is computed against on_hand + incoming — not available."""
+        from app.models.inventory import Inventory as InvModel
+
+        fg = make_product(item_type="finished_good", unit="EA", has_bom=True)
+        comp = make_product(item_type="supply", unit="EA", standard_cost=Decimal("2.00"))
+        make_bom(
+            product_id=fg.id,
+            lines=[{"component_id": comp.id, "quantity": Decimal("5"), "unit": "EA"}],
+        )
+
+        # Open WO for 10 → gross_demand = 50
+        make_production_order(product_id=fg.id, status="released", quantity=10)
+
+        # on_hand=30, allocated=30 → available=-0 but on_hand < demand
+        # Fixed: shortage = max(0, 50 − 30) = 20  (not 50 − 0 = 50)
+        inv = InvModel(
+            product_id=comp.id,
+            location_id=1,
+            on_hand_quantity=Decimal("30"),
+            allocated_quantity=Decimal("30"),
+        )
+        db.add(inv)
+        db.flush()
+
+        result = get_buy_list(db)
+        item = next((i for i in result.items if i.product_id == comp.id), None)
+        assert item is not None, "Component with genuine shortage must appear on buy list"
+        assert item.net_shortage == Decimal("20"), (
+            f"Expected net_shortage=20 (50 − 30), got {item.net_shortage}"
+        )
