@@ -307,9 +307,13 @@ def get_buy_list(
         if not product:
             continue
 
-        # get_projected_available_bulk guarantees a key for every product_id
-        # in product_ids, so this fallback is a safety net for edge cases where
-        # a product entered demand after the bulk call.
+        # Defensive fallback — get_projected_available_bulk guarantees a key
+        # for every product_id in the product_ids list passed to it (which
+        # equals demand.keys() at call time).  This branch should never
+        # trigger under normal operation; it protects against a future
+        # contract violation by the bulk function rather than any real
+        # demand-race (demand is fully populated before the bulk call and is
+        # not modified after).
         avail = availability_map.get(pid)
         if avail is None:
             avail = get_projected_available(db, pid)

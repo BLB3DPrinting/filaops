@@ -1836,3 +1836,82 @@ class TestAccountingEndpointsExcludeGhostRows:
         assert txn.id not in txn_ids, (
             "Unapplied held consumption row must NOT appear in transactions-journal"
         )
+
+    def test_voided_consumption_absent_from_order_cost_breakdown(
+        self, db, client, make_product, make_sales_order
+    ):
+        """A voided (rejected) consumption row must NOT appear in order-cost-breakdown."""
+        from app.services import inventory_ledger
+
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("10.00"))
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("5.00"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="in_progress")
+        po = _make_production_order(db, fg.id, qty_ordered=1, status="in_progress")
+        # Link PO to SO so the endpoint can find it
+        po.sales_order_id = so.id
+        db.flush()
+
+        # Post + void a consumption on the production order
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-50"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="staff@test.com", void_reason="test void"
+        )
+        db.flush()
+
+        response = client.get(f"/api/v1/admin/accounting/order-cost-breakdown/{so.id}")
+        assert response.status_code == 200
+        body = response.json()
+        material_items = body["costs"]["materials"]["items"]
+        txn_skus_in_materials = {item["sku"] for item in material_items}
+        # Voided row must not contribute cost
+        assert body["costs"]["materials"]["total"] == 0.0, (
+            "Voided consumption must not inflate material cost"
+        )
+
+    def test_held_unapplied_consumption_absent_from_order_cost_breakdown(
+        self, db, client, make_product, make_sales_order
+    ):
+        """An unapplied held consumption row must NOT appear in order-cost-breakdown."""
+        from app.services import inventory_ledger
+
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("10.00"))
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("5.00"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="in_progress")
+        po = _make_production_order(db, fg.id, qty_ordered=1, status="in_progress")
+        po.sales_order_id = so.id
+        db.flush()
+
+        # Post a held (unapplied) consumption — do NOT approve or reject
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-40"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        db.flush()
+
+        response = client.get(f"/api/v1/admin/accounting/order-cost-breakdown/{so.id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["costs"]["materials"]["total"] == 0.0, (
+            "Unapplied held consumption must not inflate material cost"
+        )

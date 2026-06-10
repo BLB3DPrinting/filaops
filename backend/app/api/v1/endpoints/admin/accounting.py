@@ -219,7 +219,8 @@ async def get_transactions_as_journal(
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Exclude unapplied held rows and voided/rejected rows — matching the
-    # same exclusion logic used in get_cogs_summary (~line 486-492).
+    # same exclusion logic used in get_cogs_summary (see that function for
+    # the canonical rationale).
     # Held rows (requires_approval=True, approved_by=None) have not yet
     # affected on_hand; voided rows were explicitly rejected.  Neither
     # represents a real economic event for the journal.
