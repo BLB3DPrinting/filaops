@@ -103,10 +103,18 @@ Scope (3 PRs, sequential):
   everywhere; SET-style callers compute `delta = new − current` first. items.py
   create/update must emit an `initial`/`adjustment` transaction. Existing tests must
   pass with explicitly-documented sign migrations where they encoded the old chaos.
+  `reconciliation_baseline` (introduced by 4c) is an ALIAS OF `adjustment` in posting
+  semantics — signed delta `counted − stored-at-post-time` through this same poster —
+  distinguished by its reason code, and it additionally stamps
+  `Inventory.baseline_timestamp` (see 4c) in the same atomic operation.
 - **4b — reconciliation.** A function + admin endpoint computing
-  `stored on_hand vs Σ(ledger)` per item, surfaced as a report (reuse an existing
-  admin page section or a simple table); log/flag mismatches. Wire into CI-runnable
-  test for the seed dataset.
+  `stored on_hand vs Σ(ledger at-or-after Inventory.baseline_timestamp)` per item
+  (items with NULL baseline_timestamp sum ALL transactions and report as
+  "uncounted"), surfaced as a report (reuse an existing admin page section or a
+  simple table); log/flag mismatches. Wire into CI-runnable test for the seed
+  dataset. NOTE: epoch filtering depends on the 4c schema (baseline_timestamp) —
+  add the column in 4b's migration so the report is epoch-aware from day one, even
+  though baselines only start being written in 4c.
 - **4c — data repair (REQUIRES HUMAN APPROVAL before executing against any DB).**
   STRATEGY DECIDED 2026-06-10 by the owner: **"system first, updated by cycle count."**
   The transaction ledger is the system of record going forward; physical cycle counts
@@ -116,17 +124,38 @@ Scope (3 PRs, sequential):
   1. The 4b report's drifted-item list is the counting work queue.
   2. Each counted item posts a reason-coded `reconciliation_baseline` transaction
      through the 4a canonical poster (an honest event: a count happened), snapping
-     stored AND ledger to the counted value.
-  3. EPOCH LINE: per-item baseline timestamp; all future reconciliation (4b job)
-     sums ONLY transactions at-or-after the baseline. Pre-epoch history is retained
-     read-only as archaeology — never re-summed, never repaired row-by-row.
-  4. Items not yet counted: stored on-hand stands as the flagged interim baseline
-     ("uncounted" in the 4b report) until a count replaces it.
-  5. Dev/demo/test databases: baseline to stored without counting (test data).
-  The tool ships as count-first with stored-as-fallback. Run cortex_approve before
-  executing against any real DB; the migration itself only adds baseline plumbing —
-  baseline transactions are created by counts (or the explicit fallback command),
-  never silently.
+     stored AND ledger to the counted value. Posting semantics: alias of
+     `adjustment` (signed delta `counted − stored`), per the 4a contract.
+     GL TREATMENT: identical to cycle-count variance — the existing mapping in
+     `transaction_service.py` (~600-675): DR/CR 1200 Inventory vs 5030 Inventory
+     Adjustment, direction by sign of the delta. Rationale: a baseline IS a
+     physical count; its variance is period expense like any count variance.
+     Example: stored 140, counted 152 → delta +12 → DR 1200 Inventory $X /
+     CR 5030 Inventory Adjustment $X (X = 12 × unit cost). (A true greenfield
+     opening balance at first install — no prior books — MAY warrant an
+     opening-balance equity account instead; out of scope here, note for the
+     onboarding flow.)
+  3. EPOCH LINE: per-item baseline timestamp stored as
+     `Inventory.baseline_timestamp` (nullable timestamptz on the Inventory row —
+     the same grain as on_hand; NULL = never baselined). All future reconciliation
+     (4b job) sums ONLY transactions at-or-after the baseline
+     (`transaction.created_at >= Inventory.baseline_timestamp`). Pre-epoch history
+     is retained read-only as archaeology — never re-summed, never repaired
+     row-by-row.
+  4. Items not yet counted: stored on-hand stands as the interim baseline. The
+     "uncounted" state is DERIVED (Inventory.baseline_timestamp IS NULL) — no
+     separate flag column — and the 4b report displays it as such.
+  5. Dev/demo/test databases: baseline to stored without counting (test data),
+     via the explicit fallback command only.
+  The tool ships as count-first with stored-as-fallback. EXECUTION GATE: requires
+  explicit human (owner) approval before running against any real database —
+  recorded via the Aeonyx `cortex_approve` MCP gate where the session has it,
+  otherwise direct owner sign-off in the PR/session. The migration itself only adds
+  baseline plumbing, which means exactly: (a) the `Inventory.baseline_timestamp`
+  column, (b) registration of the `reconciliation_baseline` reason code, (c) the
+  count-entry tool, and (d) the explicit stored-as-baseline fallback command. The
+  migration creates ZERO baseline transactions; baselines are written only by
+  counts or the explicitly-invoked fallback, never silently.
 
 Impact: HIGHEST in this plan — valuation, MRP, and COGS all inherit this. Effort: L
 (split as above). Files: the five writers + tests; expect wide test fallout — budget
