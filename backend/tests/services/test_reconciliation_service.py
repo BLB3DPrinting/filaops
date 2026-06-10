@@ -18,13 +18,12 @@ Scenarios:
  13. Report shows item as counted+clean after a matching count.
  14. Uncounted item is unaffected by another item's baseline.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
 from app.models.inventory import Inventory, InventoryTransaction
-from app.services.inventory_ledger import get_or_create_inventory_row
 from app.services.reconciliation_service import (
     BASELINE_TO_STORED_CONFIRM_TOKEN,
     baseline_to_stored,
@@ -360,8 +359,8 @@ class TestPostReconciliationBaseline:
             .filter(GLJournalEntryLine.journal_entry_id == je.id)
             .all()
         )
-        total_dr = sum(l.debit_amount or D("0") for l in lines)
-        total_cr = sum(l.credit_amount or D("0") for l in lines)
+        total_dr = sum(line.debit_amount or D("0") for line in lines)
+        total_cr = sum(line.credit_amount or D("0") for line in lines)
         assert abs(total_dr - total_cr) <= D("0.01"), (
             f"Journal entry not balanced: DR={total_dr} CR={total_cr}"
         )
@@ -589,3 +588,59 @@ class TestBaselineToStored:
                 user="admin@example.com",
                 confirm="wrong-token",
             )
+
+
+class TestZeroCostGLEntry:
+    """Regression: product with standard_cost=0 must NOT fall through to average_cost."""
+
+    def test_zero_standard_cost_uses_zero_not_average(self, db, make_product, location):
+        """
+        A product with standard_cost=Decimal("0") and average_cost=Decimal("5")
+        must post a GL entry priced at 0, not 5.
+
+        The old ``or`` chain treated Decimal("0") as falsy and wrongly fell
+        through to average_cost, posting an incorrect GL amount.
+        """
+        from app.models.accounting import GLJournalEntry, GLJournalEntryLine
+        from app.services.inventory_ledger import post as ledger_post
+
+        product = make_product(
+            standard_cost=Decimal("0"),
+            average_cost=Decimal("5.00"),
+        )
+        # Seed 100 units so a count of 110 gives delta +10
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("100"),
+        )
+
+        txn = post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("110"),  # delta +10
+            user="counter@example.com",
+        )
+
+        # With standard_cost=0 the GL total_cost = 10 * 0 = 0, so no entry is written
+        # (the service skips the GL block when total_cost == 0).
+        # Crucially it must NOT use average_cost=5 (which would give total_cost=50).
+        assert txn is not None
+
+        if txn.journal_entry_id is not None:
+            je = db.get(GLJournalEntry, txn.journal_entry_id)
+            assert je is not None
+            lines = (
+                db.query(GLJournalEntryLine)
+                .filter(GLJournalEntryLine.journal_entry_id == je.id)
+                .all()
+            )
+            total_dr = sum(line.debit_amount or Decimal("0") for line in lines)
+            # If a GL entry was posted it must be for 0-cost math (total_cost=0),
+            # meaning no lines with non-zero amounts.
+            assert total_dr == Decimal("0"), (
+                f"Expected zero-cost GL (standard_cost=0) but got DR={total_dr}; "
+                "average_cost fallthrough regression detected."
+            )
+        # If journal_entry_id is None the service correctly skipped the GL block
+        # because total_cost was 0 — that is the expected happy path.

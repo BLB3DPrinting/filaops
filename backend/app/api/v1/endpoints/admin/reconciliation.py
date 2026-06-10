@@ -25,6 +25,7 @@ POST /api/v1/admin/inventory/reconciliation/count/all-to-stored
 Staff-gated: uses the same router-level dependency as mrp.py (post-#683).
 """
 import logging
+from decimal import Decimal
 from typing import List, Optional
 from datetime import datetime
 
@@ -85,7 +86,7 @@ class CountEntryRequest(BaseModel):
     """Payload for a single physical count entry."""
     product_id: int = Field(..., description="Product being counted")
     location_id: int = Field(..., description="Inventory location being counted")
-    counted_qty: float = Field(..., ge=0, description="Physically counted quantity (>= 0)")
+    counted_qty: Decimal = Field(..., ge=0, description="Physically counted quantity (>= 0)")
     notes: Optional[str] = Field(None, max_length=500, description="Optional count note")
 
 
@@ -210,20 +211,15 @@ def post_count_entry(
     The row will appear as **clean** (not drifted, counted) in the
     reconciliation report after this call.
     """
-    from decimal import Decimal as D
-    from decimal import InvalidOperation
-
-    try:
-        counted = D(str(body.counted_qty))
-    except InvalidOperation:
-        raise HTTPException(status_code=422, detail="Invalid counted_qty value")
-
+    # body.counted_qty is already a Decimal (Pydantic v2 native coercion).
+    # The D(str(...)) conversion is no longer needed here; the service-side
+    # TypeError guard is kept as defence-in-depth for other callers.
     try:
         txn = post_reconciliation_baseline(
             db,
             product_id=body.product_id,
             location_id=body.location_id,
-            counted_qty=counted,
+            counted_qty=body.counted_qty,
             user=current_user.email,
             notes=body.notes,
         )
@@ -244,7 +240,7 @@ def post_count_entry(
         raise HTTPException(status_code=500, detail="Inventory row missing after baseline post")
 
     # Re-derive delta from the transaction row (posted by service)
-    actual_delta = D(str(txn.quantity)) if txn else D("0")
+    actual_delta = Decimal(str(txn.quantity)) if txn else Decimal("0")
 
     db.commit()
 

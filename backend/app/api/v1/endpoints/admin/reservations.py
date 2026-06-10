@@ -144,12 +144,13 @@ def get_reservation_reconciliation(
     Use the ``POST /repair/{production_order_id}`` endpoint to release a specific
     stranded allocation after explicit staff confirmation.
     """
-    report = get_allocation_reconciliation_report(db, drifted_only=drifted_only)
-
-    all_report = (
-        get_allocation_reconciliation_report(db)
+    # Run once (unfiltered) so summary stats and filtered items share one DB
+    # round-trip — mirrors the pattern in endpoints/admin/reconciliation.py.
+    all_report = get_allocation_reconciliation_report(db, drifted_only=False)
+    drift_items = (
+        [d for d in all_report.drift_items if d.has_drift]
         if drifted_only
-        else report
+        else all_report.drift_items
     )
 
     drift_schemas = [
@@ -168,7 +169,7 @@ def get_reservation_reconciliation(
             stored_available=float(d.stored_available),
             ledger_available=float(d.ledger_available),
         )
-        for d in report.drift_items
+        for d in drift_items
     ]
 
     stranded_schemas = [
@@ -185,7 +186,7 @@ def get_reservation_reconciliation(
             completed_at=s.completed_at,
             cancelled_at=s.cancelled_at,
         )
-        for s in report.stranded_items
+        for s in all_report.stranded_items
     ]
 
     return AllocationReconciliationReportSchema(
@@ -195,7 +196,7 @@ def get_reservation_reconciliation(
         drifted_rows=all_report.drifted_rows,
         stranded_po_count=all_report.stranded_po_count,
         total_stranded_quantity=float(all_report.total_stranded_quantity),
-        generated_at=report.generated_at,
+        generated_at=all_report.generated_at,
     )
 
 
