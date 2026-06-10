@@ -623,7 +623,10 @@ class TestPurchaseOrderStatusTransitions:
         assert data["tracking_number"] == "1Z999AA10123456784"
         assert data["carrier"] == "UPS"
 
-    def test_ordered_to_received(self, client, db, make_vendor, make_purchase_order):
+    def test_ordered_to_received_via_status_patch_is_blocked(
+        self, client, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: Direct status PATCH to 'received' is forbidden; use /receive."""
         vendor = make_vendor()
         po = make_purchase_order(vendor_id=vendor.id, status="ordered")
         db.flush()
@@ -631,8 +634,9 @@ class TestPurchaseOrderStatusTransitions:
         response = client.post(f"{BASE_URL}/{po.id}/status", json={
             "status": "received",
         })
-        assert response.status_code == 200
-        assert response.json()["status"] == "received"
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "Receive" in detail or "receive" in detail
 
     def test_ordered_to_cancelled(self, client, db, make_vendor, make_purchase_order):
         vendor = make_vendor()
@@ -645,7 +649,10 @@ class TestPurchaseOrderStatusTransitions:
         assert response.status_code == 200
         assert response.json()["status"] == "cancelled"
 
-    def test_shipped_to_received(self, client, db, make_vendor, make_purchase_order):
+    def test_shipped_to_received_via_status_patch_is_blocked(
+        self, client, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: Direct status PATCH to 'received' is forbidden even from shipped."""
         vendor = make_vendor()
         po = make_purchase_order(vendor_id=vendor.id, status="shipped")
         db.flush()
@@ -653,8 +660,9 @@ class TestPurchaseOrderStatusTransitions:
         response = client.post(f"{BASE_URL}/{po.id}/status", json={
             "status": "received",
         })
-        assert response.status_code == 200
-        assert response.json()["status"] == "received"
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "Receive" in detail or "receive" in detail
 
     def test_received_to_closed(self, client, db, make_vendor, make_purchase_order):
         vendor = make_vendor()

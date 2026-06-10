@@ -406,6 +406,18 @@ def update_po_status(
             detail=f"Cannot transition from '{old_status}' to '{new_status}'",
         )
 
+    # HARD-2: received status must only be set by the /receive endpoint, which
+    # creates inventory transactions, material lots, and updates costs.  A raw
+    # status PATCH would mark the PO received while stock never arrives.
+    if new_status == "received":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Purchase orders are marked received through the Receive workflow "
+                "so inventory and costs are recorded. Use the Receive button."
+            ),
+        )
+
     if new_status == "ordered":
         if not po.lines:
             raise HTTPException(status_code=400, detail="Cannot order a PO with no lines")
@@ -416,8 +428,6 @@ def update_po_status(
             po.tracking_number = tracking_number
         if carrier:
             po.carrier = carrier
-    elif new_status == "received":
-        po.received_date = date.today()
 
     po.status = new_status
     po.updated_at = datetime.now(timezone.utc)
