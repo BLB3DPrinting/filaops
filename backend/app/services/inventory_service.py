@@ -17,6 +17,7 @@ from app.models.production_order import ProductionOrder
 from app.models.sales_order import SalesOrder
 from app.models.traceability import MaterialLot, ProductionLotConsumption
 from app.logging_config import get_logger
+from app.services import inventory_ledger
 from app.services.uom_service import (
     convert_quantity_safe,
     format_conversion_note,
@@ -406,7 +407,10 @@ def create_inventory_transaction(
         product_id: Product being transacted
         location_id: Location for the transaction
         transaction_type: receipt, issue, consumption, adjustment, negative_adjustment
-        quantity: Quantity (positive for receipt, positive for issue/consumption - will be subtracted)
+        quantity: Positive magnitude; direction is implied by transaction_type
+            (legacy caller convention). For "adjustment" the quantity IS the
+            signed delta. Internally translated to the signed-delta convention
+            of inventory_ledger.post (HARD-4a), which stores SIGNED quantities.
         reference_type: production_order, sales_order, etc.
         reference_id: ID of the reference document
         notes: Optional notes
@@ -422,72 +426,72 @@ def create_inventory_transaction(
     Raises:
         ValueError: If negative inventory would occur without approval
     """
-    # Get or create inventory record
+    # Callers pass positive magnitudes with direction implied by type
+    # (legacy convention). Translate to the signed-delta convention of the
+    # canonical poster (HARD-4a): positive delta = stock increases.
+    quantity = Decimal(str(quantity))
+    if transaction_type in ("receipt", "initial", "return", "production"):
+        quantity_delta = quantity
+    elif transaction_type in (
+        "issue", "consumption", "shipment", "scrap", "negative_adjustment"
+    ):
+        quantity_delta = -quantity
+    elif transaction_type == "adjustment":
+        # Adjustments are signed deltas as passed. (No production caller
+        # uses this path today; the old code subtracted, which is the sign
+        # bug HARD-4a removes.)
+        quantity_delta = quantity
+    else:
+        raise ValueError(f"Unknown transaction_type: {transaction_type}")
+
     inventory = get_or_create_inventory(db, product_id, location_id)
 
-    # Check for negative inventory for consumption transactions
+    # Policy: consumption-like movements that would drive AVAILABLE
+    # (on_hand - allocated) negative are held for approval unless the
+    # caller pre-approved them.
     requires_approval = False
-    if transaction_type in ["issue", "consumption", "shipment", "scrap"]:
-        # Calculate what available quantity would be after this transaction
-        current_available = Decimal(str(inventory.on_hand_quantity)) - Decimal(str(inventory.allocated_quantity))
-        new_available = current_available - quantity
-        
+    if quantity_delta < 0 and transaction_type != "adjustment":
+        current_available = (
+            Decimal(str(inventory.on_hand_quantity))
+            - Decimal(str(inventory.allocated_quantity))
+        )
+        new_available = current_available + quantity_delta
+
         if new_available < 0:
             if not allow_negative or not approval_reason or not approved_by:
                 requires_approval = True
-                # Don't raise error - create transaction but mark as requiring approval
-                # The calling code should handle the approval workflow
+                # Don't raise - write the row held for approval; the
+                # approval workflow applies it later.
             else:
-                # Negative inventory is allowed with approval
                 logger.warning(
                     f"Negative inventory transaction approved: Product {product_id}, "
-                    f"Available: {current_available}, Consuming: {quantity}, "
+                    f"Available: {current_available}, Delta: {quantity_delta}, "
                     f"New Available: {new_available}, Reason: {approval_reason}, "
                     f"Approved by: {approved_by}"
                 )
 
-    # Create transaction record
-    # total_cost = abs(quantity) * cost_per_unit for UI display
-    total_cost = abs(quantity) * cost_per_unit if cost_per_unit else None
-    transaction = InventoryTransaction(
+    transaction = inventory_ledger.post(
+        db,
         product_id=product_id,
         location_id=location_id,
-        transaction_type=transaction_type if not requires_approval else "negative_adjustment",
-        quantity=quantity,
+        transaction_type=(
+            transaction_type if not requires_approval else "negative_adjustment"
+        ),
+        quantity_delta=quantity_delta,
+        cost_per_unit=cost_per_unit,
         reference_type=reference_type,
         reference_id=reference_id,
         notes=notes,
-        cost_per_unit=cost_per_unit,
-        total_cost=total_cost,
         created_by=created_by,
-        created_at=datetime.now(timezone.utc),
         requires_approval=requires_approval,
         approval_reason=approval_reason,
         approved_by=approved_by,
-        approved_at=datetime.now(timezone.utc) if approved_by else None,
     )
-    db.add(transaction)
 
-    # Only update inventory if approved or not requiring approval
-    if not requires_approval or (allow_negative and approved_by):
-        # Update inventory based on transaction type
-        if transaction_type == "receipt":
-            inventory.on_hand_quantity = Decimal(str(inventory.on_hand_quantity)) + quantity
-        elif transaction_type == "adjustment":
-            # Adjustment can be positive or negative - quantity is already signed
-            # For adjustments, we set the quantity directly (not add/subtract)
-            # But since we're using create_inventory_transaction, we need to handle it
-            # The adjustment endpoint will handle setting the exact quantity
-            inventory.on_hand_quantity = Decimal(str(inventory.on_hand_quantity)) - quantity
-        elif transaction_type in ["issue", "consumption", "shipment", "scrap", "negative_adjustment"]:
-            inventory.on_hand_quantity = Decimal(str(inventory.on_hand_quantity)) - quantity
-
-        inventory.updated_at = datetime.now(timezone.utc)
-    else:
-        # Transaction created but inventory not updated - requires approval
+    if requires_approval:
         logger.info(
             f"Inventory transaction {transaction.id} created but requires approval "
-            f"for negative inventory: Product {product_id}, Quantity: {quantity}"
+            f"for negative inventory: Product {product_id}, Delta: {quantity_delta}"
         )
 
     return transaction

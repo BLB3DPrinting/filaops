@@ -21,9 +21,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
-from app.models.inventory import Inventory, InventoryTransaction
+from app.models.inventory import InventoryTransaction
 from app.models.production_order import ScrapRecord
 from app.models.product import Product
+from app.services import inventory_ledger
 
 _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
 
@@ -196,40 +197,47 @@ class TransactionService:
 
         return je
 
-    def _update_inventory_quantity(
+    def _post_inventory(
         self,
+        *,
         product_id: int,
+        transaction_type: str,
         quantity_delta: Decimal,
+        unit_cost: Decimal,
+        reference_type: str = None,
+        reference_id: int = None,
+        lot_number: str = None,
+        notes: str = None,
+        unit: str = "EA",
         location_id: int = None,
-    ) -> None:
+    ) -> InventoryTransaction:
         """
-        Update inventory on-hand quantity.
+        Post an inventory movement through the canonical ledger (HARD-4a).
 
-        Args:
-            product_id: Product to update
-            quantity_delta: Positive to add, negative to subtract
-            location_id: Specific location (uses default if None)
+        Signed delta: positive increases stock. Writes the transaction row
+        and mutates on_hand together; no commit (caller owns the boundary).
         """
-        # Get or create inventory record
-        # Default location_id = 1 (main warehouse) if not specified
-        loc_id = location_id or 1
-
-        inv = self.db.query(Inventory).filter(
-            Inventory.product_id == product_id,
-            Inventory.location_id == loc_id
-        ).first()
-
-        if inv:
-            inv.on_hand_quantity = (inv.on_hand_quantity or 0) + quantity_delta
-        else:
-            # Create new inventory record
-            inv = Inventory(
-                product_id=product_id,
-                location_id=loc_id,
-                on_hand_quantity=quantity_delta,
-                allocated_quantity=0,
+        if location_id is None:
+            # Resolve the real default warehouse — the old helpers assumed
+            # primary key 1, which is wrong on any DB where MAIN isn't id 1.
+            from app.services.inventory_service import (
+                get_or_create_default_location,
             )
-            self.db.add(inv)
+            location_id = get_or_create_default_location(self.db).id
+
+        return inventory_ledger.post(
+            self.db,
+            product_id=product_id,
+            location_id=location_id,
+            transaction_type=transaction_type,
+            quantity_delta=quantity_delta,
+            cost_per_unit=unit_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            lot_number=lot_number,
+            notes=notes,
+            unit=unit,
+        )
 
     def _create_inventory_transaction(
         self,
@@ -244,7 +252,15 @@ class TransactionService:
         unit: str = "EA",
         location_id: int = None,
     ) -> InventoryTransaction:
-        """Create inventory transaction record"""
+        """Create a ledger ROW without touching on_hand.
+
+        Only legitimate use: WIP-side audit rows (scrap_materials), where
+        the material already left inventory at issue time so on_hand must
+        NOT change again. Every on-hand-affecting movement goes through
+        _post_inventory / inventory_ledger.post instead (HARD-4a).
+        HARD-4b reconciliation must exclude these rows; HARD-11 revisits
+        whether WIP scrap should write to the inventory ledger at all.
+        """
         txn = InventoryTransaction(
             product_id=product_id,
             location_id=location_id or 1,
@@ -284,11 +300,10 @@ class TransactionService:
         total_cost = Decimal("0")
 
         for mat in materials:
-            # Create inventory transaction (negative quantity = issue)
-            inv_txn = self._create_inventory_transaction(
+            inv_txn = self._post_inventory(
                 product_id=mat.product_id,
                 transaction_type="consumption",
-                quantity=-mat.quantity,  # Negative = issue
+                quantity_delta=-mat.quantity,
                 unit_cost=mat.unit_cost,
                 reference_type="production_order",
                 reference_id=production_order_id,
@@ -296,9 +311,6 @@ class TransactionService:
                 unit=mat.unit,
             )
             inv_txns.append(inv_txn)
-
-            # Update inventory quantity
-            self._update_inventory_quantity(mat.product_id, -mat.quantity)
 
             total_cost += mat.quantity * mat.unit_cost
 
@@ -343,20 +355,16 @@ class TransactionService:
         """
         total_cost = quantity * unit_cost
 
-        # Create inventory transaction
-        inv_txn = self._create_inventory_transaction(
+        inv_txn = self._post_inventory(
             product_id=product_id,
             transaction_type="receipt",
-            quantity=quantity,  # Positive = receipt
+            quantity_delta=quantity,
             unit_cost=unit_cost,
             reference_type="production_order",
             reference_id=production_order_id,
             lot_number=lot_number,
             notes="FG receipt from production",
         )
-
-        # Update inventory quantity
-        self._update_inventory_quantity(product_id, quantity)
 
         # Create journal entry: DR FG Inventory, CR WIP
         # Skip GL entry if total cost is zero (no monetary value to record)
@@ -482,18 +490,16 @@ class TransactionService:
             cost = item.quantity * item.unit_cost
             fg_total += cost
 
-            inv_txn = self._create_inventory_transaction(
+            inv_txn = self._post_inventory(
                 product_id=item.product_id,
                 transaction_type="shipment",
-                quantity=-item.quantity,  # Negative = ship out
+                quantity_delta=-item.quantity,
                 unit_cost=item.unit_cost,
                 reference_type="sales_order",
                 reference_id=sales_order_id,
                 notes="Shipped to customer",
             )
             inv_txns.append(inv_txn)
-
-            self._update_inventory_quantity(item.product_id, -item.quantity)
 
         je_lines.append(("5000", fg_total, "DR"))   # COGS
         je_lines.append(("1220", fg_total, "CR"))   # FG Inventory
@@ -505,18 +511,16 @@ class TransactionService:
                 cost = Decimal(pkg.quantity) * pkg.unit_cost
                 pkg_total += cost
 
-                inv_txn = self._create_inventory_transaction(
+                inv_txn = self._post_inventory(
                     product_id=pkg.product_id,
                     transaction_type="consumption",
-                    quantity=-pkg.quantity,
+                    quantity_delta=-Decimal(pkg.quantity),
                     unit_cost=pkg.unit_cost,
                     reference_type="sales_order",
                     reference_id=sales_order_id,
                     notes="Packaging for shipment",
                 )
                 inv_txns.append(inv_txn)
-
-                self._update_inventory_quantity(pkg.product_id, -pkg.quantity)
 
         if pkg_total > 0:
             je_lines.append(("5010", pkg_total, "DR"))   # Shipping Supplies
@@ -563,10 +567,10 @@ class TransactionService:
             cost = item.quantity * item.unit_cost
             total_cost += cost
 
-            inv_txn = self._create_inventory_transaction(
+            inv_txn = self._post_inventory(
                 product_id=item.product_id,
                 transaction_type="receipt",
-                quantity=item.quantity,
+                quantity_delta=item.quantity,
                 unit_cost=item.unit_cost,
                 reference_type="purchase_order",
                 reference_id=purchase_order_id,
@@ -575,8 +579,6 @@ class TransactionService:
                 unit=item.unit,
             )
             inv_txns.append(inv_txn)
-
-            self._update_inventory_quantity(item.product_id, item.quantity)
 
         # Create journal entry: DR Raw Materials, CR AP
         je = self._create_journal_entry(
@@ -636,18 +638,17 @@ class TransactionService:
         unit_cost = product.standard_cost or product.average_cost or Decimal("0")
         total_cost = abs(variance) * unit_cost
 
-        # Create inventory transaction
-        inv_txn = self._create_inventory_transaction(
+        # Signed variance posts through the canonical ledger: overage adds,
+        # shortage subtracts — the sign ambiguity that caused cycle-count
+        # drift before HARD-4a is gone.
+        inv_txn = self._post_inventory(
             product_id=product_id,
             transaction_type="adjustment",
-            quantity=variance,
+            quantity_delta=variance,
             unit_cost=unit_cost,
             notes=f"Cycle count: {reason}",
             location_id=location_id,
         )
-
-        # Update inventory
-        self._update_inventory_quantity(product_id, variance, location_id)
 
         # Create journal entry
         if variance > 0:

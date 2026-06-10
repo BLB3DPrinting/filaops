@@ -14,6 +14,7 @@ from sqlalchemy import func, desc, or_
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.models import User, InventoryTransaction, Inventory, Product
+from app.services import inventory_ledger
 from app.services.inventory_service import get_or_create_inventory
 from app.logging_config import get_logger
 
@@ -60,21 +61,31 @@ async def approve_negative_inventory(
         transaction.location_id
     )
     
-    # Store original transaction type before changing it
-    original_type = transaction.transaction_type
-    
     # Update transaction with approval
     transaction.requires_approval = False
     transaction.approval_reason = approval_reason
     transaction.approved_by = current_user.email if current_user else "system"
     transaction.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     transaction.transaction_type = "negative_adjustment"
-    
-    # Now apply the inventory change (check original type to determine if it's a consumption)
-    if original_type in ["issue", "consumption", "shipment", "scrap"]:
-        inventory.on_hand_quantity = Decimal(str(inventory.on_hand_quantity)) - transaction.quantity
+
+    # Apply the held movement. Rows written through inventory_ledger
+    # (HARD-4a) store SIGNED quantities, so applying is on_hand += quantity.
+    # Legacy held rows store positive magnitudes; the pre-HARD-4a apply
+    # path was dead code (its type check never matched the stored type),
+    # so those rows were never applied — keep that no-op rather than
+    # guessing their direction. HARD-11's resolution flow handles them.
+    if transaction.quantity < 0:
+        inventory.on_hand_quantity = (
+            Decimal(str(inventory.on_hand_quantity)) + transaction.quantity
+        )
         inventory.updated_at = datetime.now(timezone.utc)
-    
+    else:
+        logger.warning(
+            f"Approved legacy held transaction {transaction.id} with "
+            f"positive-magnitude quantity {transaction.quantity}; on_hand "
+            f"NOT mutated (pre-HARD-4a rows need HARD-11 resolution)"
+        )
+
     db.commit()
     db.refresh(transaction)
     
@@ -335,24 +346,12 @@ async def adjust_inventory_quantity(
     
     # Store original adjustment amount for response
     original_adjustment = float(adjustment_qty)
-    
-    # Determine transaction type
-    if adjustment_qty > 0:
-        # Increase inventory - use 'receipt' type for positive adjustments
-        transaction_type = "receipt"
-        transaction_notes = f"Quantity adjustment (increase): {adjustment_reason}. {notes or ''}"
-        abs_adjustment_qty = adjustment_qty
-    else:
-        # Decrease inventory - use 'adjustment' type for negative adjustments
-        transaction_type = "adjustment"
-        transaction_notes = f"Quantity adjustment (decrease): {adjustment_reason}. {notes or ''}"
-        # Make quantity positive for transaction record
-        abs_adjustment_qty = abs(adjustment_qty)
-    
-    # Update inventory directly to the new quantity (in transaction unit: GRAMS for materials)
-    inventory.on_hand_quantity = float(new_qty_transaction_unit)
-    inventory.updated_at = datetime.now(timezone.utc)
-    
+
+    direction = "increase" if adjustment_qty > 0 else "decrease"
+    transaction_notes = (
+        f"Quantity adjustment ({direction}): {adjustment_reason}. {notes or ''}"
+    )
+
     # Get cost per unit for accounting
     # Use cost per inventory unit ($/gram for materials, $/unit for others)
     # This matches the transaction quantity unit for correct total_cost calculation
@@ -364,29 +363,22 @@ async def adjust_inventory_quantity(
         # Use product's effective cost per inventory unit
         transaction_cost_per_unit = get_effective_cost_per_inventory_unit(product)
 
-    # Calculate total_cost for UI display
-    total_cost = None
-    if transaction_cost_per_unit is not None:
-        total_cost = float(abs_adjustment_qty) * float(transaction_cost_per_unit)
-
-    # Create inventory transaction record for audit trail
-    # STAR SCHEMA: Store quantity in transaction unit (GRAMS for materials)
-    transaction = InventoryTransaction(
+    # Post through the canonical ledger (HARD-4a): one signed "adjustment"
+    # delta replaces the old SET-on_hand + receipt/adjustment row split.
+    # Quantity is in the transaction unit (GRAMS for materials).
+    transaction = inventory_ledger.post(
+        db,
         product_id=product_id,
         location_id=location_id,
-        transaction_type=transaction_type,
-        quantity=float(abs_adjustment_qty),  # GRAMS for materials, product_unit for others
+        transaction_type="adjustment",
+        quantity_delta=adjustment_qty,
+        cost_per_unit=transaction_cost_per_unit,
         reference_type="manual_adjustment",
         reference_id=0,  # No specific reference document
-        cost_per_unit=transaction_cost_per_unit,  # Cost per inventory unit ($/g for materials)
-        total_cost=total_cost,  # Pre-calculated for UI display
         notes=transaction_notes,
         created_by=current_user.email if current_user else "system",
-        created_at=datetime.now(timezone.utc),
-        requires_approval=False,
     )
-    db.add(transaction)
-    
+
     # Commit to ensure inventory is updated
     db.commit()
     
@@ -415,7 +407,7 @@ async def adjust_inventory_quantity(
         "previous_quantity": float(current_qty_transaction_unit),  # In transaction unit (GRAMS for materials)
         "new_quantity": float(inventory.on_hand_quantity or 0),  # In transaction unit (GRAMS for materials)
         "adjustment_amount": original_adjustment,  # In transaction unit (GRAMS for materials)
-        "transaction_type": transaction_type,
+        "transaction_type": transaction.transaction_type,
         "adjustment_reason": adjustment_reason,
         "allocated_quantity": float(inventory.allocated_quantity or 0),
         "available_quantity": float((inventory.on_hand_quantity or 0) - (inventory.allocated_quantity or 0)),

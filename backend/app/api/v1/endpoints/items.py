@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.logging_config import get_logger
+from app.models.inventory import InventoryLocation
 from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
 from app.schemas.item import (
@@ -32,6 +33,7 @@ from app.schemas.item import (
 )
 from app.schemas.item_demand import ItemDemandSummary
 from app.services.item_demand import get_item_demand_summary
+from app.services import inventory_ledger
 from app.services import item_service
 from app.services import variant_service
 
@@ -42,6 +44,22 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Response Builders
 # ---------------------------------------------------------------------------
+
+
+def _get_or_create_main_location(db: Session) -> "InventoryLocation":
+    """Resolve the MAIN warehouse location, creating it if missing."""
+    location = (
+        db.query(InventoryLocation)
+        .filter(InventoryLocation.code == "MAIN")
+        .first()
+    )
+    if not location:
+        location = InventoryLocation(
+            name="Main Warehouse", code="MAIN", type="warehouse"
+        )
+        db.add(location)
+        db.flush()
+    return location
 
 
 def _build_category_response(cat) -> ItemCategoryResponse:
@@ -360,7 +378,8 @@ async def create_material_item(
                 .first()
             )
             if inventory:
-                inventory.on_hand_quantity = qty_grams
+                location_id = inventory.location_id
+                current_qty = D(str(inventory.on_hand_quantity or 0))
             else:
                 location = (
                     db.query(InventoryLocation)
@@ -373,14 +392,25 @@ async def create_material_item(
                     )
                     db.add(location)
                     db.flush()
+                location_id = location.id
+                current_qty = D("0")
 
-                inventory = Inventory(
+            # Post the set-style quantity as a signed delta through the
+            # canonical ledger (HARD-4a) — previously this SET on_hand with
+            # no transaction row at all.
+            delta = D(str(qty_grams)) - current_qty
+            if delta != 0:
+                inventory_ledger.post(
+                    db,
                     product_id=existing.id,
-                    location_id=location.id,
-                    on_hand_quantity=qty_grams,
-                    allocated_quantity=0,
+                    location_id=location_id,
+                    transaction_type="initial" if current_qty == 0 else "adjustment",
+                    quantity_delta=delta,
+                    reference_type="material_item",
+                    reference_id=existing.id,
+                    notes="Quantity set via material item update",
+                    created_by=current_user.email if current_user else "system",
                 )
-                db.add(inventory)
 
         db.commit()
         db.refresh(existing)
@@ -427,8 +457,28 @@ async def create_material_item(
         inventory = (
             db.query(Inventory).filter(Inventory.product_id == product.id).first()
         )
-        if inventory:
-            inventory.on_hand_quantity = qty_grams
+        # Post through the canonical ledger (HARD-4a) — previously this SET
+        # on_hand with no transaction row (and silently dropped the quantity
+        # when no inventory row existed yet).
+        location_id = (
+            inventory.location_id
+            if inventory
+            else _get_or_create_main_location(db).id
+        )
+        current_qty = D(str(inventory.on_hand_quantity or 0)) if inventory else D("0")
+        delta = D(str(qty_grams)) - current_qty
+        if delta != 0:
+            inventory_ledger.post(
+                db,
+                product_id=product.id,
+                location_id=location_id,
+                transaction_type="initial" if current_qty == 0 else "adjustment",
+                quantity_delta=delta,
+                reference_type="material_item",
+                reference_id=product.id,
+                notes="Initial quantity from material item creation",
+                created_by=current_user.email if current_user else "system",
+            )
 
     db.commit()
     db.refresh(product)

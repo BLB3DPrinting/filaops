@@ -269,10 +269,12 @@ class TestCreateInventoryTransactionAdjustment:
         )
         db.flush()
 
-        # Adjustment of 200 means the service subtracts 200 from current on_hand
+        # HARD-4a sign migration: "adjustment" is a SIGNED delta (positive
+        # increases stock). The old convention subtracted positive
+        # adjustments — the sign bug that caused cycle-count drift.
         txn = inventory_service.create_inventory_transaction(
             db=db, product_id=product.id, location_id=location.id,
-            transaction_type="adjustment", quantity=Decimal("200"),
+            transaction_type="adjustment", quantity=Decimal("-200"),
             reference_type="adjustment", reference_id=1,
             notes="Cycle count correction",
         )
@@ -282,9 +284,10 @@ class TestCreateInventoryTransactionAdjustment:
             Inventory.product_id == product.id,
             Inventory.location_id == location.id,
         ).first()
-        # 500 - 200 = 300
+        # 500 + (-200) = 300
         assert inv.on_hand_quantity == Decimal("300")
         assert txn.transaction_type == "adjustment"
+        assert txn.quantity == Decimal("-200")  # ledger stores the signed delta
 
     def test_scrap_decreases_on_hand(self, db, make_product):
         product = make_product()
@@ -544,8 +547,8 @@ class TestConsumeProductionMaterials:
         )
 
         assert len(txns) == 1
-        # 100 * (1 + 0.10) * 5 = 550
-        assert txns[0].quantity == Decimal("550.0000")
+        # 100 * (1 + 0.10) * 5 = 550 consumed -> signed delta (HARD-4a)
+        assert txns[0].quantity == Decimal("-550.0000")
 
     def test_consumes_materials_successfully(self, db, make_product):
         fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
@@ -564,7 +567,7 @@ class TestConsumeProductionMaterials:
         )
 
         assert len(txns) == 1
-        assert txns[0].quantity == Decimal("500")  # 100 * 5
+        assert txns[0].quantity == Decimal("-500")  # 100 * 5 consumed, signed (HARD-4a)
         assert txns[0].transaction_type == "consumption"
 
 
@@ -607,7 +610,7 @@ class TestConsumeShippingMaterials:
 
         txns = inventory_service.consume_shipping_materials(db, so)
         assert len(txns) == 1
-        assert txns[0].quantity == Decimal("3")  # 1 box per unit * 3 units
+        assert txns[0].quantity == Decimal("-3")  # 1 box per unit * 3 units, signed (HARD-4a)
 
     def test_no_bom_skips_product(self, db, make_product):
         fg = make_product(item_type="finished_good")
@@ -666,7 +669,7 @@ class TestConsumeShippingMaterials:
 
         txns = inventory_service.consume_shipping_materials(db, so)
         assert len(txns) == 1
-        assert txns[0].quantity == Decimal("2")
+        assert txns[0].quantity == Decimal("-2")  # signed (HARD-4a)
 
 
 # =============================================================================
@@ -702,7 +705,7 @@ class TestIssueShippedGoods:
         txns = inventory_service.issue_shipped_goods(db, so)
         assert len(txns) == 1
         assert txns[0].transaction_type == "shipment"
-        assert txns[0].quantity == Decimal("3")
+        assert txns[0].quantity == Decimal("-3")  # signed (HARD-4a)
 
     def test_issues_from_order_lines(self, db, make_product):
         """issue_shipped_goods reads from sales_order.lines when present."""
@@ -739,7 +742,7 @@ class TestIssueShippedGoods:
 
         txns = inventory_service.issue_shipped_goods(db, so)
         assert len(txns) == 1
-        assert txns[0].quantity == Decimal("4")
+        assert txns[0].quantity == Decimal("-4")  # signed (HARD-4a)
         assert txns[0].transaction_type == "shipment"
 
 
