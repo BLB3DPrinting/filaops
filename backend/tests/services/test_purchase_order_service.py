@@ -89,13 +89,13 @@ def _add_po_line(db, po, product, qty_ordered, unit_cost, purchase_unit=None, qt
 # =============================================================================
 
 class TestGeneratePoNumber:
-    """Test generate_po_number."""
+    """Test generate_po_number (HARD-10: regex+numeric-cast hardened generator)."""
 
     def test_first_po_of_year(self, db):
-        """When no POs exist for the current year, returns PO-YYYY-001."""
+        """When no POs exist for the current year, returns PO-YYYY-0001."""
         year = datetime.now(timezone.utc).year
         po_num = generate_po_number(db)
-        assert po_num.startswith(f"PO-{year}-")
+        assert po_num == f"PO-{year}-0001"
 
     def test_increments_from_existing(self, db, make_vendor, make_purchase_order):
         """Increments the numeric suffix from the highest existing PO number."""
@@ -105,30 +105,30 @@ class TestGeneratePoNumber:
         db.commit()
 
         po_num = generate_po_number(db)
-        assert po_num == f"PO-{year}-006"
+        assert po_num == f"PO-{year}-0006"
 
     def test_handles_non_numeric_suffix(self, db, make_vendor, make_purchase_order):
-        """Falls back to 001 when the existing PO has a non-numeric suffix."""
+        """Falls back to 0001 when the only existing PO has a non-numeric suffix."""
         year = datetime.now(timezone.utc).year
         vendor = make_vendor()
         make_purchase_order(vendor_id=vendor.id, po_number=f"PO-{year}-abc")
         db.commit()
 
         po_num = generate_po_number(db)
-        assert po_num.startswith(f"PO-{year}-")
+        assert po_num == f"PO-{year}-0001"
 
     def test_zero_padded_format(self, db, make_vendor, make_purchase_order):
-        """PO numbers are zero-padded to 3 digits."""
+        """PO numbers are zero-padded to 4 digits (HARD-10 upgrade from 3)."""
         year = datetime.now(timezone.utc).year
         vendor = make_vendor()
-        make_purchase_order(vendor_id=vendor.id, po_number=f"PO-{year}-002")
+        make_purchase_order(vendor_id=vendor.id, po_number=f"PO-{year}-0002")
         db.commit()
 
         po_num = generate_po_number(db)
-        assert po_num == f"PO-{year}-003"
-        # Verify 3-digit zero-padding
+        assert po_num == f"PO-{year}-0003"
+        # Verify 4-digit zero-padding for fresh sequences
         suffix = po_num.split("-")[2]
-        assert len(suffix) == 3
+        assert len(suffix) == 4
 
     def test_high_sequence_no_truncation(self, db, make_vendor, make_purchase_order):
         """Sequence numbers beyond 999 are not truncated."""

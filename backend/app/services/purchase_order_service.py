@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import desc, extract
+from sqlalchemy import Integer, cast, desc, extract
 from sqlalchemy import func as sql_func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -38,20 +38,28 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def generate_po_number(db: Session) -> str:
-    """Generate next PO number (PO-2025-001, PO-2025-002, etc.)"""
-    year = datetime.now(timezone.utc).year
-    pattern = f"PO-{year}-%"
-    last = db.query(PurchaseOrder).filter(
-        PurchaseOrder.po_number.like(pattern)
-    ).order_by(desc(PurchaseOrder.po_number)).first()
+    """Generate next PO number in format PO-YYYY-NNNN (zero-padded to 4 digits).
 
-    if last:
-        try:
-            num = int(last.po_number.split("-")[2])
-            return f"PO-{year}-{num + 1:03d}"
-        except (IndexError, ValueError):
-            pass
-    return f"PO-{year}-001"
+    Uses DB-side numeric extraction with a regex guard to handle mixed-width
+    existing data (e.g. PO-2026-027 and PO-2026-0026 both parse correctly and
+    the next number is derived from the numeric maximum, not lexicographic order).
+    Existing 3-digit codes (PO-2026-027) are tolerated — do not renumber them.
+    """
+    year = datetime.now(timezone.utc).year
+    prefix = f"PO-{year}-"
+    max_seq = (
+        db.query(
+            sql_func.max(
+                cast(sql_func.replace(PurchaseOrder.po_number, prefix, ""), Integer)
+            )
+        )
+        .filter(
+            PurchaseOrder.po_number.like(f"{prefix}%"),
+            PurchaseOrder.po_number.op("~")(rf"^PO-{year}-\d+$"),
+        )
+        .scalar()
+    ) or 0
+    return f"{prefix}{max_seq + 1:04d}"
 
 
 def calculate_totals(po: PurchaseOrder) -> None:

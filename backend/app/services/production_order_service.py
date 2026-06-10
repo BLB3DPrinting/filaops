@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, desc, or_, case
+from sqlalchemy import Integer, cast, func, desc, or_, case
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -34,23 +34,27 @@ logger = get_logger(__name__)
 # =============================================================================
 
 def generate_production_order_code(db: Session) -> str:
-    """Generate sequential production order code: PO-YYYY-NNN"""
+    """Generate next production order code in format PO-YYYY-NNNN (zero-padded to 4 digits).
+
+    Uses DB-side numeric extraction with a regex guard to handle mixed-width
+    existing data correctly and avoid lexicographic sort errors at sequence
+    boundaries (e.g. 999 → 1000).
+    """
     year = datetime.now(timezone.utc).year
-    last = (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.code.like(f"PO-{year}-%"))
-        .order_by(desc(ProductionOrder.code))
-        .first()
-    )
-    if last:
-        try:
-            last_num = int(last.code.split("-")[2])
-            next_num = last_num + 1
-        except (IndexError, ValueError):
-            next_num = 1
-    else:
-        next_num = 1
-    return f"PO-{year}-{next_num:04d}"
+    prefix = f"PO-{year}-"
+    max_seq = (
+        db.query(
+            func.max(
+                cast(func.replace(ProductionOrder.code, prefix, ""), Integer)
+            )
+        )
+        .filter(
+            ProductionOrder.code.like(f"{prefix}%"),
+            ProductionOrder.code.op("~")(rf"^PO-{year}-\d+$"),
+        )
+        .scalar()
+    ) or 0
+    return f"{prefix}{max_seq + 1:04d}"
 
 
 # =============================================================================

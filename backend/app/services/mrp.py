@@ -22,6 +22,8 @@ from app.models import (
 from app.core.settings import get_settings
 from app.logging_config import get_logger
 from app.services.uom_service import INLINE_UOM_CONVERSIONS as UOM_CONVERSIONS
+from app.services.purchase_order_service import generate_po_number
+from app.services.production_order_service import generate_production_order_code
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -1081,19 +1083,8 @@ class MRPService:
         user_id: Optional[int]
     ) -> int:
         """Create a purchase order from a planned order"""
-        # Generate PO number
-        year = datetime.now(timezone.utc).year
-        last_po = self.db.query(PurchaseOrder).filter(
-            PurchaseOrder.po_number.like(f"PO-{year}-%")
-        ).order_by(PurchaseOrder.po_number.desc()).first()
-
-        if last_po:
-            last_num = int(last_po.po_number.split("-")[2])
-            next_num = last_num + 1
-        else:
-            next_num = 1
-
-        po_number = f"PO-{year}-{next_num:04d}"
+        # Generate PO number using the canonical hardened generator
+        po_number = generate_po_number(self.db)
 
         # Get product for cost
         product = self.db.get(Product, planned_order.product_id)
@@ -1136,19 +1127,8 @@ class MRPService:
         user_id: Optional[int]
     ) -> int:
         """Create a production order from a planned order"""
-        # Generate PO code (Production Order)
-        year = datetime.now(timezone.utc).year
-        last_po = self.db.query(ProductionOrder).filter(
-            ProductionOrder.code.like(f"PO-{year}-%")
-        ).order_by(ProductionOrder.code.desc()).first()
-
-        if last_po:
-            last_num = int(last_po.code.split("-")[2])
-            next_num = last_num + 1
-        else:
-            next_num = 1
-
-        po_code = f"PO-{year}-{next_num:04d}"
+        # Generate production order code using the canonical hardened generator
+        po_code = generate_production_order_code(self.db)
 
         # Get active BOM for product
         bom = self.db.query(BOM).filter(
