@@ -1,8 +1,16 @@
 """
 Material API Endpoints
 
-Provides material type and color options for the quote portal.
+Provides material type and color options for the quote portal and internal staff UIs.
 Uses material_service for business logic (ARCHITECT-003).
+
+All endpoints require staff authentication.  Even read-only listing endpoints
+(/options, /types, /types/{code}/colors, /for-bom) expose pricing data
+(price_multiplier, base_price_per_kg, standard_cost) and inventory levels that
+should not be visible to unauthenticated actors.
+
+The public Quoter (filaops-ecosystem) uses PRO's /api/v1/pro/quotes/public-options
+for customer-facing material selection — it does not call these Core endpoints.
 """
 from typing import List, Literal
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
@@ -13,7 +21,7 @@ import io
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, get_current_staff_user
 from app.models.inventory import Inventory
 from app.logging_config import get_logger
 from app.services.material_service import (
@@ -28,7 +36,9 @@ from app.services.material_service import (
 
 logger = get_logger(__name__)
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # ============================================================================
