@@ -11,6 +11,7 @@ import ReceiveModal from "../../components/purchasing/ReceiveModal";
 import PurchaseOrdersTab from "../../components/purchasing/PurchaseOrdersTab";
 import VendorsTab from "../../components/purchasing/VendorsTab";
 import LowStockTab from "../../components/purchasing/LowStockTab";
+import BuyListTab from "../../components/purchasing/BuyListTab";
 
 export default function AdminPurchasing() {
   const api = useApi();
@@ -626,10 +627,20 @@ export default function AdminPurchasing() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setActiveTab("buy-list")}
+          className={`pb-2 px-1 text-sm font-medium transition-colors ${
+            activeTab === "buy-list"
+              ? "text-red-400 border-b-2 border-red-400"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          Buy List
+        </button>
       </div>
 
-      {/* Filters - hide on import and low-stock tabs */}
-      {activeTab !== "import" && activeTab !== "low-stock" && (
+      {/* Filters - hide on import, low-stock, and buy-list tabs */}
+      {activeTab !== "import" && activeTab !== "low-stock" && activeTab !== "buy-list" && (
         <div className="flex flex-col sm:flex-row gap-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex-1">
             <input
@@ -673,7 +684,7 @@ export default function AdminPurchasing() {
         </div>
       )}
 
-      {/* Loading - only show for orders and vendors tabs */}
+      {/* Loading - only show for orders and vendors tabs (buy-list has its own loader) */}
       {loading && (activeTab === "orders" || activeTab === "vendors") && (
         <div className="flex items-center justify-center h-32">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -748,6 +759,9 @@ export default function AdminPurchasing() {
           onCreatePOFromSelection={handleCreatePOFromSelection}
         />
       )}
+
+      {/* Buy List Tab — HARD-7: computed-on-demand netting across all open demand */}
+      {activeTab === "buy-list" && <BuyListTab />}
 
       {/* Vendor Modal */}
       {showVendorModal && (
