@@ -280,15 +280,35 @@ buy-list PO creation prefers `VendorItem.default_unit_cost` for the chosen vendo
 receiving optionally upserts VendorItem from actuals ("remember this price?"); simple
 management UI on the vendor detail. Impact: MED. Effort: M.
 
-### HARD-14: Traceability spine decision  [DESIGN — needs user, gates plan-v1 PR-14]
+### HARD-14: Traceability spine  [DECIDED 2026-06-10 — design doc next; gates plan-v1 PR-14]
 
-Two spines: MaterialLot (wired: 7 lots, FIFO consumption, recall queries work) vs
-MaterialSpool/ProductionOrderSpool (fully built, ZERO rows ever). The spool→product
-GTM story currently returns empty. Decide: (a) spools become the consumption unit for
-filament (wire spool selection/auto-pick into production completion, spools reference
-lots), or (b) lots are canonical and spools are a labeled view of lot quantity.
-Recommendation: (a) for print-farm differentiation, but it's real work — design doc
-first. Impact: strategic. Effort: L.
+OWNER DECISION (med-dev traceability model applied to printing): **spool = serial,
+PO/receipt = batch; lot-as-mill-cert is not meaningful for filament sourcing** (you
+don't get a mill cert from a filament vendor). The two existing spines are therefore
+HIERARCHICAL, not rivals:
+
+- **Batch layer = MaterialLot** (exists, wired, has data): created at PO receipt,
+  carries PO + vendor identity. Keep as-is — it already IS the batch record.
+- **Serial layer = MaterialSpool** (built, currently unwired): each spool belongs to
+  a receipt/lot. Wire `ProductionOrderSpool` consumption into production completion.
+
+**Enforcement is a COMPANY SETTING (off by default), not a global behavior:**
+- Setting ON (regulated mode): spool assignment is MANDATORY at consumption —
+  production completion blocks without it. Full chain answerable: SO → SKU →
+  material item → spool serial → receiving PO → vendor.
+- Setting OFF: current behavior stands (item-level backflush, lot-FIFO attribution,
+  no spool requirement). Spools page remains available as an optional registry.
+
+Rationale: full serial traceability is real up-front operator work; most farms don't
+need it, regulated customers (med-dev, aerospace) MUST have it. The setting makes it
+a sales feature instead of universal friction.
+
+Scope: design doc first (consumption UX when ON — spool picker/auto-pick-by-printer,
+partial-spool handling, weight reconciliation; setting placement in company settings;
+what the traceability report renders for OFF-mode history). Then implementation.
+Unblocks plan-v1 PR-14 (consumption visibility), whose Materials card should render
+spool serials when the setting is ON and lot attribution when OFF.
+Impact: strategic (GTM differentiator for regulated buyers). Effort: L.
 
 ### HARD-15: Small-fix batch (one PR)
 
