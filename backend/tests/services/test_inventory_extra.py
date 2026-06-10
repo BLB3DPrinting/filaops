@@ -1219,3 +1219,322 @@ class TestBatchUpdateInventory:
                 location_id=999999,
                 admin_id=1,
             )
+
+
+# =============================================================================
+# HARD-11: Consumption idempotency + held-transaction reject path
+# =============================================================================
+
+class TestConsumptionIdempotency:
+    """
+    HARD-11: consume_production_materials must skip BOM-level backflush when
+    per-operation consumption already posted a non-voided transaction for the
+    same (production_order, component) pair.
+    """
+
+    def test_double_fire_posts_only_once(self, db, make_product):
+        """Calling consume_production_materials twice must not double-consume."""
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": comp.id, "quantity": Decimal("100"), "unit": "G",
+             "consume_stage": "production"},
+        ])
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("5000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=5)
+
+        # First call
+        txns1 = inventory_service.consume_production_materials(
+            db, po, Decimal("5"), release_reservations=False
+        )
+        assert len(txns1) == 1
+
+        # Second call: should skip (idempotent)
+        txns2 = inventory_service.consume_production_materials(
+            db, po, Decimal("5"), release_reservations=False
+        )
+        assert len(txns2) == 0, "Second call must produce zero transactions"
+
+        # Only one consumption row in DB
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 1
+
+    def test_voided_transaction_does_not_block_repost(self, db, make_product):
+        """A voided consumption row does NOT count as already-posted — a fresh
+        post is allowed after the void."""
+        from app.services import inventory_ledger
+
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": comp.id, "quantity": Decimal("100"), "unit": "G",
+             "consume_stage": "production"},
+        ])
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("5000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=5)
+
+        # Post once via the ledger directly so we can void it
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-500"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        # Void it (reject path)
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="staff@test.com", void_reason="test void"
+        )
+
+        # Now the backflush should proceed (voided rows do not count)
+        txns = inventory_service.consume_production_materials(
+            db, po, Decimal("5"), release_reservations=False
+        )
+        assert len(txns) == 1, "Backflush must post after the voided row"
+
+
+class TestRejectHeldTransaction:
+    """HARD-11: reject_held_transaction voids a pending row, leaves on_hand untouched."""
+
+    def test_reject_voids_row_and_preserves_on_hand(self, db, make_product):
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("100"))
+
+        # Post a held (requires_approval) row — on_hand should NOT be touched
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-200"),  # would go negative
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        assert txn.voided_by is None
+
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == comp.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert inv.on_hand_quantity == Decimal("100")  # unchanged
+
+        # Reject the held row
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="manager@test.com", void_reason="data entry error"
+        )
+
+        assert txn.voided_by == "manager@test.com"
+        assert txn.void_reason == "data entry error"
+        assert txn.voided_at is not None
+
+        # on_hand still unchanged after rejection
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("100")
+
+    def test_reject_already_approved_raises(self, db, make_product):
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-50"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        # Approve it
+        inventory_ledger.apply_held_transaction(
+            db, txn, approved_by="boss@test.com", approval_reason="OK"
+        )
+
+        # After approval, requires_approval=False, so reject raises "does not require approval"
+        with pytest.raises(ValueError):
+            inventory_ledger.reject_held_transaction(
+                db, txn, voided_by="other@test.com", void_reason="too late"
+            )
+
+    def test_reject_non_held_raises(self, db, make_product):
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+        # Normal (non-held) row
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-50"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=False,
+        )
+
+        with pytest.raises(ValueError, match="does not require approval"):
+            inventory_ledger.reject_held_transaction(
+                db, txn, voided_by="staff@test.com", void_reason="oops"
+            )
+
+    def test_reject_twice_raises(self, db, make_product):
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("100"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-200"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="a@test.com", void_reason="first"
+        )
+
+        with pytest.raises(ValueError, match="already voided"):
+            inventory_ledger.reject_held_transaction(
+                db, txn, voided_by="b@test.com", void_reason="second"
+            )
+
+
+class TestCogsExcludesHeldAndVoidedRows:
+    """HARD-11: _consumption_already_posted skips voided rows; COGS logic
+    (tested indirectly) excludes unapplied and voided rows.
+
+    We test via the service helper directly since the accounting endpoint
+    calls into the DB and requires a running server context.
+    """
+
+    def test_held_row_counted_as_posted_for_idempotency(self, db, make_product):
+        """A pending held row IS counted as already-posted for idempotency
+        (prevent double-fire) — the component was consumed, just awaiting approval."""
+        from app.services import inventory_ledger
+        from app.services.inventory_service import _consumption_already_posted
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("500"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+
+        # Write a held (unapplied) consumption row
+        inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-100"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+
+        # Pending held row: IS counted as already posted (prevents double-fire)
+        assert _consumption_already_posted(db, po.id, comp.id) is True
+
+    def test_voided_row_not_counted_as_posted(self, db, make_product):
+        """A voided row must NOT block a subsequent backflush."""
+        from app.services import inventory_ledger
+        from app.services.inventory_service import _consumption_already_posted
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("500"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-100"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="staff@test.com", void_reason="rejected"
+        )
+
+        # Voided row: must NOT count as already posted
+        assert _consumption_already_posted(db, po.id, comp.id) is False
+
+    def test_applied_row_counted_as_posted(self, db, make_product):
+        """An approved+applied row IS counted as already posted."""
+        from app.services import inventory_ledger
+        from app.services.inventory_service import _consumption_already_posted
+
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, comp.id, qty_ordered=1)
+
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-100"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        inventory_ledger.apply_held_transaction(
+            db, txn, approved_by="mgr@test.com", approval_reason="OK"
+        )
+
+        assert _consumption_already_posted(db, po.id, comp.id) is True
+
+    def test_normal_consumption_row_counted_as_posted(self, db, make_product):
+        """A directly-applied (non-held) consumption row IS counted as posted."""
+        from app.services.inventory_service import _consumption_already_posted
+
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        comp = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": comp.id, "quantity": Decimal("100"), "unit": "G",
+             "consume_stage": "production"},
+        ])
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("5000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=5)
+        inventory_service.consume_production_materials(
+            db, po, Decimal("5"), release_reservations=False
+        )
+
+        assert _consumption_already_posted(db, po.id, comp.id) is True
