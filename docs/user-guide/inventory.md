@@ -279,6 +279,12 @@ Below the summary, a **variance details table** shows every item that had a vari
 - **Use specific reasons** — "Physical count variance" is a catch-all, but specific reasons like "Shipped but not recorded" help you find and fix process gaps.
 - **Count during quiet times** — Avoid counting while production is running or orders are being packed. Activity during the count leads to inaccurate results.
 
+!!! tip "Investigating a specific item?"
+    The Reconciliation report (Inventory > Transactions > Reconciliation section) lets
+    you count a single item and see exactly where its stored balance diverges from the
+    transaction ledger. Use it when a particular SKU looks wrong rather than running a
+    full cycle count. See [Inventory Reconciliation](inventory-reconciliation.md).
+
 ---
 
 ## Tips & Best Practices
