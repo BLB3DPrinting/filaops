@@ -134,6 +134,7 @@ nav:
       - Taking and Fulfilling Orders: user-guide/orders.md
       - Running Production: user-guide/production.md
       - Tracking Inventory: user-guide/inventory.md
+      - Inventory Reconciliation: user-guide/inventory-reconciliation.md
       - Ordering Supplies: user-guide/purchasing.md
       - Monitoring Your Printers: user-guide/printers.md
     - Planning & Finance:
