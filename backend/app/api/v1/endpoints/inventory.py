@@ -62,7 +62,10 @@ async def approve_negative_inventory(
     # double-add race (HARD-4a follow-up).
     transaction.transaction_type = "negative_adjustment"
 
-    approver = current_user.email if current_user else "system"
+    # Guard against User.email being None (e.g. social-login accounts that
+    # have not yet set a primary email) to keep the approved_by field
+    # non-null so the already-approved guard in apply_held_transaction works.
+    approver = (current_user.email if current_user else None) or "system"
     apply_held_transaction(
         db,
         transaction=transaction,

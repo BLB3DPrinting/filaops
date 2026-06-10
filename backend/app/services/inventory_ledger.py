@@ -242,11 +242,33 @@ def apply_held_transaction(
         )
 
     # Acquire FOR UPDATE lock on the inventory row.  This serializes
-    # concurrent approval attempts on the same product/location pair so
-    # on_hand can only be incremented once per held row.
+    # concurrent inventory mutations for the same product/location pair.
     inventory = get_or_create_inventory_row(
         db, transaction.product_id, transaction.location_id
     )
+
+    # Re-validate transaction state AFTER acquiring the lock.
+    #
+    # The pre-lock checks above catch the easy "obviously wrong" cases, but
+    # there is a TOCTOU race: two concurrent approvals can both pass those
+    # checks before either acquires the inventory lock.  Once the lock is
+    # held, refresh the transaction from the database to pick up any state
+    # change committed by the concurrent winner, then re-check.
+    #
+    # Without the refresh, Request B would read stale ORM state
+    # (requires_approval=True) even after Request A's commit set it to
+    # False, and would double-apply the delta.
+    db.refresh(transaction)
+    if not transaction.requires_approval:
+        raise ValueError(
+            f"Transaction {transaction.id} was approved concurrently "
+            f"(race detected after acquiring inventory lock)"
+        )
+    if transaction.approved_by is not None:
+        raise ValueError(
+            f"Transaction {transaction.id} is already approved by "
+            f"{transaction.approved_by} (concurrent approval)"
+        )
 
     now = datetime.now(timezone.utc)
     transaction.requires_approval = False

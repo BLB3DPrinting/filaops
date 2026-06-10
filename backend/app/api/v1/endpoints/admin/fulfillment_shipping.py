@@ -417,7 +417,8 @@ async def buy_consolidated_shipping_label(
             if not res_txn:
                 continue
 
-            reserved_qty_dec = Decimal(str(abs(float(res_txn.quantity))))
+            # Avoid float round-trip — convert from Decimal/Numeric directly.
+            reserved_qty_dec = abs(Decimal(str(res_txn.quantity)))
             component = db.query(Product).filter(Product.id == res_txn.product_id).first()
             unit_cost = get_effective_cost_per_inventory_unit(component) if component else None
 
