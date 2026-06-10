@@ -261,6 +261,9 @@ def get_inventory_summary(
     for inv in items:
         product = inv.product
         location = inv.location
+        # Best available unit cost: standard > average > last; None if all null
+        raw_cost = product.standard_cost or product.average_cost or product.last_cost
+        unit_cost = float(raw_cost) if raw_cost is not None else None
         result.append({
             "inventory_id": inv.id,
             "product_id": product.id,
@@ -277,6 +280,7 @@ def get_inventory_summary(
                 if inv.available_quantity
                 else float(inv.on_hand_quantity) - float(inv.allocated_quantity)
             ),
+            "unit_cost": unit_cost,
             "last_counted": inv.last_counted.isoformat() if inv.last_counted else None,
         })
 

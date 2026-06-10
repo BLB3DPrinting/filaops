@@ -182,9 +182,13 @@ Navigate to **Inventory > Cycle Count** in the sidebar.
 graph LR
     A[Filter items to count] --> B[Count physical stock]
     B --> C[Enter counted quantities]
-    C --> D[Review variances]
-    D --> E[Submit count]
-    E --> F[System records adjustments]
+    C --> D[Review variances in table]
+    D --> E[Submit Count]
+    E --> F[Review variance summary]
+    F --> G{Correct?}
+    G -- Yes --> H[Confirm & Post]
+    G -- No --> D
+    H --> I[System records adjustments + GL entries]
 ```
 
 When you submit a cycle count, FilaOps automatically creates inventory adjustment transactions for every item where the counted quantity differs from the system quantity. These adjustments include the reason you selected and create corresponding accounting entries.
@@ -247,26 +251,39 @@ As you enter quantities, FilaOps highlights variances in real time:
 
 For each item with a variance, you can optionally select a **per-item reason** from the dropdown. If you don't, the default reason from the top of the page is used.
 
-#### Step 5: Submit the Count
+#### Step 5: Review the Variance Summary
 
-When you've finished entering all quantities, click **Submit Count**.
+When you've finished entering all quantities, click **Submit Count**. FilaOps opens a
+**Variance Review** panel before writing anything. The review shows:
 
-FilaOps processes the count and shows a results summary:
-
-- **Total Items** — How many items were included in the count
-- **Successful** (green) — Items processed without errors
-- **Failed** (red) — Items that couldn't be processed (rare, usually a system error)
-
-Below the summary, a **variance details table** shows every item that had a variance:
+- A summary line: **N adjustments, total variance value $X (▲ $Y up / ▼ $Z down)**
+- Items counted at system quantity (zero variance) are collapsed into a single note —
+  they require no adjustment and are not listed individually.
+- A per-item table for every item that *will* be adjusted:
 
 | Column | What It Shows |
 |--------|--------------|
 | **SKU** | Item part number |
 | **Name** | Item name |
-| **Previous** | What the system quantity was before the count |
-| **Counted** | What you entered |
-| **Variance** | The difference |
-| **Status** | OK (green) or FAILED (red) |
+| **System Qty** | Quantity the system had recorded |
+| **Counted Qty** | What you entered |
+| **Variance** | The difference (green = found more, red = found less) |
+| **Unit Cost** | Cost used to calculate the dollar impact |
+| **Variance Value** | `variance × unit cost` — the GL dollar amount |
+| **Reason** | The reason that will be recorded on the transaction |
+
+From this screen you have two options:
+
+- **Go Back** — dismiss the review and return to your entries (nothing is written;
+  all your counts are preserved so you can correct any mistakes).
+- **Confirm & Post** — post all adjustments immediately. Inventory quantities and
+  GL journal entries are written at this point.
+
+After a successful post, the page shows a results summary:
+
+- **Total Items** — How many items were included in the count
+- **Successful** (green) — Items processed without errors
+- **Failed** (red) — Items that couldn't be processed (rare, usually a system error)
 
 !!! info "Accounting impact"
     Every cycle count variance creates a journal entry in your general ledger. Positive variances debit Inventory and credit the Inventory Adjustment expense account. Negative variances do the opposite. This keeps your books in sync with physical reality.
@@ -313,6 +330,6 @@ With inventory tracking in place, you can automate replenishment and plan ahead:
 | Record an adjustment | **Inventory > Transactions** > **+ New Transaction** > Type: Adjustment |
 | Add a new spool | **Inventory > Spools** > **+ Add Spool** |
 | Update spool weight | **Inventory > Spools** > **Edit** on the spool row |
-| Run a cycle count | **Inventory > Cycle Count** > Fill quantities > **Submit Count** |
+| Run a cycle count | **Inventory > Cycle Count** > Fill quantities > **Submit Count** > review variances > **Confirm & Post** |
 | Filter by location | Use the Location dropdown on any inventory page |
 | Check stock levels | **Inventory > Items** > Look at stock status colors |

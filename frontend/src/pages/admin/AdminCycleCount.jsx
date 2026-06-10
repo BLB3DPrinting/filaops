@@ -2,6 +2,141 @@ import { useState, useEffect, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 
+// ---------------------------------------------------------------------------
+// Variance review modal — shown BEFORE any writes
+// ---------------------------------------------------------------------------
+function VarianceReviewModal({ reviewItems, noVarianceCount, countReference, submitting, onConfirm, onBack }) {
+  const totalAdjustments = reviewItems.filter((r) => r.variance !== 0).length;
+  const totalVarianceValue = reviewItems.reduce((acc, r) => acc + r.varianceValue, 0);
+  const upValue = reviewItems.filter((r) => r.variance > 0).reduce((acc, r) => acc + r.varianceValue, 0);
+  const downValue = reviewItems.filter((r) => r.variance < 0).reduce((acc, r) => acc + Math.abs(r.varianceValue), 0);
+
+  const fmtQty = (v) =>
+    v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const fmtCurrency = (v) =>
+    v != null
+      ? `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "—";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-800 flex-shrink-0">
+          <h2 className="text-xl font-bold text-white">Review Variance Before Posting</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Review every adjustment below. Once you confirm, inventory and GL entries will be written immediately.
+          </p>
+        </div>
+
+        {/* Summary row */}
+        <div className="px-6 py-3 bg-gray-800/50 border-b border-gray-800 flex-shrink-0">
+          <div className="flex flex-wrap gap-6 text-sm">
+            <span className="text-gray-300">
+              <span className="font-semibold text-white">{totalAdjustments}</span> adjustment{totalAdjustments !== 1 ? "s" : ""}
+            </span>
+            <span className="text-gray-300">
+              Total variance value:{" "}
+              <span className={`font-semibold ${totalVarianceValue > 0 ? "text-green-400" : totalVarianceValue < 0 ? "text-red-400" : "text-white"}`}>
+                {totalVarianceValue >= 0 ? "+" : "−"}{fmtCurrency(totalVarianceValue)}
+              </span>
+            </span>
+            {upValue > 0 && (
+              <span className="text-green-400 text-xs">
+                ▲ {fmtCurrency(upValue)} up
+              </span>
+            )}
+            {downValue > 0 && (
+              <span className="text-red-400 text-xs">
+                ▼ {fmtCurrency(downValue)} down
+              </span>
+            )}
+            {noVarianceCount > 0 && (
+              <span className="text-gray-500 text-xs">
+                {noVarianceCount} item{noVarianceCount !== 1 ? "s" : ""} counted at system qty — no adjustment
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Variance table */}
+        <div className="overflow-y-auto flex-1">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-800/80 sticky top-0">
+              <tr>
+                <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase">SKU</th>
+                <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase hidden sm:table-cell">Name</th>
+                <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">System Qty</th>
+                <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Counted Qty</th>
+                <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Variance</th>
+                <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Unit Cost</th>
+                <th className="text-right py-2 px-4 text-xs font-medium text-gray-400 uppercase">Variance Value</th>
+                <th className="text-left py-2 px-4 text-xs font-medium text-gray-400 uppercase hidden md:table-cell">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reviewItems.map((r) => (
+                <tr key={r.product_id} className="border-t border-gray-800">
+                  <td className="py-2 px-4 font-mono text-white text-xs">{r.product_sku}</td>
+                  <td className="py-2 px-4 text-gray-400 hidden sm:table-cell">{r.product_name}</td>
+                  <td className="py-2 px-4 text-right text-gray-400">{fmtQty(r.systemQty)}</td>
+                  <td className="py-2 px-4 text-right text-white">{fmtQty(r.countedQty)}</td>
+                  <td
+                    className={`py-2 px-4 text-right font-medium ${
+                      r.variance > 0 ? "text-green-400" : r.variance < 0 ? "text-red-400" : "text-gray-500"
+                    }`}
+                  >
+                    {r.variance > 0 ? "+" : ""}{fmtQty(r.variance)}
+                  </td>
+                  <td className="py-2 px-4 text-right text-gray-400">
+                    {r.unitCost != null ? fmtCurrency(r.unitCost) : <span className="text-gray-600">—</span>}
+                  </td>
+                  <td
+                    className={`py-2 px-4 text-right font-medium ${
+                      r.varianceValue > 0 ? "text-green-400" : r.varianceValue < 0 ? "text-red-400" : "text-gray-500"
+                    }`}
+                  >
+                    {r.varianceValue !== 0 ? (
+                      <>
+                        {r.varianceValue > 0 ? "+" : "−"}
+                        {fmtCurrency(r.varianceValue)}
+                      </>
+                    ) : (
+                      <span className="text-gray-600">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-4 text-gray-400 text-xs hidden md:table-cell">{r.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-800 flex justify-end gap-3 flex-shrink-0">
+          <button
+            onClick={onBack}
+            disabled={submitting}
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50"
+          >
+            Go Back
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={submitting}
+            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50"
+          >
+            {submitting ? "Posting…" : `Confirm & Post ${totalAdjustments} Adjustment${totalAdjustments !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 export default function AdminCycleCount() {
   const api = useApi();
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -22,6 +157,8 @@ export default function AdminCycleCount() {
   const [countReference, setCountReference] = useState(
     `Cycle Count ${new Date().toISOString().split("T")[0]}`
   );
+  // Review modal state: null = hidden, array of review rows = visible
+  const [reviewRows, setReviewRows] = useState(null);
   const toast = useToast();
 
   // Common cycle count adjustment reasons (required for accounting audit trail)
@@ -123,23 +260,52 @@ export default function AdminCycleCount() {
     });
   };
 
-  const handleSubmit = async () => {
-    // Build items array from entries that have changes
+  // Build review rows (items with variance) + no-variance count.
+  // Called when user clicks "Submit Count".
+  const buildReviewData = () => {
+    const withVariance = [];
+    let noVarianceCount = 0;
+
+    for (const [productId, value] of Object.entries(countEntries)) {
+      if (value === "" || value === undefined) continue;
+      const item = inventoryItems.find((i) => i.product_id === parseInt(productId));
+      if (!item) continue;
+      const countedQty = parseFloat(value);
+      const variance = countedQty - item.on_hand_quantity;
+
+      if (variance === 0) {
+        noVarianceCount += 1;
+        continue;
+      }
+
+      const unitCost = item.unit_cost ?? null;
+      const varianceValue = unitCost != null ? variance * unitCost : 0;
+
+      withVariance.push({
+        product_id: item.product_id,
+        product_sku: item.product_sku,
+        product_name: item.product_name,
+        systemQty: item.on_hand_quantity,
+        countedQty,
+        variance,
+        unitCost,
+        varianceValue,
+        reason: getItemReason(item.product_id),
+      });
+    }
+
+    return { withVariance, noVarianceCount };
+  };
+
+  // Open the review modal (no writes yet)
+  const handleOpenReview = () => {
     const items = [];
     for (const [productId, value] of Object.entries(countEntries)) {
       if (value === "" || value === undefined) continue;
       const item = inventoryItems.find((i) => i.product_id === parseInt(productId));
       if (!item) continue;
       if (parseFloat(value) === item.on_hand_quantity) continue;
-
-      // Get reason for this item (required for accounting audit trail)
-      const reason = getItemReason(parseInt(productId));
-
-      items.push({
-        product_id: parseInt(productId),
-        counted_quantity: parseFloat(value),
-        reason: reason, // Required field for GL journal entry
-      });
+      items.push(item);
     }
 
     if (items.length === 0) {
@@ -147,10 +313,40 @@ export default function AdminCycleCount() {
       return;
     }
 
-    // Validate all items have reasons
-    const missingReason = items.some((i) => !i.reason || i.reason.trim() === "");
+    // Validate all variance items have reasons
+    const missingReason = items.some((item) => {
+      const reason = getItemReason(item.product_id);
+      return !reason || reason.trim() === "";
+    });
     if (missingReason) {
       toast.error("All items must have a reason for accounting compliance");
+      return;
+    }
+
+    const { withVariance, noVarianceCount } = buildReviewData();
+    setReviewRows({ withVariance, noVarianceCount });
+  };
+
+  // Actual post — only called after the user clicks Confirm in the modal
+  const handleConfirmPost = async () => {
+    const items = [];
+    for (const [productId, value] of Object.entries(countEntries)) {
+      if (value === "" || value === undefined) continue;
+      const item = inventoryItems.find((i) => i.product_id === parseInt(productId));
+      if (!item) continue;
+      if (parseFloat(value) === item.on_hand_quantity) continue;
+
+      const reason = getItemReason(parseInt(productId));
+      items.push({
+        product_id: parseInt(productId),
+        counted_quantity: parseFloat(value),
+        reason,
+      });
+    }
+
+    if (items.length === 0) {
+      setReviewRows(null);
+      toast.warning("No changes to submit");
       return;
     }
 
@@ -167,6 +363,7 @@ export default function AdminCycleCount() {
         }
       );
 
+      setReviewRows(null);
       setResults(data);
       const message = `Cycle count complete: ${data.successful} items updated, ${data.failed} failed`;
       if (data.failed > 0) {
@@ -175,7 +372,6 @@ export default function AdminCycleCount() {
         toast.success(message);
       }
 
-      // Clear entries and refresh
       setCountEntries({});
       setReasonEntries({});
       fetchInventorySummary();
@@ -211,8 +407,20 @@ export default function AdminCycleCount() {
 
   return (
     <div className="space-y-6">
+      {/* Variance review modal — blocks any write until confirmed */}
+      {reviewRows && (
+        <VarianceReviewModal
+          reviewItems={reviewRows.withVariance}
+          noVarianceCount={reviewRows.noVarianceCount}
+          countReference={countReference}
+          submitting={submitting}
+          onConfirm={handleConfirmPost}
+          onBack={() => setReviewRows(null)}
+        />
+      )}
+
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Cycle Count</h1>
           <p className="text-gray-400 mt-1">
@@ -227,28 +435,22 @@ export default function AdminCycleCount() {
             Clear All
           </button>
           <button
-            onClick={setAllToCurrentQuantity}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-          >
-            Fill Current Qty
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !hasChanges()}
+            onClick={handleOpenReview}
+            disabled={!hasChanges()}
             className={`px-4 py-2 rounded-lg font-medium ${
               hasChanges()
                 ? "bg-blue-600 text-white hover:bg-blue-700"
                 : "bg-gray-700 text-gray-400 cursor-not-allowed"
             }`}
           >
-            {submitting ? "Submitting..." : "Submit Count"}
+            Submit Count
           </button>
         </div>
       </div>
 
-      {/* Count Reference & Default Reason */}
+      {/* Count Reference, Default Reason & Fill Current Qty */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="flex items-center gap-4">
             <label className="text-sm font-medium text-gray-400 whitespace-nowrap">
               Count Reference:
@@ -277,6 +479,19 @@ export default function AdminCycleCount() {
                 </option>
               ))}
             </select>
+          </div>
+          {/* Fill Current Qty moved here — away from Submit to prevent fat-finger */}
+          <div className="flex items-center">
+            <button
+              onClick={setAllToCurrentQuantity}
+              className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 text-sm border border-gray-600"
+              title="Pre-fill every row with the current system quantity — only change items that differ"
+            >
+              Fill Current Qty
+            </button>
+            <span className="ml-2 text-xs text-gray-500">
+              Pre-fills all rows; only change items that differ
+            </span>
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-2">
@@ -534,6 +749,7 @@ export default function AdminCycleCount() {
                           value={countEntries[item.product_id] ?? ""}
                           onChange={(e) =>
                             handleCountChange(item.product_id, e.target.value)
+
                           }
                           placeholder={item.on_hand_quantity.toString()}
                           className={`w-full bg-gray-800 border rounded-lg px-3 py-1.5 text-white text-right ${
@@ -607,10 +823,11 @@ export default function AdminCycleCount() {
         <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
           <li>Filter items by location or category to focus your count</li>
           <li>Set a default reason (required for accounting audit trail)</li>
+          <li>Optionally click "Fill Current Qty" to pre-fill all rows, then change only items that differ</li>
           <li>Enter the physical count quantity for each item</li>
-          <li>Items with variances will be highlighted - override reason per item if needed</li>
-          <li>Click "Submit Count" to create adjustment transactions + GL journal entries</li>
-          <li>Review the results summary to see all changes made</li>
+          <li>Items with variances will be highlighted — override reason per item if needed</li>
+          <li>Click "Submit Count" to open a variance review showing every adjustment and total dollar impact</li>
+          <li>Review the list, then click "Confirm &amp; Post" — adjustments and GL journal entries are written at that point</li>
         </ol>
         <p className="text-xs text-gray-500 mt-3">
           Note: All adjustments create GL journal entries (DR/CR Inventory Adjustment expense account 5030).
