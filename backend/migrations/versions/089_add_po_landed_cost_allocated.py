@@ -1,7 +1,7 @@
 """add landed_cost_allocated to purchase_orders
 
-Revision ID: 088
-Revises: 087
+Revision ID: 089
+Revises: 088
 Create Date: 2026-06-10
 
 Adds a Decimal(18,4) column `landed_cost_allocated` (default 0, not nullable)
@@ -20,8 +20,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = "088"
-down_revision = "087"
+revision = "089"
+down_revision = "088"
 branch_labels = None
 depends_on = None
 
