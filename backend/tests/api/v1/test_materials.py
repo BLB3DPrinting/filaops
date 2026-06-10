@@ -121,14 +121,15 @@ class TestMaterialsAuth:
 
 
 # =============================================================================
-# Public read endpoints -- no auth required
+# Read endpoints -- auth required (router-level get_current_user)
 # =============================================================================
 
-class TestMaterialsPublicEndpoints:
-    """Material endpoints require staff auth (all expose pricing/inventory data).
+class TestMaterialsReadEndpointsRequireAuth:
+    """Material read endpoints require staff auth (all expose pricing/inventory data).
 
     Previously these were public; gated in HARD-1 follow-up PR.
     The Quoter uses PRO /api/v1/pro/quotes/public-options, not these Core endpoints.
+    Full per-route 401 coverage lives in tests/endpoints/test_materials_auth.py.
     """
 
     def test_options_requires_auth(self, unauthed_client):
