@@ -22,11 +22,9 @@ export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedOrder, setSelectedOrder] = useState(null);
 
   // Create order modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [generatingPO, setGeneratingPO] = useState(false);
 
   // Cancel/Delete modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -78,54 +76,6 @@ export default function AdminOrders() {
       setError(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleStatusUpdate = async (orderId, newStatus) => {
-    try {
-      const updated = await api.patch(
-        `/api/v1/sales-orders/${orderId}/status`,
-        { status: newStatus }
-      );
-
-      toast.success("Order status updated");
-      fetchOrders();
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder(updated);
-      }
-    } catch (err) {
-      toast.error(
-        `Failed to update order status: ${err.message || "Network error"}`
-      );
-    }
-  };
-
-  const handleGenerateProductionOrder = async (orderId) => {
-    setGeneratingPO(true);
-    setError(null);
-
-    try {
-      const data = await api.post(
-        `/api/v1/sales-orders/${orderId}/generate-production-orders`
-      );
-
-      if (data.created_orders?.length > 0) {
-        toast.success(
-          `Production Order(s) created: ${data.created_orders.join(", ")}`
-        );
-      } else if (data.existing_orders?.length > 0) {
-        toast.info(
-          `Production Order(s) already exist: ${data.existing_orders.join(
-            ", "
-          )}`
-        );
-      }
-      fetchOrders();
-      setSelectedOrder(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setGeneratingPO(false);
     }
   };
 
@@ -344,151 +294,6 @@ export default function AdminOrders() {
           fetchOrders();
         }}
       />
-
-      {/* Order Detail Modal */}
-      {selectedOrder && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-            <div
-              className="fixed inset-0 bg-black/70"
-              onClick={() => setSelectedOrder(null)}
-            />
-            <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-2xl w-full mx-auto p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold text-white">
-                  Order: {selectedOrder.order_number}
-                </h3>
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  className="text-gray-400 hover:text-white p-1"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Product:</span>
-                    <p className="text-white">{selectedOrder.product_name}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Material:</span>
-                    <p className="text-white">
-                      {selectedOrder.material_type} /{" "}
-                      {selectedOrder.color || "N/A"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Quantity:</span>
-                    <p className="text-white">{selectedOrder.quantity}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Unit Price:</span>
-                    <p className="text-white">
-                      ${parseFloat(selectedOrder.unit_price || 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Grand Total:</span>
-                    <p className="text-green-400 font-semibold">
-                      ${parseFloat(selectedOrder.grand_total || 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Source:</span>
-                    <p className="text-white">
-                      {selectedOrder.source} ({selectedOrder.order_type})
-                    </p>
-                  </div>
-                </div>
-
-                {/* Shipping Info */}
-                {selectedOrder.shipping_address && (
-                  <div className="bg-gray-800 p-4 rounded-lg">
-                    <h4 className="text-sm font-medium text-gray-300 mb-2">
-                      Shipping Address
-                    </h4>
-                    <p className="text-white text-sm whitespace-pre-line">
-                      {selectedOrder.shipping_address}
-                    </p>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex flex-col gap-4 pt-4 border-t border-gray-800">
-                  {/* Generate Production Order Button */}
-                  {selectedOrder.status !== "cancelled" &&
-                    selectedOrder.status !== "completed" && (
-                      <button
-                        onClick={() =>
-                          handleGenerateProductionOrder(selectedOrder.id)
-                        }
-                        disabled={generatingPO}
-                        className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-                          />
-                        </svg>
-                        {generatingPO
-                          ? "Generating..."
-                          : "Generate Production Order"}
-                      </button>
-                    )}
-
-                  {/* Status Flow */}
-                  <div className="flex gap-2 flex-wrap">
-                    {[
-                      "confirmed",
-                      "in_production",
-                      "ready_to_ship",
-                      "shipped",
-                      "completed",
-                    ].map((status) => (
-                      <button
-                        key={status}
-                        onClick={() =>
-                          handleStatusUpdate(selectedOrder.id, status)
-                        }
-                        disabled={selectedOrder.status === status}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                          selectedOrder.status === status
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
-                        }`}
-                      >
-                        {status.replace(/_/g, " ")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Cancel Order Modal */}
       {showCancelModal && cancellingOrder && (

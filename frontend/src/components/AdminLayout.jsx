@@ -579,13 +579,6 @@ const navGroups = [
         icon: SettingsIcon,
         adminOnly: true,
       },
-      // TODO: Re-enable Analytics when Pro version analytics are implemented
-      // {
-      //   path: "/admin/analytics",
-      //   label: "Analytics",
-      //   icon: AnalyticsIcon,
-      //   adminOnly: true,
-      // },
       {
         path: "/admin/settings",
         label: "Settings",

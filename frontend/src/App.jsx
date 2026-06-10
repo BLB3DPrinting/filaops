@@ -10,7 +10,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import ApiErrorToaster from "./components/ApiErrorToaster";
 import UpgradeModal from "./components/UpgradeModal";
 import AdminLayout from "./components/AdminLayout";
-import Setup from "./pages/Setup";
 import Onboarding from "./pages/Onboarding";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -135,8 +134,8 @@ export default function App() {
                   {/* Redirect root to admin */}
                   <Route path="/" element={<Navigate to="/admin" replace />} />
 
-                  {/* First-run setup */}
-                  <Route path="/setup" element={<Setup />} />
+                  {/* First-run setup — /setup redirects to /onboarding (Setup.jsx removed in PR-3) */}
+                  <Route path="/setup" element={<Navigate to="/onboarding" replace />} />
                   <Route path="/onboarding" element={<Onboarding />} />
 
                   {/* Auth */}
