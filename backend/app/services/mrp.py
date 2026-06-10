@@ -365,14 +365,12 @@ class MRPService:
         """
         Recursively explode a BOM to get all component requirements.
 
-        Handles multi-level BOMs and detects circular references.
-        
-        ARCHITECTURE: Materials come from TWO sources:
-        1. bom_lines - legacy BOM components (sub-assemblies, etc.)
-        2. routing_operation_materials - operation-level materials (filament, packaging, etc.)
-        
-        The routing_operation_materials is the PRIMARY source for 3D printing operations
-        where materials are consumed at specific operations (Print, Ship, etc.).
+        Delegates to the canonical ``explode_requirements`` function in
+        ``requirement_explosion.py`` (HARD-12).  Routing-first / BOM-fallback
+        semantics are implemented there; see that module's docstring for details.
+
+        This method is kept as the public API on MRPService so existing callers
+        (buy_list_service, endpoints, tests) continue to work unchanged.
 
         Args:
             product_id: Product to explode
@@ -387,182 +385,18 @@ class MRPService:
         Returns:
             List of ComponentRequirement for all components at all levels
         """
-        if visited is None:
-            visited = set()
-
-        # Circular reference detection
-        if product_id in visited:
-            return []
-        visited.add(product_id)
-
-        requirements = []
-
-        # Get active BOM for this product
-        bom = self.db.query(BOM).filter(
-            BOM.product_id == product_id,
-            BOM.active.is_(True)
-        ).first()
-
-        # =====================================================================
-        # PRECEDENCE CHECK: Routing Operation Materials take priority over BOM
-        # If a product has an active routing with materials defined, use ONLY
-        # those materials. Fall back to legacy BOM lines only if no routing
-        # materials exist. This prevents double-counting materials.
-        # =====================================================================
-        has_routing_materials = False
-        routing = None
-
-        try:
-            from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
-
-            # Check if routing has materials (this is the PRIMARY source)
-            routing = self.db.query(Routing).filter(
-                Routing.product_id == product_id,
-                Routing.is_active.is_(True)
-            ).first()
-
-            if routing:
-                # Check if any operations have materials defined
-                routing_material_count = self.db.query(RoutingOperationMaterial).join(
-                    RoutingOperation
-                ).filter(
-                    RoutingOperation.routing_id == routing.id,
-                    RoutingOperationMaterial.is_cost_only.is_(False)
-                ).count()
-                has_routing_materials = routing_material_count > 0
-        except Exception:
-            # If routing tables don't exist (e.g., in unit tests), fall back to BOM
-            pass
-
-        # =====================================================================
-        # SOURCE 1 (FALLBACK): BOM Lines (legacy bom_lines table)
-        # Used ONLY if no routing materials are defined.
-        # This maintains backward compatibility with products that haven't
-        # been migrated to operation-level materials.
-        # =====================================================================
-        if bom and not has_routing_materials:
-            for line in bom.lines:
-                component = line.component
-
-                # Calculate quantity with scrap factor
-                scrap_factor = Decimal(str(line.scrap_factor or 0))
-
-                # Get BOM line quantity in BOM's unit (e.g., 50 G)
-                bom_qty = Decimal(str(line.quantity))
-                bom_unit = line.unit or 'EA'
-
-                # Get component's base unit (e.g., KG)
-                component_unit = component.unit or 'EA'
-
-                # Convert BOM quantity to component's base unit
-                # e.g., 50 G -> 0.05 KG
-                converted_qty = convert_uom(bom_qty, bom_unit, component_unit)
-
-                # Apply parent quantity and scrap factor
-                adjusted_qty = quantity * converted_qty * (1 + scrap_factor / 100)
-
-                req = ComponentRequirement(
-                    product_id=component.id,
-                    product_sku=component.sku,
-                    product_name=component.name,
-                    bom_level=level,
-                    gross_quantity=adjusted_qty,
-                    scrap_factor=scrap_factor,
-                    parent_product_id=parent_product_id or product_id,
-                    source_demand_type=source_demand_type,
-                    source_demand_id=source_demand_id,
-                    due_date=due_date
-                )
-                requirements.append(req)
-
-                # Recursively explode if component has a BOM
-                if component.has_bom:
-                    sub_requirements = self.explode_bom(
-                        product_id=component.id,
-                        quantity=adjusted_qty,
-                        source_demand_type=source_demand_type,
-                        source_demand_id=source_demand_id,
-                        due_date=due_date,
-                        level=level + 1,
-                        parent_product_id=product_id,
-                        visited=visited.copy()
-                    )
-                    requirements.extend(sub_requirements)
-
-        # =====================================================================
-        # SOURCE 2 (PRIMARY): Routing Operation Materials
-        # This is the preferred source for 3D printing - materials consumed
-        # at each operation. Examples: filament at Print op, boxes at Ship op.
-        # Only used if routing has materials defined.
-        # =====================================================================
-        if routing and has_routing_materials:
-            # Get all operations for this routing
-            operations = self.db.query(RoutingOperation).filter(
-                RoutingOperation.routing_id == routing.id
-            ).all()
-
-            operation_ids = [op.id for op in operations]
-
-            if operation_ids:
-                # Get all materials for these operations
-                op_materials = self.db.query(RoutingOperationMaterial).filter(
-                    RoutingOperationMaterial.routing_operation_id.in_(operation_ids),
-                    RoutingOperationMaterial.is_cost_only.is_(False)  # Skip cost-only entries
-                ).all()
-
-                for mat in op_materials:
-                    # Get the component product
-                    component = self.db.get(Product, mat.component_id)
-                    if not component:
-                        continue
-
-                    # Calculate quantity with scrap factor
-                    # routing_operation_materials uses: quantity, unit, scrap_factor
-                    scrap_factor = Decimal(str(mat.scrap_factor or 0))
-
-                    # Get material quantity in material's unit (e.g., 35 G)
-                    mat_qty = Decimal(str(mat.quantity or 0))
-                    mat_unit = (mat.unit or 'EA').upper().strip()
-
-                    # Get component's base unit (e.g., G for filament)
-                    component_unit = (component.unit or 'EA').upper().strip()
-
-                    # Convert material quantity to component's base unit
-                    converted_qty = convert_uom(mat_qty, mat_unit, component_unit)
-
-                    # Apply parent quantity and scrap factor
-                    adjusted_qty = quantity * converted_qty * (1 + scrap_factor / 100)
-
-                    req = ComponentRequirement(
-                        product_id=component.id,
-                        product_sku=component.sku,
-                        product_name=component.name,
-                        bom_level=level,
-                        gross_quantity=adjusted_qty,
-                        scrap_factor=scrap_factor,
-                        parent_product_id=parent_product_id or product_id,
-                        source_demand_type=source_demand_type,
-                        source_demand_id=source_demand_id,
-                        due_date=due_date
-                    )
-                    requirements.append(req)
-
-                    # Recursively explode if component has a BOM (sub-assembly)
-                    if component.has_bom:
-                        sub_requirements = self.explode_bom(
-                            product_id=component.id,
-                            quantity=adjusted_qty,
-                            source_demand_type=source_demand_type,
-                            source_demand_id=source_demand_id,
-                            due_date=due_date,
-                            level=level + 1,
-                            parent_product_id=product_id,
-                            visited=visited.copy()
-                        )
-                        requirements.extend(sub_requirements)
-
-        visited.discard(product_id)
-        return requirements
+        from app.services.requirement_explosion import explode_requirements
+        return explode_requirements(
+            db=self.db,
+            product_id=product_id,
+            quantity=quantity,
+            source_demand_type=source_demand_type,
+            source_demand_id=source_demand_id,
+            due_date=due_date,
+            level=level,
+            parent_product_id=parent_product_id,
+            visited=visited,
+        )
 
     def calculate_net_requirements(
         self,
