@@ -133,8 +133,8 @@ export default function AdminBOM() {
     setShowProductionModal(false);
     setProductionBOM(null);
     setSelectedBOM(null);
-    // Navigate to production orders page to see the new order
-    navigate(`/admin/production?order=${newOrder.id}`);
+    // Navigate directly to the new production order detail page
+    navigate(`/admin/production/${newOrder.id}`);
   };
 
   return (

@@ -599,6 +599,18 @@ export default function AdminShipping() {
         </div>
       )}
 
+      {/* Deep-link banner: orderId param present but order not in ready-to-ship set */}
+      {!loading && orderIdParam && !orders.find((o) => o.id === parseInt(orderIdParam)) && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 flex items-start gap-3">
+          <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p className="text-yellow-300 text-sm">
+            Order isn&apos;t ready to ship yet — production must complete.
+          </p>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-800">
         {tabs.map((tab) => (
