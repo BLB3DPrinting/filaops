@@ -107,8 +107,9 @@ counted in the **Counted quantity** field.
 
 FilaOps does three things atomically when you post a count:
 
-1. **Computes the delta** — `counted − stored_at_submit_time`. If your count matches
-   what is stored, delta is zero.
+1. **Computes the delta** — FilaOps locks the inventory row, reads the stored quantity
+   at that moment, then computes `delta = counted − stored_at_lock_time`. If your count
+   matches the locked value, delta is zero.
 2. **Posts a ledger transaction** — A `reconciliation_baseline` transaction is written
    with the signed delta. This is visible in the full transaction history, just like any
    receipt or adjustment. If delta is zero, no transaction is written (nothing changed),
@@ -122,8 +123,10 @@ After a successful count, the item's row will show drift = 0 and a baseline date
 !!! info "Accounting impact"
     Counts with a non-zero delta post a journal entry identical to a cycle-count
     variance: debit Inventory (account 1200) and credit Inventory Adjustment (5030) for
-    overages; reverse for shortages. The amount is `|delta| × unit cost`. This keeps
-    your books in sync with the physical count, the same way a cycle count does.
+    overages; reverse for shortages. The amount is `|delta| × unit cost`. If the
+    product has no unit cost set (cost = 0), the ledger entry is skipped — the baseline
+    is still stamped but no dollar amount posts. Set a standard cost on the product if
+    you need the variance to flow through your books.
 
 ---
 
