@@ -364,7 +364,7 @@ def list_invoices(
     if status and status != "all":
         if status == "overdue":
             query = query.filter(
-                Invoice.status == "sent",
+                Invoice.status.in_(["sent", "partially_paid"]),
                 Invoice.due_date < date.today(),
             )
         else:
@@ -391,11 +391,11 @@ def get_invoice(db: Session, invoice_id: int) -> Invoice:
 
 
 def get_overdue_invoices(db: Session) -> list[Invoice]:
-    """Get invoices past due_date still in 'sent' status."""
+    """Get invoices past due_date still with an open balance (sent or partially_paid)."""
     return (
         db.query(Invoice)
         .filter(
-            Invoice.status == "sent",
+            Invoice.status.in_(["sent", "partially_paid"]),
             Invoice.due_date < date.today(),
         )
         .order_by(Invoice.due_date)
@@ -403,20 +403,28 @@ def get_overdue_invoices(db: Session) -> list[Invoice]:
     )
 
 
+# Statuses that represent collectible open AR
+_OPEN_AR_STATUSES = ["draft", "sent", "partially_paid"]
+
+
 def get_invoice_summary(db: Session) -> dict:
     """Get summary stats for dashboard widget.
 
     Returns overdue invoice count and total accounts receivable.
+    Includes partially_paid invoices in AR total and overdue count.
     """
     overdue_count = (
         db.query(func.count(Invoice.id))
-        .filter(Invoice.status == "sent", Invoice.due_date < date.today())
+        .filter(
+            Invoice.status.in_(["sent", "partially_paid"]),
+            Invoice.due_date < date.today(),
+        )
         .scalar()
     ) or 0
 
     total_ar = (
         db.query(func.sum(Invoice.total - Invoice.amount_paid))
-        .filter(Invoice.status.in_(["draft", "sent"]))
+        .filter(Invoice.status.in_(_OPEN_AR_STATUSES))
         .scalar()
     ) or Decimal("0")
 

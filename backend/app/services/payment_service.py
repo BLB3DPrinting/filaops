@@ -379,20 +379,38 @@ def record_payment_and_reconcile(
 def _reconcile_invoice(db: Session, *, invoice, payment: Payment) -> None:
     """Update invoice.amount_paid / status and post the AR accrual GL entry.
 
+    Acquires a row-level lock (SELECT … FOR UPDATE) to prevent two concurrent
+    payments from reading the same starting balance and both writing a lower
+    final amount_paid than the true total.  The invoice object passed in may
+    have been loaded without a lock earlier; we reload it under the lock so the
+    increment is always based on the persisted value.
+
     Called only when an invoice is explicitly supplied (Invoices page path).
     The invoice receivable GL entry is idempotent (guarded by source_type/id).
     """
-    new_paid = (invoice.amount_paid or Decimal("0")) + _money(payment.amount)
-    invoice.amount_paid = new_paid
-    invoice.payment_method = payment.payment_method
-    invoice.payment_reference = payment.transaction_id or payment.check_number
+    from app.models.invoice import Invoice as _Invoice
+
+    # Re-read under an exclusive row lock to prevent concurrent double-payment.
+    locked = (
+        db.query(_Invoice)
+        .filter(_Invoice.id == invoice.id)
+        .with_for_update()
+        .first()
+    )
+    if locked is None:
+        return  # invoice was deleted concurrently — skip
+
+    new_paid = (locked.amount_paid or Decimal("0")) + _money(payment.amount)
+    locked.amount_paid = new_paid
+    locked.payment_method = payment.payment_method
+    locked.payment_reference = payment.transaction_id or payment.check_number
 
     # Post invoice receivable: DR 1100 AR / CR 4000 Revenue + 2100 Tax + 4200 Shipping
-    post_invoice_receivable(db, invoice, user_id=payment.recorded_by_id)
+    post_invoice_receivable(db, locked, user_id=payment.recorded_by_id)
 
     # Set invoice status
-    if new_paid >= invoice.total:
-        invoice.status = "paid"
-        invoice.paid_at = payment.payment_date or datetime.now(timezone.utc)
+    if new_paid >= locked.total:
+        locked.status = "paid"
+        locked.paid_at = payment.payment_date or datetime.now(timezone.utc)
     elif new_paid > 0:
-        invoice.status = "partially_paid"
+        locked.status = "partially_paid"

@@ -399,6 +399,7 @@ export default function AdminInvoices() {
               className="fixed inset-0 bg-black/70"
               onClick={() => {
                 setSelectedInvoice(null);
+                setShowPaymentModal(false);
               }}
             />
             <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-3xl w-full mx-auto p-6 max-h-[90vh] overflow-y-auto">
@@ -433,6 +434,7 @@ export default function AdminInvoices() {
                     <button
                       onClick={() => {
                         setSelectedInvoice(null);
+                        setShowPaymentModal(false);
                       }}
                       className="text-gray-400 hover:text-white p-1"
                     >
@@ -665,6 +667,7 @@ export default function AdminInvoices() {
               setSelectedInvoice(updated);
             } catch {
               setSelectedInvoice(null);
+            setShowPaymentModal(false);
             }
             fetchInvoices();
             fetchSummary();
