@@ -263,6 +263,11 @@ def setup_database():
             "ALTER TABLE inventory "
             "ADD COLUMN IF NOT EXISTS baseline_on_hand NUMERIC(18, 4)"
         ))
+        # Migration 088: HARD-8 landed-cost sum-once tracker
+        conn.execute(text(
+            "ALTER TABLE purchase_orders "
+            "ADD COLUMN IF NOT EXISTS landed_cost_allocated NUMERIC(18, 4) NOT NULL DEFAULT 0"
+        ))
         conn.commit()
 
     # Seed required data

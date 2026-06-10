@@ -2145,28 +2145,15 @@ class TestLandedCostCapitalization:
     def test_partial_receipt_allocates_proportionally(
         self, db, make_vendor, make_purchase_order, make_product
     ):
-        """Partial receipt (half the ordered qty) capitalizes half the freight."""
+        """Partial receipt capitalizes its proportional share of freight.
+
+        Sum-once invariant: proportion = this_receipt_value / total_PO_line_value.
+        PO: 10 × $20 = $200 total value; freight $50.
+        Receipt 1: 4 units → receipt value $80 → proportion $80/$200 = 40%
+        → freight for this receipt = $50 × 40% = $20
+        → landed per unit = $20 / 4 = $5 → total cost = $20 + $5 = $25/unit.
+        """
         vendor = make_vendor()
-        # PO: 10 units × $20 = $200, freight $50
-        # Receipt 1: 4 units → proportion 4×$20 / (4×$20) = 100% of receipt value
-        # but fraction of PO = 4/10 → freight for this receipt = $50 × 4×$20/(4×$20) = $50
-        # Wait — the receipt value denominator is ONLY this receipt's value, not the PO total.
-        # So receiving 4 of 10 units in one shot: receipt value = 4×$20 = $80 (100% of
-        # this receipt), landed = $50 × ($80/$80) = $50.  That would capitalize ALL freight
-        # immediately, which is wrong.
-        #
-        # Correct rule: proportion = this_receipt_value / total_PO_subtotal.
-        # Actually re-read the spec: "allocate proportionally to the quantity received this
-        # receipt" — meaning by the share of this receipt's value vs this receipt's total.
-        # In a single-line partial, that is 100%, i.e. the full freight is allocated to
-        # this receipt. But that's the spec — let's test the actual behavior.
-        #
-        # The spec says: "Partial receipts allocate proportionally to the quantity
-        # received this receipt."  With one line in the receipt, 100% of the freight
-        # is allocated to that single line — regardless of how much remains on the PO.
-        # That is the "capitalize when you receive" model.
-        #
-        # Test the actual behavior: single-line partial receipt gets full freight alloc.
         po = make_purchase_order(
             vendor_id=vendor.id,
             status="ordered",
@@ -2179,7 +2166,7 @@ class TestLandedCostCapitalization:
         )
         db.commit()
 
-        # First receipt: 4 units
+        # First receipt: 4 units → 40% of PO value → 40% of freight = $20
         receive_purchase_order(
             db, po.id,
             lines=[{"line_id": line.id, "quantity_received": Decimal("4")}],
@@ -2188,17 +2175,27 @@ class TestLandedCostCapitalization:
         )
 
         db.refresh(product)
-        # Landed per unit for this receipt = $50 / 4 = $12.50 → total $32.50
-        assert float(product.average_cost) == pytest.approx(32.50, rel=1e-4)
+        # Landed for this receipt = $50 × (4×$20 / 10×$20) = $50 × 0.4 = $20
+        # Landed per unit = $20 / 4 = $5 → total cost per unit = $20 + $5 = $25
+        assert float(product.average_cost) == pytest.approx(25.00, rel=1e-4)
 
-    def test_two_partial_receipts_allocate_per_receipt(
+    def test_two_partial_receipts_sum_once_invariant(
         self, db, make_vendor, make_purchase_order, make_product
     ):
-        """Two partial receipts: each allocates freight independently.
-        The total freight capitalized across both receipts equals po.shipping_cost twice
-        — this is the 'capitalize each receipt fully' model (no running tally).
-        This test documents and locks in the actual allocation behavior so a future
-        refactor cannot silently change the semantics."""
+        """Two equal partial receipts: freight is capitalised exactly ONCE in total.
+
+        Sum-once invariant: total capitalised landed cost across all receipts ==
+        po.shipping_cost + po.tax_amount, regardless of how many partial receipts
+        are made.
+
+        Setup: PO 10 × $10 = $100 total value; freight $20.
+        Receipt 1 (5 units, 50% of PO): freight share = $20 × 50% = $10
+          landed/unit = $10 / 5 = $2  →  cost/unit = $12
+        Receipt 2 (5 units, 50% of PO, completes it): absorbs remaining $10
+          landed/unit = $10 / 5 = $2  →  cost/unit = $12
+        Weighted avg after both: (5×$12 + 5×$12) / 10 = $12
+        Total freight capitalised: $10 + $10 = $20  ✓  (not $40)
+        """
         vendor = make_vendor()
         po = make_purchase_order(
             vendor_id=vendor.id,
@@ -2212,7 +2209,8 @@ class TestLandedCostCapitalization:
         )
         db.commit()
 
-        # First receipt: 5 units → landed $20/5 = $4/unit → cost $14/unit
+        # Receipt 1: 5 units → 50% of PO value → 50% of freight = $10
+        # Landed per unit = $10 / 5 = $2 → unit cost = $10 + $2 = $12
         receive_purchase_order(
             db, po.id,
             lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
@@ -2220,9 +2218,13 @@ class TestLandedCostCapitalization:
             user_email="test@filaops.dev",
         )
         db.refresh(product)
-        assert float(product.average_cost) == pytest.approx(14.00, rel=1e-4)
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "First partial receipt should capitalise 50% of freight ($10), "
+            "giving $10 base + $2 landed = $12/unit"
+        )
 
-        # Second receipt: 5 units → same freight allocation ($20/5 = $4/unit)
+        # Receipt 2: remaining 5 units → absorbs remaining $10 freight (residual)
+        # Landed per unit = $10 / 5 = $2 → unit cost = $10 + $2 = $12
         receive_purchase_order(
             db, po.id,
             lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
@@ -2230,8 +2232,104 @@ class TestLandedCostCapitalization:
             user_email="test@filaops.dev",
         )
         db.refresh(product)
-        # Weighted average after both: (5×$14 + 5×$14) / 10 = $14
-        assert float(product.average_cost) == pytest.approx(14.00, rel=1e-4)
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Second receipt should absorb remaining $10 freight, "
+            "giving same $12/unit — weighted avg stays $12"
+        )
+
+        # Verify the PO tracker: total allocated must equal total_landed exactly
+        db.refresh(po)
+        assert Decimal(str(po.landed_cost_allocated)) == Decimal("20.00"), (
+            "Sum-once invariant: landed_cost_allocated must equal total freight "
+            "after PO is fully received"
+        )
+
+    def test_three_partial_receipts_uneven_split_sum_once(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """Three partial receipts with uneven splits: sum-once invariant holds.
+
+        PO: 10 × $10 = $100 total value; freight $20.
+        Receipt 1: 2 units (20% of PO) → freight = $20 × 0.2 = $4.00 → cost $14/unit
+        Receipt 2: 3 units (30% of PO) → freight = $20 × 0.3 = $6.00 → cost $14/unit
+        Receipt 3: 5 units (final, absorbs residual $10) → freight = $10.00 → cost $12/unit
+        Total freight capitalised: $4 + $6 + $10 = $20 EXACTLY.
+
+        Weighted average after all 3:
+          (2×$14 + 3×$14 + 5×$12) / 10 = (28 + 42 + 60) / 10 = 130 / 10 = $13
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("20.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("10.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # Receipt 1: 2 units → 20% of PO → freight $4 → landed $4/2 = $2/unit
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # 2 units at $12/unit (base $10 + $2 landed)
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 1 (20%): landed = $4, cost/unit = $12"
+        )
+
+        db.refresh(po)
+        # Tracker should show $4 allocated after receipt 1
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("4.00"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 2: 3 units → 30% of PO → freight $6 → landed $6/3 = $2/unit
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("3")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # Weighted avg: (2×$12 + 3×$12) / 5 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 2 (30%): landed = $6, cost/unit = $12, w-avg stays $12"
+        )
+
+        db.refresh(po)
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("10.00"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 3: 5 units (final) → absorbs remaining $10
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("5")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        # Wait — receipt 3 gets $10 freight / 5 units = $2/unit → cost $12/unit
+        # Weighted avg: (5×$12 + 5×$12) / 10 = $12
+        assert float(product.average_cost) == pytest.approx(12.00, rel=1e-4), (
+            "Receipt 3 (final, 50%): absorbs remaining $10, $2/unit → w-avg $12"
+        )
+
+        db.refresh(po)
+        # Sum-once invariant: total allocated == total freight exactly
+        assert Decimal(str(po.landed_cost_allocated)) == Decimal("20.00"), (
+            "Sum-once invariant: landed_cost_allocated must equal $20 after all receipts"
+        )
+        assert po.status == "received"
 
     def test_zero_freight_no_behavior_change(
         self, db, make_vendor, make_purchase_order, make_product

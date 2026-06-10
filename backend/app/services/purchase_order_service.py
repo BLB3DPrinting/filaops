@@ -521,17 +521,29 @@ def receive_purchase_order(
     product_receipt_accum: dict[int, dict] = {}  # product_id -> {qty, cost_sum}
 
     # ---------------------------------------------------------------------------
-    # Landed-cost pre-pass (HARD-8)
+    # Landed-cost pre-pass (HARD-8, sum-once invariant)
     # ---------------------------------------------------------------------------
-    # Allocate po.shipping_cost + po.tax_amount pro-rata by line value for THIS
-    # receipt.  Line value = qty_received_this_receipt × line.unit_cost (in
-    # purchase-unit dollars — the same basis used for the PO total).
+    # Allocate po.shipping_cost + po.tax_amount pro-rata by line value so that
+    # across ANY number of partial receipts the TOTAL capitalised freight equals
+    # po.shipping_cost + po.tax_amount EXACTLY ONCE.
     #
-    # PARTIAL-RECEIPT RULE: a PO received in N shipments capitalises freight in
-    # proportion to the value received each time.  If the first shipment covers
-    # 60 % of PO value, 60 % of total freight is capitalised now; the remaining
-    # 40 % is deferred until the next receipt.  Summed across all receipts the
-    # full freight is eventually capitalised — no penny is double-counted.
+    # DENOMINATOR: total_PO_line_value = Σ(qty_ordered × unit_cost) over ALL
+    # lines.  This is a stable, up-front number that does not change between
+    # receipts — it is the correct basis for "what fraction of the PO does this
+    # receipt represent?"
+    #
+    # ALLOCATION per receipt:
+    #   this_receipt_value = Σ(qty_received_this_receipt × unit_cost) per line
+    #   this_receipt_freight = total_landed × (this_receipt_value / total_PO_line_value)
+    #
+    # RESIDUAL ABSORPTION: po.landed_cost_allocated tracks the cumulative amount
+    # already capitalised (updated atomically inside this transaction).  The
+    # receipt that COMPLETES the PO receives:
+    #   alloc = total_landed - po.landed_cost_allocated
+    # instead of the formula above, absorbing the Decimal rounding residual and
+    # guaranteeing the sum-once invariant.  "Completes" = all lines reach
+    # qty_ordered after this receipt (which is determined further below; here we
+    # use the stable-denominator formula and correct it for the final receipt).
     #
     # ZERO-FREIGHT RULE: if shipping_cost + tax_amount == 0 the landed map is
     # empty and the rest of the loop behaves identically to before this change.
@@ -545,7 +557,14 @@ def receive_purchase_order(
     landed_alloc: dict[int, Decimal] = {}
 
     if total_landed > Decimal("0"):
-        # Compute each line's receipt value (qty × unit_cost in purchase units)
+        # Stable denominator: total ordered value of the WHOLE PO
+        total_po_line_value = sum(
+            Decimal(str(po_line.quantity_ordered or 0))
+            * Decimal(str(po_line.unit_cost or 0))
+            for po_line in po.lines
+        )
+
+        # Compute each line's receipt value (qty_received_this_receipt × unit_cost)
         receipt_values: dict[int, Decimal] = {}
         total_receipt_value = Decimal("0")
         for item in lines:
@@ -560,26 +579,80 @@ def receive_purchase_order(
             receipt_values[lid] = val
             total_receipt_value += val
 
-        if total_receipt_value > Decimal("0"):
-            # Allocate proportionally, giving any rounding remainder to the
-            # last line to guarantee sum == total_landed (no penny drift).
-            allocated_so_far = Decimal("0")
-            sorted_lids = list(receipt_values.keys())
-            for i, lid in enumerate(sorted_lids):
-                if i < len(sorted_lids) - 1:
-                    alloc = (
-                        total_landed * receipt_values[lid] / total_receipt_value
-                    ).quantize(Decimal("0.0001"))
-                else:
-                    # Last line absorbs any rounding residual
-                    alloc = (total_landed - allocated_so_far).quantize(Decimal("0.0001"))
-                landed_alloc[lid] = alloc
-                allocated_so_far += alloc
+        if total_receipt_value > Decimal("0") and total_po_line_value > Decimal("0"):
+            # Compute already-allocated from the PO tracker
+            already_allocated = Decimal(str(po.landed_cost_allocated or 0))
+
+            # Determine whether this receipt will COMPLETE the PO so we can
+            # decide whether to absorb the residual.  "Completes" means: for
+            # every line in the PO, (qty_already_received + qty_in_this_batch)
+            # >= qty_ordered.
+            this_batch_qty: dict[int, Decimal] = {
+                item["line_id"]: Decimal(str(item["quantity_received"]))
+                for item in lines
+                if item["line_id"] in line_map
+            }
+            is_final_receipt = all(
+                (po_line.quantity_received + this_batch_qty.get(po_line.id, Decimal("0")))
+                >= po_line.quantity_ordered
+                for po_line in po.lines
+            )
+
+            if is_final_receipt:
+                # Absorb the full remaining amount so sum == total_landed exactly.
+                remaining_to_allocate = total_landed - already_allocated
+                # Distribute the remainder proportionally across this receipt's
+                # lines; give the Decimal residual to the last line.
+                allocated_this_receipt = Decimal("0")
+                sorted_lids = list(receipt_values.keys())
+                for i, lid in enumerate(sorted_lids):
+                    if i < len(sorted_lids) - 1:
+                        alloc = (
+                            remaining_to_allocate
+                            * receipt_values[lid]
+                            / total_receipt_value
+                        ).quantize(Decimal("0.0001"))
+                    else:
+                        alloc = (
+                            remaining_to_allocate - allocated_this_receipt
+                        ).quantize(Decimal("0.0001"))
+                    landed_alloc[lid] = alloc
+                    allocated_this_receipt += alloc
+            else:
+                # Non-final receipt: allocate proportionally against total PO value.
+                # This is the stable-denominator formula:
+                #   this_receipt_freight = total_landed × (receipt_value / po_value)
+                allocated_this_receipt = Decimal("0")
+                sorted_lids = list(receipt_values.keys())
+                for i, lid in enumerate(sorted_lids):
+                    if i < len(sorted_lids) - 1:
+                        alloc = (
+                            total_landed * receipt_values[lid] / total_po_line_value
+                        ).quantize(Decimal("0.0001"))
+                    else:
+                        # Last line in THIS receipt absorbs intra-receipt rounding
+                        # residual so per-receipt allocations are internally exact.
+                        # The cross-receipt residual is handled on the final receipt.
+                        this_receipt_total = (
+                            total_landed * total_receipt_value / total_po_line_value
+                        ).quantize(Decimal("0.0001"))
+                        alloc = (
+                            this_receipt_total - allocated_this_receipt
+                        ).quantize(Decimal("0.0001"))
+                    landed_alloc[lid] = alloc
+                    allocated_this_receipt += alloc
+
+            # Advance the PO's running tracker (will be committed with the receipt)
+            po.landed_cost_allocated = (
+                already_allocated + allocated_this_receipt
+            ).quantize(Decimal("0.0001"))
 
             logger.info(
                 f"PO {po.po_number}: landed-cost ${total_landed} allocated across "
                 f"{len(sorted_lids)} receipt line(s) "
-                f"(receipt value ${total_receipt_value}): "
+                f"(receipt value ${total_receipt_value} / PO value ${total_po_line_value}, "
+                f"final_receipt={is_final_receipt}, "
+                f"already_allocated=${already_allocated}): "
                 + ", ".join(f"line {lid}=${amt}" for lid, amt in landed_alloc.items())
             )
 
