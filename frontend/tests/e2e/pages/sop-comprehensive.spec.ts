@@ -865,7 +865,7 @@ test.describe('Sidebar Navigation', () => {
       'Production',
       'Bill of Materials',
       'Purchasing',
-      'Manufacturing',
+      'Work Centers & Routings',
       'Shipping',
       'Payments',
       'Settings',

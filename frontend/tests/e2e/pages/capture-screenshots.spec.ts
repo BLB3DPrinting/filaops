@@ -57,7 +57,7 @@ const PAGES = [
   { url: '/admin/production', name: 'production-page', title: 'Production' },
   { url: '/admin/bom', name: 'bom-page', title: 'Bill of Materials' },
   { url: '/admin/purchasing', name: 'purchasing-page', title: 'Purchasing' },
-  { url: '/admin/manufacturing', name: 'manufacturing-page', title: 'Manufacturing' },
+  { url: '/admin/manufacturing', name: 'manufacturing-page', title: 'Work Centers & Routings' },
   { url: '/admin/shipping', name: 'shipping-page', title: 'Shipping' },
   { url: '/admin/payments', name: 'payments-page', title: 'Payments' },
   { url: '/admin/settings', name: 'settings-page', title: 'Settings' },

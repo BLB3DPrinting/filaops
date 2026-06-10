@@ -136,9 +136,9 @@ export default function AdminManufacturing() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Manufacturing</h1>
+          <h1 className="text-2xl font-bold text-white">Work Centers &amp; Routings</h1>
           <p className="text-gray-400 mt-1">
-            Work centers, resources, and production routings
+            Define where and how things get made. Day-to-day orders live in Production.
           </p>
         </div>
       </div>
