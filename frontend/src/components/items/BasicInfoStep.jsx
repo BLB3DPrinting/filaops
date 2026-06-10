@@ -12,6 +12,19 @@ import { ITEM_TYPES, PROCUREMENT_TYPES } from "../item-wizard/constants";
  * - itemNeedsBom: boolean - Whether the current procurement type needs a BOM
  * - onItemChange: (updatedItem) => void
  */
+// ITEM_TYPE_STYLES: literal class map so Tailwind's purger can detect all classes.
+// Dynamic class construction (e.g. `bg-${color}-600/20`) is invisible to the purger
+// and will be stripped from the production bundle. Add an entry here for every color
+// value that appears in ITEM_TYPES or PROCUREMENT_TYPES in constants.js.
+const ITEM_TYPE_STYLES = {
+  blue:   "bg-blue-600/20 border-blue-500 text-blue-400",
+  purple: "bg-purple-600/20 border-purple-500 text-purple-400",
+  teal:   "bg-teal-600/20 border-teal-500 text-teal-400",
+  orange: "bg-orange-600/20 border-orange-500 text-orange-400",
+  green:  "bg-green-600/20 border-green-500 text-green-400",
+  yellow: "bg-yellow-600/20 border-yellow-500 text-yellow-400",
+};
+
 export default function BasicInfoStep({ item, categories, itemNeedsBom, onItemChange }) {
   return (
     <div className="space-y-6">
@@ -32,7 +45,7 @@ export default function BasicInfoStep({ item, categories, itemNeedsBom, onItemCh
               }}
               className={`p-3 rounded-lg border text-sm font-medium transition-all ${
                 item.item_type === type.value
-                  ? `bg-${type.color}-600/20 border-${type.color}-500 text-${type.color}-400`
+                  ? (ITEM_TYPE_STYLES[type.color] ?? ITEM_TYPE_STYLES.blue)
                   : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600"
               }`}
             >
