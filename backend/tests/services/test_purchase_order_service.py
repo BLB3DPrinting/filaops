@@ -2513,6 +2513,148 @@ class TestLandedCostCapitalization:
             10.00, abs=0.0001
         ), f"Landed cost drift: expected $10.00, got {total_capitalized}"
 
+    # -------------------------------------------------------------------------
+    # CR-2: Zero-value PO + positive freight (free-sample with shipping)
+    # -------------------------------------------------------------------------
+
+    def test_zero_value_po_freight_capitalized_by_quantity(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-2: Free-sample PO (unit_cost=0) with $15 shipping.
+
+        When total_po_line_value == 0, value-proportion allocation is undefined.
+        The code falls back to quantity-proportion so the full $15 freight is
+        still capitalised exactly once across all receipts.
+
+        PO: 3 × $0.00 = $0 value; freight $15.
+        Single full receipt: 3 units.
+        Expected: $15 / 3 = $5.00 landed per unit → average_cost = $5.00.
+        po.landed_cost_allocated must equal $15.00 exactly (sum-once invariant).
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("15.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("3"), Decimal("0.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("3")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+
+        db.refresh(product)
+        db.refresh(po)
+        # $15 freight / 3 units = $5.00 per unit; base cost $0 → average_cost $5.00
+        assert float(product.average_cost) == pytest.approx(5.00, rel=1e-4), (
+            "Free-sample PO: $15 freight / 3 units = $5.00/unit average_cost"
+        )
+        # Sum-once invariant: full $15 capitalized in one receipt
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("15.00"), abs=Decimal("0.0001")
+        ), "CR-2: landed_cost_allocated must equal $15.00 after single full receipt"
+
+    def test_zero_value_po_two_partial_receipts_sum_once(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-2: Free-sample PO with two partial receipts — sum-once invariant holds.
+
+        PO: 4 × $0.00 = $0 value; freight $15.
+        Receipt 1: 2 units → 50% of PO qty → freight $7.50.
+        Receipt 2: 2 units (final) → absorbs remaining $7.50.
+        Total capitalized: $15 exactly.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("15.00"),
+            tax_amount=Decimal("0.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("4"), Decimal("0.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        # Receipt 1: 2 units → 50% of qty (2/4) → freight $7.50
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        db.refresh(po)
+        assert float(product.average_cost) == pytest.approx(3.75, rel=1e-4), (
+            "First partial receipt (50%): $7.50 / 2 units = $3.75/unit"
+        )
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("7.50"), abs=Decimal("0.0001")
+        )
+
+        # Receipt 2: remaining 2 units (final) → absorbs remaining $7.50
+        receive_purchase_order(
+            db, po.id,
+            lines=[{"line_id": line.id, "quantity_received": Decimal("2")}],
+            user_id=1,
+            user_email="test@filaops.dev",
+        )
+        db.refresh(product)
+        db.refresh(po)
+        # Sum-once invariant: $7.50 + $7.50 = $15.00
+        assert Decimal(str(po.landed_cost_allocated)) == pytest.approx(
+            Decimal("15.00"), abs=Decimal("0.0001")
+        ), "CR-2 sum-once: landed_cost_allocated must equal $15 after all receipts"
+
+    # -------------------------------------------------------------------------
+    # CR-3: Duplicate line_id in receipt payload
+    # -------------------------------------------------------------------------
+
+    def test_duplicate_line_id_rejected_with_400(
+        self, db, make_vendor, make_purchase_order, make_product
+    ):
+        """CR-3: Payload with a repeated line_id must be rejected with HTTP 400.
+
+        Silently aggregating duplicates would cause receipt_values / this_batch_qty
+        to undercount the receipt and can skip residual absorption on the final
+        receipt, breaking the sum-once invariant.  Rejecting early is the simpler
+        and safer behaviour.
+        """
+        vendor = make_vendor()
+        po = make_purchase_order(
+            vendor_id=vendor.id,
+            status="ordered",
+            shipping_cost=Decimal("10.00"),
+        )
+        product = make_product(unit="EA", purchase_uom="EA", average_cost=None)
+        line = _add_po_line(
+            db, po, product, Decimal("10"), Decimal("5.00"), purchase_unit="EA"
+        )
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            receive_purchase_order(
+                db, po.id,
+                lines=[
+                    {"line_id": line.id, "quantity_received": Decimal("3")},
+                    {"line_id": line.id, "quantity_received": Decimal("2")},  # duplicate
+                ],
+                user_id=1,
+                user_email="test@filaops.dev",
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "Duplicate line_id" in exc_info.value.detail
+
 
 # =============================================================================
 # upload_po_document
