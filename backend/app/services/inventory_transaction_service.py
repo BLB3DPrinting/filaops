@@ -261,8 +261,14 @@ def get_inventory_summary(
     for inv in items:
         product = inv.product
         location = inv.location
-        # Best available unit cost: standard > average > last; None if all null
-        raw_cost = product.standard_cost or product.average_cost or product.last_cost
+        # Best available unit cost: standard > average > last; None if all null.
+        # Use explicit is-None checks — Decimal("0") is falsy and should not fall through.
+        if product.standard_cost is not None:
+            raw_cost = product.standard_cost
+        elif product.average_cost is not None:
+            raw_cost = product.average_cost
+        else:
+            raw_cost = product.last_cost
         unit_cost = float(raw_cost) if raw_cost is not None else None
         result.append({
             "inventory_id": inv.id,

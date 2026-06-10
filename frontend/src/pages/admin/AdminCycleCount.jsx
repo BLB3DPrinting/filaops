@@ -20,7 +20,11 @@ function VarianceReviewModal({ reviewItems, noVarianceCount, countReference, sub
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div
+        role="dialog"
+        aria-label="Review Variance Before Posting"
+        className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-800 flex-shrink-0">
           <h2 className="text-xl font-bold text-white">Review Variance Before Posting</h2>

@@ -8,7 +8,7 @@
  * 4. "Go Back" dismisses the modal and preserves entered quantities
  * 5. Items counted at system qty (zero variance) are summarised, not listed in review
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -258,19 +258,13 @@ describe('AdminCycleCount — review modal opens on Submit Count', () => {
       expect(screen.getByText(/review variance before posting/i)).toBeInTheDocument()
     )
 
-    // MAT-PLA-BLK (variance) should appear in the table
-    expect(screen.getAllByText('MAT-PLA-BLK').length).toBeGreaterThan(0)
+    // Use the dialog role to scope assertions to the modal
+    const reviewDialog = screen.getByRole('dialog', { name: /review variance before posting/i })
+
+    // MAT-PLA-BLK (variance) should appear in the review table
+    expect(within(reviewDialog).getByText('MAT-PLA-BLK')).toBeInTheDocument()
     // MAT-PETG-CLR (no variance) should NOT appear in the review table
-    // (it appears in the main page table but not in the modal)
-    // The modal renders inside a portal/fixed container with a heading; we check
-    // that PETG-CLR does not appear at all after the modal is open (main table
-    // scrolls behind modal; since it's still in DOM, we check role-specifically)
-    // We just confirm the count in review: only 1 data row (1 adjustment)
-    const reviewHeading = screen.getByText(/review variance before posting/i)
-    const modal = reviewHeading.closest('[class*="fixed"]') ||
-                  reviewHeading.closest('div')
-    // The SKU MAT-PETG-CLR should not appear in the modal
-    expect(modal.textContent).not.toContain('MAT-PETG-CLR')
+    expect(within(reviewDialog).queryByText('MAT-PETG-CLR')).not.toBeInTheDocument()
   })
 
   it('shows — for variance value when item has no unit cost', async () => {
