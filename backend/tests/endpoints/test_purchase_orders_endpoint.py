@@ -245,6 +245,76 @@ class TestUpdatePOStatus:
         )
         assert resp.status_code == 400
 
+    # HARD-2 tests -----------------------------------------------------------
+
+    def test_status_patch_to_received_from_ordered_returns_400(
+        self, client, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: raw status PATCH to received is blocked; message names the remedy."""
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="ordered")
+
+        resp = client.post(
+            f"/api/v1/purchase-orders/{po.id}/status",
+            json={"status": "received"},
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        # Error message must name the rule and the remedy
+        assert "inventory" in detail.lower() or "Receive" in detail
+
+    def test_status_patch_to_received_from_shipped_returns_400(
+        self, client, db, make_vendor, make_purchase_order
+    ):
+        """HARD-2: raw status PATCH to received is blocked even from shipped."""
+        vendor = make_vendor()
+        po = make_purchase_order(vendor_id=vendor.id, status="shipped")
+
+        resp = client.post(
+            f"/api/v1/purchase-orders/{po.id}/status",
+            json={"status": "received"},
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "inventory" in detail.lower() or "Receive" in detail
+
+    def test_receive_endpoint_sets_received_status(
+        self, client, db, make_vendor, make_product
+    ):
+        """HARD-2: the /receive endpoint is the only valid path to received status."""
+        vendor = make_vendor()
+        product = make_product(item_type="supply", unit="EA")
+
+        # Create PO with a line
+        create_resp = client.post("/api/v1/purchase-orders/", json={
+            "vendor_id": vendor.id,
+            "lines": [
+                {"product_id": product.id, "quantity_ordered": "5", "unit_cost": "10.00"},
+            ],
+        })
+        assert create_resp.status_code == 201
+        po_id = create_resp.json()["id"]
+        line_id = create_resp.json()["lines"][0]["id"]
+
+        # Advance to ordered
+        order_resp = client.post(
+            f"/api/v1/purchase-orders/{po_id}/status",
+            json={"status": "ordered"},
+        )
+        assert order_resp.status_code == 200
+
+        # Receive all items via the receive endpoint
+        receive_resp = client.post(
+            f"/api/v1/purchase-orders/{po_id}/receive",
+            json={"lines": [{"line_id": line_id, "quantity_received": "5"}]},
+        )
+        assert receive_resp.status_code == 200
+
+        # PO status must be received after the receive flow
+        get_resp = client.get(f"/api/v1/purchase-orders/{po_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "received"
+
     def test_status_update_nonexistent_po(self, client):
         """POST /status on non-existent PO returns 404."""
         resp = client.post(
