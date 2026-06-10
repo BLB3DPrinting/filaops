@@ -776,7 +776,7 @@ async def get_sales_journal(
             "subtotal": float(subtotal),
             "tax_rate": float(order.tax_rate or 0) if order.tax_rate else None,
             "tax_amount": float(tax),
-            "is_taxable": order.is_taxable if hasattr(order, 'is_taxable') else (tax > 0),
+            "is_taxable": bool(order.is_taxable or False),
             "shipping": float(shipping),
             "grand_total": float(grand_total),
             "paid_at": order.paid_at.isoformat() if order.paid_at else None,

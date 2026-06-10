@@ -465,6 +465,49 @@ class TestSalesJournal:
             entry_count = len(data["entries"])
             assert data["totals"]["order_count"] == entry_count
 
+    def test_null_is_taxable_does_not_500(self, client, db, make_sales_order):
+        """A shipped order with is_taxable=NULL must appear as is_taxable=False, not 500.
+
+        Regression for: ResponseValidationError bool_type on is_taxable=None.
+        The sales_orders.is_taxable column is nullable; legacy/dev orders may have
+        no value.  The endpoint must coalesce NULL->False instead of letting
+        Pydantic raise a 500.
+
+        Creates the order via the ORM factory then patches is_taxable to NULL via
+        raw SQL, bypassing the ORM column default=True.
+        """
+        from datetime import datetime, timezone
+        from sqlalchemy import text
+
+        order = make_sales_order(
+            status="shipped",
+            shipped_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        order_number = order.order_number
+
+        # Patch to NULL — the ORM model has default=True so we must go raw.
+        db.execute(
+            text("UPDATE sales_orders SET is_taxable = NULL WHERE id = :id"),
+            {"id": order.id},
+        )
+        db.flush()
+        # Expire the identity map so the endpoint query re-reads from DB (not cache).
+        db.expire_all()
+
+        params = {
+            "start_date": "2026-01-01T00:00:00",
+            "end_date": "2026-01-31T23:59:59",
+        }
+        resp = client.get(f"{BASE}/sales-journal", params=params)
+
+        assert resp.status_code == 200, f"Expected 200, got 500: {resp.text[:500]}"
+        entries = resp.json()["entries"]
+        null_entries = [e for e in entries if e["order_number"] == order_number]
+        assert len(null_entries) == 1, "NULL-taxable order should appear in journal"
+        assert null_entries[0]["is_taxable"] is False, (
+            "NULL is_taxable should be coalesced to False, not cause a 500"
+        )
+
 
 # =============================================================================
 # TEST: Sales Journal Export (CSV)

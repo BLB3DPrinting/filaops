@@ -502,11 +502,17 @@ class SalesJournalEntry(BaseModel):
     subtotal: float
     tax_rate: Optional[float] = None
     tax_amount: float
-    is_taxable: bool
+    is_taxable: bool = False  # nullable DB column; treat NULL as False
     shipping: float
     grand_total: float
     paid_at: Optional[str] = None
     shipped_at: Optional[str] = None
+
+    @field_validator("is_taxable", mode="before")
+    @classmethod
+    def coalesce_null_is_taxable(cls, v):
+        """Coerce NULL/None from the DB column to False before bool validation."""
+        return False if v is None else bool(v)
 
 
 class SalesJournalPeriod(BaseModel):
