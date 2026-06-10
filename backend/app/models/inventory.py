@@ -61,6 +61,20 @@ class Inventory(Base):
             "NULL means the item has never been counted."
         ),
     )
+    # HARD-4c: on-hand at the moment of the last reconciliation_baseline.
+    # The reconciliation report computes:
+    #   drift = stored_on_hand - (baseline_on_hand + sum(post-baseline transactions))
+    # This makes zero-delta baselines correct: the opening balance of the new
+    # epoch is the physical count result, and post-count ledger activity is
+    # tracked on top of it.  NULL when baseline_timestamp IS NULL.
+    baseline_on_hand = Column(
+        Numeric(18, 4),
+        nullable=True,
+        comment=(
+            "on_hand_quantity snapshotted at the last reconciliation_baseline (physical count). "
+            "Used by the reconciliation report as the epoch opening balance."
+        ),
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
