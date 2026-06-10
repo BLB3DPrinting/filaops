@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import ProductionOrderModal from "../../components/production/ProductionOrderModal";
 import ProductionQueueList from "../../components/production/ProductionQueueList";
 import SplitOrderModal from "../../components/SplitOrderModal";
@@ -235,6 +235,7 @@ const SoLinkBadge = ({ order }) => {
 
 export default function AdminProduction() {
   const api = useApi();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [productionOrders, setProductionOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -355,7 +356,7 @@ export default function AdminProduction() {
 
     setCreating(true);
     try {
-      await api.post(`/api/v1/production-orders/`, {
+      const newOrder = await api.post(`/api/v1/production-orders/`, {
         product_id: parseInt(createForm.product_id),
         quantity_ordered: parseInt(createForm.quantity_ordered) || 1,
         priority: parseInt(createForm.priority) || 3,
@@ -371,7 +372,8 @@ export default function AdminProduction() {
         due_date: "",
         notes: "",
       });
-      fetchProductionOrders();
+      // Navigate to the new production order detail page
+      navigate(`/admin/production/${newOrder.id}`);
     } catch (err) {
       setError(err.message);
     } finally {

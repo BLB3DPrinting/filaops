@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
@@ -38,6 +38,7 @@ export default function AdminInvoices() {
   const api = useApi();
   const toast = useToast();
   const formatCurrency = useFormatCurrency();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const statusFilter = searchParams.get("status") || "";
@@ -374,8 +375,17 @@ export default function AdminInvoices() {
                     <td className="py-3 px-4 text-white font-mono text-sm">
                       {invoice.invoice_number || "-"}
                     </td>
-                    <td className="py-3 px-4 text-gray-300 font-mono text-sm">
-                      {invoice.order_number || "-"}
+                    <td className="py-3 px-4 font-mono text-sm">
+                      {invoice.sales_order_id ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/admin/orders/${invoice.sales_order_id}`); }}
+                          className="text-blue-400 hover:text-blue-300"
+                        >
+                          {invoice.order_number || invoice.sales_order_id}
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">{invoice.order_number || "-"}</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-gray-300">
                       {invoice.customer_name || "-"}
@@ -485,7 +495,16 @@ export default function AdminInvoices() {
                     </div>
                     <div>
                       <span className="text-gray-400">Order #</span>
-                      <p className="text-white">{selectedInvoice.order_number || "-"}</p>
+                      {selectedInvoice.sales_order_id ? (
+                        <button
+                          onClick={() => navigate(`/admin/orders/${selectedInvoice.sales_order_id}`)}
+                          className="block text-blue-400 hover:text-blue-300 font-mono"
+                        >
+                          {selectedInvoice.order_number || selectedInvoice.sales_order_id}
+                        </button>
+                      ) : (
+                        <p className="text-white">{selectedInvoice.order_number || "-"}</p>
+                      )}
                     </div>
                   </div>
 
@@ -618,6 +637,17 @@ export default function AdminInvoices() {
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-800">
+                    {selectedInvoice.sales_order_id && (
+                      <button
+                        onClick={() => navigate(`/admin/orders/${selectedInvoice.sales_order_id}`)}
+                        className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        View Order
+                      </button>
+                    )}
                     {selectedInvoice.status === "draft" && (
                       <button
                         onClick={handleSendInvoice}
