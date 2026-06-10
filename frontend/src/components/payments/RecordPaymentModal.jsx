@@ -29,6 +29,8 @@ const paymentMethods = [
 export default function RecordPaymentModal({
   isRefund = false,
   orderId = null, // Pre-selected order (from Order Detail page)
+  invoiceId = null, // When opened from Invoices page — for display only (payment posts to the order)
+  invoiceBalanceDue = null, // Pre-fill amount field with open balance
   onClose,
   onSuccess,
 }) {
@@ -41,11 +43,13 @@ export default function RecordPaymentModal({
 
   const [form, setForm] = useState({
     sales_order_id: orderId || "",
-    amount: "",
+    amount: invoiceBalanceDue != null && invoiceBalanceDue > 0
+      ? String(parseFloat(invoiceBalanceDue).toFixed(2))
+      : "",
     payment_method: "credit_card",
     transaction_id: "",
     check_number: "",
-    notes: "",
+    notes: invoiceId ? `Invoice payment` : "",
     payment_date: new Date().toISOString().split("T")[0],
   });
 
