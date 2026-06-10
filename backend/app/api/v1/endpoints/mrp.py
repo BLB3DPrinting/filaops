@@ -25,7 +25,11 @@ from app.schemas.mrp import (
 from app.services.mrp import MRPService
 
 
-router = APIRouter(prefix="/mrp", tags=["MRP"])
+router = APIRouter(
+    prefix="/mrp",
+    tags=["MRP"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # ============================================================================
