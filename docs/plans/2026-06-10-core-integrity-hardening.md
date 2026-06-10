@@ -289,8 +289,15 @@ HIERARCHICAL, not rivals:
 
 - **Batch layer = MaterialLot** (exists, wired, has data): created at PO receipt,
   carries PO + vendor identity. Keep as-is — it already IS the batch record.
-- **Serial layer = MaterialSpool** (built, currently unwired): each spool belongs to
-  a receipt/lot. Wire `ProductionOrderSpool` consumption into production completion.
+- **Serial layer = MaterialSpool** (built, currently unwired). SCHEMA NOTE: today
+  `MaterialSpool` has NO direct link to `MaterialLot` — the relationship is only
+  inferable by correlating `ProductionOrderSpool` with `ProductionLotConsumption`
+  on the same production order. The implementation MUST add a direct
+  `MaterialSpool.material_lot_id` FK (nullable — legacy/manually-registered spools
+  may predate any receipt), populated at PO receiving where lots and spools are
+  already created together. The correlation join is acceptable only as a read-side
+  fallback for legacy rows, never for new data. Wire `ProductionOrderSpool`
+  consumption into production completion.
 
 **Enforcement is a COMPANY SETTING (off by default), not a global behavior:**
 - Setting ON (regulated mode): spool assignment is MANDATORY at consumption —
