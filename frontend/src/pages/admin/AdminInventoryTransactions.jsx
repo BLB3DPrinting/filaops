@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
+import ReservationReconciliationReport from "./ReservationReconciliationReport";
 
 // ---------------------------------------------------------------------------
 // Reconciliation report — counting work queue (HARD-4b)
@@ -370,8 +371,11 @@ export default function AdminInventoryTransactions() {
         </button>
       </div>
 
-      {/* Reconciliation Report — counting work queue */}
+      {/* Reconciliation Report — counting work queue (HARD-4b) */}
       <ReconciliationReport />
+
+      {/* Reservation Reconciliation — stranded allocation report (HARD-5) */}
+      <ReservationReconciliationReport />
 
       {/* Error Message */}
       {error && (
