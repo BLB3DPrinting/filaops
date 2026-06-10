@@ -2,8 +2,24 @@
 
 Date: 2026-06-09
 Author: Claude (architect/PM session `claude-filaops-ux-review-20260609`)
-Status: APPROVED FOR EXECUTION — each PR below is an independent work unit for a coding session
+Status: PHASE 0 + PHASE 1 COMPLETE (2026-06-10); PR-7 done early; Phase 2/3 pending
 Source: three-domain UX review (order-to-cash, make/stock, IA/first-run) of the Core frontend
+
+## Outcome log (2026-06-10)
+
+| Item | Result |
+| --- | --- |
+| SPIKE-A | NO BUG — `_kg` columns store grams by documented convention; labels correct. PR-2 parked. |
+| SPIKE-B | DIVERGENCE CONFIRMED — both paths broken in different ways; fixed by PR-7. |
+| PR-1 | Merged as #673 (UpgradeModal mounted, fallback toast, PRO-403 upsell). |
+| PR-2 | PARKED — see SPIKE-A; remaining work is a breaking API field rename, not GTM. |
+| PR-3 | Merged as #674. |
+| PR-4 | Merged as #675. |
+| PR-5 | Merged as #677 (also fixed same anti-pattern in items/BasicInfoStep.jsx). |
+| PR-6 | Merged as #676. |
+| PR-7 | Merged as #678 (shared `record_payment_and_reconcile()`, row-locked invoice reconciliation, `partially_paid` wired into AR queries; user-verified against dev DB). |
+| Review follow-up | Merged as #679 (`requires?` regex, in-modal create error, dead cancel/delete code removed). |
+| New findings | Issue #680 (workflow gating / close-short — folded into PR-8 below); revenue-recognition timing inconsistency (GL posts at invoicing, Sales Journal reports at shipment) — Aeonyx observation #168, fold into Phase 3 accounting polish. |
 
 ## How to use this document
 
@@ -237,10 +253,31 @@ Scope:
 - While here: humanize the raw `{order.status}` string in Order Summary (~1316) with
   the same `.replace(/_/g, " ")` treatment used elsewhere.
 
-Files: `frontend/src/pages/admin/OrderDetail.jsx` + its tests.
+EXPANDED SCOPE (issue #680, found 2026-06-10 — same root disease, same files):
+- Workflow card must gate "Create Work Orders" on the SAME rule the backend enforces
+  (`generate_production_orders` requires status == "confirmed" exactly AND uncovered
+  producible lines). Today the card offers the button for orders past confirmed and
+  the backend always 400s.
+- Set `sales_order_line_id` on ALL production-order creation paths (WO-2026-0040-style
+  unlinked WOs make per-line coverage checks lie — the card shows "Ready to create
+  work orders" for demand that is already produced).
+- Reconcile `sales_orders.closed_short` when coverage subsequently completes (stale
+  "Closed Short" badge contradicting "Production is complete").
+- Rewrite the 400 detail: name the actual rule ("Work orders can only be generated
+  while the order is in Confirmed status; this order is ready to ship"), not
+  "Confirm the sales order first".
+- DESIGN DECISION REQUIRED (do not implement without user sign-off): supplementary-WO
+  path for genuinely unmet demand after a close-short — either allow WO creation when
+  uncovered demand exists and the order isn't shipped/cancelled, or add an explicit
+  "reopen short closure" action. Issue #680 item 4.
 
-Acceptance: each state-changing action renders in exactly one place; all existing
-workflow tests pass; no raw snake_case status visible.
+Files: `frontend/src/pages/admin/OrderDetail.jsx` + its tests,
+`backend/app/services/sales_order_service.py` (guard + error copy + line linkage),
+production-order creation paths.
+
+Acceptance: each state-changing action renders in exactly one place; the workflow
+card never offers an action the backend will refuse; all existing workflow tests
+pass; no raw snake_case status visible; issue #680 items 1-3 closed.
 
 Impact: HIGH — removes the worst "which button is real?" confusion.
 
@@ -448,14 +485,19 @@ GTM unless routing-edit conflicts bite sooner.
 ## Sequencing summary
 
 ```
-Phase 0:  SPIKE-A  SPIKE-B            (half a day, gates PR-2 / PR-7)
-Phase 1:  PR-1  PR-2  PR-3  PR-4  PR-5  PR-6     (all parallel, small)
-Phase 2:  PR-7  PR-8  PR-9  PR-10  PR-11  PR-12  PR-13(after PR-6)
+Phase 0:  SPIKE-A  SPIKE-B            DONE 2026-06-10
+Phase 1:  PR-1  PR-2(parked)  PR-3  PR-4  PR-5  PR-6     DONE 2026-06-10
+Phase 2:  PR-7(done #678)  PR-8(expanded, see #680)  PR-9  PR-10  PR-11  PR-12  PR-13
 Phase 3:  PR-14(design first)  PR-15  PR-16  PR-17  PR-18  PR-19(post-GTM)
 ```
 
-GTM-critical set (minimum to ship): SPIKEs, PR-1 through PR-6, PR-7, PR-10, PR-13,
-PR-18. Everything else improves quality but does not block launch.
+Parallelism correction learned in execution: Phase 1 was NOT fully parallel — PR-5
+shared AdminShipping.jsx with PR-4 and PR-6 shared AdminLayout.jsx with PR-3. Check
+file overlap before dispatching concurrent sessions; the safe waves were
+{PR-3, PR-4} then {PR-5, PR-6, PR-7}.
+
+GTM-critical set remaining: PR-8 (expanded), PR-10, PR-13, PR-18. Everything else
+improves quality but does not block launch.
 
 ## Out of scope (explicitly deferred)
 
