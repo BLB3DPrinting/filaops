@@ -107,11 +107,26 @@ Scope (3 PRs, sequential):
   `stored on_hand vs Σ(ledger)` per item, surfaced as a report (reuse an existing
   admin page section or a simple table); log/flag mismatches. Wire into CI-runnable
   test for the seed dataset.
-- **4c — data repair (REQUIRES HUMAN APPROVAL before merge — DB safety gate).** A
-  migration/script that snapshots current stored on-hand, writes explicit
-  `reconciliation` transactions to make ledger sum equal stored value (or vice versa
-  per user decision per-item), so history is honest going forward. Run cortex_approve
-  before executing against any DB.
+- **4c — data repair (REQUIRES HUMAN APPROVAL before executing against any DB).**
+  STRATEGY DECIDED 2026-06-10 by the owner: **"system first, updated by cycle count."**
+  The transaction ledger is the system of record going forward; physical cycle counts
+  are the periodic correction for transactional variance (unrecorded scrap-remakes,
+  BOM-vs-reality drift from slicing changes, etc.). Neither the drifted stored on-hand
+  nor the pre-consolidation ledger sum is ground truth — the shelf is. Implementation:
+  1. The 4b report's drifted-item list is the counting work queue.
+  2. Each counted item posts a reason-coded `reconciliation_baseline` transaction
+     through the 4a canonical poster (an honest event: a count happened), snapping
+     stored AND ledger to the counted value.
+  3. EPOCH LINE: per-item baseline timestamp; all future reconciliation (4b job)
+     sums ONLY transactions at-or-after the baseline. Pre-epoch history is retained
+     read-only as archaeology — never re-summed, never repaired row-by-row.
+  4. Items not yet counted: stored on-hand stands as the flagged interim baseline
+     ("uncounted" in the 4b report) until a count replaces it.
+  5. Dev/demo/test databases: baseline to stored without counting (test data).
+  The tool ships as count-first with stored-as-fallback. Run cortex_approve before
+  executing against any real DB; the migration itself only adds baseline plumbing —
+  baseline transactions are created by counts (or the explicit fallback command),
+  never silently.
 
 Impact: HIGHEST in this plan — valuation, MRP, and COGS all inherit this. Effort: L
 (split as above). Files: the five writers + tests; expect wide test fallout — budget
