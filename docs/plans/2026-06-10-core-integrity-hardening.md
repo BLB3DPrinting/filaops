@@ -199,12 +199,38 @@ Impact: HIGH. Effort: M.
 Nothing answers "across ALL open demand, what do I buy, how much, by when?" The
 engine computes 90% of it (`mrp.py` `calculate_net_requirements`).
 
-Scope: read-only aggregate endpoint — gross demand across open SOs + production
-orders by component, netted against on-hand + on-order + safety stock, grouped by
-preferred vendor, sorted by earliest need; frontend page/section under Purchasing
-("Buy List" or "Requirements") with line-level "Create PO" that pre-fills vendor +
-qty. Do NOT build time-phasing yet (Phase C candidate); single-bucket netting is the
-honest MVP. DEPENDS ON: HARD-6 definitions (share the netting helper).
+DESIGN DECIDED 2026-06-10 (owner-approved three-layer MRP model — this is the
+architecture HARD-7 implements and the AUTO_MRP_* follow-up inherits):
+
+- **Layer 1 — the picture is always live.** The buy list is a COMPUTED-ON-DEMAND
+  view: open the page, it nets gross demand (open SOs + production orders) against
+  on-hand + on-order + safety stock right then. NO dependence on a stored "MRP run"
+  artifact — views that depend on someone remembering to run a job rot; views
+  computed when you look are always true. At FilaOps scale this query is
+  milliseconds. Requires a READ-ONLY netting path: compute WITHOUT run_mrp's
+  delete-and-regenerate side effects (documented in PR #688 — run_mrp self-commits
+  and wipes unfirmed planned orders; never call it from a read path).
+- **Layer 2 — commitment is manual, always.** A "Plan" action on the buy-list page
+  generates PROPOSALS the operator reviews, edits, firms, or discards — only firmed
+  proposals become real POs/WOs. The system computes; the human commits. No
+  automation ever auto-creates purchase documents.
+- **Layer 3 — events update signals, not plans.** Order created / PO received /
+  production completed refresh cheap indicators (shortage badges, "demand changed
+  since you last looked" hints) — NEVER a regenerative run mid-transaction. This is
+  what the AUTO_MRP_* flags will eventually mean (follow-up after HARD-7; the
+  honest-stub state from #688 stands until then). No scheduled nightly run at
+  current scale — skip entirely, revisit only for 10k+ SKU installs.
+
+Scope: read-only aggregate endpoint per Layer 1 — grouped by preferred vendor,
+sorted by earliest need; frontend page/section under Purchasing ("Buy List") with
+line-level "Create PO" that pre-fills vendor + qty (this is also where the
+quick-reorder concept gets RE-IMPLEMENTED — PR #684 deleted the broken low_stock
+module entirely and flagged quick-reorder as a future enhancement; no code was
+carried over, only the idea: one click → PO to preferred vendor at reorder qty).
+Layer 2's Plan-and-firm may
+ship in the same PR or the next one — Layer 1 alone is already the honest MVP. Do
+NOT build time-phasing yet (Phase C candidate); single-bucket netting is the MVP.
+DEPENDS ON: HARD-6 definitions (share the netting helper).
 Impact: HIGH — this is what makes "MRP" a feature, not a claim. Effort: M/L.
 
 ### HARD-8: Landed cost capitalization
