@@ -28,7 +28,7 @@ place — this file.
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -156,3 +156,104 @@ def compute_quantity_short(
     qty_required must be a non-negative Decimal.
     """
     return max(Decimal("0"), qty_required - availability.projected)
+
+
+def get_projected_available_bulk(
+    db: Session,
+    product_ids: List[int],
+) -> Dict[int, ProjectedAvailability]:
+    """
+    Batch version of get_projected_available for a list of product IDs.
+
+    Executes exactly two queries regardless of the number of products:
+      1. One grouped Inventory aggregate for on_hand + allocated sums.
+      2. One PurchaseOrderLine + PurchaseOrder join for open-PO supply.
+
+    Returns a dict mapping product_id → ProjectedAvailability.  Products with
+    no inventory row and no open PO are included with all-zero values.
+
+    Use this wherever get_projected_available would be called in a loop to
+    avoid N+1 query patterns (e.g. the buy-list netting loop).
+
+    Note: This function does NOT return per-PO IncomingSupplyDetail sorted by
+    expected_date (that requires the full per-product query).  The bulk path
+    returns detail lists sorted by expected_date per product, which is
+    sufficient for the buy-list use case.
+    """
+    if not product_ids:
+        return {}
+
+    # --- 1. Inventory totals per product ------------------------------------
+    inv_rows = (
+        db.query(
+            Inventory.product_id,
+            func.coalesce(func.sum(Inventory.on_hand_quantity), Decimal("0")).label("on_hand"),
+            func.coalesce(func.sum(Inventory.allocated_quantity), Decimal("0")).label("allocated"),
+        )
+        .filter(Inventory.product_id.in_(product_ids))
+        .group_by(Inventory.product_id)
+        .all()
+    )
+    inv_map: Dict[int, tuple] = {row.product_id: row for row in inv_rows}
+
+    # --- 2. Open PO lines per product ---------------------------------------
+    po_rows = (
+        db.query(PurchaseOrder, PurchaseOrderLine)
+        .join(PurchaseOrderLine, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id)
+        .filter(
+            PurchaseOrderLine.product_id.in_(product_ids),
+            PurchaseOrder.status.in_(_OPEN_PO_STATUSES),
+        )
+        .order_by(
+            PurchaseOrderLine.product_id,
+            PurchaseOrder.expected_date.asc().nullslast(),
+        )
+        .all()
+    )
+
+    # Group PO details by product_id
+    po_details_map: Dict[int, List[IncomingSupplyDetail]] = {pid: [] for pid in product_ids}
+    for po, pol in po_rows:
+        pid = pol.product_id
+        ordered = pol.quantity_ordered or Decimal("0")
+        received = pol.quantity_received or Decimal("0")
+        remaining = Decimal(str(ordered)) - Decimal(str(received))
+        if remaining <= Decimal("0"):
+            continue  # fully received
+        if pid not in po_details_map:
+            po_details_map[pid] = []
+        po_details_map[pid].append(IncomingSupplyDetail(
+            purchase_order_id=po.id,
+            po_number=po.po_number,
+            quantity=remaining,
+            expected_date=po.expected_date,
+            status=po.status,
+        ))
+
+    # --- 3. Assemble results ------------------------------------------------
+    result: Dict[int, ProjectedAvailability] = {}
+    for pid in product_ids:
+        if pid in inv_map:
+            row = inv_map[pid]
+            on_hand = Decimal(str(row.on_hand or 0))
+            allocated = Decimal(str(row.allocated or 0))
+        else:
+            on_hand = Decimal("0")
+            allocated = Decimal("0")
+
+        available = on_hand - allocated
+        details = po_details_map.get(pid, [])
+        incoming_qty = sum((d.quantity for d in details), Decimal("0"))
+        projected = available + incoming_qty
+
+        result[pid] = ProjectedAvailability(
+            product_id=pid,
+            on_hand=on_hand,
+            allocated=allocated,
+            available=available,
+            incoming_qty=incoming_qty,
+            projected=projected,
+            details=details,
+        )
+
+    return result

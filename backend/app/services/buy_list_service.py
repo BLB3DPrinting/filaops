@@ -52,7 +52,7 @@ from app.schemas.buy_list import (
     BuyListSummary,
 )
 from app.services.mrp import MRPService
-from app.services.supply_netting import get_projected_available
+from app.services.supply_netting import get_projected_available, get_projected_available_bulk
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -293,6 +293,11 @@ def get_buy_list(
     # ------------------------------------------------------------------ #
     # Step 3: Net each component and build output rows                     #
     # ------------------------------------------------------------------ #
+
+    # Batch-load projected availability for ALL components in two queries
+    # instead of 2·N individual queries.  See supply_netting.get_projected_available_bulk.
+    availability_map = get_projected_available_bulk(db, product_ids)
+
     items: List[BuyListItem] = []
     total_buy_value = Decimal("0")
     total_draft_incoming = Decimal("0")
@@ -302,15 +307,35 @@ def get_buy_list(
         if not product:
             continue
 
-        avail = get_projected_available(db, pid)
+        # get_projected_available_bulk guarantees a key for every product_id
+        # in product_ids, so this fallback is a safety net for edge cases where
+        # a product entered demand after the bulk call.
+        avail = availability_map.get(pid)
+        if avail is None:
+            avail = get_projected_available(db, pid)
 
         safety_stock = Decimal(str(product.safety_stock or 0))
         gross = comp_demand.gross_quantity
-        projected = avail.projected
 
-        # MRP netting formula (same as calculate_net_requirements):
-        # net_shortage = max(0, gross − projected + safety_stock)
-        raw_short = gross - projected + safety_stock
+        # Aggregate MRP netting — net against on_hand + incoming, NOT
+        # available (= on_hand − allocated).
+        #
+        # Why: gross_demand already includes the open WOs that created the
+        # allocated quantities.  Using `available` (on_hand − allocated) would
+        # subtract those allocations from supply while their corresponding WO
+        # demand also appears in gross — double-counting that overstates
+        # shortages.
+        #
+        # Contrast with blocking_issues / per-order checks (e.g. line ~200,
+        # ~541) where `available` IS correct: those check a single order
+        # against current availability and the question is "is there stock free
+        # to fill *this* specific order right now?"  Here we ask "across all
+        # open demand, how much more do we need to buy?" — the allocations are
+        # already captured inside gross_demand.
+        #
+        # Formula: net_shortage = max(0, gross − (on_hand + incoming) + safety_stock)
+        mrp_projected = avail.on_hand + avail.incoming_qty
+        raw_short = gross - mrp_projected + safety_stock
         net_shortage = max(Decimal("0"), raw_short)
 
         if net_shortage <= Decimal("0"):
@@ -374,7 +399,7 @@ def get_buy_list(
                 allocated=avail.allocated,
                 available=avail.available,
                 incoming_qty=avail.incoming_qty,
-                projected=projected,
+                projected=mrp_projected,
                 safety_stock=safety_stock,
                 net_shortage=net_shortage,
                 suggested_qty=suggested_qty,

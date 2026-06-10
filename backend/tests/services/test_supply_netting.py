@@ -26,6 +26,7 @@ from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.services.supply_netting import (
     compute_quantity_short,
     get_projected_available,
+    get_projected_available_bulk,
 )
 
 
@@ -341,3 +342,118 @@ class TestComputeQuantityShort:
         proj = get_projected_available(db, product.id)
         short = compute_quantity_short(Decimal("10"), proj)
         assert short >= Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# get_projected_available_bulk (N+1 batch path)
+# ---------------------------------------------------------------------------
+
+class TestGetProjectedAvailableBulk:
+    """Batch version returns the same values as per-product calls, in two queries."""
+
+    def test_empty_list_returns_empty_dict(self, db):
+        result = get_projected_available_bulk(db, [])
+        assert result == {}
+
+    def test_missing_product_returns_zeros(self, db, make_product):
+        product = make_product()
+        # No inventory row, no PO
+        result = get_projected_available_bulk(db, [product.id])
+        assert product.id in result
+        a = result[product.id]
+        assert a.on_hand == Decimal("0")
+        assert a.allocated == Decimal("0")
+        assert a.incoming_qty == Decimal("0")
+        assert a.projected == Decimal("0")
+
+    def test_matches_single_call_no_pos(self, db, make_product):
+        product = make_product()
+        _make_inventory(db, product.id, Decimal("300"), allocated=Decimal("50"))
+
+        single = get_projected_available(db, product.id)
+        bulk = get_projected_available_bulk(db, [product.id])
+
+        a = bulk[product.id]
+        assert a.on_hand == single.on_hand
+        assert a.allocated == single.allocated
+        assert a.available == single.available
+        assert a.incoming_qty == single.incoming_qty
+        assert a.projected == single.projected
+
+    def test_matches_single_call_with_open_po(self, db, make_product, make_vendor):
+        product = make_product()
+        vendor = make_vendor()
+        _make_inventory(db, product.id, Decimal("100"))
+        _make_po_with_line(
+            db, vendor.id, product.id,
+            qty_ordered=Decimal("400"), qty_received=Decimal("50"),
+            status="ordered",
+        )
+
+        single = get_projected_available(db, product.id)
+        bulk = get_projected_available_bulk(db, [product.id])
+
+        a = bulk[product.id]
+        assert a.on_hand == single.on_hand
+        assert a.incoming_qty == single.incoming_qty
+        assert a.projected == single.projected
+        assert len(a.details) == len(single.details)
+
+    def test_multiple_products_in_one_call(self, db, make_product, make_vendor):
+        p1 = make_product()
+        p2 = make_product()
+        p3 = make_product()
+        vendor = make_vendor()
+
+        _make_inventory(db, p1.id, Decimal("50"), allocated=Decimal("10"))
+        _make_inventory(db, p2.id, Decimal("200"))
+        # p3 has no inventory
+        _make_po_with_line(
+            db, vendor.id, p2.id,
+            qty_ordered=Decimal("100"), qty_received=Decimal("0"),
+            status="shipped",
+        )
+
+        result = get_projected_available_bulk(db, [p1.id, p2.id, p3.id])
+        assert set(result.keys()) == {p1.id, p2.id, p3.id}
+
+        assert result[p1.id].on_hand == Decimal("50")
+        assert result[p1.id].allocated == Decimal("10")
+        assert result[p1.id].available == Decimal("40")
+        assert result[p1.id].incoming_qty == Decimal("0")
+
+        assert result[p2.id].on_hand == Decimal("200")
+        assert result[p2.id].incoming_qty == Decimal("100")
+        assert result[p2.id].projected == Decimal("300")  # available(200) + incoming(100)
+
+        assert result[p3.id].on_hand == Decimal("0")
+        assert result[p3.id].projected == Decimal("0")
+
+    def test_fully_received_po_excluded_in_bulk(self, db, make_product, make_vendor):
+        product = make_product()
+        vendor = make_vendor()
+        _make_inventory(db, product.id, Decimal("100"))
+        _make_po_with_line(
+            db, vendor.id, product.id,
+            qty_ordered=Decimal("500"), qty_received=Decimal("500"),
+            status="ordered",
+        )
+        result = get_projected_available_bulk(db, [product.id])
+        assert result[product.id].incoming_qty == Decimal("0")
+
+    def test_closed_and_cancelled_pos_excluded_in_bulk(self, db, make_product, make_vendor):
+        product = make_product()
+        vendor = make_vendor()
+        _make_inventory(db, product.id, Decimal("50"))
+        _make_po_with_line(
+            db, vendor.id, product.id,
+            qty_ordered=Decimal("200"), qty_received=Decimal("0"),
+            status="closed",
+        )
+        _make_po_with_line(
+            db, vendor.id, product.id,
+            qty_ordered=Decimal("300"), qty_received=Decimal("0"),
+            status="cancelled",
+        )
+        result = get_projected_available_bulk(db, [product.id])
+        assert result[product.id].incoming_qty == Decimal("0")

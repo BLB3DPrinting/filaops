@@ -20,7 +20,11 @@ from unittest.mock import MagicMock, patch
 from app.models.bom import BOM, BOMLine
 from app.models.inventory import Inventory, InventoryLocation, InventoryTransaction
 from app.models.product import Product
-from app.models.production_order import ProductionOrder
+from app.models.production_order import (
+    ProductionOrder,
+    ProductionOrderOperation,
+    ProductionOrderOperationMaterial,
+)
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.traceability import MaterialLot
 from app.services import inventory_service, inventory_transaction_service
@@ -1538,3 +1542,297 @@ class TestCogsExcludesHeldAndVoidedRows:
         )
 
         assert _consumption_already_posted(db, po.id, comp.id) is True
+
+
+# =============================================================================
+# Finding 1 (phase-B sweep): same component at TWO routing operations
+# =============================================================================
+
+def _make_work_center(db, code=None):
+    """Create a minimal WorkCenter for test operations."""
+    import uuid
+    from app.models.work_center import WorkCenter
+    wc = WorkCenter(
+        code=code or f"WC-{uuid.uuid4().hex[:6]}",
+        name="Test Work Center",
+        center_type="production",
+    )
+    db.add(wc)
+    db.flush()
+    return wc
+
+
+def _make_operation(db, production_order_id, work_center_id, sequence=10):
+    """Create a ProductionOrderOperation row."""
+    op = ProductionOrderOperation(
+        production_order_id=production_order_id,
+        work_center_id=work_center_id,
+        sequence=sequence,
+        operation_name="Test Op",
+        planned_run_minutes=30,
+        status="pending",
+    )
+    db.add(op)
+    db.flush()
+    return op
+
+
+def _make_op_material(db, operation_id, component_id, qty_required, unit="EA"):
+    """Create a ProductionOrderOperationMaterial row."""
+    mat = ProductionOrderOperationMaterial(
+        production_order_operation_id=operation_id,
+        component_id=component_id,
+        quantity_required=qty_required,
+        unit=unit,
+        status="pending",
+    )
+    db.add(mat)
+    db.flush()
+    return mat
+
+
+class TestMultiOperationSameComponentConsumption:
+    """
+    Regression test for phase-B sweep finding 1:
+
+    When the same component appears in TWO different routing operations,
+    consume_operation_material must fire BOTH consumptions independently
+    (gated by per-material-row status, not the ledger-level guard).
+
+    After both per-op consumptions have run:
+    - Two ledger rows must exist for the component on the PO.
+    - on_hand must be decremented twice.
+    - consume_production_materials (BOM backflush) must post ZERO extra rows.
+    - Calling consume_production_materials a second time must still produce
+      zero rows (double-fire backflush idempotency).
+    """
+
+    def test_two_operations_same_component_both_post(self, db, make_product):
+        """Two op-material rows for the same component each produce a ledger row."""
+        fg = make_product(item_type="finished_good")
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("1.00"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+
+        op1 = _make_operation(db, po.id, wc.id, sequence=10)
+        op2 = _make_operation(db, po.id, wc.id, sequence=20)
+
+        mat1 = _make_op_material(db, op1.id, comp.id, Decimal("5"), unit="EA")
+        mat2 = _make_op_material(db, op2.id, comp.id, Decimal("3"), unit="EA")
+
+        # Both operations complete — each has its own material row
+        txn1 = inventory_service.consume_operation_material(db, mat1, po)
+        txn2 = inventory_service.consume_operation_material(db, mat2, po)
+
+        assert txn1 is not None, "First op-material must produce a transaction"
+        assert txn2 is not None, "Second op-material must ALSO produce a transaction"
+
+        # Two distinct ledger rows for the same component on the same PO
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == comp.id,
+        ).all()
+        assert len(rows) == 2, (
+            f"Expected 2 consumption rows (one per operation), got {len(rows)}"
+        )
+
+        # on_hand decremented by 5 + 3 = 8
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == comp.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert inv.on_hand_quantity == Decimal("992"), (
+            f"Expected on_hand=992 after consuming 8, got {inv.on_hand_quantity}"
+        )
+
+    def test_double_fire_of_same_op_material_posts_once(self, db, make_product):
+        """Calling consume_operation_material on an already-consumed material row
+        must return None (material.status guard) — no duplicate ledger row."""
+        fg = make_product(item_type="finished_good")
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("1.00"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id)
+        mat = _make_op_material(db, op.id, comp.id, Decimal("10"), unit="EA")
+
+        txn_first = inventory_service.consume_operation_material(db, mat, po)
+        txn_second = inventory_service.consume_operation_material(db, mat, po)
+
+        assert txn_first is not None
+        assert txn_second is None, (
+            "Double-fire of same material row must be blocked by status=='consumed'"
+        )
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 1
+
+    def test_completion_backflush_posts_nothing_after_per_op_consumption(
+        self, db, make_product
+    ):
+        """After per-operation consumption has already posted for a component,
+        the BOM-level backflush (consume_production_materials) must skip it."""
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("1.00"))
+
+        # BOM line for the component
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": comp.id, "quantity": Decimal("10"), "unit": "EA",
+             "consume_stage": "production"},
+        ])
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("5000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id)
+        mat = _make_op_material(db, op.id, comp.id, Decimal("10"), unit="EA")
+
+        # Per-operation consumption fires first
+        txn_op = inventory_service.consume_operation_material(db, mat, po)
+        assert txn_op is not None
+
+        # BOM-level backflush must skip (already consumed by per-op)
+        backflush_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert len(backflush_txns) == 0, (
+            "Backflush must post nothing after per-op consumption already ran"
+        )
+
+        # Still only one consumption row in DB
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 1
+
+    def test_double_fire_of_backflush_posts_once(self, db, make_product):
+        """Calling consume_production_materials twice must not double-consume
+        (original HARD-11 double-fire guard still holds)."""
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("1.00"))
+
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": comp.id, "quantity": Decimal("10"), "unit": "EA",
+             "consume_stage": "production"},
+        ])
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("5000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+
+        first = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert len(first) == 1
+
+        second = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert len(second) == 0, "Second backflush call must be idempotent"
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 1
+
+
+# =============================================================================
+# Finding 2 (phase-B sweep): voided/held rows excluded from journal + order cost
+# =============================================================================
+
+class TestAccountingEndpointsExcludeGhostRows:
+    """
+    Voided (rejected) and unapplied-held consumption rows must NOT appear
+    in /accounting/transactions-journal or /accounting/order-cost-breakdown/{id}.
+
+    Tests call the endpoints via the TestClient so the full filter chain is
+    exercised exactly as prod code runs it.
+    """
+
+    def _make_po(self, db, product_id):
+        return _make_production_order(db, product_id, qty_ordered=1)
+
+    def test_voided_consumption_absent_from_journal(self, db, client, make_product):
+        """A voided consumption row must NOT appear in the journal."""
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("5.00"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = self._make_po(db, comp.id)
+
+        # Post + void a consumption
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-50"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        inventory_ledger.reject_held_transaction(
+            db, txn, voided_by="staff@test.com", void_reason="test"
+        )
+        db.flush()
+
+        response = client.get("/api/v1/admin/accounting/transactions-journal?days=1")
+        assert response.status_code == 200
+        entries = response.json()["entries"]
+        txn_ids = {e["transaction_id"] for e in entries}
+        assert txn.id not in txn_ids, (
+            "Voided consumption row must NOT appear in transactions-journal"
+        )
+
+    def test_held_unapplied_consumption_absent_from_journal(self, db, client, make_product):
+        """An unapplied held consumption row (requires_approval=True, approved_by=None)
+        must NOT appear in the journal."""
+        from app.services import inventory_ledger
+
+        comp = make_product(unit="EA", cost_method="average", average_cost=Decimal("5.00"))
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, comp.id, location.id, Decimal("1000"))
+
+        po = self._make_po(db, comp.id)
+
+        # Post a held (unapplied) consumption — do NOT approve or reject
+        txn = inventory_ledger.post(
+            db,
+            product_id=comp.id,
+            location_id=location.id,
+            transaction_type="consumption",
+            quantity_delta=Decimal("-30"),
+            reference_type="production_order",
+            reference_id=po.id,
+            requires_approval=True,
+        )
+        db.flush()
+
+        response = client.get("/api/v1/admin/accounting/transactions-journal?days=1")
+        assert response.status_code == 200
+        entries = response.json()["entries"]
+        txn_ids = {e["transaction_id"] for e in entries}
+        assert txn.id not in txn_ids, (
+            "Unapplied held consumption row must NOT appear in transactions-journal"
+        )
