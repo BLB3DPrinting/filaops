@@ -8,6 +8,7 @@ import { LocaleProvider } from "./contexts/LocaleContext";
 import { useFeatureFlags } from "./hooks/useFeatureFlags";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ApiErrorToaster from "./components/ApiErrorToaster";
+import UpgradeModal from "./components/UpgradeModal";
 import AdminLayout from "./components/AdminLayout";
 import Setup from "./pages/Setup";
 import Onboarding from "./pages/Onboarding";
@@ -126,6 +127,9 @@ export default function App() {
             <ToastProvider>
               {/* Global API error toasts */}
               <ApiErrorToaster />
+              {/* Tier-limit upgrade modal — must be mounted at app root so
+                  it can receive tier:limit-reached events from any page */}
+              <UpgradeModal />
               <BrowserRouter>
                 <Routes>
                   {/* Redirect root to admin */}
