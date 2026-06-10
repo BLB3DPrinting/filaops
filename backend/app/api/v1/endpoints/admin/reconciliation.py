@@ -24,6 +24,7 @@ POST /api/v1/admin/inventory/reconciliation/count/all-to-stored
 
 Staff-gated: uses the same router-level dependency as mrp.py (post-#683).
 """
+import logging
 from typing import List, Optional
 from datetime import datetime
 
@@ -40,6 +41,8 @@ from app.services.reconciliation_service import (
     get_reconciliation_report,
     post_reconciliation_baseline,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/inventory/reconciliation",
@@ -154,7 +157,9 @@ def get_inventory_reconciliation(
     - positive drift -> stored is higher than ledger (phantom stock)
     - negative drift -> stored is lower (consumed but not recorded)
     """
-    service_rows = get_reconciliation_report(db, drifted_only=drifted_only)
+    # Fetch once (unfiltered) so summary stats and filtered items share one DB round-trip.
+    all_rows = get_reconciliation_report(db, drifted_only=False)
+    service_rows = [r for r in all_rows if r.has_drift] if drifted_only else all_rows
 
     items = [
         ReconciliationItemSchema(
@@ -174,12 +179,10 @@ def get_inventory_reconciliation(
         for r in service_rows
     ]
 
-    all_rows = get_reconciliation_report(db) if drifted_only else service_rows
-
     return ReconciliationReportSchema(
         items=items,
-        total_items=len(all_rows) if drifted_only else len(items),
-        drifted_items=sum(1 for r in (all_rows if drifted_only else service_rows) if r.has_drift),
+        total_items=len(all_rows),
+        drifted_items=sum(1 for r in all_rows if r.has_drift),
         uncounted_items=sum(1 for r in all_rows if not r.is_counted),
     )
 
@@ -327,8 +330,12 @@ def baseline_all_to_stored(
                 )
                 stamped += 1
             except Exception:
-                # Log and continue -- one bad row shouldn't abort the batch
-                pass
+                logger.exception(
+                    "baseline_to_stored failed for product_id=%s location_id=%s; "
+                    "continuing batch",
+                    inv.product_id,
+                    inv.location_id,
+                )
 
     db.commit()
 
