@@ -309,8 +309,8 @@ Authorization: Bearer <access_token>
 ## 11. Purchase Orders (`/purchase-orders`)
 
 **Tier**: Core
-**File**: `endpoints/purchase_orders.py`, `endpoints/po_documents.py`, `endpoints/low_stock.py`, `endpoints/vendor_items.py`
-**Endpoints**: 32
+**File**: `endpoints/purchase_orders.py`, `endpoints/po_documents.py`, `endpoints/vendor_items.py`
+**Endpoints**: 29
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -335,9 +335,6 @@ Authorization: Bearer <access_token>
 | PATCH | `/purchase-orders/{po_id}/documents/{doc_id}` | Update document metadata (type, notes) | CUSTOMER |
 | DELETE | `/purchase-orders/{po_id}/documents/{doc_id}` | Delete a document | CUSTOMER |
 | POST | `/purchase-orders/{po_id}/documents/bulk` | Upload multiple documents at once | CUSTOMER |
-| GET | `/purchase-orders/low-stock` | Get all products below their reorder point, grouped by preferred vendor | PUBLIC |
-| POST | `/purchase-orders/from-low-stock` | Create a purchase order from selected low-stock items | CUSTOMER |
-| POST | `/purchase-orders/quick-reorder/{product_id}` | Quick one-click reorder for a single product | CUSTOMER |
 | GET | `/purchase-orders/vendors/{vendor_id}/items` | List all SKU mappings for a vendor. | CUSTOMER |
 | POST | `/purchase-orders/vendors/{vendor_id}/items` | Create a new vendor SKU mapping. | CUSTOMER |
 | GET | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Get a specific vendor item mapping. | CUSTOMER |

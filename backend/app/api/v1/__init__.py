@@ -17,7 +17,6 @@ from app.api.v1.endpoints import (
     vendors,
     purchase_orders,
     po_documents,
-    low_stock,
     vendor_items,
     work_centers,
     resources,
@@ -124,13 +123,6 @@ router.include_router(
 # Purchase Order Documents (multi-file upload)
 router.include_router(
     po_documents.router,
-    prefix="/purchase-orders",
-    tags=["purchase-orders"]
-)
-
-# Low Stock Workflow (create POs from low stock)
-router.include_router(
-    low_stock.router,
     prefix="/purchase-orders",
     tags=["purchase-orders"]
 )
