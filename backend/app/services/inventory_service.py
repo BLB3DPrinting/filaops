@@ -24,6 +24,7 @@ from app.services.uom_service import (
     UOMConversionError,
     convert_cost_for_unit,
 )
+from app.services.reservation_reconciliation_service import check_allocation_guard
 
 logger = get_logger(__name__)
 
@@ -577,16 +578,37 @@ def reserve_production_materials(
         
         # Get or create inventory record
         inventory = get_or_create_inventory(db, line.component_id, location.id)
-        
+
         # Increase allocated quantity
         current_allocated = Decimal(str(inventory.allocated_quantity))
         current_on_hand = Decimal(str(inventory.on_hand_quantity))
         new_allocated = current_allocated + total_qty
-        available_after = current_on_hand - new_allocated
-        
+
+        # HARD-5 write-time guard: flag (not block) when reservation would
+        # exceed on_hand.  Production is allowed to reserve ahead of receipt,
+        # so we log + flag but proceed.  The shortage is visible in the
+        # reservation return value so callers/UIs can surface it.
+        would_exceed, available_after = check_allocation_guard(
+            current_on_hand, current_allocated, total_qty
+        )
+        if would_exceed:
+            logger.warning(
+                "HARD-5 allocation guard: reserving %s %s of %s for PO#%s "
+                "would exceed on_hand (%s). allocated %s → %s, available_after=%s. "
+                "Proceeding (legitimate ahead-of-receipt reservation).",
+                total_qty,
+                component_unit,
+                component.sku,
+                production_order.code,
+                current_on_hand,
+                current_allocated,
+                new_allocated,
+                available_after,
+            )
+
         inventory.allocated_quantity = new_allocated
         inventory.updated_at = datetime.now(timezone.utc)
-        
+
         # Create reservation transaction for audit trail
         unit_cost = get_effective_cost_per_inventory_unit(component)
         total_cost = abs(total_qty) * unit_cost if unit_cost else None
@@ -605,7 +627,7 @@ def reserve_production_materials(
             created_at=datetime.now(timezone.utc),
         )
         db.add(txn)
-        
+
         reservation_info = {
             "product_id": line.component_id,
             "product_sku": component.sku,
@@ -615,16 +637,11 @@ def reserve_production_materials(
             "on_hand": float(current_on_hand),
             "allocated_after": float(new_allocated),
             "available_after": float(available_after),
-            "is_shortage": available_after < 0,
+            "is_shortage": would_exceed,
         }
         reservations.append(reservation_info)
-        
-        if available_after < 0:
-            logger.warning(
-                f"Material shortage after reservation: {component.sku} - "
-                f"Available: {available_after} {component_unit} (shortage of {-available_after})"
-            )
-        else:
+
+        if not would_exceed:
             logger.info(
                 f"Reserved {total_qty} {component_unit} of {component.sku} "
                 f"for PO#{production_order.code}"
