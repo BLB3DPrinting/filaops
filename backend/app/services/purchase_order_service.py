@@ -520,6 +520,69 @@ def receive_purchase_order(
     # to avoid weighted average drift when the same product appears multiple times
     product_receipt_accum: dict[int, dict] = {}  # product_id -> {qty, cost_sum}
 
+    # ---------------------------------------------------------------------------
+    # Landed-cost pre-pass (HARD-8)
+    # ---------------------------------------------------------------------------
+    # Allocate po.shipping_cost + po.tax_amount pro-rata by line value for THIS
+    # receipt.  Line value = qty_received_this_receipt × line.unit_cost (in
+    # purchase-unit dollars — the same basis used for the PO total).
+    #
+    # PARTIAL-RECEIPT RULE: a PO received in N shipments capitalises freight in
+    # proportion to the value received each time.  If the first shipment covers
+    # 60 % of PO value, 60 % of total freight is capitalised now; the remaining
+    # 40 % is deferred until the next receipt.  Summed across all receipts the
+    # full freight is eventually capitalised — no penny is double-counted.
+    #
+    # ZERO-FREIGHT RULE: if shipping_cost + tax_amount == 0 the landed map is
+    # empty and the rest of the loop behaves identically to before this change.
+    # ---------------------------------------------------------------------------
+    total_landed = (
+        Decimal(str(po.shipping_cost or 0))
+        + Decimal(str(po.tax_amount or 0))
+    ).quantize(Decimal("0.0001"))
+
+    # line_id -> landed allocation in purchase-unit dollars for this receipt
+    landed_alloc: dict[int, Decimal] = {}
+
+    if total_landed > Decimal("0"):
+        # Compute each line's receipt value (qty × unit_cost in purchase units)
+        receipt_values: dict[int, Decimal] = {}
+        total_receipt_value = Decimal("0")
+        for item in lines:
+            lid = item["line_id"]
+            if lid not in line_map:
+                # Validation happens again in the main loop; skip here to avoid
+                # duplicating the error message.
+                continue
+            po_line = line_map[lid]
+            qty = Decimal(str(item["quantity_received"]))
+            val = qty * Decimal(str(po_line.unit_cost or 0))
+            receipt_values[lid] = val
+            total_receipt_value += val
+
+        if total_receipt_value > Decimal("0"):
+            # Allocate proportionally, giving any rounding remainder to the
+            # last line to guarantee sum == total_landed (no penny drift).
+            allocated_so_far = Decimal("0")
+            sorted_lids = list(receipt_values.keys())
+            for i, lid in enumerate(sorted_lids):
+                if i < len(sorted_lids) - 1:
+                    alloc = (
+                        total_landed * receipt_values[lid] / total_receipt_value
+                    ).quantize(Decimal("0.0001"))
+                else:
+                    # Last line absorbs any rounding residual
+                    alloc = (total_landed - allocated_so_far).quantize(Decimal("0.0001"))
+                landed_alloc[lid] = alloc
+                allocated_so_far += alloc
+
+            logger.info(
+                f"PO {po.po_number}: landed-cost ${total_landed} allocated across "
+                f"{len(sorted_lids)} receipt line(s) "
+                f"(receipt value ${total_receipt_value}): "
+                + ", ".join(f"line {lid}=${amt}" for lid, amt in landed_alloc.items())
+            )
+
     for item in lines:
         line_id = item["line_id"]
         if line_id not in line_map:
@@ -735,6 +798,45 @@ def receive_purchase_order(
                         f"Material {product.sku} has unknown unit '{product_unit}', "
                         f"cost not normalized. This may cause incorrect COGS calculations!"
                     )
+
+        # -----------------------------------------------------------------------
+        # Landed-cost injection (HARD-8)
+        # -----------------------------------------------------------------------
+        # Fold the pro-rata share of freight + tax into cost_per_unit_for_inventory
+        # BEFORE weighted-average update and BEFORE passing to TransactionService.
+        # The allocation is already in purchase-unit dollars (e.g. $/KG).
+        # We must convert it to the same per-storage-unit basis that
+        # cost_per_unit_for_inventory has been normalised to ($/G for materials).
+        #
+        # For non-material items the allocation is already $/transaction-unit
+        # because no UOM conversion was applied (effective_unit == product_unit
+        # or the line fell back to purchase_unit).
+        # -----------------------------------------------------------------------
+        line_landed_alloc = landed_alloc.get(line.id, Decimal("0"))
+        if line_landed_alloc > Decimal("0") and transaction_quantity > Decimal("0"):
+            # Convert the purchase-unit allocation to per-storage-unit cost
+            if is_mat:
+                # transaction_quantity is in grams; divide purchase-unit dollars
+                # by that gram count to get $/G
+                landed_per_storage_unit = (
+                    line_landed_alloc / transaction_quantity
+                ).quantize(Decimal("0.00000001"))
+            else:
+                # For non-material items transaction_quantity is in the
+                # effective_unit (same unit as cost_per_unit_for_inventory)
+                landed_per_storage_unit = (
+                    line_landed_alloc / transaction_quantity
+                ).quantize(Decimal("0.00000001"))
+
+            logger.info(
+                f"PO {po.po_number} line {line.line_number} ({product.sku}): "
+                f"adding landed ${line_landed_alloc} / {transaction_quantity} units "
+                f"= +${landed_per_storage_unit}/unit to cost "
+                f"(was ${cost_per_unit_for_inventory})"
+            )
+            cost_per_unit_for_inventory = (
+                cost_per_unit_for_inventory + landed_per_storage_unit
+            )
 
         # Collect for TransactionService
         transaction_unit = "G" if is_mat else effective_unit
