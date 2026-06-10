@@ -1,13 +1,22 @@
 """
-Tests for the inventory reconciliation report (HARD-4b).
+Tests for the inventory reconciliation report (HARD-4b) and baseline
+posting (HARD-4c).
 
 Scenarios:
-  1. Item with NULL baseline → sums ALL transactions, shows as uncounted.
-  2. Item with a baseline_timestamp → sums ONLY post-baseline transactions.
+  1. Item with NULL baseline -> sums ALL transactions, shows as uncounted.
+  2. Item with a baseline_timestamp -> sums ONLY post-baseline transactions.
   3. Item with deliberate drift (stored_on_hand != ledger_sum).
   4. location_id IS NULL transactions are excluded from sums.
   5. requires_approval=True (pending) rows are excluded from sums.
   6. drifted_only filter.
+  7. post_reconciliation_baseline posts exactly one ledger row (non-zero delta).
+  8. post_reconciliation_baseline stamps baseline_timestamp atomically.
+  9. post_reconciliation_baseline creates a balanced GL journal entry.
+ 10. Recount (second baseline) updates baseline_timestamp.
+ 11. Zero-delta count stamps baseline_timestamp without writing a ledger row.
+ 12. baseline_to_stored stamps with zero-delta row (no ledger write).
+ 13. Report shows item as counted+clean after a matching count.
+ 14. Uncounted item is unaffected by another item's baseline.
 """
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -16,7 +25,12 @@ import pytest
 
 from app.models.inventory import Inventory, InventoryTransaction
 from app.services.inventory_ledger import get_or_create_inventory_row
-from app.services.reconciliation_service import get_reconciliation_report
+from app.services.reconciliation_service import (
+    BASELINE_TO_STORED_CONFIRM_TOKEN,
+    baseline_to_stored,
+    get_reconciliation_report,
+    post_reconciliation_baseline,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +67,7 @@ def _make_txn(db, product, location_id, quantity: Decimal, created_at=None, requ
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# HARD-4b: Reconciliation Report Tests
 # ---------------------------------------------------------------------------
 
 class TestNullBaseline:
@@ -117,7 +131,7 @@ class TestBaselinedItem:
         baseline_ts = datetime(2026, 4, 1, tzinfo=timezone.utc)
 
         _make_inventory(db, product, location, Decimal("20"), baseline_ts=baseline_ts)
-        # Created exactly AT baseline_ts — should be included (>=)
+        # Created exactly AT baseline_ts -- should be included (>=)
         _make_txn(db, product, location.id, Decimal("20"), created_at=baseline_ts)
 
         report = get_reconciliation_report(db)
@@ -132,12 +146,12 @@ class TestDrift:
     """Deliberate drift: stored_on_hand != ledger_sum."""
 
     def test_positive_drift_phantom_stock(self, db, make_product, location):
-        """Stored is higher than ledger → phantom stock."""
+        """Stored is higher than ledger -> phantom stock."""
         product = make_product()
         _make_inventory(db, product, location, Decimal("140"))  # stored
 
         _make_txn(db, product, location.id, Decimal("100"))  # ledger says +100
-        _make_txn(db, product, location.id, Decimal("-8"))    # ledger says -8 → net 92
+        _make_txn(db, product, location.id, Decimal("-8"))    # ledger says -8 -> net 92
 
         report = get_reconciliation_report(db)
         row = next((r for r in report if r.product_id == product.id), None)
@@ -149,7 +163,7 @@ class TestDrift:
         assert row.has_drift is True
 
     def test_negative_drift_missing_transactions(self, db, make_product, location):
-        """Stored is lower than ledger → unrecorded consumption."""
+        """Stored is lower than ledger -> unrecorded consumption."""
         product = make_product()
         _make_inventory(db, product, location, Decimal("50"))  # stored
 
@@ -184,9 +198,9 @@ class TestLocationNullExclusion:
         product = make_product()
         _make_inventory(db, product, location, Decimal("100"))
 
-        # This transaction has location_id=None → must NOT be summed
+        # This transaction has location_id=None -> must NOT be summed
         _make_txn(db, product, None, Decimal("999"))
-        # This one has a real location → included
+        # This one has a real location -> included
         _make_txn(db, product, location.id, Decimal("100"))
 
         report = get_reconciliation_report(db)
@@ -204,9 +218,9 @@ class TestApprovalExclusion:
         product = make_product()
         _make_inventory(db, product, location, Decimal("50"))
 
-        # Approved row → included
+        # Approved row -> included
         _make_txn(db, product, location.id, Decimal("50"), requires_approval=False)
-        # Pending row → excluded (on_hand not yet affected)
+        # Pending row -> excluded (on_hand not yet affected)
         _make_txn(db, product, location.id, Decimal("-200"), requires_approval=True)
 
         report = get_reconciliation_report(db)
@@ -235,3 +249,343 @@ class TestDriftedOnlyFilter:
 
         assert drifted.id in ids
         assert balanced.id not in ids
+
+
+# ---------------------------------------------------------------------------
+# HARD-4c: Baseline Posting Tests
+# ---------------------------------------------------------------------------
+
+class TestPostReconciliationBaseline:
+    """post_reconciliation_baseline core behaviour."""
+
+    def test_posts_exactly_one_ledger_row_nonzero_delta(self, db, make_product, location):
+        """Non-zero delta posts exactly one InventoryTransaction row."""
+        product = make_product(standard_cost=Decimal("2.00"))
+        # Seed inventory via ledger to get a known stored value
+        from app.services.inventory_ledger import post as ledger_post
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("100"),
+        )
+        # Stored is now 100; count says 110 -> delta = +10
+        before_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+
+        txn = post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("110"),
+            user="test@example.com",
+        )
+
+        after_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+
+        assert txn is not None
+        assert after_count == before_count + 1, "exactly one ledger row added"
+        assert txn.transaction_type == "reconciliation"
+        assert txn.reason_code == "reconciliation_baseline"
+        assert Decimal(str(txn.quantity)) == Decimal("10")  # delta +10
+
+    def test_stamps_baseline_timestamp_atomically(self, db, make_product, location):
+        """baseline_timestamp is set in the same flush as the ledger row."""
+        product = make_product()
+        from app.services.inventory_ledger import post as ledger_post
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("50"),
+        )
+
+        txn = post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("60"),
+            user="counter@example.com",
+        )
+
+        inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.product_id == product.id,
+                Inventory.location_id == location.id,
+            )
+            .first()
+        )
+        assert inv is not None
+        assert inv.baseline_timestamp is not None
+        assert txn is not None
+        # Baseline timestamp should equal the transaction's created_at (or very close)
+        # They are set to the same 'now' inside the service
+        assert abs((inv.baseline_timestamp - txn.created_at).total_seconds()) < 1
+
+    def test_gl_entry_is_balanced(self, db, make_product, location):
+        """GL journal entry DR == CR for both overage and shortage."""
+        from app.models.accounting import GLJournalEntry, GLJournalEntryLine
+        from app.services.inventory_ledger import post as ledger_post
+        from decimal import Decimal as D
+
+        product = make_product(
+            item_type="finished_good",
+            standard_cost=D("5.00"),
+        )
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=D("100"),
+        )
+
+        # Overage: count says 120, stored 100, delta +20, cost = 20 * 5 = 100
+        txn = post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=D("120"),
+            user="counter@example.com",
+        )
+
+        assert txn is not None
+        assert txn.journal_entry_id is not None
+
+        je = db.get(GLJournalEntry, txn.journal_entry_id)
+        assert je is not None
+        lines = (
+            db.query(GLJournalEntryLine)
+            .filter(GLJournalEntryLine.journal_entry_id == je.id)
+            .all()
+        )
+        total_dr = sum(l.debit_amount or D("0") for l in lines)
+        total_cr = sum(l.credit_amount or D("0") for l in lines)
+        assert abs(total_dr - total_cr) <= D("0.01"), (
+            f"Journal entry not balanced: DR={total_dr} CR={total_cr}"
+        )
+
+    def test_recount_updates_baseline_timestamp(self, db, make_product, location):
+        """A second count updates baseline_timestamp to the new count time."""
+        from app.services.inventory_ledger import post as ledger_post
+
+        product = make_product()
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("100"),
+        )
+
+        post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("100"),  # zero delta -- baseline stamped
+            user="counter@example.com",
+        )
+        inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.product_id == product.id,
+                Inventory.location_id == location.id,
+            )
+            .first()
+        )
+        first_ts = inv.baseline_timestamp
+        assert first_ts is not None
+
+        import time
+        time.sleep(0.01)  # ensure timestamp advances
+
+        post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("95"),
+            user="counter@example.com",
+            notes="second count",
+        )
+        db.refresh(inv)
+        second_ts = inv.baseline_timestamp
+        assert second_ts is not None
+        assert second_ts >= first_ts
+
+    def test_zero_delta_stamps_baseline_no_ledger_row(self, db, make_product, location):
+        """Zero delta: baseline_timestamp is stamped but no ledger row is written."""
+        from app.services.inventory_ledger import post as ledger_post
+
+        product = make_product()
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("75"),
+        )
+        before_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+
+        result = post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("75"),  # exact match -> delta 0
+            user="counter@example.com",
+        )
+
+        after_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+        inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.product_id == product.id,
+                Inventory.location_id == location.id,
+            )
+            .first()
+        )
+
+        assert result is None, "no transaction for zero delta"
+        assert after_count == before_count, "no ledger row added"
+        assert inv.baseline_timestamp is not None, "baseline still stamped"
+
+    def test_float_counted_qty_raises_type_error(self, db, make_product, location):
+        """float counted_qty is rejected with TypeError."""
+        product = make_product()
+        with pytest.raises(TypeError, match="Decimal"):
+            post_reconciliation_baseline(
+                db,
+                product_id=product.id,
+                location_id=location.id,
+                counted_qty=100.0,  # float -- should raise
+                user="counter@example.com",
+            )
+
+    def test_negative_counted_qty_raises_value_error(self, db, make_product, location):
+        """Negative counted_qty is rejected."""
+        product = make_product()
+        with pytest.raises(ValueError, match=">= 0"):
+            post_reconciliation_baseline(
+                db,
+                product_id=product.id,
+                location_id=location.id,
+                counted_qty=Decimal("-1"),
+                user="counter@example.com",
+            )
+
+
+class TestReportAfterBaseline:
+    """Report reflects counted status correctly after baseline posting."""
+
+    def test_report_shows_item_as_counted_after_count(self, db, make_product, location):
+        """After a count entry, item is_counted=True and has_drift=False (exact count)."""
+        from app.services.inventory_ledger import post as ledger_post
+
+        product = make_product()
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("200"),
+        )
+
+        post_reconciliation_baseline(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            counted_qty=Decimal("200"),  # exact match
+            user="counter@example.com",
+        )
+
+        report = get_reconciliation_report(db)
+        row = next((r for r in report if r.product_id == product.id), None)
+
+        assert row is not None
+        assert row.is_counted is True
+        assert row.has_drift is False
+
+    def test_uncounted_item_unaffected_by_another_items_baseline(
+        self, db, make_product, location
+    ):
+        """Counting one item does NOT change another item's uncounted status."""
+        from app.services.inventory_ledger import post as ledger_post
+
+        counted_product = make_product()
+        uncounted_product = make_product()
+
+        for p in (counted_product, uncounted_product):
+            ledger_post(
+                db, product_id=p.id, location_id=location.id,
+                transaction_type="receipt", quantity_delta=Decimal("50"),
+            )
+
+        post_reconciliation_baseline(
+            db,
+            product_id=counted_product.id,
+            location_id=location.id,
+            counted_qty=Decimal("50"),
+            user="counter@example.com",
+        )
+
+        report = get_reconciliation_report(db)
+        counted_row = next((r for r in report if r.product_id == counted_product.id), None)
+        uncounted_row = next((r for r in report if r.product_id == uncounted_product.id), None)
+
+        assert counted_row is not None and counted_row.is_counted is True
+        assert uncounted_row is not None and uncounted_row.is_counted is False
+
+
+class TestBaselineToStored:
+    """baseline_to_stored: stamps timestamp, no ledger writes."""
+
+    def test_stamps_baseline_with_zero_delta_no_ledger_row(self, db, make_product, location):
+        """baseline_to_stored stamps baseline_timestamp; no InventoryTransaction written."""
+        from app.services.inventory_ledger import post as ledger_post
+
+        product = make_product()
+        ledger_post(
+            db, product_id=product.id, location_id=location.id,
+            transaction_type="receipt", quantity_delta=Decimal("30"),
+        )
+        before_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+
+        baseline_to_stored(
+            db,
+            product_id=product.id,
+            location_id=location.id,
+            user="admin@example.com",
+            confirm=BASELINE_TO_STORED_CONFIRM_TOKEN,
+        )
+
+        after_count = (
+            db.query(InventoryTransaction)
+            .filter(InventoryTransaction.product_id == product.id)
+            .count()
+        )
+        inv = (
+            db.query(Inventory)
+            .filter(
+                Inventory.product_id == product.id,
+                Inventory.location_id == location.id,
+            )
+            .first()
+        )
+
+        assert after_count == before_count, "no ledger row written by fallback"
+        assert inv.baseline_timestamp is not None, "baseline_timestamp stamped"
+
+    def test_wrong_confirm_token_raises(self, db, make_product, location):
+        """Wrong confirm token raises ValueError."""
+        product = make_product()
+        with pytest.raises(ValueError, match="BASELINE_TO_STORED"):
+            baseline_to_stored(
+                db,
+                product_id=product.id,
+                location_id=location.id,
+                user="admin@example.com",
+                confirm="wrong-token",
+            )

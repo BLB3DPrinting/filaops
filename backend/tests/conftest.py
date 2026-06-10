@@ -258,6 +258,11 @@ def setup_database():
             "ALTER TABLE inventory "
             "ADD COLUMN IF NOT EXISTS baseline_timestamp TIMESTAMPTZ"
         ))
+        # Migration 087: HARD-4c baseline_on_hand snapshot (epoch opening balance)
+        conn.execute(text(
+            "ALTER TABLE inventory "
+            "ADD COLUMN IF NOT EXISTS baseline_on_hand NUMERIC(18, 4)"
+        ))
         conn.commit()
 
     # Seed required data
