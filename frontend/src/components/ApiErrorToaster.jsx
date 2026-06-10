@@ -1,6 +1,14 @@
 /**
  * Listens for 'api:error' and shows a toast. Central place -> fewer silent failures.
  * Also detects tier limit errors and emits 'tier:limit-reached' event.
+ *
+ * 403 handling matrix:
+ *  - detail.code === "TIER_LIMIT_EXCEEDED" → emit tier:limit-reached (opens UpgradeModal)
+ *    + show toast.info fallback so something always appears if the modal listener fails.
+ *  - detail (string) contains "requires" (require_tier decorator) → PRO-feature toast
+ *    with link to /admin/license.
+ *  - detail.message present → show detail.message directly.
+ *  - anything else → generic "no permission" text.
  */
 import { useEffect, useRef } from "react";
 import { on, emit } from "../lib/events";
@@ -52,9 +60,9 @@ export default function ApiErrorToaster() {
         url.includes("/api/v1/pro/integrations/bambuddy") ||
         url.includes("/api/v1/pro/printer-providers/bambuddy");
 
-      // Check if this is a tier limit error
+      // Tier-limit 403: open upgrade modal AND show a fallback toast so
+      // something is always visible even if UpgradeModal is not mounted.
       if (status === 403 && detail && typeof detail === "object" && detail.code === "TIER_LIMIT_EXCEEDED") {
-        // Emit special event for upgrade modal
         emit("tier:limit-reached", {
           resource: detail.resource,
           limit: detail.limit,
@@ -62,10 +70,27 @@ export default function ApiErrorToaster() {
           tier: detail.tier,
           message: detail.message,
         });
-        return; // Don't show regular toast for tier limits
+        toast.info(detail.message || "You've reached a tier limit. Upgrade to PRO for more.");
+        return;
       }
 
-      // PRO feature endpoint returned 403 — show contextual message
+      // PRO-feature 403: backend's require_tier decorator sends a plain string
+      // like "This feature requires Professional tier or higher".  Show an
+      // actionable message linking straight to the License page.
+      // Guard: require both "requires" AND a whole-word tier/plan keyword so
+      // strings like "Admin approval requires manager role" are not misclassified
+      // ("approval" contains "pro" as a substring — use \b word boundaries).
+      if (status === 403 && typeof detail === "string") {
+        const isTierRequirement =
+          /\brequires\b/i.test(detail) &&
+          /\b(tier|professional|enterprise|pro)\b/i.test(detail);
+        if (isTierRequirement) {
+          toast.info("This is a PRO feature — view upgrade options at Settings → License.");
+          return;
+        }
+      }
+
+      // Structured 403 with a message field (other PRO-endpoint errors)
       if (status === 403 && detail && typeof detail === "object" && detail.message) {
         toast.error(detail.message);
         return;
