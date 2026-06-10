@@ -125,23 +125,27 @@ class TestMaterialsAuth:
 # =============================================================================
 
 class TestMaterialsPublicEndpoints:
-    """Read-only material endpoints should not require auth."""
+    """Material endpoints require staff auth (all expose pricing/inventory data).
 
-    def test_options_no_auth(self, unauthed_client):
+    Previously these were public; gated in HARD-1 follow-up PR.
+    The Quoter uses PRO /api/v1/pro/quotes/public-options, not these Core endpoints.
+    """
+
+    def test_options_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/options")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_types_no_auth(self, unauthed_client):
+    def test_types_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/types")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_for_bom_no_auth(self, unauthed_client):
+    def test_for_bom_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/for-bom")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_import_template_no_auth(self, unauthed_client):
+    def test_import_template_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/import/template")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
 
 # =============================================================================

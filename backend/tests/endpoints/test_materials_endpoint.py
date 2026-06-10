@@ -134,10 +134,10 @@ class TestMaterialOptions:
                 assert expected.issubset(color.keys())
                 return
 
-    def test_options_does_not_require_auth(self, unauthed_client):
-        """Material options are publicly accessible (no auth required)."""
+    def test_options_requires_auth(self, unauthed_client):
+        """Material options are staff-only (exposes pricing); unauthenticated requests return 401."""
         resp = unauthed_client.get(f"{BASE_URL}/options")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
     def test_options_with_in_stock_only_false(self, client):
         resp = client.get(f"{BASE_URL}/options", params={"in_stock_only": False})
@@ -211,9 +211,10 @@ class TestListMaterialTypes:
         codes = [m["code"] for m in data["materials"]]
         assert f"HIDDEN2-{uid}" in codes
 
-    def test_types_does_not_require_auth(self, unauthed_client):
+    def test_types_requires_auth(self, unauthed_client):
+        """Material types are staff-only (exposes pricing); unauthenticated requests return 401."""
         resp = unauthed_client.get(f"{BASE_URL}/types")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
 
 # =============================================================================
@@ -371,3 +372,42 @@ class TestCreateColorForMaterial:
         finally:
             user.account_type = original_account_type
             db.flush()
+
+
+# =============================================================================
+# Auth guard tests — all unauthenticated reads must return 401
+# =============================================================================
+
+
+class TestMaterialsAuthGates:
+    """Every unauthenticated read endpoint returns 401 (exposes pricing/inventory)."""
+
+    def test_options_unauthed_returns_401(self, unauthed_client):
+        resp = unauthed_client.get(f"{BASE_URL}/options")
+        assert resp.status_code == 401
+
+    def test_types_unauthed_returns_401(self, unauthed_client):
+        resp = unauthed_client.get(f"{BASE_URL}/types")
+        assert resp.status_code == 401
+
+    def test_types_colors_unauthed_returns_401(self, unauthed_client):
+        resp = unauthed_client.get(f"{BASE_URL}/types/ANY/colors")
+        assert resp.status_code == 401
+
+    def test_for_bom_unauthed_returns_401(self, unauthed_client):
+        resp = unauthed_client.get(f"{BASE_URL}/for-bom")
+        assert resp.status_code == 401
+
+    def test_pricing_unauthed_returns_401(self, unauthed_client):
+        resp = unauthed_client.get(f"{BASE_URL}/pricing/ANY")
+        assert resp.status_code == 401
+
+    def test_options_authed_staff_returns_200(self, client):
+        """Authenticated staff can access material options."""
+        resp = client.get(f"{BASE_URL}/options")
+        assert resp.status_code == 200
+
+    def test_for_bom_authed_staff_returns_200(self, client):
+        """Authenticated staff can access BOM material list."""
+        resp = client.get(f"{BASE_URL}/for-bom")
+        assert resp.status_code == 200

@@ -2,13 +2,16 @@
 Test data seeding endpoints.
 
 WARNING: These endpoints are for testing only!
-They are disabled in production via ENVIRONMENT check.
+They are disabled in production via ENVIRONMENT check, AND require staff
+authentication so unauthenticated actors on a dev/staging server cannot
+trigger seeding or wipe operations.
 
 Endpoints:
-    GET  /api/v1/test/scenarios  - List available test scenarios
-    POST /api/v1/test/seed       - Seed database with a scenario
-    POST /api/v1/test/cleanup    - Remove all test data
-    GET  /api/v1/test/health     - Health check for test endpoints
+    GET  /api/v1/test/scenarios  - List available test scenarios (staff only)
+    POST /api/v1/test/seed       - Seed database with a scenario (staff only)
+    POST /api/v1/test/cleanup    - Remove all test data (staff only)
+    GET  /api/v1/test/health     - Health check (intentionally public — no
+                                   sensitive data, helps CI detect misconfiguration)
 """
 import os
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +20,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, List
 
 from app.db.session import get_db
+from app.models.user import User
+from app.api.v1.deps import get_current_staff_user
 
 
 router = APIRouter(prefix="/test", tags=["testing"])
@@ -108,7 +113,8 @@ class HealthResponse(BaseModel):
 
 @router.get("/scenarios", response_model=ScenariosResponse)
 async def list_scenarios(
-    _: bool = Depends(require_test_mode)
+    _: bool = Depends(require_test_mode),
+    _staff: User = Depends(get_current_staff_user),
 ):
     """
     List available test scenarios.
@@ -123,7 +129,8 @@ async def list_scenarios(
 async def seed_test_data(
     request: SeedRequest,
     db: Session = Depends(get_db),
-    _: bool = Depends(require_test_mode)
+    _: bool = Depends(require_test_mode),
+    _staff: User = Depends(get_current_staff_user),
 ):
     """
     Seed the database with a test scenario.
@@ -160,7 +167,8 @@ async def seed_test_data(
 async def cleanup_data(
     db: Session = Depends(get_db),
     _test_mode: bool = Depends(require_test_mode),
-    _wipe_allowed: bool = Depends(require_data_wipe_allowed)
+    _wipe_allowed: bool = Depends(require_data_wipe_allowed),
+    _staff: User = Depends(get_current_staff_user),
 ):
     """
     Remove all test data from the database.
