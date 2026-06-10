@@ -381,7 +381,15 @@ def post_reconciliation_baseline(
         # --- Step 3: post GL entry (cycle-count variance semantics) ---
         product = db.get(ProductModel, product_id)
         if product is not None:
-            unit_cost = product.standard_cost or product.average_cost or Decimal("0")
+            unit_cost = (
+                product.standard_cost
+                if product.standard_cost is not None
+                else (
+                    product.average_cost
+                    if product.average_cost is not None
+                    else Decimal("0")
+                )
+            )
             total_cost = abs(delta) * unit_cost
 
             # Map product type to inventory account (mirrors cycle_count_adjustment)
