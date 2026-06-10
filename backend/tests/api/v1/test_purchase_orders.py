@@ -230,12 +230,12 @@ class TestCreatePurchaseOrder:
         })
         assert response.status_code == 201
         data = response.json()
-        # PO number should follow PO-YYYY-NNN format
+        # PO number should follow PO-YYYY-NNNN format (4-digit zero-padded — HARD-10)
         parts = data["po_number"].split("-")
         assert len(parts) == 3
         assert parts[0] == "PO"
         assert len(parts[1]) == 4  # year
-        assert len(parts[2]) == 3  # zero-padded sequence
+        assert len(parts[2]) >= 4  # zero-padded sequence (at least 4 digits)
 
     def test_create_po_with_lines(self, client, db, make_vendor, make_product):
         vendor = make_vendor()
