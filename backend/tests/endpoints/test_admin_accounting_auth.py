@@ -122,3 +122,22 @@ class TestTraceabilityAuthenticated:
         """GET /admin/traceability/profiles returns 200 with valid auth."""
         resp = client.get("/api/v1/admin/traceability/profiles")
         assert resp.status_code == 200
+
+
+class TestUploadsAuth:
+    """All /admin/uploads endpoints must reject unauthenticated requests with 401."""
+
+    def test_upload_product_image_requires_auth(self, unauthed_client):
+        """POST /admin/uploads/product-image returns 401 without auth."""
+        resp = unauthed_client.post(
+            "/api/v1/admin/uploads/product-image",
+            files={"file": ("test.jpg", b"fake-image-data", "image/jpeg")},
+        )
+        assert resp.status_code == 401
+
+    def test_delete_product_image_requires_auth(self, unauthed_client):
+        """DELETE /admin/uploads/product-image/{filename} returns 401 without auth."""
+        resp = unauthed_client.delete(
+            "/api/v1/admin/uploads/product-image/test.jpg"
+        )
+        assert resp.status_code == 401

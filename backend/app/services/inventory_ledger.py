@@ -306,3 +306,67 @@ def apply_held_transaction(
         )
 
     db.flush()
+
+
+def reject_held_transaction(
+    db: Session,
+    transaction: "InventoryTransaction",
+    voided_by: str,
+    void_reason: str,
+) -> None:
+    """Reject (void) a held (requires_approval=True) transaction.
+
+    This is the REJECT path added by HARD-11.  The row is kept for audit;
+    on_hand is never mutated (it was never mutated when the held row was
+    written).  The voided row is excluded from COGS, reconciliation, and
+    any future on_hand calculation by filtering ``voided_by IS NOT NULL``.
+
+    After rejection the row's state:
+      requires_approval = True   (unchanged — still "held", now also voided)
+      approved_by       = None   (never set)
+      voided_by         = <set>
+      voided_at         = <now>
+      void_reason       = <set>
+
+    Args:
+        transaction: The InventoryTransaction row to void. Must have
+            requires_approval=True, approved_by=None, voided_by=None.
+        voided_by: Email or username of the staff member performing the rejection.
+        void_reason: Human-readable reason for the rejection (stored for audit).
+
+    Raises:
+        ValueError: if the transaction is not held, already approved, or
+            already voided.
+    """
+    if not transaction.requires_approval:
+        raise ValueError(
+            f"Transaction {transaction.id} does not require approval "
+            f"and cannot be rejected"
+        )
+    if transaction.approved_by is not None:
+        raise ValueError(
+            f"Transaction {transaction.id} is already approved by "
+            f"{transaction.approved_by} — cannot void an approved transaction"
+        )
+    if getattr(transaction, "voided_by", None) is not None:
+        raise ValueError(
+            f"Transaction {transaction.id} is already voided by "
+            f"{transaction.voided_by}"
+        )
+
+    now = datetime.now(timezone.utc)
+    transaction.voided_by = voided_by
+    transaction.voided_at = now
+    transaction.void_reason = void_reason
+
+    logger.info(
+        "Voided held transaction %s for product %s (delta %s) "
+        "rejected by %s; reason: %s; on_hand not mutated",
+        transaction.id,
+        transaction.product_id,
+        transaction.quantity,
+        voided_by,
+        void_reason,
+    )
+
+    db.flush()

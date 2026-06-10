@@ -365,9 +365,14 @@ class TestAnalyzeLineIssues:
         prod_issues = [i for i in result.blocking_issues if i.type == IssueType.PRODUCTION_INCOMPLETE]
         assert len(prod_issues) == 0
 
-    def test_material_shortage_with_pending_po(self, db, make_product, make_bom,
-                                                make_sales_order, make_vendor):
-        """Material shortage + pending PO generates both MATERIAL_SHORTAGE and PURCHASE_PENDING."""
+    def test_material_shortage_with_pending_po_insufficient(
+        self, db, make_product, make_bom, make_sales_order, make_vendor
+    ):
+        """
+        HARD-6: when an incoming PO covers PART of the shortage, both
+        MATERIAL_SHORTAGE and PURCHASE_PENDING issues are still generated
+        because a net shortage remains after netting supply.
+        """
         fg = make_product(has_bom=True)
         raw = make_product(item_type="supply", is_raw_material=True)
         make_bom(product_id=fg.id, lines=[
@@ -379,9 +384,10 @@ class TestAnalyzeLineIssues:
             sales_order_id=so.id,
         )
         vendor = make_vendor()
+        # WO needs 100*5=500 g. PO brings only 100 g → still 400 g short.
         _make_purchase_order_with_line(
             db, vendor.id, raw.id,
-            qty_ordered=Decimal("1000"), status="ordered",
+            qty_ordered=Decimal("100"), status="ordered",
             expected_date=date.today() + timedelta(days=7),
         )
         line = _make_order_line(db, so.id, fg.id, quantity=Decimal("5"))
@@ -390,6 +396,42 @@ class TestAnalyzeLineIssues:
         po_issues = [i for i in result.blocking_issues if i.type == IssueType.PURCHASE_PENDING]
         assert len(mat_issues) >= 1
         assert len(po_issues) >= 1
+        # shortage_projected = required(500) - projected(100) = 400
+        assert mat_issues[0].details["shortage_projected"] == pytest.approx(400, abs=1)
+        # The raw shortage_now is still 500 (nothing on-hand)
+        assert mat_issues[0].details["shortage"] == pytest.approx(500, abs=1)
+
+    def test_material_shortage_fully_covered_by_po(
+        self, db, make_product, make_bom, make_sales_order, make_vendor
+    ):
+        """
+        HARD-6: when an incoming PO fully covers the shortage, no MATERIAL_SHORTAGE
+        issue is generated (double-order trap is fixed).
+        A PURCHASE_PENDING issue is NOT generated either (nothing to expedite for this shortage).
+        """
+        fg = make_product(has_bom=True)
+        raw = make_product(item_type="supply", is_raw_material=True)
+        make_bom(product_id=fg.id, lines=[
+            {"component_id": raw.id, "quantity": Decimal("100"), "unit": "G"},
+        ])
+        so = make_sales_order(product_id=fg.id, quantity=5)
+        _make_production_order(
+            db, fg.id, qty_ordered=5, status="in_progress",
+            sales_order_id=so.id,
+        )
+        vendor = make_vendor()
+        # WO needs 100*5=500 g. PO brings 1000 g → fully covered.
+        _make_purchase_order_with_line(
+            db, vendor.id, raw.id,
+            qty_ordered=Decimal("1000"), status="ordered",
+            expected_date=date.today() + timedelta(days=7),
+        )
+        line = _make_order_line(db, so.id, fg.id, quantity=Decimal("5"))
+        result = analyze_line_issues(db, so, line, 1)
+        mat_issues = [i for i in result.blocking_issues if i.type == IssueType.MATERIAL_SHORTAGE]
+        assert len(mat_issues) == 0, (
+            "HARD-6: PO covers the full requirement — no MATERIAL_SHORTAGE issue"
+        )
 
 
 # =============================================================================
@@ -670,8 +712,14 @@ class TestGetProductionOrderBlockingIssues:
         assert result.linked_sales_order is not None
         assert result.linked_sales_order.id == so.id
 
-    def test_incoming_supply_from_po(self, db, make_product, make_bom, make_vendor):
-        """Pending PO shows up as incoming supply for shortage materials."""
+    def test_incoming_supply_from_po_covers_shortage(self, db, make_product, make_bom, make_vendor):
+        """
+        HARD-6: when incoming PO fully covers the required quantity the material
+        is reported as 'ok' (not 'shortage') and incoming_supply is still populated.
+
+        Old behaviour (pre HARD-6): the material showed as 'shortage' even when
+        a PO was on the way, causing buyers to double-order.
+        """
         fg = make_product(has_bom=True)
         raw = make_product(item_type="supply", is_raw_material=True)
         make_bom(product_id=fg.id, lines=[
@@ -679,6 +727,7 @@ class TestGetProductionOrderBlockingIssues:
         ])
         vendor = make_vendor()
         expected = date.today() + timedelta(days=5)
+        # WO needs 50*5=250 g. PO brings 1000 g → projected covers fully.
         _make_purchase_order_with_line(
             db, vendor.id, raw.id,
             qty_ordered=Decimal("1000"), status="ordered",
@@ -686,10 +735,49 @@ class TestGetProductionOrderBlockingIssues:
         )
         wo = _make_production_order(db, fg.id, qty_ordered=5, status="in_progress")
         result = get_production_order_blocking_issues(db, wo.id)
+
+        # With HARD-6 fix: projected balance covers requirement → status is 'ok'
+        shortage_mat = [m for m in result.material_issues if m.status == "shortage"]
+        ok_mat = [m for m in result.material_issues if m.status == "ok"]
+        assert len(shortage_mat) == 0, (
+            "HARD-6: incoming PO covers the requirement — no net shortage"
+        )
+        assert len(ok_mat) == 1
+        # Incoming supply detail is still populated for expedite UX
+        assert ok_mat[0].incoming_supply is not None
+        assert ok_mat[0].incoming_supply.expected_date == expected
+        # covered_by_incoming flag is set (on-hand was short but PO covers)
+        assert ok_mat[0].covered_by_incoming is True
+        # can_produce is True because there is no net shortage
+        assert result.status_summary.can_produce is True
+
+    def test_incoming_supply_from_po_partial_coverage(self, db, make_product, make_bom, make_vendor):
+        """
+        HARD-6: when incoming PO covers SOME but not all of the shortage,
+        the material is still 'shortage' and covered_by_incoming is False.
+        """
+        fg = make_product(has_bom=True)
+        raw = make_product(item_type="supply", is_raw_material=True)
+        make_bom(product_id=fg.id, lines=[
+            {"component_id": raw.id, "quantity": Decimal("50"), "unit": "G"},
+        ])
+        vendor = make_vendor()
+        expected = date.today() + timedelta(days=5)
+        # WO needs 50*5=250 g. PO brings only 100 g → still 150 g short.
+        _make_purchase_order_with_line(
+            db, vendor.id, raw.id,
+            qty_ordered=Decimal("100"), status="ordered",
+            expected_date=expected,
+        )
+        wo = _make_production_order(db, fg.id, qty_ordered=5, status="in_progress")
+        result = get_production_order_blocking_issues(db, wo.id)
+
         shortage_mat = [m for m in result.material_issues if m.status == "shortage"]
         assert len(shortage_mat) == 1
+        assert shortage_mat[0].quantity_short == Decimal("150")
+        assert shortage_mat[0].covered_by_incoming is False
         assert shortage_mat[0].incoming_supply is not None
-        assert shortage_mat[0].incoming_supply.expected_date == expected
+        assert result.status_summary.can_produce is False
 
 
 class TestGeneratePOResolutionActions:

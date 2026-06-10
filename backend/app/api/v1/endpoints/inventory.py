@@ -13,9 +13,10 @@ from sqlalchemy import func, desc, or_
 
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models import User, InventoryTransaction, Inventory, Product
 from app.services import inventory_ledger
-from app.services.inventory_ledger import apply_held_transaction
+from app.services.inventory_ledger import apply_held_transaction, reject_held_transaction
 from app.services.inventory_service import get_or_create_inventory
 from app.logging_config import get_logger
 
@@ -92,6 +93,64 @@ async def approve_negative_inventory(
     }
 
 
+@router.post("/transactions/{transaction_id}/reject-held")
+async def reject_held_inventory_transaction(
+    transaction_id: int,
+    void_reason: str = Query(..., description="Reason for rejecting / voiding this transaction"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_staff_user),
+):
+    """
+    Reject (void) a held inventory transaction that requires approval.
+
+    Staff-only endpoint (HARD-11).  The row is kept for audit; on_hand is
+    never mutated.  After rejection the transaction is excluded from COGS,
+    the reconciliation report, and any future on_hand calculation.
+
+    The row transitions from ``pending`` (requires_approval=True, no
+    approved_by, no voided_by) to ``voided`` (voided_by is set).
+    Attempting to reject an already-approved or already-voided transaction
+    returns 400.
+    """
+    transaction = db.query(InventoryTransaction).filter(
+        InventoryTransaction.id == transaction_id
+    ).first()
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    try:
+        reject_held_transaction(
+            db,
+            transaction=transaction,
+            voided_by=(current_user.email or current_user.username or "staff"),
+            void_reason=void_reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.commit()
+    db.refresh(transaction)
+
+    logger.info(
+        "Held inventory transaction %s rejected by %s: reason=%s",
+        transaction_id,
+        current_user.email,
+        void_reason,
+    )
+
+    return {
+        "success": True,
+        "transaction_id": transaction_id,
+        "message": "Held transaction voided — on_hand not affected",
+        "product_id": transaction.product_id,
+        "quantity": float(transaction.quantity),
+        "voided_by": transaction.voided_by,
+        "voided_at": transaction.voided_at.isoformat() if transaction.voided_at else None,
+        "void_reason": transaction.void_reason,
+    }
+
+
 @router.get("/negative-inventory-report")
 async def get_negative_inventory_report(
     start_date: Optional[datetime] = Query(None, description="Start date for report"),
@@ -161,6 +220,18 @@ async def get_negative_inventory_report(
             "available": 0,
         })
 
+        # Derive display status for UI convenience:
+        #   "pending"  — held, not yet actioned
+        #   "approved" — applied to on_hand
+        #   "voided"   — rejected by staff, on_hand untouched
+        voided_by = getattr(txn, "voided_by", None)
+        if voided_by:
+            display_status = "voided"
+        elif txn.approved_by:
+            display_status = "approved"
+        else:
+            display_status = "pending"
+
         report_items.append({
             "transaction_id": txn.id,
             "created_at": txn.created_at.isoformat() if txn.created_at else None,
@@ -175,19 +246,27 @@ async def get_negative_inventory_report(
             "approval_reason": txn.approval_reason,
             "approved_by": txn.approved_by,
             "approved_at": txn.approved_at.isoformat() if txn.approved_at else None,
+            "voided_by": voided_by,
+            "voided_at": txn.voided_at.isoformat() if getattr(txn, "voided_at", None) else None,
+            "void_reason": getattr(txn, "void_reason", None),
+            "display_status": display_status,
             "created_by": txn.created_by,
             "notes": txn.notes,
             "current_inventory": inv_level,
         })
-    
+
     return {
         "report_period": {
             "start_date": start_date.isoformat() if start_date else None,
             "end_date": end_date.isoformat() if end_date else None,
         },
         "total_transactions": len(report_items),
-        "pending_approvals": len([t for t in report_items if t["requires_approval"] and not t["approved_by"]]),
+        "pending_approvals": len([
+            t for t in report_items
+            if t["display_status"] == "pending"
+        ]),
         "approved_transactions": len([t for t in report_items if t["approved_by"]]),
+        "voided_transactions": len([t for t in report_items if t["display_status"] == "voided"]),
         "transactions": report_items,
     }
 

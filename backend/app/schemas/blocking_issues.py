@@ -63,6 +63,8 @@ class LineIssues(BaseModel):
     quantity_available: Decimal
     quantity_short: Decimal
     blocking_issues: List[BlockingIssue]
+    # HARD-6: material-level projected quantities (rolled up from all components)
+    quantity_projected: Optional[Decimal] = None
 
 
 class SalesOrderBlockingIssues(BaseModel):
@@ -102,6 +104,10 @@ class MaterialIssue(BaseModel):
     quantity_required: Decimal
     quantity_available: Decimal
     quantity_short: Decimal
+    # HARD-6: projected = available + incoming; shortage is net of on-order supply
+    quantity_projected: Optional[Decimal] = None
+    quantity_short_projected: Optional[Decimal] = None
+    covered_by_incoming: bool = False   # short now but PO(s) cover the gap
     status: str  # 'ok', 'shortage', 'warning'
     incoming_supply: Optional[IncomingSupply] = None
 

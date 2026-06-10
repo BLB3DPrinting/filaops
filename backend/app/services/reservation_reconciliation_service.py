@@ -451,13 +451,16 @@ def release_stranded_allocations(
             # Already fully released — skip
             continue
 
-        # Fetch inventory row
+        # Fetch inventory row with a row-level lock to prevent concurrent
+        # repair calls on the same (product, location) from racing and
+        # double-releasing the allocated_quantity.
         inventory = (
             db.query(Inventory)
             .filter(
                 Inventory.product_id == product_id,
                 Inventory.location_id == location_id,
             )
+            .with_for_update()
             .first()
         )
 

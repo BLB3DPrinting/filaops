@@ -468,8 +468,12 @@ async def get_cogs_summary(
             sales_to_po_map[po.sales_order_id].append(po.id)
             all_po_ids.append(po.id)
     
-    # Get all consumption and scrap transactions in one query
-    # Scrap = materials consumed in failed WOs (remake costs roll into COGS)
+    # Get all consumption and scrap transactions in one query.
+    # Scrap = materials consumed in failed WOs (remake costs roll into COGS).
+    # HARD-11: exclude rows that are either:
+    #   (a) unapplied held transactions (requires_approval=True, approved_by IS NULL)
+    #   (b) voided/rejected transactions (voided_by IS NOT NULL)
+    # Both states mean the consumption never actually affected on_hand.
     po_consumptions = {}
     if all_po_ids:
         consumptions = db.query(InventoryTransaction).options(
@@ -477,7 +481,14 @@ async def get_cogs_summary(
         ).filter(
             InventoryTransaction.reference_type == 'production_order',
             InventoryTransaction.reference_id.in_(all_po_ids),
-            InventoryTransaction.transaction_type.in_(['consumption', 'scrap'])
+            InventoryTransaction.transaction_type.in_(['consumption', 'scrap']),
+            # Exclude unapplied held rows
+            ~(
+                InventoryTransaction.requires_approval.is_(True)
+                & InventoryTransaction.approved_by.is_(None)
+            ),
+            # Exclude voided/rejected rows
+            InventoryTransaction.voided_by.is_(None),
         ).all()
         
         for txn in consumptions:
@@ -485,13 +496,20 @@ async def get_cogs_summary(
                 po_consumptions[txn.reference_id] = []
             po_consumptions[txn.reference_id].append(txn)
     
-    # Get all packaging transactions in one query
+    # Get all packaging transactions in one query.
+    # HARD-11: same exclusions as production consumptions — unapplied and voided rows
+    # are not real costs (on_hand was never mutated).
     pkg_consumptions_map = {}
     if shipped_order_ids:
         pkg_consumptions = db.query(InventoryTransaction).filter(
             InventoryTransaction.reference_type.in_(['shipment', 'consolidated_shipment']),
             InventoryTransaction.reference_id.in_(shipped_order_ids),
-            InventoryTransaction.transaction_type == 'consumption'
+            InventoryTransaction.transaction_type == 'consumption',
+            ~(
+                InventoryTransaction.requires_approval.is_(True)
+                & InventoryTransaction.approved_by.is_(None)
+            ),
+            InventoryTransaction.voided_by.is_(None),
         ).all()
         
         for txn in pkg_consumptions:
@@ -644,7 +662,9 @@ async def get_accounting_dashboard(
             sales_to_po_map[po.sales_order_id].append(po.id)
             all_po_ids.append(po.id)
     
-    # Query all material costs in one batch (including scrap from failed WOs)
+    # Query all material costs in one batch (including scrap from failed WOs).
+    # HARD-11: exclude unapplied held rows and voided rows — they never
+    # affected on_hand and must not inflate COGS.
     po_material_costs = {}
     if all_po_ids:
         material_costs_result = db.query(
@@ -656,7 +676,14 @@ async def get_accounting_dashboard(
         ).filter(
             InventoryTransaction.reference_type == 'production_order',
             InventoryTransaction.reference_id.in_(all_po_ids),
-            InventoryTransaction.transaction_type.in_(['consumption', 'scrap'])
+            InventoryTransaction.transaction_type.in_(['consumption', 'scrap']),
+            # Exclude unapplied held rows
+            ~(
+                InventoryTransaction.requires_approval.is_(True)
+                & InventoryTransaction.approved_by.is_(None)
+            ),
+            # Exclude voided/rejected rows
+            InventoryTransaction.voided_by.is_(None),
         ).group_by(InventoryTransaction.reference_id).all()
         
         po_material_costs = {row.reference_id: row.material_cost for row in material_costs_result}
