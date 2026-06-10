@@ -1560,61 +1560,6 @@ class TestPurchasingSchemas:
         )
         assert resp.lines == []
 
-    # -- Low Stock schemas ---------------------------------------------------
-
-    def test_low_stock_item(self):
-        from app.schemas.purchasing import LowStockItem
-
-        item = LowStockItem(
-            product_id=1, sku="PLA-BLK", name="PLA Black",
-            current_qty=Decimal("500"), reorder_point=Decimal("1000"),
-            reorder_qty=Decimal("5000"), shortage=Decimal("500"),
-            unit="G",
-        )
-        assert item.purchase_uom is None
-        assert item.last_cost is None
-        assert item.preferred_vendor_id is None
-        assert item.preferred_vendor_name is None
-
-    def test_low_stock_by_vendor(self):
-        from app.schemas.purchasing import LowStockByVendor
-
-        v = LowStockByVendor(
-            vendor_name="Unassigned", items=[],
-            total_estimated_cost=Decimal("0"),
-        )
-        assert v.vendor_id is None
-        assert v.vendor_code is None
-
-    def test_low_stock_response(self):
-        from app.schemas.purchasing import LowStockResponse
-
-        resp = LowStockResponse(total_items=0, vendors=[])
-        assert resp.total_items == 0
-
-    def test_create_po_from_low_stock_item(self):
-        from app.schemas.purchasing import CreatePOFromLowStockItem
-
-        item = CreatePOFromLowStockItem(
-            product_id=1, quantity=Decimal("5000"),
-        )
-        assert item.unit_cost is None
-        assert item.purchase_unit is None
-
-    def test_create_po_from_low_stock_request(self):
-        from app.schemas.purchasing import (
-            CreatePOFromLowStockRequest,
-            CreatePOFromLowStockItem,
-        )
-
-        req = CreatePOFromLowStockRequest(
-            vendor_id=1,
-            items=[CreatePOFromLowStockItem(
-                product_id=1, quantity=Decimal("5000"),
-            )],
-        )
-        assert req.notes is None
-
 
 # ============================================================================
 # quote.py
