@@ -508,6 +508,12 @@ class SalesJournalEntry(BaseModel):
     paid_at: Optional[str] = None
     shipped_at: Optional[str] = None
 
+    @field_validator("is_taxable", mode="before")
+    @classmethod
+    def coalesce_null_is_taxable(cls, v):
+        """Coerce NULL/None from the DB column to False before bool validation."""
+        return False if v is None else bool(v)
+
 
 class SalesJournalPeriod(BaseModel):
     """Period range for the sales journal."""
