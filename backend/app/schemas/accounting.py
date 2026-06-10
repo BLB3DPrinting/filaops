@@ -502,7 +502,7 @@ class SalesJournalEntry(BaseModel):
     subtotal: float
     tax_rate: Optional[float] = None
     tax_amount: float
-    is_taxable: bool
+    is_taxable: bool = False  # nullable DB column; treat NULL as False
     shipping: float
     grand_total: float
     paid_at: Optional[str] = None
