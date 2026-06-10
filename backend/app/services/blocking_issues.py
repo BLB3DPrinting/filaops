@@ -28,6 +28,7 @@ from app.schemas.blocking_issues import (
 )
 from app.models.vendor import Vendor
 from app.services.supply_netting import get_projected_available
+from app.services.requirement_explosion import explode_requirements  # HARD-12
 
 
 def get_finished_goods_available(db: Session, product_id: int) -> Decimal:
@@ -67,24 +68,30 @@ def get_material_requirements(
     product_id: int,
     qty: Decimal
 ) -> List[Tuple[Product, Decimal]]:
-    """Get materials required for producing a quantity of product."""
-    # Get active BOM for this product
-    bom = db.query(BOM).filter(
-        BOM.product_id == product_id,
-        BOM.active == True  # noqa: E712
-    ).first()
+    """Get materials required for producing a quantity of product.
 
-    if not bom:
-        return []
+    HARD-12: Now uses routing-first / BOM-fallback semantics via the canonical
+    ``explode_requirements`` function.  Previously this read bom_lines ONLY,
+    which caused the BlockingIssuesPanel to disagree with the MRP engine for the
+    35+ products that have both routing materials AND BOM lines.
 
-    # Get BOM lines with their component products
-    bom_lines = db.query(BOMLine, Product).join(
-        Product, BOMLine.component_id == Product.id
-    ).filter(
-        BOMLine.bom_id == bom.id
-    ).all()
+    Semantic delta vs old implementation:
+    - Products with routing materials: returns routing materials (not BOM lines).
+      Quantities will differ for those products — this is the INTENDED fix.
+    - Products with BOM-only: identical results, but now with UOM conversion and
+      scrap factor applied (previously neither was applied).
+    - Scrap factor was previously ignored in this function; it is now included.
+    """
+    reqs = explode_requirements(db=db, product_id=product_id, quantity=qty)
 
-    return [(component, bom_line.quantity * qty) for bom_line, component in bom_lines]
+    # Resolve each ComponentRequirement back to (Product, Decimal) for the
+    # existing callers that expected that tuple format.
+    result: List[Tuple[Product, Decimal]] = []
+    for req in reqs:
+        component = db.get(Product, req.product_id)
+        if component:
+            result.append((component, req.gross_quantity))
+    return result
 
 
 def get_material_available(db: Session, product_id: int) -> Decimal:

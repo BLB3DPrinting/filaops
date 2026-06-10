@@ -230,14 +230,26 @@ class TestGetProductionOrdersForSO:
 
 
 class TestGetMaterialRequirements:
-    """get_material_requirements reads BOM lines for a product."""
+    """get_material_requirements uses routing-first / BOM-fallback semantics (HARD-12).
+
+    Previously this function read bom_lines only, causing the BlockingIssuesPanel
+    to disagree with the MRP engine for products that have both routing materials
+    and BOM lines.  After HARD-12 it delegates to the canonical
+    explode_requirements() function, so all screens agree.
+
+    Semantic deltas vs pre-HARD-12:
+    - Products with routing materials: returns routing materials (not BOM lines).
+    - Products with BOM-only: identical results, but now with UOM conversion and
+      scrap factor applied (previously neither was applied in this function).
+    """
 
     def test_no_bom_returns_empty(self, db, make_product):
         product = make_product()
         result = get_material_requirements(db, product.id, Decimal("5"))
         assert result == []
 
-    def test_scales_by_quantity(self, db, make_product, make_bom):
+    def test_scales_by_quantity_bom_only(self, db, make_product, make_bom):
+        """BOM-only product: scaling works as before (no routing)."""
         fg = make_product(item_type="finished_good", has_bom=True)
         raw = make_product(item_type="supply", is_raw_material=True)
         make_bom(product_id=fg.id, lines=[
@@ -247,6 +259,8 @@ class TestGetMaterialRequirements:
         assert len(result) == 1
         component, qty_needed = result[0]
         assert component.id == raw.id
+        # HARD-12: UOM conversion is now applied (G vs component unit G → no change;
+        # quantity still 100 × 3 = 300).
         assert qty_needed == Decimal("300")
 
 
