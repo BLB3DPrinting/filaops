@@ -256,6 +256,7 @@ export default function AdminProduction() {
     notes: "",
   });
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
 
   // Scheduling modal state
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
@@ -350,11 +351,12 @@ export default function AdminProduction() {
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     if (!createForm.product_id) {
-      setError("Please select a product");
+      setCreateError("Please select a product");
       return;
     }
 
     setCreating(true);
+    setCreateError(null);
     try {
       const newOrder = await api.post(`/api/v1/production-orders/`, {
         product_id: parseInt(createForm.product_id),
@@ -375,7 +377,7 @@ export default function AdminProduction() {
       // Navigate to the new production order detail page
       navigate(`/admin/production/${newOrder.id}`);
     } catch (err) {
-      setError(err.message);
+      setCreateError(err.message);
     } finally {
       setCreating(false);
     }
@@ -413,7 +415,7 @@ export default function AdminProduction() {
           </p>
         </div>
         <button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setShowCreateModal(true); setCreateError(null); }}
           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500"
         >
           + Create Production Order
@@ -596,7 +598,7 @@ export default function AdminProduction() {
       {/* Create Production Order Modal */}
       <Modal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => { setShowCreateModal(false); setCreateError(null); }}
         title="Create Production Order"
         className="w-full max-w-md"
         disableClose={creating}
@@ -604,6 +606,12 @@ export default function AdminProduction() {
         <div className="p-6">
             <h2 className="text-xl font-bold text-white mb-4">Create Production Order</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
+              {/* In-modal error feedback (POST failure stays here so the modal remains open) */}
+              {createError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                  {createError}
+                </div>
+              )}
               {/* Product Selection */}
               <div>
                 <label className="block text-sm text-gray-400 mb-1">

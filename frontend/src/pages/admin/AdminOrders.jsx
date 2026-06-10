@@ -3,7 +3,6 @@ import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import SalesOrderWizard from "../../components/SalesOrderWizard";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
-import { validateLength } from "../../utils/validation";
 import { SalesOrderCard } from "../../components/orders";
 import OrderFilters from "../../components/orders/OrderFilters";
 
@@ -26,13 +25,6 @@ export default function AdminOrders() {
   // Create order modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Cancel/Delete modal state
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancellingOrder, setCancellingOrder] = useState(null);
-  const [cancellationReason, setCancellationReason] = useState("");
-  const [cancellationError, setCancellationError] = useState("");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deletingOrder, setDeletingOrder] = useState(null);
 
   // Check if returning from customer/item creation
   useEffect(() => {
@@ -124,56 +116,6 @@ export default function AdminOrders() {
 
   const handleShip = (orderId) => {
     navigate(`/admin/shipping?orderId=${orderId}`);
-  };
-
-  // Handle cancel order
-  const handleCancelOrder = async () => {
-    if (!cancellingOrder) return;
-
-    // Validate cancellation reason if provided
-    setCancellationError("");
-    if (cancellationReason && cancellationReason.trim()) {
-      const lengthError = validateLength(
-        cancellationReason.trim(),
-        "Cancellation reason",
-        { max: 500 }
-      );
-      if (lengthError) {
-        setCancellationError(lengthError);
-        return;
-      }
-    }
-
-    try {
-      await api.post(
-        `/api/v1/sales-orders/${cancellingOrder.id}/cancel`,
-        { cancellation_reason: cancellationReason }
-      );
-
-      toast.success(`Order ${cancellingOrder.order_number} cancelled`);
-      setShowCancelModal(false);
-      setCancellingOrder(null);
-      setCancellationReason("");
-      setCancellationError("");
-      fetchOrders();
-    } catch (err) {
-      toast.error(err.message || "Failed to cancel order");
-    }
-  };
-
-  // Handle delete order
-  const handleDeleteOrder = async () => {
-    if (!deletingOrder) return;
-
-    try {
-      await api.del(`/api/v1/sales-orders/${deletingOrder.id}`);
-      toast.success(`Order ${deletingOrder.order_number} deleted`);
-      setShowDeleteConfirm(false);
-      setDeletingOrder(null);
-      fetchOrders();
-    } catch (err) {
-      toast.error(err.message || "Failed to delete order");
-    }
   };
 
   return (
@@ -295,120 +237,6 @@ export default function AdminOrders() {
         }}
       />
 
-      {/* Cancel Order Modal */}
-      {showCancelModal && cancellingOrder && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-            <div
-              className="fixed inset-0 bg-black/70"
-              onClick={() => {
-                setShowCancelModal(false);
-                setCancellingOrder(null);
-                setCancellationReason("");
-              }}
-            />
-            <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full mx-auto p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Cancel Order {cancellingOrder.order_number}?
-              </h3>
-              <p className="text-gray-400 mb-4">
-                This will cancel the order. The order can still be deleted after
-                cancellation.
-              </p>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">
-                  Cancellation Reason (optional)
-                </label>
-                <textarea
-                  value={cancellationReason}
-                  onChange={(e) => {
-                    setCancellationReason(e.target.value);
-                    setCancellationError("");
-                  }}
-                  className={`w-full bg-gray-800 border rounded-lg px-4 py-2 text-white ${
-                    cancellationError
-                      ? "border-red-500 focus:border-red-500"
-                      : "border-gray-700"
-                  }`}
-                  rows={3}
-                  placeholder="Enter reason for cancellation..."
-                  maxLength={500}
-                />
-                {cancellationError && (
-                  <div className="text-red-400 text-sm mt-1">
-                    {cancellationError}
-                  </div>
-                )}
-                {cancellationReason && (
-                  <div className="text-gray-500 text-xs mt-1">
-                    {cancellationReason.length}/500 characters
-                  </div>
-                )}
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowCancelModal(false);
-                    setCancellingOrder(null);
-                    setCancellationReason("");
-                    setCancellationError("");
-                  }}
-                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-                >
-                  Keep Order
-                </button>
-                <button
-                  onClick={handleCancelOrder}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500"
-                >
-                  Cancel Order
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Order Confirmation Modal */}
-      {showDeleteConfirm && deletingOrder && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20">
-            <div
-              className="fixed inset-0 bg-black/70"
-              onClick={() => {
-                setShowDeleteConfirm(false);
-                setDeletingOrder(null);
-              }}
-            />
-            <div className="relative bg-gray-900 border border-gray-700 rounded-xl shadow-xl max-w-md w-full mx-auto p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Delete Order {deletingOrder.order_number}?
-              </h3>
-              <p className="text-gray-400 mb-4">
-                This action cannot be undone. All order data, including line
-                items and payment records, will be permanently deleted.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setDeletingOrder(null);
-                  }}
-                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-                >
-                  Keep Order
-                </button>
-                <button
-                  onClick={handleDeleteOrder}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500"
-                >
-                  Delete Permanently
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
