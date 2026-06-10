@@ -1169,10 +1169,12 @@ async def get_profit_summary(
     # The cost_per_unit field contains the material cost
 
     # COGS this month (material consumption)
+    # abs(): ledger rows store signed quantities post-HARD-4a (legacy rows
+    # mixed both conventions) — cost is a magnitude either way.
     cogs_this_month_result = (
         db.query(
             func.sum(
-                InventoryTransaction.quantity *
+                func.abs(InventoryTransaction.quantity) *
                 func.coalesce(InventoryTransaction.cost_per_unit, 0)
             )
         )
@@ -1189,7 +1191,7 @@ async def get_profit_summary(
     cogs_ytd_result = (
         db.query(
             func.sum(
-                InventoryTransaction.quantity *
+                func.abs(InventoryTransaction.quantity) *
                 func.coalesce(InventoryTransaction.cost_per_unit, 0)
             )
         )

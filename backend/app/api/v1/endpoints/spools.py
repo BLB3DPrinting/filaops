@@ -247,92 +247,68 @@ async def update_spool(
             
             # For materials: Store transaction in GRAMS (star schema - transactions are source of truth)
             is_mat = is_material(product)
-            transaction_quantity = float(adjustment_g) if is_mat else float(adjustment_g / Decimal("1000"))
+            transaction_quantity = adjustment_g if is_mat else adjustment_g / Decimal("1000")
 
-            # Cost calculation: Use cost per inventory unit for correct total_cost calculation
-            # For materials: $/gram. For others: $/unit
+            # Cost per inventory unit: $/gram for materials, $/unit for others
             from app.services.inventory_service import get_effective_cost_per_inventory_unit
-            cost_per_unit = None
-            total_cost = None
-            if product:
-                cost_per_unit = get_effective_cost_per_inventory_unit(product)
-                if cost_per_unit:
-                    total_cost = abs(transaction_quantity) * float(cost_per_unit)
+            cost_per_unit = get_effective_cost_per_inventory_unit(product)
 
-            # Create inventory adjustment transaction
-            # For materials: quantity in GRAMS, cost_per_unit in $/gram
-            transaction = InventoryTransaction(
-                product_id=spool.product_id,
-                location_id=spool.location_id,  # Link to spool's location
-                transaction_type="adjustment",
-                quantity=transaction_quantity,  # GRAMS for materials, product_unit for others
-                cost_per_unit=cost_per_unit,  # Cost per inventory unit ($/gram for materials)
-                total_cost=total_cost,  # Pre-calculated for UI display
-                reference_type="spool_adjustment",
-                reference_id=str(spool.id),
-                notes=f"Spool {spool.spool_number} weight adjusted: {float(old_weight_g)}g → {float(new_weight_g)}g. Reason: {reason}",
-                created_by=current_user.email if current_user else "system",
-                created_at=datetime.now(timezone.utc),
+            transaction_notes = (
+                f"Spool {spool.spool_number} weight adjusted: "
+                f"{float(old_weight_g)}g → {float(new_weight_g)}g. Reason: {reason}"
             )
-            db.add(transaction)
-            db.flush()
-            
-            transaction_created = transaction.id
-            
-            # Update inventory record for this product/location
-            # For materials: Store in GRAMS
-            logger.info(
-                f"Updating inventory for spool {spool.spool_number}: "
-                f"product_id={spool.product_id}, location_id={spool.location_id}, "
-                f"adjustment={float(adjustment_g):+.1f}g (material: {is_mat})"
-            )
-            
+
             if spool.location_id:
-                inventory = db.query(Inventory).filter(
-                    Inventory.product_id == spool.product_id,
-                    Inventory.location_id == spool.location_id
-                ).first()
-                
-                if inventory:
-                    old_qty = Decimal(inventory.on_hand_quantity or 0)
-                    # For materials: Store in grams. For others: Store in product unit
-                    new_qty = old_qty + Decimal(str(transaction_quantity))
-                    inventory.on_hand_quantity = float(new_qty)  # type: ignore[assignment]
-                    inventory.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-                    db.flush()  # Ensure inventory update is in session
-                    
-                    unit_label = "g" if is_mat else "KG"
-                    logger.info(
-                        f"Inventory adjusted for {product.sku} at location {spool.location_id}: "
-                        f"{float(old_qty):.1f}{unit_label} → {float(new_qty):.1f}{unit_label} "
-                        f"(adjustment: {float(adjustment_g):+.1f}g) "
-                        f"due to spool {spool.spool_number} adjustment"
-                    )
-                else:
-                    # Create inventory record if it doesn't exist
-                    old_qty = Decimal("0")
-                    new_qty = Decimal(str(transaction_quantity))
-                    inventory = Inventory(
-                        product_id=spool.product_id,
-                        location_id=spool.location_id,
-                        on_hand_quantity=float(new_qty),
-                        allocated_quantity=0,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
-                    )
-                    db.add(inventory)
-                    db.flush()  # Ensure inventory creation is in session
-                    unit_label = "g" if is_mat else "KG"
-                    logger.info(
-                        f"Created inventory record for {product.sku} at location {spool.location_id}: "
-                        f"{float(new_qty):.1f}{unit_label} (adjustment: {float(adjustment_g):+.1f}g) "
-                        f"due to spool {spool.spool_number} adjustment"
-                    )
+                # Post through the canonical ledger (HARD-4a): signed delta,
+                # transaction row + on_hand mutated together.
+                from app.services import inventory_ledger
+                transaction = inventory_ledger.post(
+                    db,
+                    product_id=spool.product_id,
+                    location_id=spool.location_id,
+                    transaction_type="adjustment",
+                    quantity_delta=transaction_quantity,
+                    cost_per_unit=cost_per_unit,
+                    reference_type="spool_adjustment",
+                    reference_id=spool.id,
+                    notes=transaction_notes,
+                    created_by=current_user.email if current_user else "system",
+                )
+                unit_label = "g" if is_mat else "KG"
+                logger.info(
+                    f"Inventory adjusted for {product.sku} at location {spool.location_id}: "
+                    f"delta {float(transaction_quantity):+.1f}{unit_label} "
+                    f"due to spool {spool.spool_number} adjustment"
+                )
             else:
+                # No location: write an audit row only — the movement cannot
+                # be attributed to an inventory record, so on_hand is not
+                # touched. HARD-4b reconciliation must exclude these rows.
+                total_cost = (
+                    abs(transaction_quantity) * cost_per_unit
+                    if cost_per_unit else None
+                )
+                transaction = InventoryTransaction(
+                    product_id=spool.product_id,
+                    location_id=None,
+                    transaction_type="adjustment",
+                    quantity=transaction_quantity,
+                    cost_per_unit=cost_per_unit,
+                    total_cost=total_cost,
+                    reference_type="spool_adjustment",
+                    reference_id=spool.id,
+                    notes=transaction_notes,
+                    created_by=current_user.email if current_user else "system",
+                    created_at=datetime.now(timezone.utc),
+                )
+                db.add(transaction)
+                db.flush()
                 logger.warning(
                     f"Spool {spool.spool_number} has no location. Transaction created but inventory not updated. "
                     f"Please assign a location to the spool to enable inventory tracking."
                 )
+
+            transaction_created = transaction.id
         
         # Update spool weight
         spool.current_weight_kg = new_weight_g  # type: ignore[assignment]

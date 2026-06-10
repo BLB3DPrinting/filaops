@@ -23,6 +23,7 @@ from app.logging_config import get_logger
 from app.models.adjustment_reason import AdjustmentReason
 from app.models.inventory import Inventory, InventoryLocation, InventoryTransaction
 from app.models.product import Product
+from app.services import inventory_ledger
 from app.services.inventory_helpers import is_material
 from app.services.transaction_service import TransactionService
 from app.services.uom_service import convert_quantity_safe
@@ -374,107 +375,97 @@ def create_transaction(
 
     inventory = _get_or_create_inventory(db, product_id, location.id)
 
-    # Handle transfers (two transactions)
+    quantity = Decimal(str(quantity))
+    on_hand = Decimal(str(inventory.on_hand_quantity))
+
+    # All mutations below go through the canonical poster (HARD-4a):
+    # signed Decimal deltas, transaction row + on_hand updated together.
+    # Handle transfers (two ledger rows: issue out, receipt in)
     if transaction_type == "transfer":
-        if float(inventory.on_hand_quantity) < float(quantity):
+        if on_hand < quantity:
             raise ValueError(
                 f"Insufficient inventory for transfer. "
                 f"On hand: {inventory.on_hand_quantity}, requested: {quantity}"
             )
 
-        total_cost = None
-        if cost_per_unit is not None and quantity:
-            total_cost = float(quantity) * float(cost_per_unit)
-
-        from_transaction = InventoryTransaction(
+        transaction = inventory_ledger.post(
+            db,
             product_id=product_id,
             location_id=location.id,
             transaction_type="issue",
+            quantity_delta=-quantity,
+            cost_per_unit=cost_per_unit,
             reference_type=reference_type or "transfer",
             reference_id=reference_id,
-            quantity=quantity,
-            cost_per_unit=cost_per_unit,
-            total_cost=total_cost,
             lot_number=lot_number,
             serial_number=serial_number,
             notes=f"Transfer to {to_location.name if to_location else 'location'}: {notes or ''}",
             created_by=created_by,
             reason_code=reason_code,
         )
-        db.add(from_transaction)
-
-        inventory.on_hand_quantity = float(inventory.on_hand_quantity) - float(quantity)
-
-        to_inventory = _get_or_create_inventory(db, product_id, to_location_id)
-
-        to_transaction = InventoryTransaction(
+        inventory_ledger.post(
+            db,
             product_id=product_id,
             location_id=to_location_id,
             transaction_type="receipt",
+            quantity_delta=quantity,
+            cost_per_unit=cost_per_unit,
             reference_type=reference_type or "transfer",
             reference_id=reference_id,
-            quantity=quantity,
-            cost_per_unit=cost_per_unit,
-            total_cost=total_cost,
             lot_number=lot_number,
             serial_number=serial_number,
             notes=f"Transfer from {location.name}: {notes or ''}",
             created_by=created_by,
             reason_code=reason_code,
         )
-        db.add(to_transaction)
-
-        to_inventory.on_hand_quantity = float(to_inventory.on_hand_quantity) + float(quantity)
-
-        transaction = from_transaction
     else:
-        total_cost = None
-        if cost_per_unit is not None and quantity:
-            total_cost = float(quantity) * float(cost_per_unit)
+        if transaction_type == "receipt":
+            quantity_delta = quantity
+        elif transaction_type in ["issue", "consumption", "scrap"]:
+            if on_hand < quantity:
+                raise ValueError(
+                    f"Insufficient inventory. "
+                    f"On hand: {inventory.on_hand_quantity}, requested: {quantity}"
+                )
+            quantity_delta = -quantity
+        else:  # adjustment — caller passes the new ABSOLUTE quantity (set-style)
+            quantity_delta = quantity - on_hand
+            if quantity_delta == 0:
+                raise ValueError(
+                    "Adjustment results in no change to on-hand quantity"
+                )
 
-        transaction = InventoryTransaction(
+        transaction = inventory_ledger.post(
+            db,
             product_id=product_id,
             location_id=location.id,
             transaction_type=transaction_type,
+            quantity_delta=quantity_delta,
+            cost_per_unit=cost_per_unit,
             reference_type=reference_type,
             reference_id=reference_id,
-            quantity=quantity,
-            cost_per_unit=cost_per_unit,
-            total_cost=total_cost,
             lot_number=lot_number,
             serial_number=serial_number,
             notes=notes,
             created_by=created_by,
             reason_code=reason_code,
         )
-        db.add(transaction)
-
-        if transaction_type == "receipt":
-            inventory.on_hand_quantity = float(inventory.on_hand_quantity) + float(quantity)
-        elif transaction_type in ["issue", "consumption", "scrap"]:
-            if float(inventory.on_hand_quantity) < float(quantity):
-                raise ValueError(
-                    f"Insufficient inventory. "
-                    f"On hand: {inventory.on_hand_quantity}, requested: {quantity}"
-                )
-            inventory.on_hand_quantity = float(inventory.on_hand_quantity) - float(quantity)
-        elif transaction_type == "adjustment":
-            inventory.on_hand_quantity = float(quantity)
 
     db.commit()
     db.refresh(transaction)
 
-    # Build response total_cost
+    # Build response total_cost (cost is a magnitude — ledger rows store
+    # signed quantities, so take abs)
     response_total_cost = None
     if transaction.cost_per_unit is not None and transaction.quantity is not None:
         try:
             if is_material(product):
                 quantity_kg = convert_quantity_to_kg_for_cost(
-                    db, transaction.quantity, product.unit, product.id, product.sku
+                    db, abs(transaction.quantity), product.unit, product.id, product.sku
                 )
                 response_total_cost = float(transaction.cost_per_unit) * quantity_kg
             else:
-                response_total_cost = float(transaction.cost_per_unit) * float(transaction.quantity)
+                response_total_cost = float(transaction.cost_per_unit) * abs(float(transaction.quantity))
         except (ValueError, TypeError) as e:
             logger.error(f"Failed to calculate total_cost for transaction {transaction.id}: {e}")
             response_total_cost = None
