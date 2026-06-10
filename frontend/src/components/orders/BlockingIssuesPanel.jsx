@@ -146,6 +146,29 @@ function LineIssuesSection({ lineIssues }) {
 }
 
 /**
+ * Badge showing whether a material shortage is covered by an incoming PO.
+ * HARD-6: distinguishes "short now, covered by PO" vs "short, no supply".
+ */
+function ShortageStateBadge({ mat }) {
+  if (mat.status === 'ok') return null;
+
+  // covered_by_incoming: short on-hand but open PO(s) cover the full gap
+  if (mat.covered_by_incoming) {
+    return (
+      <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">
+        Covered by PO
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400">
+      Short: {Number(mat.quantity_short).toLocaleString()}
+    </span>
+  );
+}
+
+/**
  * Material issues section for production orders
  */
 function MaterialIssuesSection({ materialIssues }) {
@@ -165,31 +188,37 @@ function MaterialIssuesSection({ materialIssues }) {
               <p className="text-sm font-medium text-white">{mat.product_sku}</p>
               <p className="text-xs text-gray-500">{mat.product_name}</p>
             </div>
-            <span className={`text-xs px-2 py-1 rounded ${
-              mat.status === 'shortage' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
-            }`}>
-              {mat.status === 'shortage' ? `Short: ${mat.quantity_short.toLocaleString()}` : mat.status}
-            </span>
+            <ShortageStateBadge mat={mat} />
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
             <div>
               <span className="text-gray-500">Required:</span>
-              <span className="text-white ml-1">{mat.quantity_required.toLocaleString()}</span>
+              <span className="text-white ml-1">{Number(mat.quantity_required).toLocaleString()}</span>
             </div>
             <div>
               <span className="text-gray-500">Available:</span>
-              <span className="text-white ml-1">{mat.quantity_available.toLocaleString()}</span>
+              <span className="text-white ml-1">{Number(mat.quantity_available).toLocaleString()}</span>
             </div>
             <div>
               <span className="text-gray-500">Short:</span>
-              <span className="text-red-400 ml-1">{mat.quantity_short.toLocaleString()}</span>
+              <span className={mat.covered_by_incoming ? 'text-yellow-400 ml-1' : 'text-red-400 ml-1'}>
+                {Number(mat.quantity_short).toLocaleString()}
+              </span>
             </div>
           </div>
           {mat.incoming_supply && (
-            <div className="mt-2 p-2 bg-blue-500/10 rounded text-xs">
-              <span className="text-blue-400">Incoming:</span>
-              <span className="text-white ml-1">
-                {mat.incoming_supply.quantity.toLocaleString()} from {mat.incoming_supply.purchase_order_code}
+            <div className={`mt-2 p-2 rounded text-xs ${
+              mat.covered_by_incoming
+                ? 'bg-green-500/10 border border-green-500/20'
+                : 'bg-blue-500/10'
+            }`}>
+              {mat.covered_by_incoming ? (
+                <span className="text-green-400 font-medium">Covered by incoming PO: </span>
+              ) : (
+                <span className="text-blue-400">Incoming: </span>
+              )}
+              <span className="text-white">
+                {Number(mat.incoming_supply.quantity).toLocaleString()} from {mat.incoming_supply.purchase_order_code}
               </span>
               {mat.incoming_supply.expected_date && (
                 <span className="text-gray-500 ml-1">

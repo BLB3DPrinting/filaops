@@ -27,6 +27,7 @@ from app.schemas.blocking_issues import (
     IncomingSupply, LinkedSalesOrderInfo
 )
 from app.models.vendor import Vendor
+from app.services.supply_netting import get_projected_available
 
 
 def get_finished_goods_available(db: Session, product_id: int) -> Decimal:
@@ -186,48 +187,58 @@ def analyze_line_issues(
                         }
                     ))
 
-                    # Check material availability for this WO
+                    # Check material availability for this WO — HARD-6: use projected balance
                     material_reqs = get_material_requirements(db, wo.product_id, remaining)
                     for component, qty_needed in material_reqs:
-                        available = get_material_available(db, component.id)
+                        proj = get_projected_available(db, component.id)
+                        available = proj.available
+                        shortage_now = max(Decimal("0"), qty_needed - available)
+                        # Net shortage after incoming PO supply
+                        shortage_projected = max(Decimal("0"), qty_needed - proj.projected)
+                        covered_by_incoming = (shortage_now > 0) and (shortage_projected == 0) and (proj.incoming_qty > 0)
 
-                        if available < qty_needed:
-                            shortage = qty_needed - available
+                        if shortage_now > 0:
+                            best = proj.best_detail
+                            incoming_po_number = best.po_number if best else None
+                            incoming_date = best.expected_date.isoformat() if best and best.expected_date else None
 
-                            # Check for pending POs
-                            pending_pos = get_pending_purchase_orders(db, component.id)
-                            incoming_po = pending_pos[0] if pending_pos else None
+                            if shortage_projected > 0:
+                                # HARD-6: real net shortage even after netting PO supply
+                                issues.append(BlockingIssue(
+                                    type=IssueType.MATERIAL_SHORTAGE,
+                                    severity=IssueSeverity.BLOCKING,
+                                    message=f"Material {component.sku} is {shortage_projected:.0f} units short",
+                                    reference_type="product",
+                                    reference_id=component.id,
+                                    reference_code=component.sku,
+                                    details={
+                                        "required": float(qty_needed),
+                                        "available": float(available),
+                                        "shortage": float(shortage_now),
+                                        "shortage_projected": float(shortage_projected),
+                                        "covered_by_incoming": False,
+                                        "incoming_po": incoming_po_number,
+                                        "incoming_date": incoming_date,
+                                    }
+                                ))
+                            # else: shortage_projected == 0 → PO fully covers gap;
+                            #       no MATERIAL_SHORTAGE issue (HARD-6 double-order fix)
 
-                            issues.append(BlockingIssue(
-                                type=IssueType.MATERIAL_SHORTAGE,
-                                severity=IssueSeverity.BLOCKING,
-                                message=f"Material {component.sku} is {shortage:.0f} units short",
-                                reference_type="product",
-                                reference_id=component.id,
-                                reference_code=component.sku,
-                                details={
-                                    "required": float(qty_needed),
-                                    "available": float(available),
-                                    "shortage": float(shortage),
-                                    "incoming_po": incoming_po[0].po_number if incoming_po else None,
-                                    "incoming_date": incoming_po[0].expected_date.isoformat() if incoming_po and incoming_po[0].expected_date else None
-                                }
-                            ))
-
-                            # Add purchase pending warning if PO exists
-                            if incoming_po:
-                                po, po_qty = incoming_po
+                            # Always emit PURCHASE_PENDING when on-hand is short and a PO
+                            # is in flight — lets user expedite or just verify the incoming date
+                            if best:
                                 issues.append(BlockingIssue(
                                     type=IssueType.PURCHASE_PENDING,
                                     severity=IssueSeverity.WARNING,
-                                    message=f"Purchase order {po.po_number} pending receipt",
+                                    message=f"Purchase order {best.po_number} pending receipt",
                                     reference_type="purchase_order",
-                                    reference_id=po.id,
-                                    reference_code=po.po_number,
+                                    reference_id=best.purchase_order_id,
+                                    reference_code=best.po_number,
                                     details={
-                                        "status": po.status,
-                                        "expected_date": po.expected_date.isoformat() if po.expected_date else None,
-                                        "quantity": float(po_qty)
+                                        "status": best.status,
+                                        "expected_date": best.expected_date.isoformat() if best.expected_date else None,
+                                        "quantity": float(best.quantity),
+                                        "covers_shortage": covered_by_incoming,
                                     }
                                 ))
 
@@ -519,30 +530,43 @@ def get_production_order_blocking_issues(
 
         for bom_line, component in bom_lines:
             qty_required = bom_line.quantity * qty_remaining
-            qty_available = get_material_available(db, component.id)
-            qty_short = max(Decimal("0"), qty_required - qty_available)
+            # HARD-6: use projected balance (available + open-PO supply)
+            proj = get_projected_available(db, component.id)
+            qty_available = proj.available
+            qty_short_now = max(Decimal("0"), qty_required - qty_available)
+            qty_short_projected = max(Decimal("0"), qty_required - proj.projected)
+            covered_by_incoming = (qty_short_now > 0) and (qty_short_projected == 0) and (proj.incoming_qty > 0)
 
-            status = "ok" if qty_short == 0 else "shortage"
-            if qty_short > 0:
+            # Shortage exists only when projected balance is insufficient
+            status = "ok" if qty_short_projected == 0 else "shortage"
+            if qty_short_projected > 0:
                 blocking_count += 1
 
-            # Check for incoming supply
+            # Build incoming supply detail from best (earliest) open PO
             incoming = None
-            pending_pos = get_pending_purchase_orders(db, component.id)
-            if pending_pos:
-                po, po_qty = pending_pos[0]
-                vendor = db.query(Vendor).filter(Vendor.id == po.vendor_id).first()
+            if proj.best_detail:
+                detail = proj.best_detail
+                # Fetch vendor name via PO object
+                po_obj = db.query(PurchaseOrder).filter(
+                    PurchaseOrder.id == detail.purchase_order_id
+                ).first()
+                vendor_name = "Unknown"
+                if po_obj and po_obj.vendor_id:
+                    v = db.query(Vendor).filter(Vendor.id == po_obj.vendor_id).first()
+                    vendor_name = v.name if v else "Unknown"
 
                 incoming = IncomingSupply(
-                    purchase_order_id=po.id,
-                    purchase_order_code=po.po_number,
-                    quantity=po_qty,
-                    expected_date=po.expected_date,
-                    vendor=vendor.name if vendor else "Unknown"
+                    purchase_order_id=detail.purchase_order_id,
+                    purchase_order_code=detail.po_number,
+                    quantity=detail.quantity,
+                    expected_date=detail.expected_date,
+                    vendor=vendor_name,
                 )
 
-                if po.expected_date and (latest_incoming_date is None or po.expected_date > latest_incoming_date):
-                    latest_incoming_date = po.expected_date
+                if detail.expected_date and (
+                    latest_incoming_date is None or detail.expected_date > latest_incoming_date
+                ):
+                    latest_incoming_date = detail.expected_date
 
             material_issues.append(MaterialIssue(
                 product_id=component.id,
@@ -550,9 +574,12 @@ def get_production_order_blocking_issues(
                 product_name=component.name,
                 quantity_required=qty_required,
                 quantity_available=max(Decimal("0"), qty_available),
-                quantity_short=qty_short,
+                quantity_short=qty_short_projected,   # net shortage after POs
+                quantity_projected=proj.projected,
+                quantity_short_projected=qty_short_projected,
+                covered_by_incoming=covered_by_incoming,
                 status=status,
-                incoming_supply=incoming
+                incoming_supply=incoming,
             ))
 
     # Determine if can produce
