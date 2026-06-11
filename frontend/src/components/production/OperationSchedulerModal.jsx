@@ -232,6 +232,92 @@ function ScheduleSuccess({ operationCode, nextOperation, onNext }) {
 }
 
 /**
+ * Unschedule confirmation inline panel.
+ */
+function UnscheduleConfirm({ onConfirm, onCancel, submitting }) {
+  return (
+    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+      <p className="text-amber-300 font-medium text-sm">
+        Unschedule this operation?
+      </p>
+      <p className="text-amber-400/70 text-sm mt-1">
+        The operation will return to pending and its time slot will be freed.
+      </p>
+      <div className="flex gap-3 mt-3">
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={submitting}
+          className="px-4 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitting ? "Unscheduling..." : "Confirm Unschedule"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-1.5 text-gray-400 hover:text-white text-sm transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Successor conflict banner — shown when moving an op would violate a
+ * downstream op's existing schedule.
+ */
+function SuccessorConflictAlert({ successorConflicts }) {
+  if (!successorConflicts || successorConflicts.length === 0) return null;
+  return (
+    <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <svg
+          className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+          />
+        </svg>
+        <div className="flex-1">
+          <h4 className="text-orange-400 font-medium">Successor Conflict</h4>
+          <p className="text-sm text-orange-400/70 mt-1">
+            Moving this operation would violate existing schedules of:
+          </p>
+          <ul className="mt-2 space-y-1">
+            {successorConflicts.map((sc, idx) => (
+              <li key={idx} className="text-sm text-orange-300">
+                - Seq {sc.sequence} ({sc.operation_code || "Operation"})
+                {sc.scheduled_start && (
+                  <span className="text-orange-400/50">
+                    {" "}currently at {formatTime(sc.scheduled_start)}
+                  </span>
+                )}
+                {sc.earliest_valid_start && (
+                  <span className="text-orange-300">
+                    {" "}— earliest valid start: {formatTime(sc.earliest_valid_start)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-orange-400/50 mt-2">
+            Reschedule the successor operations first, or choose an earlier end time.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Main modal component
  */
 export default function OperationSchedulerModal({
@@ -253,10 +339,20 @@ export default function OperationSchedulerModal({
   const [serverConflicts, setServerConflicts] = useState([]);
   // Predecessor-specific conflict state
   const [predecessorConflict, setPredecessorConflict] = useState(null); // { message, earliestValidStart }
+  // Successor conflict state
+  const [successorConflicts, setSuccessorConflicts] = useState([]);
   const [justScheduled, setJustScheduled] = useState(null); // op code of just-scheduled op
   const [nextPendingOp, setNextPendingOp] = useState(null); // next op to schedule
   // Defensive: keep modal alive even if parent unmounts/remounts during conflicts
   const [forceOpen, setForceOpen] = useState(false);
+  // Unschedule confirm state
+  const [showUnscheduleConfirm, setShowUnscheduleConfirm] = useState(false);
+
+  // Derived: is this an already-scheduled op? → edit mode.
+  const isEditMode =
+    currentOp != null &&
+    (currentOp.status === "queued" ||
+      (currentOp.scheduled_start != null && currentOp.status !== "pending"));
 
   // Sync external operation prop into internal state.
   // Depends on isOpen too: if the same operation is clicked twice, the prop
@@ -311,12 +407,30 @@ export default function OperationSchedulerModal({
     }
   }, [isOpen, startTime]);
 
-  // Pre-select resource if operation already has one
+  // Pre-select resource if operation already has one (covers both resource and printer)
   useEffect(() => {
-    if (isOpen && currentOp?.resource_id) {
-      setResourceId(String(currentOp.resource_id));
+    if (isOpen && currentOp) {
+      if (currentOp.printer_id) {
+        setResourceId(String(currentOp.printer_id));
+      } else if (currentOp.resource_id) {
+        setResourceId(String(currentOp.resource_id));
+      }
     }
   }, [isOpen, currentOp]);
+
+  // In edit mode: prefill times from the operation's existing schedule.
+  // We do NOT auto-suggest a new slot when already scheduled — the operator
+  // chose this slot and we should show it rather than immediately replacing it.
+  useEffect(() => {
+    if (isOpen && isEditMode && currentOp?.scheduled_start) {
+      const start = new Date(currentOp.scheduled_start);
+      setStartTime(start.toISOString().slice(0, 16));
+      if (currentOp.scheduled_end) {
+        const end = new Date(currentOp.scheduled_end);
+        setEndTime(end.toISOString().slice(0, 16));
+      }
+    }
+  }, [isOpen, isEditMode, currentOp?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check compatibility when resource changes
   useEffect(() => {
@@ -353,9 +467,11 @@ export default function OperationSchedulerModal({
     return () => { cancelled = true; };
   }, [resourceId, productionOrder?.id, resources]);
 
-  // Auto-suggest next available slot when resource is selected
+  // Auto-suggest next available slot when resource is selected — skip in edit mode
+  // because the operator can see the current slot and change it deliberately.
   useEffect(() => {
     if (!resourceId || estimatedMinutes <= 0) return;
+    if (isEditMode) return;
 
     const selectedRes = resources.find((r) => String(r.id) === resourceId);
     if (!selectedRes) return;
@@ -428,6 +544,8 @@ export default function OperationSchedulerModal({
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
     setPredecessorConflict(null);
+    setSuccessorConflicts([]);
+    setShowUnscheduleConfirm(false);
   };
 
   const handleSubmit = async (e) => {
@@ -455,10 +573,14 @@ export default function OperationSchedulerModal({
     setServerConflicts([]);
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
+    setSuccessorConflicts([]);
+
+    // Choose endpoint: reschedule for already-scheduled ops, schedule for new.
+    const endpoint = isEditMode ? "reschedule" : "schedule";
 
     try {
       const res = await fetch(
-        `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${currentOp.id}/schedule`,
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${currentOp.id}/${endpoint}`,
         {
           method: "POST",
           credentials: "include",
@@ -477,7 +599,7 @@ export default function OperationSchedulerModal({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || "Failed to schedule operation");
+        throw new Error(data.detail || `Failed to ${isEditMode ? "reschedule" : "schedule"} operation`);
       }
 
       if (data.success === false) {
@@ -489,10 +611,17 @@ export default function OperationSchedulerModal({
             earliestValidStart: data.earliest_valid_start,
           });
           setServerConflicts([]);
+          setSuccessorConflicts([]);
+        } else if (data.conflict_type === "successor") {
+          // Successor violation — show orange banner with per-successor details
+          setSuccessorConflicts(data.successor_conflicts || []);
+          setServerConflicts([]);
+          setPredecessorConflict(null);
         } else {
           // Resource conflict — show red banner with conflicting ops
           setServerConflicts(data.conflicts || []);
           setPredecessorConflict(null);
+          setSuccessorConflicts([]);
         }
         if (data.next_available_start) {
           setNextAvailableStart(data.next_available_start);
@@ -504,11 +633,20 @@ export default function OperationSchedulerModal({
       }
 
       onScheduled?.();
-      const scheduledCode = `${currentOp.sequence} — ${currentOp.operation_code}`;
-      const nextOp = await fetchNextPendingOp(currentOp.id);
-      setJustScheduled(scheduledCode);
-      setNextPendingOp(nextOp || null);
-      resetFormState();
+      const actionLabel = isEditMode ? "rescheduled" : "scheduled";
+      const scheduledCode = `${currentOp.sequence} — ${currentOp.operation_code} (${actionLabel})`;
+      // In edit mode, don't advance to next op — the operator was editing, not
+      // sequentially scheduling. Just show success and close.
+      if (isEditMode) {
+        setJustScheduled(scheduledCode);
+        setNextPendingOp(null);
+        resetFormState();
+      } else {
+        const nextOp = await fetchNextPendingOp(currentOp.id);
+        setJustScheduled(scheduledCode);
+        setNextPendingOp(nextOp || null);
+        resetFormState();
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -536,10 +674,39 @@ export default function OperationSchedulerModal({
     }
     setServerConflicts([]);
     setPredecessorConflict(null);
+    setSuccessorConflicts([]);
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
     setError(null);
     setForceOpen(false);
+  };
+
+  const handleUnscheduleConfirmed = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/operations/${currentOp.id}/unschedule`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to unschedule operation");
+      }
+      onScheduled?.();
+      const unscheduledCode = `${currentOp.sequence} — ${currentOp.operation_code} (unscheduled)`;
+      setJustScheduled(unscheduledCode);
+      setNextPendingOp(null);
+      resetFormState();
+    } catch (err) {
+      setError(err.message);
+      setShowUnscheduleConfirm(false);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Close with full reset — used by X button, Done button, and advance
@@ -557,7 +724,15 @@ export default function OperationSchedulerModal({
   // user needs to explicitly resolve or dismiss them, not lose their work
   // by accidentally clicking outside.
   const handleAutoClose = () => {
-    if (serverConflicts.length > 0 || conflicts.length > 0 || predecessorConflict || error || compatWarning) {
+    if (
+      serverConflicts.length > 0 ||
+      conflicts.length > 0 ||
+      predecessorConflict ||
+      successorConflicts.length > 0 ||
+      error ||
+      compatWarning ||
+      showUnscheduleConfirm
+    ) {
       return;
     }
     handleClose();
@@ -566,17 +741,19 @@ export default function OperationSchedulerModal({
   const effectiveOpen = isOpen || forceOpen;
   if (!effectiveOpen) return null;
 
+  const modalTitle = isEditMode ? "Edit Schedule" : "Schedule Operation";
+
   return (
     <Modal
       isOpen={effectiveOpen}
       onClose={handleAutoClose}
-      title="Schedule Operation"
+      title={modalTitle}
       disableClose={submitting}
       className="w-full max-w-lg mx-4"
     >
       {/* Header */}
       <div className="flex items-center justify-between p-6 border-b border-gray-800">
-        <h2 className="text-xl font-semibold text-white">Schedule Operation</h2>
+        <h2 className="text-xl font-semibold text-white">{modalTitle}</h2>
         <button
           onClick={handleClose}
           className="text-gray-400 hover:text-white transition-colors"
@@ -708,8 +885,13 @@ export default function OperationSchedulerModal({
               />
             )}
 
+            {/* Successor conflict banner */}
+            {successorConflicts.length > 0 && (
+              <SuccessorConflictAlert successorConflicts={successorConflicts} />
+            )}
+
             {/* Resource conflict alert (live check or server response) */}
-            {!predecessorConflict && (
+            {!predecessorConflict && successorConflicts.length === 0 && (
               checking ? (
                 <div className="text-sm text-gray-500 flex items-center gap-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
@@ -726,36 +908,66 @@ export default function OperationSchedulerModal({
             )}
 
             {/* Error message (only for non-conflict errors) */}
-            {error && !predecessorConflict && !serverConflicts.length && (
+            {error && !predecessorConflict && !serverConflicts.length && successorConflicts.length === 0 && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                 <p className="text-red-400 text-sm">{error}</p>
               </div>
             )}
 
+            {/* Unschedule confirm panel (edit mode only) */}
+            {isEditMode && showUnscheduleConfirm && (
+              <UnscheduleConfirm
+                onConfirm={handleUnscheduleConfirmed}
+                onCancel={() => setShowUnscheduleConfirm(false)}
+                submitting={submitting}
+              />
+            )}
+
             <hr className="border-gray-800" />
 
             {/* Actions */}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
-              >
-                Done
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  submitting ||
-                  hasConflicts ||
-                  !!compatWarning ||
-                  !resourceId ||
-                  !startTime
-                }
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {submitting ? "Scheduling..." : "Schedule"}
-              </button>
+            <div className="flex justify-between gap-3">
+              {/* Left: Unschedule button (edit mode only) */}
+              <div>
+                {isEditMode && !showUnscheduleConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowUnscheduleConfirm(true)}
+                    disabled={submitting}
+                    className="px-4 py-2 text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50"
+                  >
+                    Unschedule
+                  </button>
+                )}
+              </div>
+
+              {/* Right: Done + Schedule/Reschedule */}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  Done
+                </button>
+                {!showUnscheduleConfirm && (
+                  <button
+                    type="submit"
+                    disabled={
+                      submitting ||
+                      hasConflicts ||
+                      !!compatWarning ||
+                      !resourceId ||
+                      !startTime
+                    }
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {submitting
+                      ? isEditMode ? "Rescheduling..." : "Scheduling..."
+                      : isEditMode ? "Reschedule" : "Schedule"}
+                  </button>
+                )}
+              </div>
             </div>
           </form>
         )}
