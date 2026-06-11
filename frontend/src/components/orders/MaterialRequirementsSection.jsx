@@ -19,6 +19,11 @@ export default function MaterialRequirementsSection({
     0
   );
   const hasShortages = materialRequirements.some((req) => req.net_shortage > 0);
+  // LEGACY-1: the backend flags terminal/short-closed orders as historical —
+  // requirements are still shown for reference, but stock is not re-checked,
+  // so live shortage alerts would be phantom noise.
+  const isHistorical = Boolean(materialAvailability?.historical);
+  const showShortageAlerts = hasShortages && !isHistorical;
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
@@ -36,9 +41,14 @@ export default function MaterialRequirementsSection({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           Material Requirements
-          {hasShortages && (
+          {showShortageAlerts && (
             <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded-full">
               {materialRequirements.filter((r) => r.net_shortage > 0).length} Shortage{materialRequirements.filter((r) => r.net_shortage > 0).length !== 1 ? "s" : ""}
+            </span>
+          )}
+          {isHistorical && (
+            <span className="px-2 py-0.5 bg-gray-500/20 text-gray-400 text-xs rounded-full">
+              Reference only
             </span>
           )}
         </button>
@@ -72,7 +82,7 @@ export default function MaterialRequirementsSection({
                     <tr
                       key={idx}
                       className={`border-b border-gray-800 ${
-                        req.net_shortage > 0 ? "bg-red-900/20" : ""
+                        req.net_shortage > 0 && !isHistorical ? "bg-red-900/20" : ""
                       }`}
                     >
                       <td className="p-2">
@@ -105,7 +115,9 @@ export default function MaterialRequirementsSection({
                         <span
                           className={
                             req.net_shortage > 0
-                              ? "text-red-400 font-semibold"
+                              ? isHistorical
+                                ? "text-gray-400"
+                                : "text-red-400 font-semibold"
                               : "text-green-400"
                           }
                         >
@@ -114,6 +126,7 @@ export default function MaterialRequirementsSection({
                       </td>
                       <td className="p-2 text-center">
                         {req.net_shortage > 0 &&
+                          !isHistorical &&
                           (req.has_bom ? (
                             <button
                               onClick={() => onCreateWorkOrder(req)}
@@ -136,7 +149,9 @@ export default function MaterialRequirementsSection({
                 <tfoot>
                   <tr className="bg-gray-800 font-semibold">
                     <td colSpan="4" className="p-2 text-right text-white">
-                      {materialAvailability?.has_shortages ? (
+                      {isHistorical ? (
+                        <span className="text-gray-400">Shown for reference</span>
+                      ) : materialAvailability?.has_shortages ? (
                         <span className="text-red-400">
                           {materialAvailability.materials_short} of {materialAvailability.total_materials} materials short
                         </span>
@@ -152,7 +167,7 @@ export default function MaterialRequirementsSection({
                 </tfoot>
               </table>
 
-              {hasShortages && (
+              {showShortageAlerts && (
                 <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
                   <p className="text-red-400 text-sm">
                     Material shortages detected. Create{" "}
@@ -160,6 +175,14 @@ export default function MaterialRequirementsSection({
                     sub-assemblies or{" "}
                     <span className="text-blue-400">Purchase Orders</span> for raw
                     materials.
+                  </p>
+                </div>
+              )}
+              {isHistorical && (
+                <div className="mt-4 p-3 bg-gray-800/60 border border-gray-700 rounded-lg">
+                  <p className="text-gray-400 text-sm">
+                    Order is {(order?.status || "").replace(/_/g, " ")} —
+                    requirements shown for reference; stock is not re-checked.
                   </p>
                 </div>
               )}
