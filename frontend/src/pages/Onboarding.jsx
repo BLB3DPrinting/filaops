@@ -494,6 +494,14 @@ export default function Onboarding() {
       if (codeRes.ok) {
         const codeData = await codeRes.json();
         printerCode = codeData.code;
+      } else {
+        // Code gen failed — fall back to a safe default.
+        // The backend enforces duplicate-code uniqueness (400), so the POST
+        // will surface a clear error to the user if the fallback is taken.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[Onboarding] /printers/generate-code returned ${codeRes.status}; using fallback ${printerCode}`,
+        );
       }
 
       const res = await fetch(`${API_URL}/api/v1/printers/`, {
@@ -1404,6 +1412,10 @@ export default function Onboarding() {
                 )}
               </div>
 
+              {/* Plain anchor (not react-router Link) is intentional here.
+                  Clicking it mid-wizard abandons onboarding and navigates to
+                  the printers page — the full-page reload is the right UX
+                  because the user is explicitly leaving the setup flow. */}
               <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
                 You can manage your full printer fleet from{" "}
                 <a
