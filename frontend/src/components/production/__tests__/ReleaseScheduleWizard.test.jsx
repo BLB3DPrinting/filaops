@@ -432,7 +432,6 @@ describe('ReleaseScheduleWizard — non-blocking', () => {
     fireEvent.click(laterBtn)
 
     expect(onClose).toHaveBeenCalledTimes(1)
-    expect(onClose).not.toThrow?.()
   })
 
   it('wizard does not render when isOpen=false (release gate not applied)', () => {

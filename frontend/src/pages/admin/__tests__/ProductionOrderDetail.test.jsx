@@ -38,13 +38,17 @@ vi.mock('../../../components/production', () => ({
   OperationsTimeline: () => <div>Operations timeline</div>,
 }))
 
-// Mock ReleaseScheduleWizard so we can check it opens on release
-let _wizardIsOpen = false
+// Mock ReleaseScheduleWizard so we can check it opens on release and that
+// the page wires a working onClose (dismiss path).
 vi.mock('../../../components/production/ReleaseScheduleWizard', () => ({
   default: (props) => {
-    _wizardIsOpen = props.isOpen
     if (!props.isOpen) return null
-    return <div data-testid="release-wizard">Wizard open for {props.productionOrder?.code}</div>
+    return (
+      <div data-testid="release-wizard">
+        Wizard open for {props.productionOrder?.code}
+        <button onClick={props.onClose}>Dismiss wizard</button>
+      </div>
+    )
   },
 }))
 
@@ -79,7 +83,6 @@ function renderPage() {
 
 beforeEach(() => {
   currentOrder = draftOrder
-  _wizardIsOpen = false
   mocks.get.mockReset()
   mocks.post.mockReset()
   mocks.toastError.mockReset()
@@ -165,6 +168,12 @@ describe('ProductionOrderDetail', () => {
     // Wizard appears
     await waitFor(() => {
       expect(screen.getByTestId('release-wizard')).toBeInTheDocument()
+    })
+
+    // Dismiss it — the wizard must unmount and the release must stand
+    fireEvent.click(screen.getByRole('button', { name: /dismiss wizard/i }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('release-wizard')).not.toBeInTheDocument()
     })
 
     // The post was still called (release happened regardless of wizard)

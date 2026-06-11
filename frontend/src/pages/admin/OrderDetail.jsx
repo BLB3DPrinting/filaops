@@ -154,6 +154,9 @@ export default function OrderDetail() {
   const [wizardPending, setWizardPending] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardProductionOrder, setWizardProductionOrder] = useState(null);
+  // Codes returned by generate-production-orders — the wizard must target
+  // one of THESE, not whatever sorts first in productionOrders.
+  const [wizardTargetCodes, setWizardTargetCodes] = useState([]);
 
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -418,10 +421,20 @@ export default function OrderDetail() {
   // SCHED-3b: open the wizard once productionOrders is populated after release
   useEffect(() => {
     if (!wizardPending || productionOrders.length === 0) return;
+    // Target a WO created by THIS generate call (matched by code). If codes
+    // are unavailable (older API shape), fall back to the newest WO for this
+    // order rather than index 0.
+    const target = wizardTargetCodes.length
+      ? productionOrders.find((po) => wizardTargetCodes.includes(po.code))
+      : [...productionOrders].sort(
+          (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        )[0];
+    if (!target) return; // refetch hasn't caught up with the new WO yet
     setWizardPending(false);
-    setWizardProductionOrder(productionOrders[0]);
+    setWizardTargetCodes([]);
+    setWizardProductionOrder(target);
     setWizardOpen(true);
-  }, [wizardPending, productionOrders]);
+  }, [wizardPending, wizardTargetCodes, productionOrders]);
 
   const handlePaymentRecorded = () => {
     setShowPaymentModal(false);
@@ -457,7 +470,7 @@ export default function OrderDetail() {
     }
 
     try {
-      await api.post(
+      const result = await api.post(
         `/api/v1/sales-orders/${orderId}/generate-production-orders`
       );
 
@@ -466,8 +479,9 @@ export default function OrderDetail() {
       fetchOrder();
 
       // SCHED-3b: offer the guided schedule wizard after release.
-      // Set pending flag; the useEffect below watches productionOrders and
-      // opens the wizard once the new PO is available.
+      // Remember WHICH orders this call created (by code) so the wizard
+      // targets a newly created WO, not whatever happens to sort first.
+      setWizardTargetCodes(result?.created_orders || []);
       setWizardPending(true);
     } catch (err) {
       toast.error(err.message);
