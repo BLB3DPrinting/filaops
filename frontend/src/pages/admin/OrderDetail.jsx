@@ -43,6 +43,14 @@ const formatMoney = (value) => `$${parseFloat(value || 0).toFixed(2)}`;
 const COMPLETE_PRODUCTION_STATUSES = new Set(["complete", "completed", "closed"]);
 const SHIPPED_ORDER_STATUSES = new Set(["shipped", "delivered", "completed"]);
 const UNCONFIRMED_ORDER_STATUSES = new Set(["draft", "pending", "pending_confirmation"]);
+// LEGACY-1: order-level fulfillment_status values that count as shipment
+// evidence (order_status.py sets "shipped"/"delivered"; "fulfilled" is
+// accepted defensively for older data).
+const SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES = new Set([
+  "fulfilled",
+  "shipped",
+  "delivered",
+]);
 
 export default function OrderDetail() {
   const { orderId } = useParams();
@@ -71,13 +79,49 @@ export default function OrderDetail() {
           .map((po) => po.sales_order_line_id)
           .filter((lineId) => lineId !== null && lineId !== undefined)
       );
-      return productLines.every((line) => woLineIds.has(line.id));
+      // LEGACY-1 fallback: WOs created before line-level linkage existed
+      // have sales_order_line_id = null. Treat such a WO as covering every
+      // line with the same product_id (coverage check, not assignment).
+      // Mirrored in generate_production_orders() in
+      // backend/app/services/sales_order_service.py — keep in sync.
+      const legacyCoveredProductIds = new Set(
+        productionOrders
+          .filter(
+            (po) =>
+              po.sales_order_line_id === null ||
+              po.sales_order_line_id === undefined
+          )
+          .map((po) => po.product_id)
+      );
+      return productLines.every(
+        (line) =>
+          woLineIds.has(line.id) || legacyCoveredProductIds.has(line.product_id)
+      );
     }
     if (order?.product_id) {
       return productionOrders.some((po) => po.product_id === order.product_id);
     }
     return false;
   };
+
+  // LEGACY-1: shipment evidence — did anything actually ship?
+  const hasShipmentEvidence = () => {
+    if (!order) return false;
+    if (order.shipped_at) return true;
+    if (SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES.has(order.fulfillment_status)) {
+      return true;
+    }
+    return (order.lines || []).some(
+      (line) => parseFloat(line.shipped_quantity || 0) > 0
+    );
+  };
+
+  // Mismatch: status claims shipped/delivered/completed, but no shipment
+  // was ever recorded — legacy data from an older FilaOps version.
+  const isLegacyFulfillmentMismatch = () =>
+    Boolean(order) &&
+    SHIPPED_ORDER_STATUSES.has(order.status) &&
+    !hasShipmentEvidence();
 
   const [error, setError] = useState(null);
   const [exploding, setExploding] = useState(false);
@@ -147,6 +191,11 @@ export default function OrderDetail() {
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
+
+  // LEGACY-1: legacy fulfillment resolution state
+  // legacyResolveAction is "close_out" | "reopen" | null (null = modal closed)
+  const [legacyResolveAction, setLegacyResolveAction] = useState(null);
+  const [resolvingLegacy, setResolvingLegacy] = useState(false);
 
   // SCHED-3b: guided schedule wizard state
   // wizardPending=true means we're waiting for fetchProductionOrders to
@@ -575,6 +624,31 @@ export default function OrderDetail() {
     }
   };
 
+  // LEGACY-1: resolve a legacy fulfillment mismatch (close_out | reopen)
+  const handleResolveLegacyFulfillment = async () => {
+    if (!legacyResolveAction) return;
+    setResolvingLegacy(true);
+    try {
+      await api.post(
+        `/api/v1/sales-orders/${orderId}/resolve-legacy-fulfillment`,
+        { action: legacyResolveAction }
+      );
+      toast.success(
+        legacyResolveAction === "close_out"
+          ? `Order ${order.order_number} closed out — fulfillment recorded`
+          : `Order ${order.order_number} reopened — ready to ship`
+      );
+      setLegacyResolveAction(null);
+      fetchOrder();
+      fetchProductionOrders();
+      refetchFulfillment();
+    } catch (err) {
+      toast.error(err.message || "Failed to resolve legacy fulfillment");
+    } finally {
+      setResolvingLegacy(false);
+    }
+  };
+
   const handleSaveLineEdit = async (lineId) => {
     if ((editQty === "" && editPrice === "") || !editReason.trim()) return;
     setSavingLineEdit(true);
@@ -835,6 +909,9 @@ export default function OrderDetail() {
     const productionReleased = hasMainProductWO();
     const productionComplete = getProductionComplete();
     const shipped = SHIPPED_ORDER_STATUSES.has(status);
+    // LEGACY-1: "done" requires evidence, not just a status claim.
+    const shipmentEvidence = hasShipmentEvidence();
+    const legacyMismatch = shipped && !shipmentEvidence;
     const noProductionNeeded = !hasOrderProduct();
     const releaseBlockReason = getProductionReleaseBlockReason();
     const shipBlockReason = getShipBlockReason();
@@ -949,16 +1026,20 @@ export default function OrderDetail() {
         title: "Fulfillment",
         Icon: Truck,
         state: getStepState({
-          done: shipped,
+          done: shipped && shipmentEvidence,
           active: canShipOrder(),
-          blocked: !shipped && Boolean(shipBlockReason),
+          blocked: legacyMismatch || (!shipped && Boolean(shipBlockReason)),
         }),
-        meta: shipped
+        meta: legacyMismatch
+          ? "Needs review"
+          : shipped
           ? status.replace(/_/g, " ")
           : productionComplete
           ? "Ready to ship"
           : "Waiting",
-        detail: shipped
+        detail: legacyMismatch
+          ? `Order status says ${status.replace(/_/g, " ")}, but no shipment was recorded.`
+          : shipped
           ? "Shipment is already in progress or complete."
           : shipBlockReason || "Production is complete and materials are clear.",
         action: canShipOrder()
@@ -1064,6 +1145,44 @@ export default function OrderDetail() {
           </button>
         </div>
       </div>
+
+      {/* LEGACY-1: data-health banner for legacy fulfillment mismatch */}
+      {isLegacyFulfillmentMismatch() && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-300">
+                  Legacy data issue: no shipment on record
+                </p>
+                <p className="mt-1 text-sm text-amber-200/80">
+                  This order&apos;s status says{" "}
+                  <span className="font-medium capitalize">
+                    {order.status.replace(/_/g, " ")}
+                  </span>
+                  , but no shipment was ever recorded — likely data from an
+                  older FilaOps version.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                onClick={() => setLegacyResolveAction("close_out")}
+                className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500"
+              >
+                Close Out as Fulfilled
+              </button>
+              <button
+                onClick={() => setLegacyResolveAction("reopen")}
+                className="rounded-lg border border-amber-500/40 bg-gray-800 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-gray-700"
+              >
+                Reopen for Shipping
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Order Workflow */}
       <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-5">
@@ -1794,6 +1913,60 @@ export default function OrderDetail() {
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {closingShort ? "Closing..." : "Close Order Short"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LEGACY-1: confirm dialog for legacy fulfillment resolution */}
+      {legacyResolveAction && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => !resolvingLegacy && setLegacyResolveAction(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">
+              {legacyResolveAction === "close_out"
+                ? "Close Out as Fulfilled"
+                : "Reopen for Shipping"}
+            </h3>
+            {legacyResolveAction === "close_out" ? (
+              <p className="text-gray-400 text-sm mb-4">
+                This records the order as fully shipped (paperwork only). No
+                inventory movements or accounting entries are created — the
+                goods already left under an older FilaOps version. An audit
+                note is added to the order.
+              </p>
+            ) : (
+              <p className="text-gray-400 text-sm mb-4">
+                This sets the order back to Ready to Ship so you can ship it
+                through the normal flow (which records inventory and
+                accounting). Invoice and payment are left untouched. An audit
+                note is added to the order.
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setLegacyResolveAction(null)}
+                disabled={resolvingLegacy}
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResolveLegacyFulfillment}
+                disabled={resolvingLegacy}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resolvingLegacy
+                  ? "Working..."
+                  : legacyResolveAction === "close_out"
+                  ? "Close Out"
+                  : "Reopen Order"}
               </button>
             </div>
           </div>
