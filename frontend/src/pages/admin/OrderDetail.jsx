@@ -114,8 +114,12 @@ export default function OrderDetail() {
     if (!order) return "Order is still loading";
     if (!hasOrderProduct()) return "Order must have a product line";
     if (hasMainProductWO()) return "Production order already exists";
-    if (UNCONFIRMED_ORDER_STATUSES.has(order.status)) {
-      return "Order must be confirmed before production release";
+    // Mirror the backend rule exactly: status must be "confirmed" (not merely past-unconfirmed)
+    if (order.status !== "confirmed") {
+      if (UNCONFIRMED_ORDER_STATUSES.has(order.status)) {
+        return "Order must be confirmed before production release";
+      }
+      return `Work orders can only be created while the order is in Confirmed status; this order is ${order.status.replace(/_/g, " ")}.`;
     }
     if (!isBillingReleaseSatisfied()) {
       return "Create/send an invoice or record payment before production release";
@@ -1015,51 +1019,6 @@ export default function OrderDetail() {
           >
             Print Packing Slip
           </button>
-          {!SHIPPED_ORDER_STATUSES.has(order.status) && (
-            <button
-              onClick={() => navigate(`/admin/shipping?orderId=${order.id}`)}
-              disabled={!canShipOrder()}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              title={getShipBlockReason() || "Ship order"}
-            >
-              Ship Order
-            </button>
-          )}
-          {(order.status === "pending" || order.status === "pending_confirmation") && (
-            <>
-              <button
-                onClick={handleConfirmOrder}
-                disabled={confirmingOrder}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50"
-              >
-                {confirmingOrder ? "Confirming..." : "Confirm Order"}
-              </button>
-              {order.status === "pending_confirmation" && (
-                <button
-                  onClick={() => setShowRejectModal(true)}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
-                >
-                  Reject Order
-                </button>
-              )}
-            </>
-          )}
-          {canCancelOrder() && (
-            <button
-              onClick={() => setShowCancelModal(true)}
-              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg"
-            >
-              Cancel Order
-            </button>
-          )}
-          {canCloseShort() && (
-            <button
-              onClick={openCloseShortModal}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
-            >
-              Close Short
-            </button>
-          )}
         </div>
       </div>
 
@@ -1125,9 +1084,53 @@ export default function OrderDetail() {
             );
           })}
         </div>
+
+        {/* Secondary / destructive actions — below workflow steps */}
+        {(order.status === "pending_confirmation" || canCancelOrder() || canCloseShort()) && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-700/50 pt-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Order actions:
+            </span>
+            {(order.status === "pending" || order.status === "pending_confirmation") && (
+              <>
+                <button
+                  onClick={handleConfirmOrder}
+                  disabled={confirmingOrder}
+                  className="rounded-lg bg-green-700 px-3 py-1.5 text-sm text-white hover:bg-green-600 disabled:opacity-50"
+                >
+                  {confirmingOrder ? "Confirming..." : "Confirm Order"}
+                </button>
+                {order.status === "pending_confirmation" && (
+                  <button
+                    onClick={() => setShowRejectModal(true)}
+                    className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600"
+                  >
+                    Reject Order
+                  </button>
+                )}
+              </>
+            )}
+            {canCancelOrder() && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="rounded-lg bg-yellow-700 px-3 py-1.5 text-sm text-white hover:bg-yellow-600"
+              >
+                Cancel Order
+              </button>
+            )}
+            {canCloseShort() && (
+              <button
+                onClick={openCloseShortModal}
+                className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white hover:bg-amber-600"
+              >
+                Close Short
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Quick Actions Panel */}
+      {/* Quick Actions \u2014 idempotent tools only (links + checks) */}
       <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-500/30 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1166,16 +1169,6 @@ export default function OrderDetail() {
                 >
                   Open Invoice
                 </button>
-                {orderInvoice.status === "draft" && (
-                  <button
-                    onClick={handleSendOrderInvoice}
-                    disabled={sendingInvoice}
-                    title="Marks this invoice as sent in FilaOps. This does not email the customer."
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {sendingInvoice ? "Marking..." : "Mark Sent"}
-                  </button>
-                )}
                 <button
                   onClick={handleDownloadOrderInvoice}
                   className="rounded-lg bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-600"
@@ -1186,18 +1179,7 @@ export default function OrderDetail() {
             </div>
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <button
-            onClick={handleCreateProductionOrder}
-            disabled={!canGenerateProductionOrder()}
-            className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-            title={getProductionReleaseBlockReason() || "Generate production order"}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            {hasMainProductWO() ? "WO Exists" : "Generate Production Order"}
-          </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <button
             onClick={handleCheckAvailability}
             disabled={checkingAvailability || productionOrders.length === 0}
@@ -1218,18 +1200,6 @@ export default function OrderDetail() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
               View in Production
-            </button>
-          )}
-          {canGenerateInvoice() && (
-            <button
-              onClick={handleGenerateInvoice}
-              disabled={generatingInvoice}
-              className="px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              {generatingInvoice ? "Creating..." : "Create Invoice"}
             </button>
           )}
         </div>
@@ -1312,12 +1282,18 @@ export default function OrderDetail() {
           </div>
           <div>
             <div className="text-sm text-gray-400">Status</div>
-            <div className="text-white font-medium flex items-center gap-2">
-              {order.status}
+            <div className="text-white font-medium flex items-center gap-2 capitalize">
+              {order.status?.replace(/_/g, " ") || "unknown"}
               {order.closed_short && (
-                <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  Closed Short
-                </span>
+                getProductionComplete() ? (
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    Previously Closed Short — Fulfilled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    Closed Short
+                  </span>
+                )
               )}
             </div>
           </div>
