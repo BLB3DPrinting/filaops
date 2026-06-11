@@ -132,12 +132,18 @@ function PredecessorAlert({
               <span className="font-medium">{formatTime(earliestValidStart)}</span>
             </p>
           )}
-          <SlotSuggestion
-            label="Earliest valid start"
-            nextAvailableStart={nextAvailableStart}
-            nextAvailableEnd={nextAvailableEnd}
-            onUseSlot={onUseSlot}
-          />
+          {nextAvailableStart ? (
+            <SlotSuggestion
+              label="Earliest valid start"
+              nextAvailableStart={nextAvailableStart}
+              nextAvailableEnd={nextAvailableEnd}
+              onUseSlot={onUseSlot}
+            />
+          ) : (
+            <p className="text-xs text-amber-400/50 mt-2">
+              Schedule the predecessor operation first, then retry.
+            </p>
+          )}
         </div>
       </div>
     </div>

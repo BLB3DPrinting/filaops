@@ -533,20 +533,38 @@ def schedule_operation_endpoint(
         )
     except SequenceError as e:
         # Pure predecessor violation — no resource conflict.
-        # earliest_valid_start = the latest predecessor end (absolute floor).
-        # next_available_start = earliest slot on the resource at or after that floor.
-        earliest = get_earliest_start_after_predecessors(
-            db=db,
-            operation=op,
-            after=request.scheduled_start,
-        )
-        next_start = find_next_available_slot(
-            db=db,
-            resource_id=request.resource_id,
-            duration_minutes=duration_minutes,
-            after=earliest,
-            is_printer=request.is_printer,
-        )
+        # Only offer a suggested start when ALL predecessors are scheduled
+        # (have a scheduled_end).  If any predecessor is unscheduled we cannot
+        # compute a meaningful floor; returning a suggestion would be misleading
+        # because the operator must schedule the predecessor first.
+        has_unscheduled_pred = (
+            db.query(ProductionOrderOperation.id)
+            .filter(
+                ProductionOrderOperation.production_order_id == op.production_order_id,
+                ProductionOrderOperation.sequence < op.sequence,
+                ProductionOrderOperation.id != op.id,
+                ProductionOrderOperation.status.notin_(["complete", "skipped", "cancelled"]),
+                ProductionOrderOperation.scheduled_end.is_(None),
+            )
+            .first()
+        ) is not None
+
+        earliest = None
+        next_start = None
+        if not has_unscheduled_pred:
+            # All predecessors are scheduled — compute the floor and suggest a slot
+            earliest = get_earliest_start_after_predecessors(
+                db=db,
+                operation=op,
+                after=request.scheduled_start,
+            )
+            next_start = find_next_available_slot(
+                db=db,
+                resource_id=request.resource_id,
+                duration_minutes=duration_minutes,
+                after=earliest,
+                is_printer=request.is_printer,
+            )
         return ScheduleOperationResponse(
             success=False,
             message=str(e),
@@ -554,7 +572,10 @@ def schedule_operation_endpoint(
             conflict_type="predecessor",
             earliest_valid_start=earliest,
             next_available_start=next_start,
-            next_available_end=next_start + timedelta(minutes=duration_minutes),
+            next_available_end=(
+                next_start + timedelta(minutes=duration_minutes)
+                if next_start is not None else None
+            ),
         )
 
     if not success:

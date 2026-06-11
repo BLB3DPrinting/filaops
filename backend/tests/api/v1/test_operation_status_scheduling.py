@@ -221,6 +221,52 @@ class TestScheduleOperationPredecessorResponse:
         next_avail = datetime.fromisoformat(data["next_available_start"])
         assert _naive(next_avail) >= _naive(earliest)
 
+    def test_unscheduled_predecessor_suppresses_suggestion(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        """When a predecessor has no scheduled_end, no suggestion is offered."""
+        work_center = make_work_center()
+        printer = _make_printer(db, work_center.id)
+        product = make_product()
+        po = make_production_order(product_id=product.id)
+
+        # OP010 — pending and NOT YET SCHEDULED (no scheduled_start/end)
+        _make_operation(
+            db,
+            po.id,
+            work_center.id,
+            sequence=10,
+            status="pending",
+        )
+
+        op = _make_operation(
+            db,
+            po.id,
+            work_center.id,
+            sequence=20,
+            status="pending",
+        )
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        response = client.post(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/schedule",
+            json={
+                "resource_id": printer.id,
+                "is_printer": True,
+                "scheduled_start": now.isoformat(),
+                "scheduled_end": (now + timedelta(hours=1)).isoformat(),
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["conflict_type"] == "predecessor"
+        # No suggestion — operator must schedule OP010 first
+        assert data.get("earliest_valid_start") is None
+        assert data.get("next_available_start") is None
+        assert data.get("next_available_end") is None
+
     def test_resource_conflict_uses_resource_conflict_type(
         self, client, db, make_product, make_production_order, make_work_center
     ):
