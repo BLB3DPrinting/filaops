@@ -58,7 +58,7 @@ async function renderWizard(fetchOverrides = {}) {
 }
 
 /** Fill and submit the account form with valid data. */
-const fillAndSubmitAccount = async (extras = {}) => {
+const fillAndSubmitAccount = async () => {
   fireEvent.change(screen.getByPlaceholderText('John Smith'), {
     target: { value: 'Test User', name: 'full_name' },
   })
@@ -68,11 +68,6 @@ const fillAndSubmitAccount = async (extras = {}) => {
   const pwInputs = screen.getAllByPlaceholderText('••••••••')
   fireEvent.change(pwInputs[0], { target: { value: 'Abcdefg1!', name: 'password' } })
   fireEvent.change(pwInputs[1], { target: { value: 'Abcdefg1!', name: 'confirmPassword' } })
-
-  for (const [name, value] of Object.entries(extras)) {
-    const el = screen.getByDisplayValue(value === undefined ? '' : /.*/)
-    if (el.name === name) fireEvent.change(el, { target: { value } })
-  }
 
   fireEvent.click(screen.getByText('Create Account & Continue'))
   await waitFor(() =>
@@ -152,7 +147,7 @@ describe('Onboarding — account step currency/locale', () => {
       expect(screen.getByRole('heading', { name: 'Load Example Data' })).toBeInTheDocument(),
     )
 
-    expect(patchedBodies.length).toBeGreaterThan(0)
+    expect(patchedBodies).toHaveLength(1)
     expect(patchedBodies[0]).toMatchObject({ currency_code: 'EUR', locale: 'fr-FR' })
   })
 })
