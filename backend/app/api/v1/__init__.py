@@ -40,6 +40,7 @@ from app.api.v1.endpoints import (
     price_levels,
     system_settings,
     system_license,
+    dispatch,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.test import test_endpoints_enabled
@@ -251,6 +252,9 @@ router.include_router(
     prefix="/command-center",
     tags=["command-center"]
 )
+
+# Dispatch (suggest-and-confirm scheduling engine — SCHED-1)
+router.include_router(dispatch.router)
 
 # License activation is a PRO feature
 
