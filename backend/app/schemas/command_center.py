@@ -16,6 +16,7 @@ class ActionItemType(str, Enum):
     DUE_TODAY_SO = "due_today_so"       # Sales order due today
     OVERRUNNING_OP = "overrunning_op"   # Operation exceeding estimated time
     IDLE_RESOURCE = "idle_resource"     # Resource with work waiting
+    MAINTENANCE_DUE = "maintenance_due" # SCHED-4: Printers due/overdue for maintenance
 
 
 class ActionItemPriority(int, Enum):
@@ -105,6 +106,13 @@ class ResourceStatus(BaseModel):
     current_operation: Optional[OperationSummary] = None
     idle_since: Optional[datetime] = None
     pending_operations_count: int = 0
+    # SCHED-3: ID of the Printer linked to this resource (same work_center + matching
+    # code/name heuristic).  None when no printer can be resolved.  Used by the
+    # frontend to look up dispatch suggestions keyed by printer_id.
+    printer_id: Optional[int] = None
+    # SCHED-4: Maintenance due-soon badge — True when the linked printer has
+    # next_due_at within MAINTENANCE_DUE_THRESHOLD_DAYS from now.
+    maintenance_due_soon: bool = False
 
 
 class ResourcesResponse(BaseModel):

@@ -2,9 +2,21 @@
  * MachineStatusGrid - Display all resources/machines with current status
  *
  * Shows a responsive grid of machine cards with live timers for running operations.
+ *
+ * SCHED-3: Idle printers render a DispatchChip when a dispatch suggestion is
+ * available.  The parent (AdminCommandCenter) passes a suggestions map keyed
+ * by printer.id.
+ *
+ * Props:
+ *   resources        — ResourceStatus[] from GET /command-center/resources
+ *   suggestions      — Map<printerId, PrinterDispatchResult> (optional)
+ *   onMachineClick   — (resource) => void
+ *   onDispatchConfirmed — () => void — refresh signal after confirm
+ *   onPickDifferent  — (operation, productionOrder) => void — open scheduler
  */
 import { Link } from "react-router-dom";
 import ElapsedTimer from "../production/ElapsedTimer";
+import DispatchChip from "./DispatchChip";
 
 /**
  * Status configurations
@@ -49,10 +61,22 @@ const statusConfig = {
 
 /**
  * Single machine card
+ *
+ * SCHED-3: When idle, shows a DispatchChip if a suggestion is available for
+ * this resource's associated printer (matched by printer_id on the resource).
+ * SCHED-4: Shows a maintenance due-soon badge when resource.maintenance_due_soon.
  */
-function MachineCard({ resource, onClick }) {
+function MachineCard({
+  resource,
+  onClick,
+  suggestion,
+  onDispatchConfirmed,
+  onPickDifferent,
+}) {
   const config = statusConfig[resource.status] || statusConfig.available;
   const isRunning = resource.status === "running" && resource.current_operation;
+  const isIdle = resource.status === "idle";
+  const maintenanceDueSoon = Boolean(resource.maintenance_due_soon);
 
   return (
     <div
@@ -64,7 +88,23 @@ function MachineCard({ resource, onClick }) {
     >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="font-medium text-white truncate">{resource.code}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-medium text-white truncate">{resource.code}</span>
+          {/* SCHED-4: maintenance due-soon badge */}
+          {maintenanceDueSoon && (
+            <span
+              title="Maintenance due within 7 days"
+              className="shrink-0 flex items-center gap-0.5 text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded px-1 py-0.5"
+              data-testid="maintenance-due-badge"
+            >
+              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Maint
+            </span>
+          )}
+        </div>
         <span
           className={`flex items-center gap-1.5 text-xs ${config.labelColor}`}
         >
@@ -96,14 +136,22 @@ function MachineCard({ resource, onClick }) {
         </div>
       )}
 
-      {/* Idle with pending work */}
-      {resource.status === "idle" && resource.pending_operations_count > 0 && (
+      {/* SCHED-3: Idle with dispatch suggestion */}
+      {isIdle && suggestion?.top_suggestion ? (
+        <DispatchChip
+          suggestion={suggestion.top_suggestion}
+          printerId={suggestion.printer.id}
+          onConfirmed={onDispatchConfirmed}
+          onPickDifferent={onPickDifferent}
+        />
+      ) : isIdle && resource.pending_operations_count > 0 ? (
+        /* Fallback: idle with pending work but no suggestion yet */
         <div className="mt-2 pt-2 border-t border-gray-700">
           <div className="text-xs text-yellow-400">
             {resource.pending_operations_count} ops waiting
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Maintenance/offline message */}
       {(resource.status === "maintenance" || resource.status === "offline") && (
@@ -122,7 +170,13 @@ function MachineCard({ resource, onClick }) {
 /**
  * Main grid component
  */
-export default function MachineStatusGrid({ resources = [], onMachineClick }) {
+export default function MachineStatusGrid({
+  resources = [],
+  suggestions = {},
+  onMachineClick,
+  onDispatchConfirmed,
+  onPickDifferent,
+}) {
   if (resources.length === 0) {
     return (
       <div className="bg-gray-800 rounded-lg p-8 text-center">
@@ -173,6 +227,9 @@ export default function MachineStatusGrid({ resources = [], onMachineClick }) {
                 key={resource.id}
                 resource={resource}
                 onClick={onMachineClick}
+                suggestion={suggestions[resource.printer_id] ?? null}
+                onDispatchConfirmed={onDispatchConfirmed}
+                onPickDifferent={onPickDifferent}
               />
             ))}
           </div>

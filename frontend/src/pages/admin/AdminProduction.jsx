@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import ProductionOrderModal from "../../components/production/ProductionOrderModal";
 import ProductionQueueList from "../../components/production/ProductionQueueList";
+import OperationSchedulerModal from "../../components/production/OperationSchedulerModal";
 import SplitOrderModal from "../../components/SplitOrderModal";
 import ScrapOrderModal from "../../components/ScrapOrderModal";
 import CompleteOrderModal from "../../components/CompleteOrderModal";
@@ -263,6 +264,14 @@ export default function AdminProduction() {
   const [selectedOrderForScheduling, setSelectedOrderForScheduling] =
     useState(null);
 
+  // SCHED-3: Light dispatch affordance — opens OperationSchedulerModal for
+  // a specific operation on a released order.
+  const [dispatchModal, setDispatchModal] = useState({
+    isOpen: false,
+    operation: null,
+    productionOrder: null,
+  });
+
   // Split modal state
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [selectedOrderForSplit, setSelectedOrderForSplit] = useState(null);
@@ -514,6 +523,13 @@ export default function AdminProduction() {
           setSelectedOrderForScheduling(order);
           setShowSchedulingModal(true);
         }}
+        onDispatch={(order, operation) => {
+          setDispatchModal({
+            isOpen: true,
+            operation,
+            productionOrder: { id: order.id, code: order.code },
+          });
+        }}
       />
 
       {/* Scheduling Modal */}
@@ -528,6 +544,20 @@ export default function AdminProduction() {
             fetchProductionOrders();
             setShowSchedulingModal(false);
             setSelectedOrderForScheduling(null);
+          }}
+        />
+      )}
+
+      {/* SCHED-3: Light dispatch modal — opened from "Dispatch →" on released rows */}
+      {dispatchModal.isOpen && dispatchModal.operation && (
+        <OperationSchedulerModal
+          isOpen={dispatchModal.isOpen}
+          onClose={() => setDispatchModal({ isOpen: false, operation: null, productionOrder: null })}
+          operation={dispatchModal.operation}
+          productionOrder={dispatchModal.productionOrder}
+          onScheduled={() => {
+            fetchProductionOrders();
+            setDispatchModal({ isOpen: false, operation: null, productionOrder: null });
           }}
         />
       )}

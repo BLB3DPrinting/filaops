@@ -6,13 +6,18 @@
  * gradient borders for active printers. Consumes the merged printer
  * data from fetchPrinters() (Core + PRO telemetry overlay).
  *
+ * SCHED-4: Shows a "Maintenance due" badge when the printer's latest
+ * MaintenanceLog.next_due_at is within 7 days.  The badge is driven by
+ * printer.maintenance_due_soon (boolean) supplied by AdminPrinters.
+ *
  * Props:
- *   printer        — Merged printer object (Core fields + PRO telemetry when available)
- *   onEdit         — (printer) => void
- *   onCommand      — (printerId, command) => void | undefined (PRO fleet control)
- *   onTest         — (printer) => void
- *   testing        — boolean (is this printer currently being connection-tested)
- *   commandPending — boolean (is a fleet command currently in-flight for this printer)
+ *   printer              — Merged printer object (Core fields + PRO telemetry when available)
+ *   onEdit               — (printer) => void
+ *   onCommand            — (printerId, command) => void | undefined (PRO fleet control)
+ *   onTest               — (printer) => void
+ *   testing              — boolean (is this printer currently being connection-tested)
+ *   commandPending       — boolean (is a fleet command currently in-flight for this printer)
+ *   maintenanceDueSoon   — boolean (optional, SCHED-4 — show maintenance due badge)
  */
 import { brandLabels } from "./constants";
 
@@ -97,6 +102,7 @@ export default function PrinterCard({
   onTest,
   testing,
   commandPending,
+  maintenanceDueSoon,
 }) {
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
@@ -206,13 +212,29 @@ export default function PrinterCard({
             {printer.location && ` • ${printer.location}`}
           </div>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
-            STATUS_STYLES[status] || STATUS_STYLES.unknown
-          }`}
-        >
-          {status}
-        </span>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
+              STATUS_STYLES[status] || STATUS_STYLES.unknown
+            }`}
+          >
+            {status}
+          </span>
+          {/* SCHED-4: Maintenance due-soon badge (7-day threshold) */}
+          {maintenanceDueSoon && (
+            <span
+              className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-400/30"
+              data-testid="maintenance-due-badge"
+              title="Maintenance due within 7 days"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Maint Due
+            </span>
+          )}
+        </div>
       </div>
 
       {/* HMI / print error banner. When the backend can resolve the HMS code

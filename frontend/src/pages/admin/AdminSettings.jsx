@@ -66,6 +66,7 @@ const AdminSettings = () => {
     business_days_per_week: 5,
     business_work_days: "0,1,2,3,4", // Mon-Fri
     default_margin_percent: "",
+    auto_dispatch: false,
   });
 
   useEffect(() => {
@@ -115,6 +116,7 @@ const AdminSettings = () => {
         business_days_per_week: data.business_days_per_week ?? 5,
         business_work_days: data.business_work_days || "0,1,2,3,4",
         default_margin_percent: data.default_margin_percent ?? "",
+        auto_dispatch: Boolean(data.auto_dispatch),
       });
     } catch (error) {
       toast.error("Failed to load settings: " + error.message);
@@ -878,6 +880,42 @@ const AdminSettings = () => {
             <p className="text-sm text-gray-400 mt-1">
               0=Monday, 1=Tuesday, ..., 6=Sunday. Example: "0,1,2,3,4" for Mon-Fri
             </p>
+          </div>
+        </div>
+
+        {/* Dispatch Settings — SCHED-3 */}
+        <div className="bg-gray-800 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-1">Dispatch Settings</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            Control how the Command Center assigns work to idle printers.
+          </p>
+          <div className="flex items-start gap-4">
+            <label className="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input
+                type="checkbox"
+                name="auto_dispatch"
+                checked={form.auto_dispatch}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <div>
+              <div className="text-sm font-medium text-white">
+                Auto-dispatch suggestions
+              </div>
+              <p className="text-sm text-gray-400 mt-0.5">
+                When enabled, the Command Center automatically confirms the top-ranked job for
+                each idle printer on every refresh cycle. Suggestions with a maintenance warning
+                are <span className="text-amber-400 font-medium">never</span> auto-confirmed —
+                those always require operator review.
+              </p>
+              {form.auto_dispatch && (
+                <p className="text-xs text-blue-400/80 mt-1.5 bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1">
+                  Auto-dispatch is ON. Operators can still confirm or re-assign any job manually.
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

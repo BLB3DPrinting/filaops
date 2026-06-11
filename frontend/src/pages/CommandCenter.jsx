@@ -4,14 +4,66 @@
  * "What do I need to do RIGHT NOW?" view showing:
  * - Today's summary stats
  * - Prioritized action items
- * - Machine/resource status grid
+ * - Machine/resource status grid with dispatch chips (SCHED-3)
+ *
+ * SCHED-3: Fetches dispatch suggestions alongside resources. Suggestions are
+ * keyed by printer_id and passed to MachineStatusGrid for idle cards.
+ *
+ * Auto-dispatch: When company settings have auto_dispatch=true, this page
+ * auto-confirms the top suggestion for each idle printer on every refresh
+ * cycle — EXCEPT suggestions carrying a maintenance_warning (hard block).
+ * canAutoDispatch() from DispatchChip enforces this guard.
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useCommandCenter from '../hooks/useCommandCenter';
 import SummaryCard from '../components/command-center/SummaryCard';
 import AlertCard from '../components/command-center/AlertCard';
 import MachineStatusGrid from '../components/command-center/MachineStatusGrid';
+import OperationSchedulerModal from '../components/production/OperationSchedulerModal';
+import { canAutoDispatch, confirmDispatch } from '../components/command-center/DispatchChip';
+import { API_URL } from '../config/api';
+import { useToast } from '../components/Toast';
+
+/**
+ * Fetch company settings to read auto_dispatch flag.
+ * Returns { auto_dispatch: bool } or null on error.
+ */
+async function fetchAutoDispatchSetting() {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/settings/company`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { auto_dispatch: Boolean(data.auto_dispatch) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch dispatch suggestions for all idle printers.
+ * Returns a map of { [printer_id]: PrinterDispatchResult } or {}.
+ */
+async function fetchSuggestionsMap() {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/dispatch/suggestions`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const map = {};
+    for (const result of (data.results || [])) {
+      if (result.printer?.id != null) {
+        map[result.printer.id] = result;
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Loading skeleton for summary cards
@@ -88,7 +140,21 @@ function ErrorState({ message, onRetry }) {
 
 export default function CommandCenter() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Dispatch suggestions state
+  const [suggestions, setSuggestions] = useState({});
+  const [autoDispatch, setAutoDispatch] = useState(false);
+  // Prevent double-confirm in the same polling cycle
+  const autoDispatchRunning = useRef(false);
+
+  // Scheduler modal (opened via "Pick different…" in DispatchChip)
+  const [schedulerModal, setSchedulerModal] = useState({
+    isOpen: false,
+    operation: null,
+    productionOrder: null,
+  });
 
   const {
     actionItems,
@@ -99,9 +165,75 @@ export default function CommandCenter() {
     refetch
   } = useCommandCenter(true, 60000); // Auto-refresh every 60s
 
+  // ─── Dispatch suggestions fetch ──────────────────────────────────────────
+  const refreshSuggestions = useCallback(async () => {
+    const map = await fetchSuggestionsMap();
+    setSuggestions(map);
+    return map;
+  }, []);
+
+  // ─── Auto-dispatch loop ───────────────────────────────────────────────────
+  // HARD RULE: never auto-confirm a suggestion that carries maintenance_warning.
+  // canAutoDispatch() from DispatchChip.jsx enforces this contract.
+  const runAutoDispatch = useCallback(async (suggestionsMap) => {
+    if (!autoDispatch) return;
+    if (autoDispatchRunning.current) return;
+    autoDispatchRunning.current = true;
+    try {
+      for (const [printerIdStr, result] of Object.entries(suggestionsMap)) {
+        const printerId = Number(printerIdStr);
+        const top = result?.top_suggestion;
+        if (!top) continue;
+        if (!canAutoDispatch(top)) {
+          // maintenance_warning present — skip silently (operator must confirm)
+          continue;
+        }
+        const outcome = await confirmDispatch(top, printerId);
+        if (outcome.ok) {
+          toast.success(
+            `Auto-dispatched ${top.production_order_code} → printer ${result.printer?.code || printerId}`
+          );
+        }
+      }
+    } finally {
+      autoDispatchRunning.current = false;
+    }
+  }, [autoDispatch, toast]);
+
+  // ─── Initial load + settings ─────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const settingsData = await fetchAutoDispatchSetting();
+      if (!cancelled) setAutoDispatch(settingsData?.auto_dispatch ?? false);
+      const map = await fetchSuggestionsMap();
+      if (!cancelled) setSuggestions(map);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ─── Periodic suggestions refresh (faster cadence than resources) ─────────
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const map = await fetchSuggestionsMap();
+      setSuggestions(map);
+      await runAutoDispatch(map);
+    }, 30000); // every 30s — twice the 60s resources cadence, so idle printers get work promptly
+    return () => clearInterval(id);
+  }, [runAutoDispatch]);
+
+  // ─── After auto_dispatch state resolves, run once if enabled ─────────────
+  useEffect(() => {
+    if (autoDispatch && Object.keys(suggestions).length > 0) {
+      runAutoDispatch(suggestions);
+    }
+  // Only run when autoDispatch toggles on — not on every suggestions change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDispatch]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
-    await refetch();
+    await Promise.all([refetch(), refreshSuggestions()]);
     setTimeout(() => setRefreshing(false), 500);
   };
 
@@ -110,6 +242,26 @@ export default function CommandCenter() {
       navigate(`/admin/production/${resource.current_operation.production_order_id}`);
     }
   };
+
+  // Called after DispatchChip confirms an assignment — refresh all data
+  const handleDispatchConfirmed = useCallback(async () => {
+    await Promise.all([refetch(), refreshSuggestions()]);
+    toast.success('Operation assigned — queue updated');
+  }, [refetch, refreshSuggestions, toast]);
+
+  // Called by DispatchChip "Pick different…" button
+  const handlePickDifferent = useCallback((operation, productionOrder) => {
+    setSchedulerModal({ isOpen: true, operation, productionOrder });
+  }, []);
+
+  const handleSchedulerClose = useCallback(() => {
+    setSchedulerModal({ isOpen: false, operation: null, productionOrder: null });
+  }, []);
+
+  const handleScheduled = useCallback(async () => {
+    handleSchedulerClose();
+    await Promise.all([refetch(), refreshSuggestions()]);
+  }, [handleSchedulerClose, refetch, refreshSuggestions]);
 
   // Format today's date
   const today = new Date().toLocaleDateString('en-US', {
@@ -127,6 +279,11 @@ export default function CommandCenter() {
           <p className="text-[var(--color-text-muted,theme(colors.gray.400))] text-sm mt-1">{today}</p>
         </div>
         <div className="flex items-center gap-3">
+          {autoDispatch && (
+            <span className="text-xs text-blue-400/80 bg-blue-500/10 border border-blue-500/20 rounded-full px-2.5 py-1">
+              Auto-dispatch ON
+            </span>
+          )}
           <a
             href="/admin/dashboard"
             className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
@@ -259,11 +416,25 @@ export default function CommandCenter() {
             ) : (
               <MachineStatusGrid
                 resources={resources}
+                suggestions={suggestions}
                 onMachineClick={handleMachineClick}
+                onDispatchConfirmed={handleDispatchConfirmed}
+                onPickDifferent={handlePickDifferent}
               />
             )}
           </section>
         </div>
+      )}
+
+      {/* OperationSchedulerModal — opened from DispatchChip "Pick different…" */}
+      {schedulerModal.isOpen && (
+        <OperationSchedulerModal
+          isOpen={schedulerModal.isOpen}
+          onClose={handleSchedulerClose}
+          operation={schedulerModal.operation}
+          productionOrder={schedulerModal.productionOrder}
+          onScheduled={handleScheduled}
+        />
       )}
 
       {/* Auto-refresh indicator */}

@@ -77,6 +77,9 @@ class CompanySettingsResponse(BaseModel):
     # Pricing
     default_margin_percent: Optional[float] = None
 
+    # Dispatch
+    auto_dispatch: bool = False
+
     updated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -121,6 +124,9 @@ class CompanySettingsUpdate(BaseModel):
 
     # Pricing
     default_margin_percent: Optional[float] = Field(None, ge=0, le=99.99)
+
+    # Dispatch
+    auto_dispatch: Optional[bool] = None
 
 
 # ============================================================================
@@ -179,6 +185,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
         business_days_per_week=settings.business_days_per_week,
         business_work_days=settings.business_work_days,
         default_margin_percent=float(settings.default_margin_percent) if settings.default_margin_percent is not None else None,
+        auto_dispatch=bool(settings.auto_dispatch) if settings.auto_dispatch is not None else False,
         updated_at=settings.updated_at,
     )
 
