@@ -532,31 +532,56 @@ def schedule_operation_endpoint(
             is_printer=request.is_printer,
         )
     except SequenceError as e:
-        # Return same shape as a conflict so the frontend gets a suggested slot
-        earliest = get_earliest_start_after_predecessors(
-            db=db,
-            operation=op,
-            after=request.scheduled_start,
-        )
-        next_start = find_next_available_slot(
-            db=db,
-            resource_id=request.resource_id,
-            duration_minutes=duration_minutes,
-            after=earliest,
-            is_printer=request.is_printer,
-        )
+        # Pure predecessor violation — no resource conflict.
+        # Only offer a suggested start when ALL predecessors are scheduled
+        # (have a scheduled_end).  If any predecessor is unscheduled we cannot
+        # compute a meaningful floor; returning a suggestion would be misleading
+        # because the operator must schedule the predecessor first.
+        has_unscheduled_pred = (
+            db.query(ProductionOrderOperation.id)
+            .filter(
+                ProductionOrderOperation.production_order_id == op.production_order_id,
+                ProductionOrderOperation.sequence < op.sequence,
+                ProductionOrderOperation.id != op.id,
+                ProductionOrderOperation.status.notin_(["complete", "skipped", "cancelled"]),
+                ProductionOrderOperation.scheduled_end.is_(None),
+            )
+            .first()
+        ) is not None
+
+        earliest = None
+        next_start = None
+        if not has_unscheduled_pred:
+            # All predecessors are scheduled — compute the floor and suggest a slot
+            earliest = get_earliest_start_after_predecessors(
+                db=db,
+                operation=op,
+                after=request.scheduled_start,
+            )
+            next_start = find_next_available_slot(
+                db=db,
+                resource_id=request.resource_id,
+                duration_minutes=duration_minutes,
+                after=earliest,
+                is_printer=request.is_printer,
+            )
         return ScheduleOperationResponse(
             success=False,
             message=str(e),
             conflicts=[],
+            conflict_type="predecessor",
+            earliest_valid_start=earliest,
             next_available_start=next_start,
-            next_available_end=next_start + timedelta(minutes=duration_minutes),
+            next_available_end=(
+                next_start + timedelta(minutes=duration_minutes)
+                if next_start is not None else None
+            ),
         )
 
     if not success:
-        # Calculate next available slot for this resource, accounting for
+        # Resource conflict — calculate next available slot accounting for
         # both resource conflicts AND predecessor sequence constraints.
-        # Floor: can't start before all predecessors are done
+        # Floor: can't start before all predecessors are done.
         earliest = get_earliest_start_after_predecessors(
             db=db,
             operation=op,
@@ -587,6 +612,7 @@ def schedule_operation_endpoint(
             success=False,
             message=f"Scheduling conflict with {len(conflicts)} existing operation(s)",
             conflicts=conflict_details,
+            conflict_type="resource",
             next_available_start=next_start,
             next_available_end=suggested_end,
         )

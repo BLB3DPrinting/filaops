@@ -8,24 +8,38 @@
  *     message and the end-time field label changes to "(enter manually)".
  *  3. Manual end time satisfies submit validation (no "fill in all required fields"
  *     error when both startTime and endTime are present).
+ *  4. Predecessor conflict — amber "Sequence Constraint" banner with "Use this
+ *     time" button; clicking it sets the start field and clears the banner.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import OperationSchedulerModal from '../OperationSchedulerModal'
 
-// Stub hooks that make network calls
+// ---------------------------------------------------------------------------
+// Module-level mutable state — lets individual tests inject custom resource
+// lists while sharing a single hoisted vi.mock call.
+// ---------------------------------------------------------------------------
+let _mockResources = []
+let _mockConflicts = []
+let _mockChecking = false
+let _mockHasConflicts = false
+
 vi.mock('../../../hooks/useResources', () => ({
-  useResources: () => ({ resources: [], loading: false, error: null }),
+  useResources: () => ({ resources: _mockResources, loading: false, error: null }),
   useResourceConflicts: () => ({
-    conflicts: [],
-    checking: false,
+    conflicts: _mockConflicts,
+    checking: _mockChecking,
     error: null,
-    hasConflicts: false,
+    hasConflicts: _mockHasConflicts,
   }),
 }))
 
 // Silence fetch calls the component may fire (compat check, next-available, etc.)
 beforeEach(() => {
+  _mockResources = []
+  _mockConflicts = []
+  _mockChecking = false
+  _mockHasConflicts = false
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }))
   vi.useFakeTimers({ shouldAdvanceTime: true })
 })
@@ -58,6 +72,19 @@ const zeroDurationOp = {
   resource_id: null,
   planned_setup_minutes: null,
   planned_run_minutes: null,
+  status: 'pending',
+}
+
+// An op in a PO with a predecessor — used for conflict tests
+const secondOp = {
+  id: 44,
+  sequence: 20,
+  operation_code: 'POST',
+  operation_name: 'Post-processing',
+  work_center_id: 1,
+  resource_id: null,
+  planned_setup_minutes: '5.00',
+  planned_run_minutes: '88.00',
   status: 'pending',
 }
 
@@ -177,5 +204,113 @@ describe('OperationSchedulerModal — validation accepts manual end time', () =>
       // Confirm it's a resource-missing error, not end-time-missing
       expect(screen.queryByText(/NaN/)).not.toBeInTheDocument()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 4. Predecessor conflict — amber "Sequence Constraint" banner
+// ---------------------------------------------------------------------------
+describe('OperationSchedulerModal — predecessor conflict suggestion', () => {
+  const PRINTER = { id: 7, code: 'PRINTER-01', name: 'Bambu X1C', is_printer: true }
+
+  const nextStart = '2026-06-11T18:00:00Z'
+  const nextEnd   = '2026-06-11T19:33:00Z'
+  const earliest  = '2026-06-11T17:30:00Z'
+
+  function stubPredecessorConflict() {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url, opts) => {
+      // Compatibility check → ok, compatible
+      if (typeof url === 'string' && url.includes('check-resource-compatibility')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ compatible: true, reason: null }),
+        })
+      }
+      // next-available → stub a start time
+      if (typeof url === 'string' && url.includes('next-available')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ next_available: nextStart, suggested_end: nextEnd }),
+        })
+      }
+      // Schedule endpoint → predecessor conflict
+      if (typeof url === 'string' && url.includes('/schedule') && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: false,
+            conflict_type: 'predecessor',
+            message: 'Operation 10 (3D Print) must finish before this operation can start',
+            earliest_valid_start: earliest,
+            next_available_start: nextStart,
+            next_available_end: nextEnd,
+            conflicts: [],
+          }),
+        })
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) })
+    }))
+  }
+
+  it('renders Sequence Constraint banner with "Use this time" after predecessor conflict', async () => {
+    // Provide a resource so the select has an option and submit can reach fetch
+    _mockResources = [PRINTER]
+    stubPredecessorConflict()
+
+    await act(async () => { renderModal(secondOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    // Select the resource
+    const select = screen.getByRole('combobox')
+    await act(async () => {
+      fireEvent.change(select, { target: { value: String(PRINTER.id) } })
+    })
+    await act(async () => { vi.runAllTimers() })
+
+    // Submit the form
+    const submitBtn = screen.getByRole('button', { name: /^Schedule$/i })
+    await act(async () => { fireEvent.click(submitBtn) })
+    await act(async () => { vi.runAllTimers() })
+
+    // Amber banner heading must appear
+    expect(screen.getByText('Sequence Constraint')).toBeInTheDocument()
+    // "Use this time" suggestion button must appear
+    expect(screen.getByRole('button', { name: /Use this time/i })).toBeInTheDocument()
+  })
+
+  it('"Use this time" sets the start-time input and clears the Sequence Constraint banner', async () => {
+    _mockResources = [PRINTER]
+    stubPredecessorConflict()
+
+    await act(async () => { renderModal(secondOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    const select = screen.getByRole('combobox')
+    await act(async () => {
+      fireEvent.change(select, { target: { value: String(PRINTER.id) } })
+    })
+    await act(async () => { vi.runAllTimers() })
+
+    const submitBtn = screen.getByRole('button', { name: /^Schedule$/i })
+    await act(async () => { fireEvent.click(submitBtn) })
+    await act(async () => { vi.runAllTimers() })
+
+    // Banner visible
+    expect(screen.getByText('Sequence Constraint')).toBeInTheDocument()
+
+    // Click "Use this time"
+    const useBtn = screen.getByRole('button', { name: /Use this time/i })
+    await act(async () => { fireEvent.click(useBtn) })
+
+    // Banner must clear
+    expect(screen.queryByText('Sequence Constraint')).not.toBeInTheDocument()
+
+    // A datetime-local input must have a non-empty value (the suggested start).
+    // datetime-local inputs are not matched by role "textbox" in jsdom — query
+    // by display value pattern instead.
+    const filledInputs = screen.getAllByDisplayValue(/.+/)
+    const dtInput = filledInputs.find((el) => el.type === 'datetime-local')
+    expect(dtInput).toBeDefined()
+    expect(dtInput.value).not.toBe('')
   })
 })

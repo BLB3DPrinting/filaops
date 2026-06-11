@@ -10,7 +10,29 @@ import { formatDuration, formatTime } from "../../utils/formatting";
 import Modal from "../Modal";
 
 /**
- * Conflict alert banner with next-available slot suggestion
+ * Shared slot suggestion pill — used by both conflict alert banners.
+ */
+function SlotSuggestion({ label, nextAvailableStart, nextAvailableEnd, onUseSlot }) {
+  if (!nextAvailableStart) return null;
+  return (
+    <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+      <p className="text-sm text-blue-300">
+        {label}: {formatTime(nextAvailableStart)}
+        {nextAvailableEnd ? ` – ${formatTime(nextAvailableEnd)}` : ""}
+      </p>
+      <button
+        type="button"
+        onClick={() => onUseSlot(nextAvailableStart, nextAvailableEnd)}
+        className="mt-1 text-sm text-blue-400 hover:text-blue-300 underline"
+      >
+        Use this time
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Conflict alert banner with next-available slot suggestion (resource conflicts)
  */
 function ConflictAlert({
   conflicts,
@@ -37,7 +59,7 @@ function ConflictAlert({
           />
         </svg>
         <div className="flex-1">
-          <h4 className="text-red-400 font-medium">Conflict Detected</h4>
+          <h4 className="text-red-400 font-medium">Resource Conflict</h4>
           <p className="text-sm text-red-400/70 mt-1">
             This time slot overlaps with:
           </p>
@@ -49,30 +71,77 @@ function ConflictAlert({
                 {conflict.scheduled_start && (
                   <span className="text-red-400/50">
                     {" "}
-                    ({formatTime(conflict.scheduled_start)} -{" "}
+                    ({formatTime(conflict.scheduled_start)} –{" "}
                     {formatTime(conflict.scheduled_end)})
                   </span>
                 )}
               </li>
             ))}
           </ul>
-          {nextAvailableStart ? (
-            <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
-              <p className="text-sm text-blue-300">
-                Next available slot: {formatTime(nextAvailableStart)} -{" "}
-                {formatTime(nextAvailableEnd)}
-              </p>
-              <button
-                type="button"
-                onClick={() => onUseSlot(nextAvailableStart, nextAvailableEnd)}
-                className="mt-1 text-sm text-blue-400 hover:text-blue-300 underline"
-              >
-                Use suggested time
-              </button>
-            </div>
-          ) : (
+          <SlotSuggestion
+            label="Earliest available slot"
+            nextAvailableStart={nextAvailableStart}
+            nextAvailableEnd={nextAvailableEnd}
+            onUseSlot={onUseSlot}
+          />
+          {!nextAvailableStart && (
             <p className="text-xs text-red-400/50 mt-2">
               Adjust the start time or select a different resource.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Predecessor sequence violation banner with earliest-valid-start suggestion.
+ */
+function PredecessorAlert({
+  message,
+  earliestValidStart,
+  nextAvailableStart,
+  nextAvailableEnd,
+  onUseSlot,
+}) {
+  if (!message) return null;
+
+  return (
+    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <svg
+          className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+          />
+        </svg>
+        <div className="flex-1">
+          <h4 className="text-amber-400 font-medium">Sequence Constraint</h4>
+          <p className="text-sm text-amber-400/70 mt-1">{message}</p>
+          {earliestValidStart && (
+            <p className="text-sm text-amber-300 mt-1">
+              Predecessor finishes:{" "}
+              <span className="font-medium">{formatTime(earliestValidStart)}</span>
+            </p>
+          )}
+          {nextAvailableStart ? (
+            <SlotSuggestion
+              label="Earliest valid start"
+              nextAvailableStart={nextAvailableStart}
+              nextAvailableEnd={nextAvailableEnd}
+              onUseSlot={onUseSlot}
+            />
+          ) : (
+            <p className="text-xs text-amber-400/50 mt-2">
+              Schedule the predecessor operation first, then retry.
             </p>
           )}
         </div>
@@ -182,6 +251,8 @@ export default function OperationSchedulerModal({
   const [nextAvailableStart, setNextAvailableStart] = useState(null);
   const [nextAvailableEnd, setNextAvailableEnd] = useState(null);
   const [serverConflicts, setServerConflicts] = useState([]);
+  // Predecessor-specific conflict state
+  const [predecessorConflict, setPredecessorConflict] = useState(null); // { message, earliestValidStart }
   const [justScheduled, setJustScheduled] = useState(null); // op code of just-scheduled op
   const [nextPendingOp, setNextPendingOp] = useState(null); // next op to schedule
   // Defensive: keep modal alive even if parent unmounts/remounts during conflicts
@@ -356,6 +427,7 @@ export default function OperationSchedulerModal({
     setServerConflicts([]);
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
+    setPredecessorConflict(null);
   };
 
   const handleSubmit = async (e) => {
@@ -410,7 +482,18 @@ export default function OperationSchedulerModal({
 
       if (data.success === false) {
         setForceOpen(true);
-        setServerConflicts(data.conflicts || []);
+        if (data.conflict_type === "predecessor") {
+          // Predecessor sequence violation — show amber banner with earliest-valid-start
+          setPredecessorConflict({
+            message: data.message,
+            earliestValidStart: data.earliest_valid_start,
+          });
+          setServerConflicts([]);
+        } else {
+          // Resource conflict — show red banner with conflicting ops
+          setServerConflicts(data.conflicts || []);
+          setPredecessorConflict(null);
+        }
         if (data.next_available_start) {
           setNextAvailableStart(data.next_available_start);
           setNextAvailableEnd(data.next_available_end);
@@ -452,6 +535,7 @@ export default function OperationSchedulerModal({
       setEndTime(new Date(suggestedEnd).toISOString().slice(0, 16));
     }
     setServerConflicts([]);
+    setPredecessorConflict(null);
     setNextAvailableStart(null);
     setNextAvailableEnd(null);
     setError(null);
@@ -473,7 +557,7 @@ export default function OperationSchedulerModal({
   // user needs to explicitly resolve or dismiss them, not lose their work
   // by accidentally clicking outside.
   const handleAutoClose = () => {
-    if (serverConflicts.length > 0 || conflicts.length > 0 || error || compatWarning) {
+    if (serverConflicts.length > 0 || conflicts.length > 0 || predecessorConflict || error || compatWarning) {
       return;
     }
     handleClose();
@@ -613,23 +697,36 @@ export default function OperationSchedulerModal({
             {/* Compatibility warning */}
             <CompatibilityWarning reason={compatWarning} />
 
-            {/* Conflict alert (live check) */}
-            {checking ? (
-              <div className="text-sm text-gray-500 flex items-center gap-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                Checking for conflicts...
-              </div>
-            ) : (
-              <ConflictAlert
-                conflicts={conflicts?.length > 0 ? conflicts : serverConflicts}
+            {/* Predecessor sequence violation banner */}
+            {predecessorConflict && (
+              <PredecessorAlert
+                message={predecessorConflict.message}
+                earliestValidStart={predecessorConflict.earliestValidStart}
                 nextAvailableStart={nextAvailableStart}
                 nextAvailableEnd={nextAvailableEnd}
                 onUseSlot={handleUseSuggestedSlot}
               />
             )}
 
-            {/* Error message */}
-            {error && (
+            {/* Resource conflict alert (live check or server response) */}
+            {!predecessorConflict && (
+              checking ? (
+                <div className="text-sm text-gray-500 flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                  Checking for conflicts...
+                </div>
+              ) : (
+                <ConflictAlert
+                  conflicts={conflicts?.length > 0 ? conflicts : serverConflicts}
+                  nextAvailableStart={nextAvailableStart}
+                  nextAvailableEnd={nextAvailableEnd}
+                  onUseSlot={handleUseSuggestedSlot}
+                />
+              )
+            )}
+
+            {/* Error message (only for non-conflict errors) */}
+            {error && !predecessorConflict && !serverConflicts.length && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                 <p className="text-red-400 text-sm">{error}</p>
               </div>

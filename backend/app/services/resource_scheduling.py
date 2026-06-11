@@ -299,11 +299,9 @@ def check_predecessor_scheduling(
                 start = start.replace(tzinfo=timezone.utc)
 
             if pred_end > start:
-                pred_end_fmt = pred_end.strftime("%b %d %Y at %I:%M %p UTC")
-                start_fmt = start.strftime("%b %d %Y at %I:%M %p UTC")
                 return (
                     f"Operation {pred.sequence} ({pred.operation_name or pred.operation_code}) "
-                    f"runs until {pred_end_fmt}, after your requested start of {start_fmt}"
+                    f"must finish before this operation can start"
                 )
 
     return None

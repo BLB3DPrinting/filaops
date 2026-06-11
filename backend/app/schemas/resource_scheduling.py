@@ -2,7 +2,7 @@
 Schemas for resource scheduling.
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -64,6 +64,14 @@ class ScheduleOperationResponse(BaseModel):
     conflicts: List[ConflictInfo] = Field(default_factory=list)
     next_available_start: Optional[datetime] = None
     next_available_end: Optional[datetime] = None
+    # Predecessor-specific fields
+    # conflict_type is "resource" when blocked by another op on the same
+    # resource, "predecessor" when blocked purely by sequence constraints.
+    conflict_type: Optional[Literal["predecessor", "resource"]] = None
+    # earliest_valid_start is the latest predecessor scheduled_end — the
+    # absolute floor for this operation regardless of resource availability.
+    # Present only for predecessor conflicts (conflict_type == "predecessor").
+    earliest_valid_start: Optional[datetime] = None
 
 
 class NextAvailableSlotRequest(BaseModel):
