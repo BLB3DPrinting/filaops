@@ -28,6 +28,7 @@ import {
   OperationSchedulerModal,
   OperationsTimeline,
 } from "../../components/production";
+import ReleaseScheduleWizard from "../../components/production/ReleaseScheduleWizard";
 import {
   PRODUCTION_ORDER_COLORS,
   getStatusColor,
@@ -231,6 +232,8 @@ export default function ProductionOrderDetail() {
   const [updating, setUpdating] = useState(false);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [selectedOperation, setSelectedOperation] = useState(null);
+  // SCHED-3b: guided initial-schedule wizard
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const fetchOrder = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
@@ -269,6 +272,11 @@ export default function ProductionOrderDetail() {
 
       toast.success(`Order ${action} successfully`);
       fetchOrder();
+
+      // SCHED-3b: after a successful release, offer the guided schedule wizard
+      if (action === "release") {
+        setWizardOpen(true);
+      }
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -608,6 +616,19 @@ export default function ProductionOrderDetail() {
           <p className="text-gray-300">{order.notes}</p>
         </div>
       )}
+
+      {/* SCHED-3b: Guided initial-schedule wizard (shown after release) */}
+      <ReleaseScheduleWizard
+        isOpen={wizardOpen}
+        productionOrder={order}
+        onClose={() => setWizardOpen(false)}
+        onOpenScheduler={() => {
+          setWizardOpen(false);
+          // Open the scheduler for the first pending op, if any
+          setSchedulerOpen(true);
+        }}
+        onRefresh={() => fetchOrder({ silent: true })}
+      />
 
       {/* Operation Scheduler Modal */}
       <OperationSchedulerModal

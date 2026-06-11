@@ -33,6 +33,7 @@ import CapacityRequirementsSection from "../../components/orders/CapacityRequire
 import PaymentsSection from "../../components/orders/PaymentsSection";
 import ShippingAddressSection from "../../components/orders/ShippingAddressSection";
 import { CancelOrderModal, DeleteOrderModal } from "../../components/orders/OrderModals";
+import ReleaseScheduleWizard from "../../components/production/ReleaseScheduleWizard";
 
 const getInvoiceBalanceDue = (invoice) =>
   invoice?.balance_due ?? invoice?.amount_due ?? 0;
@@ -146,6 +147,13 @@ export default function OrderDetail() {
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
+
+  // SCHED-3b: guided schedule wizard state
+  // wizardPending=true means we're waiting for fetchProductionOrders to
+  // resolve so we can hand the new PO to the wizard.
+  const [wizardPending, setWizardPending] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardProductionOrder, setWizardProductionOrder] = useState(null);
 
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -407,6 +415,14 @@ export default function OrderDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
+  // SCHED-3b: open the wizard once productionOrders is populated after release
+  useEffect(() => {
+    if (!wizardPending || productionOrders.length === 0) return;
+    setWizardPending(false);
+    setWizardProductionOrder(productionOrders[0]);
+    setWizardOpen(true);
+  }, [wizardPending, productionOrders]);
+
   const handlePaymentRecorded = () => {
     setShowPaymentModal(false);
     setIsRefund(false);
@@ -448,6 +464,11 @@ export default function OrderDetail() {
       toast.success("Production order created successfully!");
       fetchProductionOrders();
       fetchOrder();
+
+      // SCHED-3b: offer the guided schedule wizard after release.
+      // Set pending flag; the useEffect below watches productionOrders and
+      // opens the wizard once the new PO is available.
+      setWizardPending(true);
     } catch (err) {
       toast.error(err.message);
     }
@@ -1628,6 +1649,25 @@ export default function OrderDetail() {
             setIsRefund(false);
           }}
           onSuccess={handlePaymentRecorded}
+        />
+      )}
+
+      {/* SCHED-3b: Guided initial-schedule wizard (shown after production release) */}
+      {wizardOpen && wizardProductionOrder && (
+        <ReleaseScheduleWizard
+          isOpen={wizardOpen}
+          productionOrder={wizardProductionOrder}
+          onClose={() => {
+            setWizardOpen(false);
+            setWizardProductionOrder(null);
+          }}
+          onOpenScheduler={() => {
+            setWizardOpen(false);
+            navigate(`/admin/production/${wizardProductionOrder.id}`);
+          }}
+          onRefresh={() => {
+            fetchProductionOrders();
+          }}
         />
       )}
 

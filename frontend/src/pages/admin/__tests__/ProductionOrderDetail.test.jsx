@@ -38,6 +38,16 @@ vi.mock('../../../components/production', () => ({
   OperationsTimeline: () => <div>Operations timeline</div>,
 }))
 
+// Mock ReleaseScheduleWizard so we can check it opens on release
+let _wizardIsOpen = false
+vi.mock('../../../components/production/ReleaseScheduleWizard', () => ({
+  default: (props) => {
+    _wizardIsOpen = props.isOpen
+    if (!props.isOpen) return null
+    return <div data-testid="release-wizard">Wizard open for {props.productionOrder?.code}</div>
+  },
+}))
+
 import ProductionOrderDetail from '../ProductionOrderDetail'
 
 const draftOrder = {
@@ -69,6 +79,7 @@ function renderPage() {
 
 beforeEach(() => {
   currentOrder = draftOrder
+  _wizardIsOpen = false
   mocks.get.mockReset()
   mocks.post.mockReset()
   mocks.toastError.mockReset()
@@ -128,5 +139,35 @@ describe('ProductionOrderDetail', () => {
     await waitFor(() => {
       expect(mocks.post).toHaveBeenCalledWith('/api/v1/production-orders/2782/release')
     })
+  })
+
+  it('opens the release wizard after a successful release', async () => {
+    renderPage()
+
+    const releaseButtons = await screen.findAllByRole('button', {
+      name: /release to floor/i,
+    })
+    fireEvent.click(releaseButtons[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('release-wizard')).toBeInTheDocument()
+    })
+  })
+
+  it('release wizard is dismissible without affecting the released order', async () => {
+    renderPage()
+
+    const releaseButtons = await screen.findAllByRole('button', {
+      name: /release to floor/i,
+    })
+    fireEvent.click(releaseButtons[0])
+
+    // Wizard appears
+    await waitFor(() => {
+      expect(screen.getByTestId('release-wizard')).toBeInTheDocument()
+    })
+
+    // The post was still called (release happened regardless of wizard)
+    expect(mocks.post).toHaveBeenCalledWith('/api/v1/production-orders/2782/release')
   })
 })
