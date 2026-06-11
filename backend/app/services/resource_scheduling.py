@@ -342,6 +342,50 @@ def get_earliest_start_after_predecessors(
     return earliest
 
 
+def check_successor_scheduling(
+    db: Session,
+    operation: ProductionOrderOperation,
+    scheduled_end: datetime,
+) -> Optional[List["ProductionOrderOperation"]]:
+    """
+    Check that moving this operation's end time doesn't violate any SUCCESSOR's
+    existing scheduled start.
+
+    A successor is any higher-sequence sibling on the same PO that:
+    - Is NOT in a terminal status, AND
+    - Has an existing scheduled_start set (is already scheduled), AND
+    - Its scheduled_start < our new scheduled_end  (i.e. we'd push past it)
+
+    Returns:
+        None if no violations, or a list of impacted successor operations.
+
+    Note: this is a WARNING surface — the endpoint converts these into a 400
+    with successor conflict details + earliest_valid_start so the operator can
+    fix the successor scheduling order.
+    """
+    successors = db.query(ProductionOrderOperation).filter(
+        ProductionOrderOperation.production_order_id == operation.production_order_id,
+        ProductionOrderOperation.sequence > operation.sequence,
+        ProductionOrderOperation.id != operation.id,
+        ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+        ProductionOrderOperation.scheduled_start.isnot(None),
+    ).order_by(ProductionOrderOperation.sequence).all()
+
+    violated: List[ProductionOrderOperation] = []
+    for succ in successors:
+        succ_start = succ.scheduled_start
+        end = scheduled_end
+        # Normalize timezone — DB stores naive UTC, caller may pass tz-aware
+        if succ_start.tzinfo is None and end.tzinfo is not None:
+            succ_start = succ_start.replace(tzinfo=timezone.utc)
+        elif succ_start.tzinfo is not None and end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end > succ_start:
+            violated.append(succ)
+
+    return violated if violated else None
+
+
 def schedule_operation(
     db: Session,
     operation: ProductionOrderOperation,

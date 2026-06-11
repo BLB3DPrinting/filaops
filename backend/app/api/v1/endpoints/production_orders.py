@@ -5,7 +5,7 @@ Manufacturing Orders (MOs) for tracking production of finished goods.
 Supports creation from sales orders, manual entry, and MRP planning.
 """
 from typing import Annotated, List, Optional
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,6 +23,7 @@ from app.models.production_order import (
 )
 from app.models.work_center import WorkCenter
 from app.models.manufacturing import Resource
+from app.models.printer import Printer
 from app.schemas.production_order import (
     ProductionOrderCreate,
     ProductionOrderUpdate,
@@ -66,8 +67,23 @@ from app.core.status_config import (
     get_allowed_production_order_transitions,
 )
 from app.schemas.blocking_issues import ProductionOrderBlockingIssues
+from app.schemas.resource_scheduling import (
+    RescheduleRequest,
+    RescheduleResponse,
+    UnscheduleResponse,
+    ConflictInfo,
+    SuccessorConflictInfo,
+)
 from app.services.blocking_issues import get_production_order_blocking_issues
 from app.services import production_order_service
+from app.services.resource_scheduling import (
+    find_conflicts,
+    find_next_available_slot,
+    check_predecessor_scheduling,
+    check_successor_scheduling,
+    get_earliest_start_after_predecessors,
+    TERMINAL_STATUSES,
+)
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -817,6 +833,388 @@ async def get_work_center_queues(
         )
         for q in queues
     ]
+
+
+# =============================================================================
+# Reschedule / Unschedule  (SCHED-2)
+# =============================================================================
+
+#: Statuses that allow reschedule / unschedule (op must not have started).
+_RESCHEDULABLE_STATUSES = frozenset({"pending", "queued"})
+
+#: Default duration (minutes) when an operation has no planned time data.
+_DEFAULT_DURATION_MINUTES = 120
+
+
+def _get_op_duration_minutes(op: ProductionOrderOperation) -> int:
+    """Return the best-available estimated duration for an operation."""
+    setup = float(op.planned_setup_minutes or 0)
+    run = float(op.planned_run_minutes or 0)
+    total = setup + run
+    return int(total) if total > 0 else _DEFAULT_DURATION_MINUTES
+
+
+def _append_po_note(order: ProductionOrder, note: str) -> None:
+    """
+    Append a timestamped note to production order notes.
+
+    Reuses the same pattern as production_order_service.complete_production_order
+    and accept_short_production_order — timestamp prefix, newline separator.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    if order.notes:
+        order.notes = f"{order.notes}\n[{ts}] {note}"
+    else:
+        order.notes = f"[{ts}] {note}"
+
+
+@router.post(
+    "/{order_id}/operations/{op_id}/reschedule",
+    response_model=RescheduleResponse,
+    status_code=200,
+)
+async def reschedule_operation(
+    order_id: int,
+    op_id: int,
+    request: RescheduleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RescheduleResponse:
+    """
+    Reschedule a scheduled operation — move it to a new resource and/or time.
+
+    **Allowed statuses**: ``pending`` or ``queued`` (not yet started).
+
+    At least one of ``resource_id`` or ``scheduled_start`` must be provided.
+    ``scheduled_end`` is optional; if omitted it is recomputed from the
+    operation's planned duration (setup + run, defaulting to 120 min).
+
+    Validates:
+    1. Resource / printer exists (when provided).
+    2. No time conflicts on the target resource (``exclude_operation_id`` so
+       the operation doesn't conflict with its own current slot).
+    3. Predecessor sequence constraints (lower-sequence sibling ops).
+    4. Successor implications — if moving this op later would violate a
+       SUCCESSOR's existing scheduled_start, surfaces a 400 with
+       ``conflict_type="successor"`` + per-successor ``earliest_valid_start``
+       so the operator can fix the succession order.
+
+    On success: writes an audit note to the production order's notes field and
+    returns the new scheduled times.
+    """
+    # --- Validate PO + op ---
+    po = db.get(ProductionOrder, order_id)
+    if not po:
+        raise HTTPException(status_code=404, detail="Production order not found")
+
+    op = db.get(ProductionOrderOperation, op_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    if op.production_order_id != order_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Operation {op_id} does not belong to production order {order_id}",
+        )
+
+    if op.status not in _RESCHEDULABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Operation {op_id} has status '{op.status}'; "
+                f"only pending/queued operations can be rescheduled"
+            ),
+        )
+
+    # --- At least one change required ---
+    if request.resource_id is None and request.scheduled_start is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one of resource_id or scheduled_start",
+        )
+
+    # --- Resolve target resource / printer ---
+    # Start from the operation's current values and overlay the request.
+    new_resource_id: Optional[int] = request.resource_id
+    is_printer: bool = request.is_printer if request.is_printer is not None else False
+
+    if new_resource_id is None:
+        # Keep current resource / printer
+        if op.printer_id is not None:
+            new_resource_id = op.printer_id
+            is_printer = True
+        elif op.resource_id is not None:
+            new_resource_id = op.resource_id
+            is_printer = False
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Operation has no current resource; provide resource_id",
+            )
+    else:
+        # Validate the supplied resource exists
+        if is_printer:
+            res_obj = db.get(Printer, new_resource_id)
+            if not res_obj:
+                raise HTTPException(status_code=404, detail="Printer not found")
+        else:
+            res_obj = db.get(Resource, new_resource_id)
+            if not res_obj:
+                raise HTTPException(status_code=404, detail="Resource not found")
+
+    # --- Resolve start / end times ---
+    duration_minutes = _get_op_duration_minutes(op)
+
+    if request.scheduled_start is not None:
+        new_start = request.scheduled_start
+    else:
+        # Keep current start
+        if op.scheduled_start is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Operation has no current start time; provide scheduled_start",
+            )
+        new_start = op.scheduled_start
+        # Normalize naive DB timestamp to UTC-aware
+        if new_start.tzinfo is None:
+            new_start = new_start.replace(tzinfo=timezone.utc)
+
+    if request.scheduled_end is not None:
+        new_end = request.scheduled_end
+    else:
+        new_end = new_start + timedelta(minutes=duration_minutes)
+
+    if new_end <= new_start:
+        raise HTTPException(
+            status_code=422,
+            detail="scheduled_end must be after scheduled_start",
+        )
+
+    # --- Conflict check (exclude self so we don't block on our own current slot) ---
+    resource_conflicts = find_conflicts(
+        db=db,
+        resource_id=new_resource_id,
+        start_time=new_start,
+        end_time=new_end,
+        exclude_operation_id=op_id,
+        is_printer=is_printer,
+    )
+
+    if resource_conflicts:
+        earliest = get_earliest_start_after_predecessors(
+            db=db, operation=op, after=new_start
+        )
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=new_resource_id,
+            duration_minutes=duration_minutes,
+            after=earliest,
+            is_printer=is_printer,
+        )
+        conflict_details = [
+            ConflictInfo(
+                operation_id=c.id,
+                production_order_id=c.production_order_id,
+                production_order_code=c.production_order.code if c.production_order else None,
+                operation_code=c.operation_code,
+                scheduled_start=c.scheduled_start,
+                scheduled_end=c.scheduled_end,
+            )
+            for c in resource_conflicts
+        ]
+        return RescheduleResponse(
+            success=False,
+            message=f"Scheduling conflict with {len(resource_conflicts)} existing operation(s)",
+            conflicts=conflict_details,
+            conflict_type="resource",
+            next_available_start=next_start,
+            next_available_end=next_start + timedelta(minutes=duration_minutes),
+        )
+
+    # --- Predecessor check ---
+    try:
+        seq_error = check_predecessor_scheduling(db, op, new_start)
+    except Exception:
+        seq_error = None  # never raises in current impl; guard for safety
+
+    if seq_error:
+        # Check if any predecessor is unscheduled
+        has_unscheduled_pred = (
+            db.query(ProductionOrderOperation.id)
+            .filter(
+                ProductionOrderOperation.production_order_id == op.production_order_id,
+                ProductionOrderOperation.sequence < op.sequence,
+                ProductionOrderOperation.id != op.id,
+                ProductionOrderOperation.status.notin_(list(TERMINAL_STATUSES)),
+                ProductionOrderOperation.scheduled_end.is_(None),
+            )
+            .first()
+        ) is not None
+
+        earliest = None
+        next_start = None
+        if not has_unscheduled_pred:
+            earliest = get_earliest_start_after_predecessors(
+                db=db, operation=op, after=new_start
+            )
+            next_start = find_next_available_slot(
+                db=db,
+                resource_id=new_resource_id,
+                duration_minutes=duration_minutes,
+                after=earliest,
+                is_printer=is_printer,
+            )
+        return RescheduleResponse(
+            success=False,
+            message=seq_error,
+            conflicts=[],
+            conflict_type="predecessor",
+            earliest_valid_start=earliest,
+            next_available_start=next_start,
+            next_available_end=(
+                next_start + timedelta(minutes=duration_minutes)
+                if next_start is not None else None
+            ),
+        )
+
+    # --- Successor implication check ---
+    successor_violations = check_successor_scheduling(db, op, new_end)
+    if successor_violations:
+        succ_details = [
+            SuccessorConflictInfo(
+                operation_id=s.id,
+                operation_code=s.operation_code,
+                operation_name=s.operation_name,
+                sequence=s.sequence,
+                scheduled_start=s.scheduled_start,
+                earliest_valid_start=new_end,
+            )
+            for s in successor_violations
+        ]
+        return RescheduleResponse(
+            success=False,
+            message=(
+                f"Moving this operation would violate {len(successor_violations)} "
+                f"successor operation(s) that are already scheduled"
+            ),
+            conflict_type="successor",
+            successor_conflicts=succ_details,
+        )
+
+    # --- Apply the reschedule ---
+    old_resource_desc = (
+        f"printer_id={op.printer_id}" if op.printer_id
+        else f"resource_id={op.resource_id}"
+    )
+    old_start_str = (
+        op.scheduled_start.isoformat() if op.scheduled_start else "unscheduled"
+    )
+
+    if is_printer:
+        op.printer_id = new_resource_id
+        op.resource_id = None
+    else:
+        op.resource_id = new_resource_id
+        op.printer_id = None
+
+    op.scheduled_start = new_start
+    op.scheduled_end = new_end
+    if op.status == "pending":
+        op.status = "queued"
+
+    # Audit trail — append a timestamped note to the production order
+    new_resource_desc = f"printer_id={new_resource_id}" if is_printer else f"resource_id={new_resource_id}"
+    _append_po_note(
+        po,
+        f"Operation {op.sequence} ({op.operation_code}) rescheduled by "
+        f"{current_user.email}: "
+        f"{old_resource_desc} {old_start_str} → "
+        f"{new_resource_desc} {new_start.isoformat()}",
+    )
+
+    db.flush()
+    db.commit()
+
+    return RescheduleResponse(
+        success=True,
+        operation_id=op_id,
+        scheduled_start=op.scheduled_start,
+        scheduled_end=op.scheduled_end,
+    )
+
+
+@router.post(
+    "/{order_id}/operations/{op_id}/unschedule",
+    response_model=UnscheduleResponse,
+    status_code=200,
+)
+async def unschedule_operation(
+    order_id: int,
+    op_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UnscheduleResponse:
+    """
+    Unschedule an operation — clear its times and resource, return to pending.
+
+    **Allowed statuses**: ``pending`` or ``queued`` (not yet started).
+
+    Writes an audit note to the production order's notes field.
+    """
+    po = db.get(ProductionOrder, order_id)
+    if not po:
+        raise HTTPException(status_code=404, detail="Production order not found")
+
+    op = db.get(ProductionOrderOperation, op_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    if op.production_order_id != order_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Operation {op_id} does not belong to production order {order_id}",
+        )
+
+    if op.status not in _RESCHEDULABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Operation {op_id} has status '{op.status}'; "
+                f"only pending/queued operations can be unscheduled"
+            ),
+        )
+
+    old_resource_desc = (
+        f"printer_id={op.printer_id}" if op.printer_id
+        else (f"resource_id={op.resource_id}" if op.resource_id else "no resource")
+    )
+    old_start_str = (
+        op.scheduled_start.isoformat() if op.scheduled_start else "unscheduled"
+    )
+
+    # Clear schedule
+    op.scheduled_start = None
+    op.scheduled_end = None
+    op.resource_id = None
+    op.printer_id = None
+    op.status = "pending"
+
+    # Audit trail
+    _append_po_note(
+        po,
+        f"Operation {op.sequence} ({op.operation_code}) unscheduled by "
+        f"{current_user.email}: cleared {old_resource_desc} @ {old_start_str}",
+    )
+
+    db.flush()
+    db.commit()
+
+    return UnscheduleResponse(
+        success=True,
+        operation_id=op_id,
+        message=(
+            f"Operation {op.sequence} ({op.operation_code}) unscheduled; "
+            f"returned to pending"
+        ),
+    )
 
 
 # =============================================================================

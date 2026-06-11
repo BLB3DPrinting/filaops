@@ -86,3 +86,66 @@ class NextAvailableSlotResponse(BaseModel):
     """Response with next available time slot."""
     next_available: datetime
     suggested_end: datetime  # Based on requested duration
+
+
+# ---------------------------------------------------------------------------
+# SCHED-2: Reschedule / Unschedule
+# ---------------------------------------------------------------------------
+
+class RescheduleRequest(BaseModel):
+    """
+    Request body for POST .../reschedule.
+
+    At least one of resource_id or scheduled_start must be provided.
+    scheduled_end is optional — if omitted the endpoint recomputes it from
+    the operation's planned duration (setup + run minutes, defaulting to
+    120 min when not set).
+    """
+
+    resource_id: Optional[int] = None
+    is_printer: Optional[bool] = None  # True when resource_id refers to a Printer
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+
+
+class SuccessorConflictInfo(BaseModel):
+    """A successor operation whose existing schedule would be violated."""
+
+    operation_id: int
+    operation_code: Optional[str] = None
+    operation_name: Optional[str] = None
+    sequence: int
+    scheduled_start: Optional[datetime] = None
+    # earliest_valid_start = the proposed reschedule end — the soonest the
+    # successor can now validly start, mirroring the predecessor-conflict shape.
+    earliest_valid_start: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RescheduleResponse(BaseModel):
+    """Response from a reschedule operation."""
+
+    success: bool
+    operation_id: Optional[int] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    message: Optional[str] = None
+    # Conflict fields — same shape as ScheduleOperationResponse so the modal
+    # can reuse its existing conflict/suggestion affordances.
+    conflicts: List[ConflictInfo] = Field(default_factory=list)
+    conflict_type: Optional[Literal["predecessor", "resource", "successor"]] = None
+    earliest_valid_start: Optional[datetime] = None
+    next_available_start: Optional[datetime] = None
+    next_available_end: Optional[datetime] = None
+    # Successor violations (when conflict_type == "successor")
+    successor_conflicts: List[SuccessorConflictInfo] = Field(default_factory=list)
+
+
+class UnscheduleResponse(BaseModel):
+    """Response from an unschedule operation."""
+
+    success: bool
+    operation_id: int
+    message: str
