@@ -211,10 +211,15 @@ export default function OperationSchedulerModal({
     selectedResource?.is_printer || false,
   );
 
+  // Parse a Numeric-as-string value from the API into a finite number.
+  // The backend serializes SQLAlchemy Numeric columns as strings ("3.00",
+  // "150.00").  Using plain `|| 0` with string values concatenates instead
+  // of adding, e.g. "3.00" + "150.00" = "3.00150.00" → NaN downstream.
+  const toMin = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+
   // Calculate estimated duration
   const estimatedMinutes = currentOp
-    ? (currentOp.planned_setup_minutes || 0) +
-      (currentOp.planned_run_minutes || 0)
+    ? toMin(currentOp.planned_setup_minutes) + toMin(currentOp.planned_run_minutes)
     : 0;
 
   // Auto-calculate end time when start time changes
@@ -537,7 +542,13 @@ export default function OperationSchedulerModal({
                 Production Order: {productionOrder?.code}
               </div>
               <div className="text-sm text-gray-500">
-                Estimated Duration: {formatDuration(estimatedMinutes)}
+                {estimatedMinutes > 0 ? (
+                  <>Estimated Duration: {formatDuration(estimatedMinutes)}</>
+                ) : (
+                  <span className="italic">
+                    Duration unknown — set end time manually
+                  </span>
+                )}
               </div>
             </div>
 
@@ -583,12 +594,12 @@ export default function OperationSchedulerModal({
               />
             </div>
 
-            {/* End time (auto-calculated) */}
+            {/* End time (auto-calculated or manual when duration is unknown) */}
             <div>
               <label className="block text-sm font-medium text-gray-400 mb-2">
-                End Time
+                End Time <span className="text-red-400">*</span>
                 <span className="text-gray-600 font-normal ml-2">
-                  (auto-calculated)
+                  {estimatedMinutes > 0 ? "(auto-calculated)" : "(enter manually)"}
                 </span>
               </label>
               <input

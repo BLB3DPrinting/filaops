@@ -137,8 +137,9 @@ function TimingDisplay({ operation }) {
     return <span className="text-yellow-400 text-sm">—</span>;
   }
 
-  // Pending - show estimate
-  const planned = (operation.planned_setup_minutes || 0) + (operation.planned_run_minutes || 0);
+  // Pending - show estimate (API returns Numeric columns as strings; use parseFloat)
+  const toMin = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+  const planned = toMin(operation.planned_setup_minutes) + toMin(operation.planned_run_minutes);
   if (planned > 0) {
     return (
       <span className="text-gray-500 text-sm">

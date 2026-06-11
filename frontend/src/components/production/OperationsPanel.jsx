@@ -80,9 +80,11 @@ function OperationsSummary({ operations }) {
   const skipped = operations.filter(op => op.status === 'skipped').length;
   const running = operations.filter(op => op.status === 'running').length;
 
+  // API returns Numeric columns as strings; use parseFloat to avoid string concatenation
+  const toMin = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
   const remainingMinutes = operations.reduce((sum, op) => {
     if (['pending', 'queued'].includes(op.status)) {
-      return sum + (op.planned_setup_minutes || 0) + (op.planned_run_minutes || 0);
+      return sum + toMin(op.planned_setup_minutes) + toMin(op.planned_run_minutes);
     }
     return sum;
   }, 0);
