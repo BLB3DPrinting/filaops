@@ -42,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from datetime import date
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.maintenance import MaintenanceLog
@@ -104,9 +105,16 @@ def _get_idle_printers(db: Session, printer_id: Optional[int] = None) -> List[Pr
     suggestions so the operator can pre-assign; the actual job won't start
     until connectivity returns.
     """
+    # status.notin_(SKIP_STATUSES) excludes NULLs in SQL — printers with
+    # status=None (newly registered, unknown) would be silently skipped.
+    # We want to include them (they may be online but un-polled).
+    # Use explicit OR to keep NULL-status printers in scope.
     query = db.query(Printer).filter(
         Printer.active.is_(True),
-        Printer.status.notin_(SKIP_STATUSES),
+        or_(
+            Printer.status.is_(None),
+            Printer.status.notin_(SKIP_STATUSES),
+        ),
     )
     if printer_id is not None:
         query = query.filter(Printer.id == printer_id)
@@ -422,6 +430,12 @@ def dispatch_operation(
     printer: Optional[Printer] = db.get(Printer, printer_id)
     if printer is None:
         raise ValueError(f"Printer {printer_id} not found")
+
+    if not printer.active:
+        raise ValueError(
+            f"Printer {printer.code} (id={printer_id}) is inactive "
+            f"and cannot accept new assignments"
+        )
 
     if printer.status in SKIP_STATUSES:
         raise ValueError(
