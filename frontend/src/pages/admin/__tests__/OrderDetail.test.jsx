@@ -415,7 +415,7 @@ describe('OrderDetail — Delete Order button (PR-713 follow-up)', () => {
     const deleteBtn = await screen.findByRole('button', { name: /delete order/i })
     fireEvent.click(deleteBtn)
 
-    expect(screen.getByTestId('delete-modal')).toBeInTheDocument()
+    expect(await screen.findByTestId('delete-modal')).toBeInTheDocument()
   })
 
   it('does NOT render Delete Order button for status=confirmed', async () => {
