@@ -147,6 +147,36 @@ Impact: HIGH — where Phase B becomes visible. Effort: M. Files: CommandCenter
 components, AdminProduction, OperationSchedulerModal, settings page + backend
 setting, tests. DEPENDS ON: SCHED-1 (and SCHED-2 for the pick-different flow).
 
+### SCHED-3b: Guided initial schedule on release  [OWNER UX IDEA 2026-06-11]
+
+When "Release to floor" succeeds, guide the operator straight into an initial
+schedule instead of hoping they find the Schedule button later — same scheduling
+logic, guided surface. Pure ease-of-use; never blocks release.
+
+- After a successful release (OrderDetail workflow card / ProductionOrderDetail),
+  offer "Schedule it now?" → opens the EXISTING OperationSchedulerModal in its
+  sequential mode (the advance-to-next-pending-op flow already in the modal,
+  ~323-343 pre-fix — verify current lines) walking schedulable operations in
+  sequence order.
+- Each step PRE-FILLED with a suggestion: resource via dispatch ranking
+  (SCHED-1's get_dispatch_suggestions logic — compatibility + maintenance warning
+  included) and start time via find_next_available_slot, where each step's
+  earliest start respects the PREVIOUS step's chosen end (predecessor chaining —
+  the engine's check_predecessor_scheduling already enforces it; the wizard just
+  feeds the prior selection forward).
+- Operator can accept (one click), change resource/time, or Skip per operation;
+  "Skip all / schedule later" exits cleanly. Releasing without scheduling stays
+  fully supported — the wizard is an offer, not a gate.
+- Tests: wizard opens on release success; suggestions prefill; predecessor
+  chaining (step 2's default start ≥ step 1's chosen end); skip paths; release
+  unaffected when wizard dismissed.
+
+Impact: HIGH ease-of-use (the owner's first-run friction point). Effort: M.
+Files: OrderDetail.jsx / ProductionOrderDetail.jsx (release success handlers),
+OperationSchedulerModal.jsx, tests. DEPENDS ON: SCHED-1 (suggestions),
+SCHED-2 (modal edit-mode polish). COORDINATE: same files as SCHED-3 — same wave,
+ideally same agent or serialize 3 → 3b.
+
 ### SCHED-4: Maintenance visibility quick wins
 
 - Due-soon badge on PrinterCard (existing maintenance-due endpoint; threshold: due
@@ -218,8 +248,10 @@ of scope until real-farm feedback exists.
 
 ```
 Wave 1 (after #715 fix merges):  SCHED-1  → then SCHED-2  (share resource_scheduling.py)
-Wave 2:                          SCHED-3  + SCHED-4        (coordinate CommandCenter files
-                                                            or same agent)
+Wave 2:                          SCHED-3 → SCHED-3b  + SCHED-4   (3/3b share OrderDetail +
+                                                                  modal — serialize or same
+                                                                  agent; 4 coordinates on
+                                                                  CommandCenter files)
 Wave 3:                          SCHED-5                   (solo — large)
 Wave 4:                          SCHED-7;  SCHED-6/8/9 on owner pull
 ```
