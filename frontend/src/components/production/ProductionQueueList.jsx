@@ -98,8 +98,12 @@ function calculateTotalTime(operations) {
 
 /**
  * Single row in the production queue
+ *
+ * SCHED-3: When order.status === 'released', shows a light "Dispatch" affordance
+ * button at the end of the row.  Clicking it calls onDispatch(order, firstPendingOp)
+ * so the parent can open the OperationSchedulerModal prefilled.
  */
-function ProductionQueueRow({ order, operations, onRowClick }) {
+function ProductionQueueRow({ order, operations, onRowClick, onDispatch }) {
   const totalMinutes = calculateTotalTime(operations);
 
   // Gather all materials from all operations
@@ -107,6 +111,9 @@ function ProductionQueueRow({ order, operations, onRowClick }) {
 
   // Check for running operation
   const runningOp = operations?.find(op => op.status === 'running');
+
+  // SCHED-3: first pending op for dispatch affordance
+  const firstPendingOp = operations?.find(op => op.status === 'pending') ?? null;
 
   return (
     <tr
@@ -173,6 +180,23 @@ function ProductionQueueRow({ order, operations, onRowClick }) {
           <span className="text-gray-600 text-sm">—</span>
         )}
       </td>
+
+      {/* SCHED-3: Light dispatch affordance on released orders */}
+      <td className="px-4 py-3 text-right">
+        {order.status === 'released' && firstPendingOp && onDispatch ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDispatch(order, firstPendingOp);
+            }}
+            className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 rounded px-2 py-1 transition-colors"
+            title="Open scheduler for this order's next pending operation"
+          >
+            Dispatch →
+          </button>
+        ) : null}
+      </td>
     </tr>
   );
 }
@@ -187,6 +211,7 @@ export default function ProductionQueueList({
   filters,
   onFiltersChange,
   onCreateOrder,
+  onDispatch,
 }) {
   const [operationsMap, setOperationsMap] = useState({});
   const [loadingOps, setLoadingOps] = useState(false);
@@ -368,6 +393,7 @@ export default function ProductionQueueList({
               <th className="px-4 py-3 text-gray-400 font-medium text-sm">Materials</th>
               <th className="px-4 py-3 text-gray-400 font-medium text-sm">Status</th>
               <th className="px-4 py-3 text-gray-400 font-medium text-sm text-right">Due</th>
+              <th className="px-4 py-3 text-gray-400 font-medium text-sm text-right"></th>
             </tr>
           </thead>
           <tbody>
@@ -398,6 +424,7 @@ export default function ProductionQueueList({
                   order={order}
                   operations={operationsMap[order.id] || []}
                   onRowClick={onOrderClick}
+                  onDispatch={onDispatch}
                 />
               ))
             )}

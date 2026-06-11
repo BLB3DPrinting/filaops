@@ -578,6 +578,9 @@ export default function AdminPrinters() {
                     onTest={handleTestConnection}
                     testing={testingConnection === printer.id}
                     commandPending={pendingCommands.has(printer.id)}
+                    maintenanceDueSoon={maintenanceDue.printers.some(
+                      (p) => p.printer_id === printer.id
+                    )}
                   />
                 ))}
               </div>
