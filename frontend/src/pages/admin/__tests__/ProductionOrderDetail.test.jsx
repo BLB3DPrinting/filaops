@@ -38,6 +38,20 @@ vi.mock('../../../components/production', () => ({
   OperationsTimeline: () => <div>Operations timeline</div>,
 }))
 
+// Mock ReleaseScheduleWizard so we can check it opens on release and that
+// the page wires a working onClose (dismiss path).
+vi.mock('../../../components/production/ReleaseScheduleWizard', () => ({
+  default: (props) => {
+    if (!props.isOpen) return null
+    return (
+      <div data-testid="release-wizard">
+        Wizard open for {props.productionOrder?.code}
+        <button onClick={props.onClose}>Dismiss wizard</button>
+      </div>
+    )
+  },
+}))
+
 import ProductionOrderDetail from '../ProductionOrderDetail'
 
 const draftOrder = {
@@ -128,5 +142,41 @@ describe('ProductionOrderDetail', () => {
     await waitFor(() => {
       expect(mocks.post).toHaveBeenCalledWith('/api/v1/production-orders/2782/release')
     })
+  })
+
+  it('opens the release wizard after a successful release', async () => {
+    renderPage()
+
+    const releaseButtons = await screen.findAllByRole('button', {
+      name: /release to floor/i,
+    })
+    fireEvent.click(releaseButtons[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('release-wizard')).toBeInTheDocument()
+    })
+  })
+
+  it('release wizard is dismissible without affecting the released order', async () => {
+    renderPage()
+
+    const releaseButtons = await screen.findAllByRole('button', {
+      name: /release to floor/i,
+    })
+    fireEvent.click(releaseButtons[0])
+
+    // Wizard appears
+    await waitFor(() => {
+      expect(screen.getByTestId('release-wizard')).toBeInTheDocument()
+    })
+
+    // Dismiss it — the wizard must unmount and the release must stand
+    fireEvent.click(screen.getByRole('button', { name: /dismiss wizard/i }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('release-wizard')).not.toBeInTheDocument()
+    })
+
+    // The post was still called (release happened regardless of wizard)
+    expect(mocks.post).toHaveBeenCalledWith('/api/v1/production-orders/2782/release')
   })
 })

@@ -33,6 +33,7 @@ import CapacityRequirementsSection from "../../components/orders/CapacityRequire
 import PaymentsSection from "../../components/orders/PaymentsSection";
 import ShippingAddressSection from "../../components/orders/ShippingAddressSection";
 import { CancelOrderModal, DeleteOrderModal } from "../../components/orders/OrderModals";
+import ReleaseScheduleWizard from "../../components/production/ReleaseScheduleWizard";
 
 const getInvoiceBalanceDue = (invoice) =>
   invoice?.balance_due ?? invoice?.amount_due ?? 0;
@@ -146,6 +147,16 @@ export default function OrderDetail() {
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
+
+  // SCHED-3b: guided schedule wizard state
+  // wizardPending=true means we're waiting for fetchProductionOrders to
+  // resolve so we can hand the new PO to the wizard.
+  const [wizardPending, setWizardPending] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardProductionOrder, setWizardProductionOrder] = useState(null);
+  // Codes returned by generate-production-orders — the wizard must target
+  // one of THESE, not whatever sorts first in productionOrders.
+  const [wizardTargetCodes, setWizardTargetCodes] = useState([]);
 
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState({
@@ -407,6 +418,24 @@ export default function OrderDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
+  // SCHED-3b: open the wizard once productionOrders is populated after release
+  useEffect(() => {
+    if (!wizardPending || productionOrders.length === 0) return;
+    // Target a WO created by THIS generate call (matched by code). If codes
+    // are unavailable (older API shape), fall back to the newest WO for this
+    // order rather than index 0.
+    const target = wizardTargetCodes.length
+      ? productionOrders.find((po) => wizardTargetCodes.includes(po.code))
+      : [...productionOrders].sort(
+          (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        )[0];
+    if (!target) return; // refetch hasn't caught up with the new WO yet
+    setWizardPending(false);
+    setWizardTargetCodes([]);
+    setWizardProductionOrder(target);
+    setWizardOpen(true);
+  }, [wizardPending, wizardTargetCodes, productionOrders]);
+
   const handlePaymentRecorded = () => {
     setShowPaymentModal(false);
     setIsRefund(false);
@@ -441,13 +470,19 @@ export default function OrderDetail() {
     }
 
     try {
-      await api.post(
+      const result = await api.post(
         `/api/v1/sales-orders/${orderId}/generate-production-orders`
       );
 
       toast.success("Production order created successfully!");
       fetchProductionOrders();
       fetchOrder();
+
+      // SCHED-3b: offer the guided schedule wizard after release.
+      // Remember WHICH orders this call created (by code) so the wizard
+      // targets a newly created WO, not whatever happens to sort first.
+      setWizardTargetCodes(result?.created_orders || []);
+      setWizardPending(true);
     } catch (err) {
       toast.error(err.message);
     }
@@ -1628,6 +1663,25 @@ export default function OrderDetail() {
             setIsRefund(false);
           }}
           onSuccess={handlePaymentRecorded}
+        />
+      )}
+
+      {/* SCHED-3b: Guided initial-schedule wizard (shown after production release) */}
+      {wizardOpen && wizardProductionOrder && (
+        <ReleaseScheduleWizard
+          isOpen={wizardOpen}
+          productionOrder={wizardProductionOrder}
+          onClose={() => {
+            setWizardOpen(false);
+            setWizardProductionOrder(null);
+          }}
+          onOpenScheduler={() => {
+            setWizardOpen(false);
+            navigate(`/admin/production/${wizardProductionOrder.id}`);
+          }}
+          onRefresh={() => {
+            fetchProductionOrders();
+          }}
         />
       )}
 
