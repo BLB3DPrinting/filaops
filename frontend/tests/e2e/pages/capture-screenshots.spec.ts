@@ -49,7 +49,8 @@ async function screenshot(page: Page, name: string) {
 
 // Pages to capture
 const PAGES = [
-  { url: '/admin', name: 'dashboard-page', title: 'Dashboard' },
+  { url: '/admin', name: 'command-center-page', title: 'Command Center' },
+  { url: '/admin/dashboard', name: 'analytics-page', title: 'Analytics' },
   { url: '/admin/quotes', name: 'quotes-page', title: 'Quotes' },
   { url: '/admin/orders', name: 'orders-page', title: 'Orders' },
   { url: '/admin/customers', name: 'customers-page', title: 'Customers' },

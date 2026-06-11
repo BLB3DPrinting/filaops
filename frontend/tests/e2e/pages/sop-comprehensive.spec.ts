@@ -790,15 +790,15 @@ test.describe('SOP-SET-001: System Settings', () => {
 });
 
 // =============================================================================
-// Dashboard Tests
+// Command Center Tests (was: Dashboard Tests — /admin now loads CommandCenter per PR-13)
 // =============================================================================
 test.describe('Dashboard Verification', () => {
-  test('DASH-01: Verify Dashboard and capture screenshot', async ({ authPage: page }) => {
+  test('DASH-01: Verify Command Center and capture screenshot', async ({ authPage: page }) => {
     await page.goto('/admin');
     await page.waitForLoadState('networkidle');
 
     // Capture screenshot for SOP documentation
-    await captureScreenshot(page, 'dashboard-page');
+    await captureScreenshot(page, 'command-center-page');
 
     // Check for stat cards
     const statCards = page.locator('[class*="stat"], [class*="card"]');
@@ -857,17 +857,19 @@ test.describe('Sidebar Navigation', () => {
     await page.waitForLoadState('networkidle');
 
     const expectedLinks = [
-      'Dashboard',
-      'Orders',
-      'Quotes',
+      'Command Center',
+      'Analytics',
       'Customers',
-      'Items',
+      'Quotes',
+      'Orders',
+      'Shipping',
+      'Invoices',
+      'Payments',
       'Production',
+      'Work Centers & Routings',
+      'Items',
       'Bill of Materials',
       'Purchasing',
-      'Work Centers & Routings',
-      'Shipping',
-      'Payments',
       'Settings',
     ];
 

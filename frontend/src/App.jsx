@@ -155,8 +155,18 @@ export default function App() {
 
                   {/* ERP Admin Panel */}
                   <Route path="/admin" element={<AdminLayout />}>
+                    {/* CommandCenter is the /admin index (PR-13) */}
                     <Route
                       index
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <CommandCenter />
+                        </Suspense>
+                      }
+                    />
+                    {/* Analytics (previously Dashboard) lives at /admin/dashboard */}
+                    <Route
+                      path="dashboard"
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminDashboard />
@@ -393,13 +403,10 @@ export default function App() {
                         </Suspense>
                       }
                     />
+                    {/* Redirect legacy /admin/command-center bookmarks to the index */}
                     <Route
                       path="command-center"
-                      element={
-                        <Suspense fallback={<PageLoader />}>
-                          <CommandCenter />
-                        </Suspense>
-                      }
+                      element={<Navigate to="/admin" replace />}
                     />
                     <Route
                       path="access-requests"

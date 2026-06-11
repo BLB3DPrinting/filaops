@@ -171,9 +171,17 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-gray-400 mt-1">Welcome to the FilaOps Admin Panel</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Analytics</h1>
+          <p className="text-gray-400 mt-1">KPIs and trends for your print farm</p>
+        </div>
+        <Link
+          to="/admin"
+          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          ← Command Center
+        </Link>
       </div>
 
       {/* Sales Trend Chart - Primary KPI */}
@@ -186,156 +194,7 @@ export default function AdminDashboard() {
         />
       </div>
 
-      {/* Action Items Section */}
-      {(stats?.orders?.overdue > 0 ||
-        stats?.orders?.pending_confirmation > 0 ||
-        stats?.notifications?.unread > 0 ||
-        stats?.inventory?.low_stock_count > 0 ||
-        stats?.production?.ready_to_start > 0 ||
-        stats?.orders?.ready_to_ship > 0 ||
-        stats?.quotes?.pending > 0 ||
-        invoiceSummary?.overdue_count > 0) && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-            <svg
-              className="w-5 h-5 text-blue-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-              />
-            </svg>
-            <h3 className="font-semibold text-white">Action Items</h3>
-          </div>
-          <div className="divide-y divide-gray-800">
-            {/* Critical - Overdue */}
-            {stats?.orders?.overdue > 0 && (
-              <Link
-                to="/admin/orders?status=overdue"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-white">
-                    {stats.orders.overdue} Overdue Order{stats.orders.overdue !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span className="text-xs text-red-400 font-medium">URGENT</span>
-              </Link>
-            )}
-            {/* Critical - Overdue Invoices */}
-            {invoiceSummary?.overdue_count > 0 && (
-              <Link
-                to="/admin/invoices?status=overdue"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-white">
-                    {invoiceSummary.overdue_count} Overdue Invoice{invoiceSummary.overdue_count !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span className="text-xs text-red-400 font-medium">URGENT</span>
-              </Link>
-            )}
-            {/* Pending Confirmation Orders */}
-            {stats?.orders?.pending_confirmation > 0 && (
-              <Link
-                to="/admin/orders?filter=pending_review"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                  <span className="text-white">
-                    {stats.orders.pending_confirmation} Order{stats.orders.pending_confirmation !== 1 ? "s" : ""} Pending Review
-                  </span>
-                </div>
-                <span className="text-xs text-purple-400 font-medium">REVIEW</span>
-              </Link>
-            )}
-            {/* Unread Messages */}
-            {stats?.notifications?.unread > 0 && (
-              <Link
-                to="/admin/messages"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span className="text-white">
-                    {stats.notifications.unread} Unread Message{stats.notifications.unread !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span className="text-xs text-blue-400">Read</span>
-              </Link>
-            )}
-            {/* Warning - Low Stock */}
-            {stats?.inventory?.low_stock_count > 0 && (
-              <Link
-                to="/admin/purchasing?tab=low-stock"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-                  <span className="text-white">
-                    {stats.inventory.low_stock_count} Low Stock Item{stats.inventory.low_stock_count !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span className="text-xs text-yellow-400">Reorder needed</span>
-              </Link>
-            )}
-            {/* Action - Quotes */}
-            {stats?.quotes?.pending > 0 && (
-              <Link
-                to="/admin/quotes"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span className="text-white">
-                    {stats.quotes.pending} Pending Quote{stats.quotes.pending !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <span className="text-xs text-blue-400">Respond</span>
-              </Link>
-            )}
-            {/* Ready - Production */}
-            {stats?.production?.ready_to_start > 0 && (
-              <Link
-                to="/admin/production?status=released"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                  <span className="text-white">
-                    {stats.production.ready_to_start} Order{stats.production.ready_to_start !== 1 ? "s" : ""} Ready to Start
-                  </span>
-                </div>
-                <span className="text-xs text-green-400">Start production</span>
-              </Link>
-            )}
-            {/* Ready - Shipping */}
-            {stats?.orders?.ready_to_ship > 0 && (
-              <Link
-                to="/admin/shipping"
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
-                  <span className="text-white">
-                    {stats.orders.ready_to_ship} Order{stats.orders.ready_to_ship !== 1 ? "s" : ""} Ready to Ship
-                  </span>
-                </div>
-                <span className="text-xs text-cyan-400">Ship</span>
-              </Link>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Action Items removed — CommandCenter is the canonical action-items surface (PR-13) */}
 
       {/* SALES Section */}
       <div>

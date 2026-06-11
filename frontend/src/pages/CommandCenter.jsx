@@ -20,9 +20,9 @@ function SummarySkeleton() {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="bg-gray-800 rounded-xl p-4 animate-pulse">
-          <div className="h-4 bg-gray-700 rounded w-20 mb-2" />
-          <div className="h-8 bg-gray-700 rounded w-12" />
+        <div key={i} className="bg-[var(--color-surface-raised,theme(colors.gray.800))] rounded-xl p-4 animate-pulse">
+          <div className="h-4 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded w-20 mb-2" />
+          <div className="h-8 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded w-12" />
         </div>
       ))}
     </div>
@@ -36,12 +36,12 @@ function ActionItemsSkeleton() {
   return (
     <div className="space-y-3">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-gray-800 rounded-lg p-4 animate-pulse">
+        <div key={i} className="bg-[var(--color-surface-raised,theme(colors.gray.800))] rounded-lg p-4 animate-pulse">
           <div className="flex gap-3">
-            <div className="w-5 h-5 bg-gray-700 rounded-full" />
+            <div className="w-5 h-5 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded-full" />
             <div className="flex-1">
-              <div className="h-4 bg-gray-700 rounded w-1/3 mb-2" />
-              <div className="h-3 bg-gray-700 rounded w-2/3" />
+              <div className="h-4 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded w-1/3 mb-2" />
+              <div className="h-3 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded w-2/3" />
             </div>
           </div>
         </div>
@@ -119,31 +119,36 @@ export default function CommandCenter() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Command Center</h1>
-          <p className="text-gray-400 text-sm mt-1">{today}</p>
+          <h1 className="text-2xl font-bold text-white">Command Center</h1>
+          <p className="text-[var(--color-text-muted,theme(colors.gray.400))] text-sm mt-1">{today}</p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className={`
-            flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg
-            hover:bg-gray-700 transition-colors disabled:opacity-50
-          `}
-        >
-          <svg
-            className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-3">
+          <a
+            href="/admin/dashboard"
+            className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+            Analytics →
+          </a>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--color-surface-raised,theme(colors.gray.800))] rounded-lg hover:bg-[var(--color-surface-hover,theme(colors.gray.700))] transition-colors disabled:opacity-50"
+          >
+            <svg
+              className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -152,8 +157,8 @@ export default function CommandCenter() {
         <div className="space-y-8">
           {/* Summary Stats */}
           <section>
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-white">
+              <svg className="w-5 h-5 text-[var(--color-text-muted,theme(colors.gray.400))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
               Today's Summary
@@ -194,13 +199,13 @@ export default function CommandCenter() {
 
           {/* Action Items */}
           <section>
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-white">
+              <svg className="w-5 h-5 text-[var(--color-text-muted,theme(colors.gray.400))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               Action Items
               {actionItems.length > 0 && (
-                <span className="text-sm font-normal text-gray-400">
+                <span className="text-sm font-normal text-[var(--color-text-muted,theme(colors.gray.400))]">
                   ({actionItems.length})
                 </span>
               )}
@@ -232,22 +237,22 @@ export default function CommandCenter() {
 
           {/* Machine Status */}
           <section>
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-white">
+              <svg className="w-5 h-5 text-[var(--color-text-muted,theme(colors.gray.400))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
               </svg>
               Machines
               {resources.length > 0 && (
-                <span className="text-sm font-normal text-gray-400">
+                <span className="text-sm font-normal text-[var(--color-text-muted,theme(colors.gray.400))]">
                   ({resources.filter(r => r.status === 'running').length}/{resources.length} running)
                 </span>
               )}
             </h2>
             {loading ? (
-              <div className="bg-gray-800 rounded-lg p-8 animate-pulse">
+              <div className="bg-[var(--color-surface-raised,theme(colors.gray.800))] rounded-lg p-8 animate-pulse">
                 <div className="grid grid-cols-4 gap-4">
                   {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="h-20 bg-gray-700 rounded" />
+                    <div key={i} className="h-20 bg-[var(--color-surface-hover,theme(colors.gray.700))] rounded" />
                   ))}
                 </div>
               </div>
@@ -262,7 +267,7 @@ export default function CommandCenter() {
       )}
 
       {/* Auto-refresh indicator */}
-      <div className="fixed bottom-4 right-4 text-xs text-gray-600">
+      <div className="fixed bottom-4 right-4 text-xs text-[var(--color-text-muted,theme(colors.gray.600))]">
         Auto-refreshes every 60s
       </div>
     </div>
