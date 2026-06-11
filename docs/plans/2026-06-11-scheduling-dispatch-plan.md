@@ -155,9 +155,10 @@ logic, guided surface. Pure ease-of-use; never blocks release.
 
 - After a successful release (OrderDetail workflow card / ProductionOrderDetail),
   offer "Schedule it now?" → opens the EXISTING OperationSchedulerModal in its
-  sequential mode (the advance-to-next-pending-op flow already in the modal,
-  ~323-343 pre-fix — verify current lines) walking schedulable operations in
-  sequence order.
+  sequential mode — the advance-to-next-pending-op flow already in the modal
+  (~322-519: `fetchNextPendingOp`, the submit success branch,
+  `handleAdvanceToNextOp`, the ScheduleSuccess banner; verify current lines) —
+  walking schedulable operations in sequence order.
 - Each step PRE-FILLED with a suggestion: resource via dispatch ranking
   (SCHED-1's get_dispatch_suggestions logic — compatibility + maintenance warning
   included) and start time via find_next_available_slot, where each step's
