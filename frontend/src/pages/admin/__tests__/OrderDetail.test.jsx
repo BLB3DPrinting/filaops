@@ -9,7 +9,7 @@
  * - closed_short renders correctly depending on production completion
  * - Action surface is singular: state-changing buttons appear in workflow card
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -378,5 +378,99 @@ describe('OrderDetail — closed_short reconcile rendering (PR-8 / issue #680 it
     await screen.findByText('Order Summary')
     expect(screen.getByText(/previously closed short.*fulfilled/i)).toBeInTheDocument()
     expect(screen.queryByText(/^closed short$/i)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Delete Order button tests (fix: restore trigger removed by PR #713)
+// ---------------------------------------------------------------------------
+
+describe('OrderDetail — Delete Order button (PR-713 follow-up)', () => {
+  it('renders Delete Order button for status=pending', async () => {
+    const order = makeOrder({ status: 'pending' })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.getByRole('button', { name: /delete order/i })).toBeInTheDocument()
+  })
+
+  it('renders Delete Order button for status=cancelled', async () => {
+    const order = makeOrder({ status: 'cancelled' })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.getByRole('button', { name: /delete order/i })).toBeInTheDocument()
+  })
+
+  it('Delete Order button opens the delete confirmation modal', async () => {
+    const order = makeOrder({ status: 'pending' })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    const deleteBtn = await screen.findByRole('button', { name: /delete order/i })
+    fireEvent.click(deleteBtn)
+
+    expect(await screen.findByTestId('delete-modal')).toBeInTheDocument()
+  })
+
+  it('does NOT render Delete Order button for status=confirmed', async () => {
+    const order = makeOrder({ status: 'confirmed' })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.queryByRole('button', { name: /delete order/i })).not.toBeInTheDocument()
+  })
+
+  it('does NOT render Delete Order button for status=in_production', async () => {
+    const order = makeOrder({ status: 'in_production' })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.queryByRole('button', { name: /delete order/i })).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Close Short button — hidden when already closed short (fix: canCloseShort guard)
+// ---------------------------------------------------------------------------
+
+describe('OrderDetail — Close Short button hidden when already closed short', () => {
+  it('shows Close Short button when order is in_production and NOT closed_short', async () => {
+    const order = makeOrder({ status: 'in_production', closed_short: false })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.getByRole('button', { name: /close short/i })).toBeInTheDocument()
+  })
+
+  it('hides Close Short button when order.closed_short is true', async () => {
+    const order = makeOrder({ status: 'in_production', closed_short: true })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.queryByRole('button', { name: /close short/i })).not.toBeInTheDocument()
+  })
+
+  it('hides Close Short button when status is ready_to_ship and already closed_short', async () => {
+    const order = makeOrder({ status: 'ready_to_ship', closed_short: true })
+    setupApiMocks({ order })
+
+    renderOrderDetail()
+
+    await screen.findByText('Order Workflow')
+    expect(screen.queryByRole('button', { name: /close short/i })).not.toBeInTheDocument()
   })
 })

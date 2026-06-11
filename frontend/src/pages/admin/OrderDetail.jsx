@@ -495,7 +495,15 @@ export default function OrderDetail() {
   };
 
   const canCloseShort = () => {
-    return order && ["confirmed", "in_production", "ready_to_ship"].includes(order.status);
+    return (
+      order &&
+      !order.closed_short &&
+      ["confirmed", "in_production", "ready_to_ship"].includes(order.status)
+    );
+  };
+
+  const canDeleteOrder = () => {
+    return order && ["cancelled", "pending"].includes(order.status);
   };
 
   const openCloseShortModal = async () => {
@@ -1086,7 +1094,7 @@ export default function OrderDetail() {
         </div>
 
         {/* Secondary / destructive actions — below workflow steps */}
-        {(order.status === "pending_confirmation" || canCancelOrder() || canCloseShort()) && (
+        {(order.status === "pending_confirmation" || canCancelOrder() || canCloseShort() || canDeleteOrder()) && (
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-700/50 pt-4">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
               Order actions:
@@ -1124,6 +1132,14 @@ export default function OrderDetail() {
                 className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white hover:bg-amber-600"
               >
                 Close Short
+              </button>
+            )}
+            {canDeleteOrder() && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="rounded-lg bg-red-900 px-3 py-1.5 text-sm text-white hover:bg-red-800 border border-red-700"
+              >
+                Delete Order
               </button>
             )}
           </div>
