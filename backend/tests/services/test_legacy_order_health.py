@@ -157,6 +157,32 @@ class TestLegacyWOCoverage:
         assert created.sales_order_line_id == line2.id
         assert created.product_id == p2.id
 
+    def test_cancelled_wos_are_not_coverage(
+        self, db, make_sales_order, make_product
+    ):
+        """Cancelled WOs (linked or legacy NULL-linked) must not block
+        regeneration — an order whose WOs were all cancelled gets new ones."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        line = _make_order_line(db, so.id, product.id, quantity=2)
+        _make_legacy_wo(
+            db,
+            so_id=so.id,
+            product_id=product.id,
+            code=f"WO-LEG-CANC-{so.id}",
+            status="cancelled",
+        )
+
+        result = sales_order_service.generate_production_orders(
+            db, so.id, "test@filaops.dev"
+        )
+
+        assert len(result["created_orders"]) == 1
+        created = db.query(ProductionOrder).filter(
+            ProductionOrder.code == result["created_orders"][0]
+        ).one()
+        assert created.sales_order_line_id == line.id
+
     def test_unconfirmed_order_without_any_wos_still_rejected(
         self, db, make_sales_order, make_product
     ):

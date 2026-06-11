@@ -2885,8 +2885,11 @@ def generate_production_orders(
         producible_line_ids = [line.id for line in producible_lines]
         existing_pos = []
         if producible_line_ids:
+            # Cancelled WOs are not coverage — an order whose WOs were all
+            # cancelled must be able to regenerate them.
             existing_pos = db.query(ProductionOrder).filter(
-                ProductionOrder.sales_order_id == order_id
+                ProductionOrder.sales_order_id == order_id,
+                ProductionOrder.status != "cancelled",
             ).all()
             existing_po_line_ids = {
                 po.sales_order_line_id
@@ -2913,7 +2916,8 @@ def generate_production_orders(
             }
     else:
         existing_pos = db.query(ProductionOrder).filter(
-            ProductionOrder.sales_order_id == order_id
+            ProductionOrder.sales_order_id == order_id,
+            ProductionOrder.status != "cancelled",
         ).all()
 
     if existing_pos and (

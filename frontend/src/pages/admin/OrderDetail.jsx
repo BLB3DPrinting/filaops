@@ -72,10 +72,15 @@ export default function OrderDetail() {
   };
 
   const hasMainProductWO = () => {
+    // Cancelled WOs are not coverage — mirrored in
+    // generate_production_orders() (backend) — keep in sync.
+    const activePOs = productionOrders.filter(
+      (po) => po.status !== "cancelled"
+    );
     const productLines = order?.lines?.filter((line) => line.product_id) || [];
     if (productLines.length > 0) {
       const woLineIds = new Set(
-        productionOrders
+        activePOs
           .map((po) => po.sales_order_line_id)
           .filter((lineId) => lineId !== null && lineId !== undefined)
       );
@@ -85,7 +90,7 @@ export default function OrderDetail() {
       // Mirrored in generate_production_orders() in
       // backend/app/services/sales_order_service.py — keep in sync.
       const legacyCoveredProductIds = new Set(
-        productionOrders
+        activePOs
           .filter(
             (po) =>
               po.sales_order_line_id === null ||
@@ -99,7 +104,7 @@ export default function OrderDetail() {
       );
     }
     if (order?.product_id) {
-      return productionOrders.some((po) => po.product_id === order.product_id);
+      return activePOs.some((po) => po.product_id === order.product_id);
     }
     return false;
   };
