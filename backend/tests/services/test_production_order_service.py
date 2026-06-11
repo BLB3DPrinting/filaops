@@ -30,8 +30,7 @@ from unittest.mock import patch, MagicMock
 
 from fastapi import HTTPException
 
-from app.models import ProductionOrder, Product, BOM
-from app.models.bom import BOMLine
+from app.models import ProductionOrder
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.models.production_order import (
     ProductionOrderOperation,
@@ -619,31 +618,45 @@ class TestReleaseProductionOrder:
             svc.release_production_order(db, order.id, "test@filaops.dev")
         assert exc_info.value.status_code == 400
 
-    def test_release_with_material_shortage_blocked(self, db, finished_good, raw_material):
-        """Should block release when materials are short and force=False."""
-        routing, rop = _make_routing_with_operation(db, finished_good)
-        rom = RoutingOperationMaterial(
-            routing_operation_id=rop.id,
-            component_id=raw_material.id,
-            quantity=Decimal("100"),
-            unit="G",
+    def test_release_with_no_reservation_blocked_not_allocated(
+        self, db, finished_good, raw_material
+    ):
+        """Should block release with 'not yet allocated' message when no
+        inventory reservation exists (e.g. allocation step was never run)."""
+        # Create order directly (bypassing service) so no BOM/reservation exists
+        order = _make_production_order(db, finished_good, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            planned_setup_minutes=5,
+            planned_run_minutes=Decimal("10"),
+            status="pending",
         )
-        db.add(rom)
+        db.add(op)
         db.flush()
-
-        order = svc.create_production_order(
-            db,
-            product_id=finished_good.id,
-            quantity_ordered=5,
-            created_by="test@filaops.dev",
-            routing_id=routing.id,
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=raw_material.id,
+            quantity_required=Decimal("500"),
+            quantity_allocated=Decimal("0"),
+            unit="G",
+            status="pending",
         )
+        db.add(mat)
+        db.flush()
+        db.expire(order, ["operations"])
 
         with pytest.raises(HTTPException) as exc_info:
             svc.release_production_order(db, order.id, "test@filaops.dev", force=False)
         assert exc_info.value.status_code == 400
         detail = exc_info.value.detail
-        assert "shortages" in detail or "shortage" in str(detail).lower()
+        assert isinstance(detail, dict)
+        assert "shortages" in detail
+        assert any(s["reason"] == "not_allocated" for s in detail["shortages"])
+        assert "not yet allocated" in detail["message"].lower()
 
     def test_release_with_force_overrides_shortage(self, db, finished_good, raw_material):
         """Should release despite shortages when force=True."""
@@ -673,6 +686,273 @@ class TestReleaseProductionOrder:
         order = _make_production_order(db, finished_good, status="draft")
         released = svc.release_production_order(db, order.id, "test@filaops.dev", force=False)
         assert released.status == "released"
+
+    def test_release_after_reservation_syncs_and_passes(
+        self, db, finished_good, raw_material, make_bom
+    ):
+        """reserve then release: op-material rows should be synced, gate passes."""
+        from app.models.inventory import Inventory, InventoryLocation
+        from app.services.inventory_service import reserve_production_materials
+
+        # Give the component plentiful stock
+        location = db.query(InventoryLocation).first()
+        inv = Inventory(
+            product_id=raw_material.id,
+            location_id=location.id,
+            on_hand_quantity=Decimal("10000"),
+            allocated_quantity=Decimal("0"),
+        )
+        db.add(inv)
+        db.flush()
+
+        # BOM: 100 g per unit
+        make_bom(finished_good.id, lines=[
+            {"component_id": raw_material.id, "quantity": Decimal("100"), "unit": "G"},
+        ])
+
+        # Routing + one op-material row
+        routing, rop = _make_routing_with_operation(db, finished_good)
+        rom = RoutingOperationMaterial(
+            routing_operation_id=rop.id,
+            component_id=raw_material.id,
+            quantity=Decimal("100"),
+            unit="G",
+        )
+        db.add(rom)
+        db.flush()
+
+        order = svc.create_production_order(
+            db,
+            product_id=finished_good.id,
+            quantity_ordered=5,
+            created_by="test@filaops.dev",
+            routing_id=routing.id,
+        )
+
+        # Reserve materials — this should sync op-material rows
+        reserve_production_materials(db, order, created_by="test@filaops.dev")
+
+        db.expire(order, ["operations"])
+        for op in order.operations:
+            for mat in op.materials:
+                assert Decimal(str(mat.quantity_allocated)) > Decimal("0"), (
+                    "quantity_allocated should be positive after reservation"
+                )
+
+        # Release should now pass without force
+        released = svc.release_production_order(db, order.id, "test@filaops.dev", force=False)
+        assert released.status == "released"
+
+    def test_release_multi_op_same_component_distribution(
+        self, db, finished_good, raw_material, make_bom
+    ):
+        """Multi-op rows for the same component: qty fills sequentially."""
+        from app.models.inventory import Inventory, InventoryLocation
+        from app.services.inventory_service import reserve_production_materials
+
+        location = db.query(InventoryLocation).first()
+        inv = Inventory(
+            product_id=raw_material.id,
+            location_id=location.id,
+            on_hand_quantity=Decimal("10000"),
+            allocated_quantity=Decimal("0"),
+        )
+        db.add(inv)
+        db.flush()
+
+        # BOM: 200 g per unit (for qty=1 → 200 g total reserved)
+        make_bom(finished_good.id, lines=[
+            {"component_id": raw_material.id, "quantity": Decimal("200"), "unit": "G"},
+        ])
+
+        # Two routing operations, both using raw_material
+        routing = Routing(
+            product_id=finished_good.id,
+            code="RT-MULTI",
+            name="Multi-op routing",
+            is_active=True,
+        )
+        db.add(routing)
+        db.flush()
+
+        from app.models.manufacturing import RoutingOperation, RoutingOperationMaterial
+        rop1 = RoutingOperation(
+            routing_id=routing.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PREP",
+            operation_name="Prep",
+            setup_time_minutes=0,
+            run_time_minutes=Decimal("5"),
+        )
+        rop2 = RoutingOperation(
+            routing_id=routing.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="PRINT",
+            operation_name="Print",
+            setup_time_minutes=0,
+            run_time_minutes=Decimal("30"),
+        )
+        db.add_all([rop1, rop2])
+        db.flush()
+
+        # Each op needs 80 g → total 160 g required; 200 g reserved
+        rom1 = RoutingOperationMaterial(
+            routing_operation_id=rop1.id,
+            component_id=raw_material.id,
+            quantity=Decimal("80"),
+            unit="G",
+        )
+        rom2 = RoutingOperationMaterial(
+            routing_operation_id=rop2.id,
+            component_id=raw_material.id,
+            quantity=Decimal("80"),
+            unit="G",
+        )
+        db.add_all([rom1, rom2])
+        db.flush()
+
+        order = svc.create_production_order(
+            db,
+            product_id=finished_good.id,
+            quantity_ordered=1,
+            created_by="test@filaops.dev",
+            routing_id=routing.id,
+        )
+
+        reserve_production_materials(db, order, created_by="test@filaops.dev")
+        db.expire(order, ["operations"])
+
+        # Collect op-material rows in sequence order
+        rows = sorted(
+            [mat for op in order.operations for mat in op.materials],
+            key=lambda r: (r.operation.sequence, r.id),
+        )
+        assert len(rows) == 2
+
+        # 200 g reserved, row0 needs 80 → 80; row1 needs 80 → 80; 40 g remainder capped
+        assert Decimal(str(rows[0].quantity_allocated)) == Decimal("80")
+        assert Decimal(str(rows[1].quantity_allocated)) == Decimal("80")
+
+    def test_release_insufficient_stock_error_message(
+        self, db, finished_good, raw_material
+    ):
+        """When stock is genuinely short, error should say 'Insufficient stock for ...'"""
+        from app.models.inventory import InventoryLocation, InventoryTransaction
+
+        location = db.query(InventoryLocation).first()
+
+        order = _make_production_order(db, finished_good, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            planned_setup_minutes=0,
+            planned_run_minutes=Decimal("10"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=raw_material.id,
+            quantity_required=Decimal("500"),
+            quantity_allocated=Decimal("0"),
+            unit="G",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        # Post a real reservation transaction (simulates reserve_production_materials ran)
+        # but only for 100 g (short by 400 g)
+        txn = InventoryTransaction(
+            product_id=raw_material.id,
+            location_id=location.id,
+            transaction_type="reservation",
+            quantity=Decimal("100"),
+            reference_type="production_order",
+            reference_id=order.id,
+            unit="G",
+            notes="Manual test reservation",
+        )
+        db.add(txn)
+        db.flush()
+
+        # Manually set allocated to reflect the partial reservation
+        mat.quantity_allocated = Decimal("100")
+        db.flush()
+        db.expire(order, ["operations"])
+
+        with pytest.raises(HTTPException) as exc_info:
+            svc.release_production_order(db, order.id, "test@filaops.dev", force=False)
+        assert exc_info.value.status_code == 400
+        detail = exc_info.value.detail
+        assert isinstance(detail, dict)
+        assert any(s["reason"] == "insufficient_stock" for s in detail["shortages"])
+        # Message should contain "Insufficient stock for"
+        assert "insufficient stock for" in detail["message"].lower()
+
+    def test_self_heal_releases_stranded_wo(self, db, finished_good, raw_material):
+        """Stranded WO (op-mats=0 but ledger has reservations) should self-heal
+        and pass the release gate when stock was actually reserved."""
+        from app.models.inventory import InventoryLocation, InventoryTransaction
+
+        location = db.query(InventoryLocation).first()
+
+        # Create order + op-material manually at quantity_allocated=0
+        order = _make_production_order(db, finished_good, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            planned_setup_minutes=0,
+            planned_run_minutes=Decimal("10"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+
+        qty_needed = Decimal("500")
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=raw_material.id,
+            quantity_required=qty_needed,
+            quantity_allocated=Decimal("0"),  # stranded — not synced
+            unit="G",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        # Post the ledger reservation (simulates pre-fix state)
+        txn = InventoryTransaction(
+            product_id=raw_material.id,
+            location_id=location.id,
+            transaction_type="reservation",
+            quantity=qty_needed,
+            reference_type="production_order",
+            reference_id=order.id,
+            unit="G",
+            notes="Pre-fix stranded reservation",
+        )
+        db.add(txn)
+        db.flush()
+        db.expire(order, ["operations"])
+
+        # Release should self-heal and succeed (no force)
+        released = svc.release_production_order(db, order.id, "test@filaops.dev", force=False)
+        assert released.status == "released"
+
+        # Confirm op-material row was backfilled
+        db.refresh(mat)
+        assert Decimal(str(mat.quantity_allocated)) == qty_needed
 
 
 # =============================================================================
@@ -1007,6 +1287,63 @@ class TestCancelProductionOrder:
         order = _make_production_order(db, finished_good, status="scheduled")
         cancelled = svc.cancel_production_order(db, order.id, "test@filaops.dev")
         assert cancelled.status == "cancelled"
+
+    def test_cancel_zeroes_op_material_allocations(self, db, finished_good, raw_material):
+        """Cancelling an order should zero quantity_allocated on pending op-material rows."""
+        from app.models.inventory import InventoryLocation, InventoryTransaction
+
+        location = db.query(InventoryLocation).first()
+
+        order = _make_production_order(db, finished_good, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            planned_setup_minutes=0,
+            planned_run_minutes=Decimal("10"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+
+        qty = Decimal("200")
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=raw_material.id,
+            quantity_required=qty,
+            quantity_allocated=qty,  # simulate post-reservation state
+            unit="G",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        # Post reservation so cancel's release_production_reservations fires
+        txn = InventoryTransaction(
+            product_id=raw_material.id,
+            location_id=location.id,
+            transaction_type="reservation",
+            quantity=qty,
+            reference_type="production_order",
+            reference_id=order.id,
+            unit="G",
+            notes="Test reservation for cancel test",
+        )
+        db.add(txn)
+        db.flush()
+        db.expire(order, ["operations"])
+
+        svc.cancel_production_order(db, order.id, "test@filaops.dev")
+
+        # Flush so the SELECT in refresh sees the in-flight zeroing.
+        # (cancel_production_order doesn't commit; the endpoint does.)
+        db.flush()
+        db.refresh(mat)
+        assert Decimal(str(mat.quantity_allocated)) == Decimal("0"), (
+            "quantity_allocated should be zeroed after cancellation"
+        )
 
 
 # =============================================================================
