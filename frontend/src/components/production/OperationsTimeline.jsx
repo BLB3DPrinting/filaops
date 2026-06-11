@@ -84,7 +84,9 @@ function TimelineNode({ operation }) {
   } else if (operation.status === 'skipped') {
     timingText = 'Skipped';
   } else {
-    const planned = (operation.planned_setup_minutes || 0) + (operation.planned_run_minutes || 0);
+    // API returns Numeric columns as strings; use parseFloat to avoid string concatenation
+    const toMin = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+    const planned = toMin(operation.planned_setup_minutes) + toMin(operation.planned_run_minutes);
     if (planned > 0) {
       timingText = `~${formatDuration(planned)}`;
     }
