@@ -161,10 +161,14 @@ class TestScheduleOperationPredecessorResponse:
         assert data["earliest_valid_start"] is not None
 
         # earliest_valid_start must be >= the predecessor's scheduled_end
-        def _naive(dt):
-            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        def _to_utc(dt):
+            return (
+                dt.replace(tzinfo=timezone.utc)
+                if dt.tzinfo is None
+                else dt.astimezone(timezone.utc)
+            )
         earliest = datetime.fromisoformat(data["earliest_valid_start"])
-        assert _naive(earliest) >= _naive(pred_end)
+        assert _to_utc(earliest) >= _to_utc(pred_end)
 
     def test_predecessor_violation_next_available_start_present(
         self, client, db, make_product, make_production_order, make_work_center
@@ -214,12 +218,16 @@ class TestScheduleOperationPredecessorResponse:
         data = response.json()
         assert data["next_available_start"] is not None
 
-        def _naive(dt):
-            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        def _to_utc(dt):
+            return (
+                dt.replace(tzinfo=timezone.utc)
+                if dt.tzinfo is None
+                else dt.astimezone(timezone.utc)
+            )
 
         earliest = datetime.fromisoformat(data["earliest_valid_start"])
         next_avail = datetime.fromisoformat(data["next_available_start"])
-        assert _naive(next_avail) >= _naive(earliest)
+        assert _to_utc(next_avail) >= _to_utc(earliest)
 
     def test_unscheduled_predecessor_suppresses_suggestion(
         self, client, db, make_product, make_production_order, make_work_center
