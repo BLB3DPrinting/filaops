@@ -532,7 +532,9 @@ def schedule_operation_endpoint(
             is_printer=request.is_printer,
         )
     except SequenceError as e:
-        # Return same shape as a conflict so the frontend gets a suggested slot
+        # Pure predecessor violation — no resource conflict.
+        # earliest_valid_start = the latest predecessor end (absolute floor).
+        # next_available_start = earliest slot on the resource at or after that floor.
         earliest = get_earliest_start_after_predecessors(
             db=db,
             operation=op,
@@ -549,14 +551,16 @@ def schedule_operation_endpoint(
             success=False,
             message=str(e),
             conflicts=[],
+            conflict_type="predecessor",
+            earliest_valid_start=earliest,
             next_available_start=next_start,
             next_available_end=next_start + timedelta(minutes=duration_minutes),
         )
 
     if not success:
-        # Calculate next available slot for this resource, accounting for
+        # Resource conflict — calculate next available slot accounting for
         # both resource conflicts AND predecessor sequence constraints.
-        # Floor: can't start before all predecessors are done
+        # Floor: can't start before all predecessors are done.
         earliest = get_earliest_start_after_predecessors(
             db=db,
             operation=op,
@@ -587,6 +591,7 @@ def schedule_operation_endpoint(
             success=False,
             message=f"Scheduling conflict with {len(conflicts)} existing operation(s)",
             conflicts=conflict_details,
+            conflict_type="resource",
             next_available_start=next_start,
             next_available_end=suggested_end,
         )
