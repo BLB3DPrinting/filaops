@@ -2767,7 +2767,10 @@ def generate_production_orders(
     if order.status != "confirmed":
         raise HTTPException(
             status_code=400,
-            detail="Confirm the sales order before generating production orders"
+            detail=(
+                f"Work orders can only be generated while the order is in Confirmed status; "
+                f"this order is {order.status.replace('_', ' ')}."
+            )
         )
 
     created_orders = []

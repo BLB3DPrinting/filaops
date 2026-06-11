@@ -2802,6 +2802,7 @@ class TestCopyRoutingToOperations:
         assert len(ops) == 1
         assert ops[0].planned_run_minutes == 120.0  # 30 * 4
 
+
     def test_create_production_orders_with_routing_for_quote_based(
         self, db, make_product, make_bom, make_sales_order
     ):
@@ -2837,3 +2838,205 @@ class TestCopyRoutingToOperations:
             ProductionOrderOperation.production_order_id == po.id
         ).all()
         assert len(ops) == 1
+
+# =============================================================================
+# PR-8: generate_production_orders -- error copy (issue #680 item 3)
+# =============================================================================
+
+class TestGenerateProductionOrdersErrorCopy:
+    """Verify error messages name the actual blocking rule."""
+
+    def test_error_names_current_status_not_confirmed(self, db, make_sales_order, make_product):
+        """400 detail names the actual status, not a generic confirm-first message."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="in_production", order_type="line_item")
+        _make_order_line(db, so.id, product.id, quantity=1)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+
+        assert exc_info.value.status_code == 400
+        detail = exc_info.value.detail
+        assert "in production" in detail.lower()
+        assert "confirmed" in detail.lower()
+
+    def test_error_names_ready_to_ship_status(self, db, make_sales_order, make_product):
+        """400 detail names ready to ship for a closed-short order."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="ready_to_ship", order_type="line_item")
+        _make_order_line(db, so.id, product.id, quantity=1)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+
+        assert exc_info.value.status_code == 400
+        detail = exc_info.value.detail
+        assert "ready to ship" in detail.lower()
+        assert "confirmed" in detail.lower()
+
+    def test_confirmed_order_succeeds(self, db, make_sales_order, make_product):
+        """Confirmed order with producible lines creates work orders successfully."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        _make_order_line(db, so.id, product.id, quantity=2)
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+
+# =============================================================================
+# PR-8: line linkage on generate_production_orders paths (issue #680 item 1)
+# =============================================================================
+
+class TestGenerateProductionOrdersLineLinkage:
+    """sales_order_line_id is set on all line_item creation paths."""
+
+    def test_line_item_wo_carries_line_id(self, db, make_sales_order, make_product):
+        """WOs created for line_item orders must have sales_order_line_id set."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        line = _make_order_line(db, so.id, product.id, quantity=3)
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+        po = db.query(ProductionOrder).filter(
+            ProductionOrder.code == result["created_orders"][0]
+        ).first()
+        assert po is not None
+        assert po.sales_order_line_id == line.id
+
+    def test_multi_line_each_wo_carries_its_line_id(self, db, make_sales_order, make_product):
+        """Each WO carries the ID of its specific line."""
+        p1 = make_product(selling_price=Decimal("10.00"))
+        p2 = make_product(selling_price=Decimal("20.00"))
+        so = make_sales_order(status="confirmed", order_type="line_item")
+        line1 = _make_order_line(db, so.id, p1.id, quantity=1)
+        line2 = _make_order_line(db, so.id, p2.id, quantity=2)
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 2
+
+        linked_pos = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == so.id
+        ).all()
+        linked_line_ids = {po.sales_order_line_id for po in linked_pos}
+        assert line1.id in linked_line_ids
+        assert line2.id in linked_line_ids
+
+    def test_quote_based_wo_has_null_line_id(self, db, make_sales_order, make_product):
+        """quote_based orders have no line items -- NULL is the correct value."""
+        from datetime import datetime, timezone, timedelta
+        from app.models.quote import Quote
+
+        product = make_product(selling_price=Decimal("10.00"))
+        quote = Quote(
+            user_id=1,
+            quote_number="Q-TEST-LINELINK-001",
+            product_name="Test Widget",
+            quantity=2,
+            material_type="PLA",
+            total_price=Decimal("20.00"),
+            unit_price=Decimal("10.00"),
+            file_format=".stl",
+            file_size_bytes=1000,
+            status="accepted",
+            product_id=product.id,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+        db.add(quote)
+        db.flush()
+
+        so = make_sales_order(
+            status="confirmed",
+            order_type="quote_based",
+            product_id=product.id,
+            quote_id=quote.id,
+            quantity=2,
+        )
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+        po = db.query(ProductionOrder).filter(
+            ProductionOrder.code == result["created_orders"][0]
+        ).first()
+        assert po is not None
+        # quote_based orders have no lines -- NULL is correct
+        assert po.sales_order_line_id is None
+
+
+# =============================================================================
+# PR-8: closed_short reconcile (issue #680 item 2)
+# =============================================================================
+
+class TestClosedShortReconcile:
+    """closed_short flag is preserved as audit record after demand is subsequently met."""
+
+    def test_closed_short_flag_preserved_when_production_completes(
+        self, db, make_sales_order, make_product
+    ):
+        """closed_short=True remains after all WOs complete -- it is an audit record.
+
+        The UI surfaces Previously Closed Short - Fulfilled when all WOs are complete.
+        The flag must NOT be cleared so the close-short action is preserved for audit.
+        """
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="ready_to_ship",
+            order_type="line_item",
+            closed_short=True,
+        )
+        line = _make_order_line(db, so.id, product.id, quantity=2)
+
+        po = ProductionOrder(
+            code="PO-CLSHRT-RECN-001",
+            product_id=product.id,
+            sales_order_id=so.id,
+            sales_order_line_id=line.id,
+            quantity_ordered=2,
+            quantity_completed=2,
+            quantity_scrapped=0,
+            status="complete",
+            created_by="test",
+        )
+        db.add(po)
+        db.flush()
+
+        db.refresh(so)
+        assert so.closed_short is True
+
+    def test_closed_short_is_set_by_close_short_action(
+        self, db, make_sales_order, make_product
+    ):
+        """close_short service function sets closed_short=True and transitions to ready_to_ship."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="in_production",
+            order_type="line_item",
+        )
+        line = _make_order_line(db, so.id, product.id, quantity=5)
+
+        po = ProductionOrder(
+            code="PO-CLSHRT-SET-001",
+            product_id=product.id,
+            sales_order_id=so.id,
+            sales_order_line_id=line.id,
+            quantity_ordered=5,
+            quantity_completed=3,
+            quantity_scrapped=0,
+            status="complete",
+            created_by="test",
+        )
+        db.add(po)
+        db.flush()
+
+        sales_order_service.close_short_sales_order(
+            db, so.id, user_id=1, reason="Not enough material to complete full run"
+        )
+        db.flush()
+        db.refresh(so)
+
+        assert so.closed_short is True
+        assert so.status == "ready_to_ship"
+        assert so.close_short_reason is not None
