@@ -91,6 +91,12 @@ class CompanySettings(Base):
     # Block external AI services (force local-only for data privacy)
     external_ai_blocked = Column(Boolean, nullable=False, default=False)
 
+    # Dispatch settings
+    # When True: on each suggestions refresh, auto-confirm the top suggestion per
+    # idle printer — EXCEPT suggestions carrying a maintenance_warning (hard block).
+    # Default OFF — operators confirm manually until they opt in.
+    auto_dispatch = Column(Boolean, nullable=False, default=False)
+
     # Pricing
     default_margin_percent = Column(Numeric(5, 2), nullable=True)
 

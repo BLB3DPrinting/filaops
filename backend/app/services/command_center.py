@@ -9,6 +9,8 @@ from collections import defaultdict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.maintenance import MaintenanceLog
+from app.models.printer import Printer
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 from app.models.sales_order import SalesOrder
 from app.models.manufacturing import Resource
@@ -25,6 +27,10 @@ from app.schemas.command_center import (
     ResourcesResponse,
     OperationSummary,
 )
+
+#: SCHED-4 — printers overdue or due within this many days trigger a
+#: MAINTENANCE_DUE action item (priority 3, same level as overrunning ops).
+MAINTENANCE_DUE_THRESHOLD_DAYS: int = 7
 
 
 def get_action_items(db: Session) -> ActionItemsResponse:
@@ -50,6 +56,10 @@ def get_action_items(db: Session) -> ActionItemsResponse:
     # 4. Overrunning Operations (Priority 3 - Medium)
     overrunning_items = _get_overrunning_operations(db)
     items.extend(overrunning_items)
+
+    # 4b. Printers due for maintenance (Priority 3 — SCHED-4)
+    maintenance_items = _get_maintenance_due_printers(db)
+    items.extend(maintenance_items)
 
     # 5. Idle Resources with Work Waiting (Priority 4 - Low)
     idle_resource_items = _get_idle_resources_with_work(db)
@@ -269,6 +279,83 @@ def _get_overrunning_operations(db: Session) -> List[ActionItem]:
     return items
 
 
+def _get_maintenance_due_printers(db: Session) -> List[ActionItem]:
+    """
+    SCHED-4: Return a single action item when one or more active printers are
+    overdue for maintenance or due within MAINTENANCE_DUE_THRESHOLD_DAYS.
+
+    Aggregated into one item (not per-printer) to avoid flooding the list.
+    Priority 3 (same as overrunning ops — important but not critical).
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, matches DB column
+    threshold = now + timedelta(days=MAINTENANCE_DUE_THRESHOLD_DAYS)
+
+    printers = db.query(Printer).filter(Printer.active.is_(True)).all()
+
+    overdue_codes: list[str] = []
+    due_soon_codes: list[str] = []
+
+    for printer in printers:
+        latest_log = (
+            db.query(MaintenanceLog)
+            .filter(MaintenanceLog.printer_id == printer.id)
+            .order_by(MaintenanceLog.performed_at.desc())
+            .first()
+        )
+        if latest_log is None or latest_log.next_due_at is None:
+            continue
+
+        due_at = latest_log.next_due_at
+        # next_due_at stored naive UTC (see MaintenanceLog model)
+        if due_at <= now:
+            overdue_codes.append(printer.code)
+        elif due_at <= threshold:
+            due_soon_codes.append(printer.code)
+
+    total = len(overdue_codes) + len(due_soon_codes)
+    if total == 0:
+        return []
+
+    if overdue_codes and due_soon_codes:
+        title = f"{total} printers due for maintenance"
+        desc = (
+            f"Overdue: {', '.join(overdue_codes[:3])}{'...' if len(overdue_codes) > 3 else ''}; "
+            f"Due soon: {', '.join(due_soon_codes[:3])}{'...' if len(due_soon_codes) > 3 else ''}"
+        )
+    elif overdue_codes:
+        title = f"{len(overdue_codes)} {'printer' if len(overdue_codes) == 1 else 'printers'} overdue for maintenance"
+        desc = ", ".join(overdue_codes[:5]) + ("..." if len(overdue_codes) > 5 else "")
+    else:
+        title = f"{len(due_soon_codes)} {'printer' if len(due_soon_codes) == 1 else 'printers'} due for maintenance soon"
+        desc = f"Within {MAINTENANCE_DUE_THRESHOLD_DAYS} days: {', '.join(due_soon_codes[:5])}"
+
+    return [
+        ActionItem(
+            id="maintenance_due_printers",
+            type=ActionItemType.MAINTENANCE_DUE,
+            priority=3,
+            title=title,
+            description=desc,
+            entity_type="printer",
+            entity_id=0,  # Aggregate — no single entity
+            entity_code=None,
+            suggested_actions=[
+                SuggestedAction(
+                    label="View Maintenance",
+                    url="/admin/printers?tab=maintenance",
+                    action_type="navigate",
+                )
+            ],
+            created_at=None,
+            metadata={
+                "overdue_count": str(len(overdue_codes)),
+                "due_soon_count": str(len(due_soon_codes)),
+                "threshold_days": str(MAINTENANCE_DUE_THRESHOLD_DAYS),
+            },
+        )
+    ]
+
+
 def _get_idle_resources_with_work(db: Session) -> List[ActionItem]:
     """Get resources that are idle but have pending work in their work center."""
     items = []
@@ -429,6 +516,58 @@ def get_today_summary(db: Session) -> TodaySummary:
     )
 
 
+def _resolve_printer_for_resource(db: Session, resource: Resource) -> tuple[int | None, bool]:
+    """
+    SCHED-3/4: Try to find a Printer row that corresponds to this Resource.
+
+    Matching heuristic (cheapest-first):
+    1. Same work_center_id + resource.code matches printer.code exactly.
+    2. Same work_center_id + printer is the only active printer in the WC.
+
+    Returns ``(printer_id | None, maintenance_due_soon)``.
+    ``maintenance_due_soon`` is True when the printer's latest log has
+    ``next_due_at`` within MAINTENANCE_DUE_THRESHOLD_DAYS from now.
+    """
+    if resource.work_center_id is None:
+        return None, False
+
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    threshold = now_naive + timedelta(days=MAINTENANCE_DUE_THRESHOLD_DAYS)
+
+    # Try exact code match first
+    printer = db.query(Printer).filter(
+        Printer.work_center_id == resource.work_center_id,
+        Printer.code == resource.code,
+        Printer.active.is_(True),
+    ).first()
+
+    if printer is None:
+        # Fall back: single active printer in the same work center
+        wc_printers = db.query(Printer).filter(
+            Printer.work_center_id == resource.work_center_id,
+            Printer.active.is_(True),
+        ).all()
+        if len(wc_printers) == 1:
+            printer = wc_printers[0]
+
+    if printer is None:
+        return None, False
+
+    # Check maintenance due-soon
+    latest_log = (
+        db.query(MaintenanceLog)
+        .filter(MaintenanceLog.printer_id == printer.id)
+        .order_by(MaintenanceLog.performed_at.desc())
+        .first()
+    )
+    maintenance_due_soon = (
+        latest_log is not None
+        and latest_log.next_due_at is not None
+        and latest_log.next_due_at <= threshold
+    )
+    return printer.id, maintenance_due_soon
+
+
 def get_resource_statuses(db: Session) -> ResourcesResponse:
     """Get current status of all resources/machines."""
     resources = db.query(Resource).filter(
@@ -486,6 +625,9 @@ def get_resource_statuses(db: Session) -> ResourcesResponse:
             ProductionOrderOperation.status.in_(['pending', 'queued'])
         ).count()
 
+        # SCHED-3/4: Resolve linked printer for dispatch chips + maintenance badge
+        printer_id, maintenance_due_soon = _resolve_printer_for_resource(db, resource)
+
         result_resources.append(ResourceStatus(
             id=resource.id,
             code=resource.code,
@@ -495,7 +637,9 @@ def get_resource_statuses(db: Session) -> ResourcesResponse:
             status=status,
             current_operation=current_operation,
             idle_since=None,  # Would need tracking to implement
-            pending_operations_count=pending_count
+            pending_operations_count=pending_count,
+            printer_id=printer_id,
+            maintenance_due_soon=maintenance_due_soon,
         ))
 
         status_counts[status] += 1
