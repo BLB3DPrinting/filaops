@@ -48,10 +48,17 @@ export async function confirmDispatch(suggestion, printerId) {
         printer_id: printerId,
       }),
     });
-    const data = await res.json();
     if (!res.ok) {
-      return { ok: false, message: data.detail || "Dispatch failed" };
+      let message = "Dispatch failed";
+      try {
+        const errData = await res.json();
+        message = errData.detail || message;
+      } catch {
+        // non-JSON error body (proxy/HTML error page) — keep generic message
+      }
+      return { ok: false, message };
     }
+    const data = await res.json();
     return { ok: true, data };
   } catch (err) {
     return { ok: false, message: err.message || "Network error" };

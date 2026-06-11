@@ -218,7 +218,7 @@ export default function CommandCenter() {
       const map = await fetchSuggestionsMap();
       setSuggestions(map);
       await runAutoDispatch(map);
-    }, 30000); // every 30s — matches resources refresh cadence
+    }, 30000); // every 30s — twice the 60s resources cadence, so idle printers get work promptly
     return () => clearInterval(id);
   }, [runAutoDispatch]);
 
