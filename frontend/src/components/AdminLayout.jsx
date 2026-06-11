@@ -293,22 +293,21 @@ const InventoryIcon = () => (
   </svg>
 );
 
-// TODO: Re-enable when Pro analytics are implemented
-// const AnalyticsIcon = () => (
-//   <svg
-//     className="w-5 h-5"
-//     fill="none"
-//     stroke="currentColor"
-//     viewBox="0 0 24 24"
-//   >
-//     <path
-//       strokeLinecap="round"
-//       strokeLinejoin="round"
-//       strokeWidth={2}
-//       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-//     />
-//   </svg>
-// );
+const AnalyticsIcon = () => (
+  <svg
+    className="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+    />
+  </svg>
+);
 
 const AccountingIcon = () => (
   <svg
@@ -417,27 +416,40 @@ const CommandCenterIcon = () => (
 
 const navGroups = [
   {
-    label: null, // No header for dashboard
+    label: null, // No header — home screen entry
     items: [
-      { path: "/admin", label: "Dashboard", icon: DashboardIcon, end: true },
       {
-        path: "/admin/command-center",
+        path: "/admin",
         label: "Command Center",
         icon: CommandCenterIcon,
+        end: true,
+      },
+      {
+        path: "/admin/dashboard",
+        label: "Analytics",
+        icon: AnalyticsIcon,
       },
     ],
   },
   {
     label: "SALES",
     items: [
-      { path: "/admin/orders", label: "Orders", icon: OrdersIcon },
-      { path: "/admin/quotes", label: "Quotes", icon: QuotesIcon },
       {
-        path: "/admin/payments",
-        label: "Payments",
-        icon: PaymentsIcon,
+        path: "/admin/customers",
+        label: "Customers",
+        icon: CustomersIcon,
         adminOnly: true,
       },
+      { path: "/admin/quotes", label: "Quotes", icon: QuotesIcon },
+      { path: "/admin/orders", label: "Orders", icon: OrdersIcon },
+      { path: "/admin/shipping", label: "Shipping", icon: ShippingIcon },
+      { path: "/admin/messages", label: "Messages", icon: MessagesIcon },
+    ],
+  },
+  {
+    label: "MONEY",
+    adminOnly: true,
+    items: [
       {
         path: "/admin/invoices",
         label: "Invoices",
@@ -445,47 +457,15 @@ const navGroups = [
         adminOnly: true,
       },
       {
-        path: "/admin/customers",
-        label: "Customers",
-        icon: CustomersIcon,
-        adminOnly: true,
-      },
-      { path: "/admin/messages", label: "Messages", icon: MessagesIcon },
-    ],
-  },
-  {
-    label: "INVENTORY",
-    items: [
-      { path: "/admin/items", label: "Items", icon: ItemsIcon },
-      {
-        path: "/admin/materials/import",
-        label: "Import Materials",
-        icon: MaterialImportIcon,
-        adminOnly: true,
-      },
-      { path: "/admin/bom", label: "Bill of Materials", icon: BOMIcon },
-      {
-        path: "/admin/locations",
-        label: "Locations",
-        icon: InventoryIcon,
+        path: "/admin/payments",
+        label: "Payments",
+        icon: PaymentsIcon,
         adminOnly: true,
       },
       {
-        path: "/admin/inventory/transactions",
-        label: "Transactions",
-        icon: InventoryIcon,
-        adminOnly: true,
-      },
-      {
-        path: "/admin/inventory/cycle-count",
-        label: "Cycle Count",
-        icon: InventoryIcon,
-        adminOnly: true,
-      },
-      {
-        path: "/admin/spools",
-        label: "Material Spools",
-        icon: InventoryIcon,
+        path: "/admin/accounting",
+        label: "Accounting",
+        icon: AccountingIcon,
         adminOnly: true,
       },
     ],
@@ -508,8 +488,49 @@ const navGroups = [
         proOnly: true,
         feature: "bambu_integration",
       },
+      {
+        path: "/admin/spools",
+        label: "Material Spools",
+        icon: InventoryIcon,
+        adminOnly: true,
+      },
+    ],
+  },
+  {
+    label: "INVENTORY",
+    items: [
+      { path: "/admin/items", label: "Items", icon: ItemsIcon },
+      { path: "/admin/bom", label: "Bill of Materials", icon: BOMIcon },
+      {
+        path: "/admin/locations",
+        label: "Locations",
+        icon: InventoryIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/inventory/transactions",
+        label: "Transactions",
+        icon: InventoryIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/inventory/cycle-count",
+        label: "Cycle Count",
+        icon: InventoryIcon,
+        adminOnly: true,
+      },
+    ],
+  },
+  {
+    label: "PURCHASING",
+    items: [
       { path: "/admin/purchasing", label: "Purchasing", icon: PurchasingIcon },
-      { path: "/admin/shipping", label: "Shipping", icon: ShippingIcon },
+      {
+        path: "/admin/materials/import",
+        label: "Import Materials",
+        icon: MaterialImportIcon,
+        adminOnly: true,
+      },
     ],
   },
   {
@@ -558,27 +579,15 @@ const navGroups = [
     adminOnly: true,
     items: [
       {
-        path: "/admin/accounting",
-        label: "Accounting",
-        icon: AccountingIcon,
-        adminOnly: true,
-      },
-      {
-        path: "/admin/orders/import",
-        label: "Import Orders",
-        icon: MaterialImportIcon,
-        adminOnly: true,
-      },
-      {
         path: "/admin/users",
         label: "Team Members",
         icon: CustomersIcon,
         adminOnly: true,
       },
       {
-        path: "/admin/scrap-reasons",
-        label: "Scrap Reasons",
-        icon: SettingsIcon,
+        path: "/admin/security",
+        label: "Security Audit",
+        icon: QualityIcon,
         adminOnly: true,
       },
       {
@@ -594,9 +603,21 @@ const navGroups = [
         adminOnly: true,
       },
       {
-        path: "/admin/security",
-        label: "Security Audit",
-        icon: QualityIcon,
+        path: "/admin/license",
+        label: "License",
+        icon: SettingsIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/orders/import",
+        label: "Import Orders",
+        icon: MaterialImportIcon,
+        adminOnly: true,
+      },
+      {
+        path: "/admin/scrap-reasons",
+        label: "Scrap Reasons",
+        icon: SettingsIcon,
         adminOnly: true,
       },
     ],
