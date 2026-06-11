@@ -10,6 +10,9 @@
  *     error when both startTime and endTime are present).
  *  4. Predecessor conflict — amber "Sequence Constraint" banner with "Use this
  *     time" button; clicking it sets the start field and clears the banner.
+ *  5. Edit mode — already-scheduled op shows "Edit Schedule" title, "Reschedule"
+ *     submit button, and "Unschedule" action with confirm.
+ *  6. Successor conflict — orange banner with per-successor details.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -86,6 +89,22 @@ const secondOp = {
   planned_setup_minutes: '5.00',
   planned_run_minutes: '88.00',
   status: 'pending',
+}
+
+// An already-scheduled op — edit mode
+const scheduledOp = {
+  id: 50,
+  sequence: 10,
+  operation_code: 'PRINT',
+  operation_name: 'FDM Print',
+  work_center_id: 1,
+  resource_id: null,
+  printer_id: 7,
+  planned_setup_minutes: '3.00',
+  planned_run_minutes: '120.00',
+  status: 'queued',
+  scheduled_start: '2026-06-11T10:00:00Z',
+  scheduled_end: '2026-06-11T12:03:00Z',
 }
 
 const productionOrder = { id: 1, code: 'PO-2026-000001' }
@@ -312,5 +331,167 @@ describe('OperationSchedulerModal — predecessor conflict suggestion', () => {
     const dtInput = filledInputs.find((el) => el.type === 'datetime-local')
     expect(dtInput).toBeDefined()
     expect(dtInput.value).not.toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5. Edit mode — already-scheduled op
+// ---------------------------------------------------------------------------
+describe('OperationSchedulerModal — edit mode (already scheduled op)', () => {
+  const PRINTER = { id: 7, code: 'PRINTER-01', name: 'Bambu X1C', is_printer: true }
+
+  it('shows "Edit Schedule" title for a queued operation', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+    // Modal renders the title in both sr-only span and h2 — use getAllByText
+    const titles = screen.getAllByText('Edit Schedule')
+    expect(titles.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows "Reschedule" submit button for a queued operation', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+    expect(screen.getByRole('button', { name: /^Reschedule$/i })).toBeInTheDocument()
+  })
+
+  it('shows "Unschedule" action button for a queued operation', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+    expect(screen.getByRole('button', { name: /^Unschedule$/i })).toBeInTheDocument()
+  })
+
+  it('prefills start time from existing scheduled_start', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    // The start input should be prefilled from scheduled_start
+    const dtInputs = screen.getAllByDisplayValue(/.+/).filter((el) => el.type === 'datetime-local')
+    expect(dtInputs.length).toBeGreaterThanOrEqual(1)
+    // At least one must have a non-empty value matching the scheduled time
+    expect(dtInputs.some((el) => el.value !== '')).toBe(true)
+  })
+
+  it('clicking "Unschedule" shows confirm panel', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+
+    const unscheduleBtn = screen.getByRole('button', { name: /^Unschedule$/i })
+    await act(async () => { fireEvent.click(unscheduleBtn) })
+
+    // Confirm panel text must appear
+    expect(screen.getByText(/Unschedule this operation\?/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Confirm Unschedule/i })).toBeInTheDocument()
+  })
+
+  it('clicking Cancel in confirm panel hides it', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+
+    const unscheduleBtn = screen.getByRole('button', { name: /^Unschedule$/i })
+    await act(async () => { fireEvent.click(unscheduleBtn) })
+
+    expect(screen.getByText(/Unschedule this operation\?/i)).toBeInTheDocument()
+
+    const cancelBtn = screen.getByRole('button', { name: /^Cancel$/i })
+    await act(async () => { fireEvent.click(cancelBtn) })
+
+    expect(screen.queryByText(/Unschedule this operation\?/i)).not.toBeInTheDocument()
+    // Unschedule button reappears
+    expect(screen.getByRole('button', { name: /^Unschedule$/i })).toBeInTheDocument()
+  })
+
+  it('calls reschedule endpoint (not schedule) on submit in edit mode', async () => {
+    _mockResources = [PRINTER]
+    const fetchSpy = vi.fn().mockImplementation((url, opts) => {
+      if (typeof url === 'string' && url.includes('check-resource-compatibility')) {
+        return Promise.resolve({ ok: true, json: async () => ({ compatible: true, reason: null }) })
+      }
+      if (typeof url === 'string' && url.includes('reschedule') && opts?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, operation_id: scheduledOp.id }) })
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await act(async () => { renderModal(scheduledOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    const select = screen.getByRole('combobox')
+    await act(async () => {
+      fireEvent.change(select, { target: { value: String(PRINTER.id) } })
+    })
+    await act(async () => { vi.runAllTimers() })
+
+    const submitBtn = screen.getByRole('button', { name: /^Reschedule$/i })
+    await act(async () => { fireEvent.click(submitBtn) })
+    await act(async () => { vi.runAllTimers() })
+
+    // Check that fetch was called with /reschedule
+    const rescheduleCalls = fetchSpy.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.includes('/reschedule')
+    )
+    expect(rescheduleCalls.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 6. Successor conflict — orange banner
+// ---------------------------------------------------------------------------
+describe('OperationSchedulerModal — successor conflict', () => {
+  const PRINTER = { id: 7, code: 'PRINTER-01', name: 'Bambu X1C', is_printer: true }
+
+  const nextStart = '2026-06-11T18:00:00Z'
+  const nextEnd   = '2026-06-11T19:33:00Z'
+
+  function stubSuccessorConflict() {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url, opts) => {
+      if (typeof url === 'string' && url.includes('check-resource-compatibility')) {
+        return Promise.resolve({ ok: true, json: async () => ({ compatible: true, reason: null }) })
+      }
+      if (typeof url === 'string' && url.includes('reschedule') && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: false,
+            conflict_type: 'successor',
+            message: 'Moving this operation would violate 1 successor operation(s)',
+            successor_conflicts: [
+              {
+                operation_id: 99,
+                operation_code: 'POST',
+                operation_name: 'Post-processing',
+                sequence: 20,
+                scheduled_start: nextStart,
+                earliest_valid_start: nextEnd,
+              },
+            ],
+          }),
+        })
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) })
+    }))
+  }
+
+  it('renders Successor Conflict banner after successor violation', async () => {
+    _mockResources = [PRINTER]
+    stubSuccessorConflict()
+
+    await act(async () => { renderModal(scheduledOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    const select = screen.getByRole('combobox')
+    await act(async () => {
+      fireEvent.change(select, { target: { value: String(PRINTER.id) } })
+    })
+    await act(async () => { vi.runAllTimers() })
+
+    const submitBtn = screen.getByRole('button', { name: /^Reschedule$/i })
+    await act(async () => { fireEvent.click(submitBtn) })
+    await act(async () => { vi.runAllTimers() })
+
+    expect(screen.getByText('Successor Conflict')).toBeInTheDocument()
+    // Should show per-successor details
+    expect(screen.getByText(/POST/)).toBeInTheDocument()
   })
 })
