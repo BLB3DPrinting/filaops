@@ -3,6 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import SalesOrderWizard from "../../components/SalesOrderWizard";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import EmptyState from "../../components/EmptyState";
 import { SalesOrderCard } from "../../components/orders";
 import OrderFilters from "../../components/orders/OrderFilters";
 
@@ -191,27 +192,23 @@ export default function AdminOrders() {
       {!loading && (
         <>
           {filteredOrders.length === 0 ? (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-              <svg
-                className="w-12 h-12 mx-auto text-gray-600 mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-              <p className="text-gray-500 text-lg">No orders found</p>
-              <p className="text-gray-600 text-sm mt-1">
-                {fulfillmentFilter
-                  ? "Try adjusting your filters"
-                  : "Create a new order to get started"}
-              </p>
-            </div>
+            orders.length === 0 && !fulfillmentFilter ? (
+              <EmptyState
+                icon="orders"
+                title="No orders yet"
+                description="Create your first sales order to get started."
+                actionLabel="New Order"
+                onAction={() => setShowCreateModal(true)}
+              />
+            ) : (
+              <EmptyState
+                icon="filter"
+                title="No orders match your filters"
+                onClearFilters={() => {
+                  setSearchParams({});
+                }}
+              />
+            )
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filteredOrders.map((order) => (

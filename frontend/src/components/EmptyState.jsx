@@ -155,6 +155,8 @@ export default function EmptyState({
   onAction,
   customIcon,
   variant = "default", // default, compact, inline
+  // "No matches" / filter-clear variant — when provided, replaces the action button
+  onClearFilters,
 }) {
   // Use custom icon if provided, otherwise use predefined
   const iconElement = customIcon || icons[icon] || icons.default;
@@ -163,7 +165,32 @@ export default function EmptyState({
   const buttonClasses =
     "inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors text-sm font-medium";
 
+  const clearFiltersClasses =
+    "inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium";
+
   const renderActionButton = () => {
+    // "Clear filters" variant takes precedence over create CTA
+    if (onClearFilters) {
+      return (
+        <button onClick={onClearFilters} className={clearFiltersClasses}>
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+          Clear filters
+        </button>
+      );
+    }
+
     if (!actionLabel) return null;
 
     const plusIcon = (

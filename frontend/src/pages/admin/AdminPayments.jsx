@@ -11,6 +11,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import EmptyState from "../../components/EmptyState";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 import { PAYMENT_COLORS as statusColors } from "../../lib/statusColors.js";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
@@ -359,9 +360,24 @@ export default function AdminPayments() {
             Loading payments...
           </div>
         ) : payments.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">
-            No payments found. Record your first payment to get started.
-          </div>
+          (() => {
+            const hasActiveFilters = filters.search || filters.paymentMethod || filters.paymentType || filters.fromDate || filters.toDate;
+            return hasActiveFilters ? (
+              <EmptyState
+                icon="filter"
+                title="No payments match your filters"
+                onClearFilters={() => setFilters({ search: "", paymentMethod: "", paymentType: "", fromDate: "", toDate: "" })}
+              />
+            ) : (
+              <EmptyState
+                icon="default"
+                title="No payments yet"
+                description="Payments are recorded from sales orders or invoices."
+                actionLabel="Go to Orders"
+                actionTo="/admin/orders"
+              />
+            );
+          })()
         ) : (
           <>
             <div className="overflow-x-auto">

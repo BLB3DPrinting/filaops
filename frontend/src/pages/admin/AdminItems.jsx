@@ -4,6 +4,7 @@ import MaterialForm from "../../components/MaterialForm";
 import RoutingEditor from "../../components/RoutingEditor";
 import { ItemCard } from "../../components/inventory/ItemCard";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import EmptyState from "../../components/EmptyState";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import CategorySidebar from "../../components/items/CategorySidebar";
@@ -566,8 +567,25 @@ export default function AdminItems() {
         {viewMode === "cards" && (
           <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 transition-opacity ${loading ? 'opacity-60' : ''}`}>
             {filteredItems.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-gray-500">
-                No items found
+              <div className="col-span-full">
+                {items.length === 0 ? (
+                  <EmptyState
+                    icon="items"
+                    title="No items yet"
+                    description="Add your first product, material, or component to get started."
+                    actionLabel="Add Item"
+                    onAction={() => setShowItemModal(true)}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="filter"
+                    title="No items match your filters"
+                    onClearFilters={() => {
+                      setFilters({ search: "", itemType: "all", activeOnly: true, includeVariants: false });
+                      setQuickFilter(null);
+                    }}
+                  />
+                )}
               </div>
             ) : (
               filteredItems.map((item) => (
@@ -585,7 +603,27 @@ export default function AdminItems() {
         )}
 
         {/* Items Table */}
-        {viewMode === "table" && (
+        {viewMode === "table" && !loading && filteredItems.length === 0 && (
+          items.length === 0 ? (
+            <EmptyState
+              icon="items"
+              title="No items yet"
+              description="Add your first product, material, or component to get started."
+              actionLabel="Add Item"
+              onAction={() => setShowItemModal(true)}
+            />
+          ) : (
+            <EmptyState
+              icon="filter"
+              title="No items match your filters"
+              onClearFilters={() => {
+                setFilters({ search: "", itemType: "all", activeOnly: true, includeVariants: false });
+                setQuickFilter(null);
+              }}
+            />
+          )
+        )}
+        {viewMode === "table" && (loading || filteredItems.length > 0) && (
           <ItemsTable
             items={filteredItems}
             loading={loading}

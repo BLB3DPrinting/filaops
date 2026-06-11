@@ -9,6 +9,7 @@ import { API_URL } from '../../config/api';
 import { formatDuration } from '../../utils/formatting';
 import { PRODUCTION_ORDER_BADGE_CONFIGS } from '../../lib/statusColors.js';
 import ElapsedTimer from './ElapsedTimer';
+import EmptyState from '../EmptyState';
 
 /**
  * Status badge component
@@ -185,6 +186,7 @@ export default function ProductionQueueList({
   loading,
   filters,
   onFiltersChange,
+  onCreateOrder,
 }) {
   const [operationsMap, setOperationsMap] = useState({});
   const [loadingOps, setLoadingOps] = useState(false);
@@ -371,10 +373,22 @@ export default function ProductionQueueList({
           <tbody>
             {sortedOrders.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                  {filters?.search || filters?.status !== 'all' || filters?.workCenter !== 'all'
-                    ? 'No orders match your filters'
-                    : 'No production orders found'}
+                <td colSpan={7} className="py-4">
+                  {filters?.search || (filters?.status && filters.status !== 'all') || (filters?.workCenter && filters.workCenter !== 'all') ? (
+                    <EmptyState
+                      icon="filter"
+                      title="No orders match your filters"
+                      onClearFilters={() => onFiltersChange && onFiltersChange({ search: '', status: 'all', workCenter: 'all' })}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon="production"
+                      title="No production orders yet"
+                      description="Create a production order to start tracking your print jobs."
+                      actionLabel="Create Production Order"
+                      onAction={onCreateOrder}
+                    />
+                  )}
                 </td>
               </tr>
             ) : (

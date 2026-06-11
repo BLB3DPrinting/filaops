@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import EmptyState from "../../components/EmptyState";
 import { STATUS_OPTIONS, getStatusStyle } from "../../components/quotes/constants";
 import QuoteFormModal from "../../components/quotes/QuoteFormModal";
 import QuoteDetailModal from "../../components/quotes/QuoteDetailModal";
@@ -536,8 +537,22 @@ export default function AdminQuotes() {
               })}
               {filteredQuotes.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                    No quotes found
+                  <td colSpan={8} className="py-4">
+                    {quotes.length === 0 ? (
+                      <EmptyState
+                        icon="orders"
+                        title="No quotes yet"
+                        description="Create your first quote to start the sales process."
+                        actionLabel="New Quote"
+                        onAction={() => { setEditingQuote(null); setShowQuoteModal(true); }}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon="filter"
+                        title="No quotes match your filters"
+                        onClearFilters={() => setFilters({ search: "", status: "all" })}
+                      />
+                    )}
                   </td>
                 </tr>
               )}

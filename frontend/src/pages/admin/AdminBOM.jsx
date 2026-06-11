@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import EmptyState from "../../components/EmptyState";
 import CreateBOMForm from "../../components/bom/CreateBOMForm";
 import CreateProductionOrderModal from "../../components/bom/CreateProductionOrderModal";
 import CopyBOMModal from "../../components/bom/CopyBOMModal";
@@ -281,8 +282,22 @@ export default function AdminBOM() {
               ))}
               {boms.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-500">
-                    No BOMs found. Create your first BOM to get started.
+                  <td colSpan={8} className="py-4">
+                    {filters.search || filters.active !== "all" ? (
+                      <EmptyState
+                        icon="filter"
+                        title="No BOMs match your filters"
+                        onClearFilters={() => setFilters({ search: "", active: "all" })}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon="items"
+                        title="No BOMs yet"
+                        description="Create your first BOM to define product assembly and material requirements."
+                        actionLabel="Create BOM"
+                        onAction={() => setShowCreateModal(true)}
+                      />
+                    )}
                   </td>
                 </tr>
               )}

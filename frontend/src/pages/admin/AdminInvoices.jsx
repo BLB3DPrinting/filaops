@@ -4,6 +4,7 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
 import StatCard from "../../components/StatCard";
+import EmptyState from "../../components/EmptyState";
 import { API_URL } from "../../config/api";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
 
@@ -380,8 +381,22 @@ export default function AdminInvoices() {
                 ))}
                 {filteredInvoices.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-500">
-                      No invoices found
+                    <td colSpan={9} className="py-4">
+                      {invoices.length === 0 ? (
+                        <EmptyState
+                          icon="orders"
+                          title="No invoices yet"
+                          description="Invoices are created from confirmed sales orders."
+                          actionLabel="Go to Orders"
+                          actionTo="/admin/orders"
+                        />
+                      ) : (
+                        <EmptyState
+                          icon="filter"
+                          title="No invoices match your filters"
+                          onClearFilters={() => setSearchParams({})}
+                        />
+                      )}
                     </td>
                   </tr>
                 )}
