@@ -1038,6 +1038,48 @@ async def ship_order(
     return result
 
 
+class ResolveLegacyFulfillmentRequest(BaseModel):
+    """Action to resolve a legacy fulfillment mismatch (LEGACY-1)."""
+    action: str  # "close_out" | "reopen"
+
+
+@router.post("/{order_id}/resolve-legacy-fulfillment", response_model=SalesOrderResponse)
+async def resolve_legacy_fulfillment(
+    order_id: int,
+    request: ResolveLegacyFulfillmentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Resolve a brownfield order whose status says shipped/delivered/completed
+    but which has no shipment evidence (legacy data from older FilaOps
+    versions). Admin only.
+
+    - close_out: mark lines shipped and record fulfillment — paperwork only,
+      no inventory movements, no GL entries (goods left long ago).
+    - reopen: set the order back to ready_to_ship so the normal Ship flow
+      (with inventory + GL postings) takes over.
+
+    Returns 409 if the mismatch does not exist (re-validated server-side).
+    """
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only administrators can resolve legacy fulfillment")
+
+    order = sales_order_service.resolve_legacy_fulfillment(
+        db,
+        order_id=order_id,
+        action=request.action,
+        user_email=current_user.email,
+        user_id=current_user.id,
+    )
+
+    db.commit()
+    db.refresh(order)
+
+    return build_sales_order_response(order, db)
+
+
 @router.post("/{order_id}/generate-production-orders")
 async def generate_production_orders(
     order_id: int,

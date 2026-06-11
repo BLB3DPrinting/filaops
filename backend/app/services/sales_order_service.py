@@ -49,6 +49,19 @@ _MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE = (
     "Shipment GL posting for material-backed sales orders needs raw-material account mapping"
 )
 
+# LEGACY-1: statuses where the order claims goods have left the building.
+# Mirrors SHIPPED_ORDER_STATUSES in frontend/src/pages/admin/OrderDetail.jsx.
+SHIPPED_ORDER_STATUSES = {"shipped", "delivered", "completed"}
+
+# Statuses where material requirements are historical context rather than
+# actionable demand (nothing more will be produced/shipped for this order).
+TERMINAL_ORDER_STATUSES = {"completed", "cancelled", "delivered", "shipped"}
+
+# Order-level fulfillment_status values that count as shipment evidence.
+# Grounded in order_status.py which sets "shipped"/"delivered" on those
+# transitions; "fulfilled" is accepted defensively for older data.
+_SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES = {"shipped", "delivered", "fulfilled"}
+
 
 def _has_material_backed_lines(order: "SalesOrder") -> bool:
     return any(
@@ -2453,6 +2466,16 @@ def get_material_requirements(
     materials_with_incoming = sum(1 for r in requirements if r["has_incoming_supply"])
     materials_covered_by_incoming = sum(1 for r in requirements if r.get("covered_by_incoming"))
 
+    # LEGACY-1: requirements are re-exploded against CURRENT stock on every
+    # call. For terminal (or deliberately short-closed) orders that is
+    # historical context, not an actionable shortage — the goods already
+    # shipped or never will. Flag it so the UI stops raising live shortage
+    # alerts while still showing the data for reference.
+    historical = (
+        order.status in TERMINAL_ORDER_STATUSES
+        or bool(getattr(order, "closed_short", False))
+    )
+
     return {
         "sales_order_id": order.id,
         "order_number": order.order_number,
@@ -2466,6 +2489,7 @@ def get_material_requirements(
             "materials_covered_by_incoming": materials_covered_by_incoming,
             "can_fulfill": materials_short == 0,
             "has_shortages": materials_short > 0,
+            "historical": historical,
         }
     }
 
@@ -2706,6 +2730,126 @@ def ship_order(
 
 
 # =============================================================================
+# Legacy Fulfillment Resolution (LEGACY-1)
+# =============================================================================
+
+def has_shipment_evidence(order: "SalesOrder") -> bool:
+    """
+    True when there is any recorded evidence that goods actually shipped.
+
+    Evidence = order.shipped_at set, OR any line with shipped_quantity > 0,
+    OR order.fulfillment_status in the shipped/delivered set.
+    """
+    if order.shipped_at is not None:
+        return True
+    if (order.fulfillment_status or "") in _SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES:
+        return True
+    for line in (order.lines or []):
+        if (line.shipped_quantity or Decimal("0")) > Decimal("0"):
+            return True
+    return False
+
+
+def resolve_legacy_fulfillment(
+    db: Session,
+    order_id: int,
+    action: str,
+    user_email: str,
+    user_id: Optional[int] = None,
+) -> SalesOrder:
+    """
+    Resolve a legacy fulfillment mismatch on a brownfield order.
+
+    Mismatch = order.status says shipped/delivered/completed, but there is
+    NO shipment evidence (no shipped_at, no shipped quantities, fulfillment
+    still pending). This happens on orders created before FilaOps recorded
+    shipment data properly.
+
+    Actions:
+        close_out: accept the order as fulfilled — paperwork reconciliation
+            only. Sets line shipped quantities, fulfillment_status, and
+            shipped_at, and appends an audit note.
+
+            DESIGN DECISION (owner, LEGACY-1): close_out posts NO inventory
+            movements and NO GL entries. The goods physically left long ago;
+            per the HARD-4c doctrine, current stock truth comes from the
+            inventory ledger + cycle counts, not from retroactive paperwork.
+            Backdating COGS/inventory relief here would corrupt both.
+
+        reopen: production is already complete, so move the order back to
+            ready_to_ship and let the normal Ship flow take over (which DOES
+            post inventory + GL). Invoice/payment are left untouched.
+
+    Raises 409 if the mismatch does not actually exist (re-validated
+    server-side so stale UI cannot mutate healthy orders).
+    """
+    order = get_sales_order_with_lines(db, order_id)
+
+    if order.status not in SHIPPED_ORDER_STATUSES or has_shipment_evidence(order):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No legacy fulfillment mismatch on this order: it is either "
+                "not in a shipped/delivered/completed status or already has "
+                "shipment evidence recorded."
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+
+    if action == "close_out":
+        for line in (order.lines or []):
+            line.shipped_quantity = line.quantity
+        # Grounded enum: order_status.py uses "shipped"/"delivered" as the
+        # shipped-evidence fulfillment statuses (there is no "fulfilled").
+        order.fulfillment_status = (
+            "delivered" if order.status == "delivered" else "shipped"
+        )
+        order.shipped_at = order.actual_completion_date or now
+        audit_note = (
+            f"Legacy fulfillment closed out by {user_email} on {date_str} "
+            f"— no shipment record existed (no inventory or GL impact)"
+        )
+        event_title = "Legacy fulfillment closed out"
+    elif action == "reopen":
+        # Direct assignment (not the transition validator): completed →
+        # ready_to_ship is intentionally outside the normal lifecycle; this
+        # is an admin-gated data repair, and production is already complete.
+        order.status = "ready_to_ship"
+        order.fulfillment_status = "ready"
+        audit_note = (
+            f"Legacy fulfillment reopened (set to ready_to_ship) by "
+            f"{user_email} on {date_str} — no shipment record existed; "
+            f"ship through the normal flow"
+        )
+        event_title = "Legacy fulfillment reopened for shipping"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="action must be 'close_out' or 'reopen'",
+        )
+
+    order.internal_notes = (
+        f"{order.internal_notes}\n{audit_note}" if order.internal_notes else audit_note
+    )
+    order.updated_at = now
+
+    record_order_event(
+        db=db,
+        order_id=order.id,
+        event_type="legacy_fulfillment_resolved",
+        title=event_title,
+        description=audit_note,
+        user_id=user_id,
+        metadata_key="action",
+        metadata_value=action,
+    )
+
+    return order
+
+
+# =============================================================================
 # Generate Production Orders
 # =============================================================================
 
@@ -2735,19 +2879,37 @@ def generate_production_orders(
 
     # Check for existing production orders
     producible_line_ids: list[int] = []
-    existing_po_line_ids: set[int] = set()
+    covered_line_ids: set[int] = set()
     if order.order_type == "line_item":
-        producible_line_ids = [line.id for line in order.lines if line.product_id]
+        producible_lines = [line for line in order.lines if line.product_id]
+        producible_line_ids = [line.id for line in producible_lines]
         existing_pos = []
         if producible_line_ids:
             existing_pos = db.query(ProductionOrder).filter(
-                ProductionOrder.sales_order_id == order_id,
-                ProductionOrder.sales_order_line_id.in_(producible_line_ids)
+                ProductionOrder.sales_order_id == order_id
             ).all()
             existing_po_line_ids = {
                 po.sales_order_line_id
                 for po in existing_pos
                 if po.sales_order_line_id is not None
+            }
+            # LEGACY-1 fallback: production orders created before line-level
+            # linkage existed have sales_order_line_id = NULL. Treat such a
+            # WO as covering every line with the same product_id — this is a
+            # coverage check (does production exist for this line's product?),
+            # not an assignment, so one NULL-linked WO may cover multiple
+            # lines of its product. Mirrored in hasMainProductWO() in
+            # frontend/src/pages/admin/OrderDetail.jsx — keep in sync.
+            legacy_covered_product_ids = {
+                po.product_id
+                for po in existing_pos
+                if po.sales_order_line_id is None
+            }
+            covered_line_ids = {
+                line.id
+                for line in producible_lines
+                if line.id in existing_po_line_ids
+                or line.product_id in legacy_covered_product_ids
             }
     else:
         existing_pos = db.query(ProductionOrder).filter(
@@ -2756,7 +2918,7 @@ def generate_production_orders(
 
     if existing_pos and (
         order.order_type != "line_item"
-        or len(existing_po_line_ids) == len(producible_line_ids)
+        or len(covered_line_ids) == len(producible_line_ids)
     ):
         return {
             "message": "Production orders already exist",
@@ -2803,7 +2965,9 @@ def generate_production_orders(
             )
 
         for idx, line in enumerate(lines, start=1):
-            if line.id in existing_po_line_ids:
+            # covered_line_ids includes both directly-linked lines and lines
+            # covered by legacy NULL-linked WOs (see coverage check above).
+            if line.id in covered_line_ids:
                 continue
 
             # Skip material-only lines — raw materials don't need production orders
