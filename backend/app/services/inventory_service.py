@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
 from app.models.product import Product
 from app.models.bom import BOM, BOMLine
-from app.models.production_order import ProductionOrder
+from app.models.production_order import ProductionOrder, ProductionOrderOperationMaterial
 from app.models.sales_order import SalesOrder
 from app.models.traceability import MaterialLot, ProductionLotConsumption
 from app.logging_config import get_logger
@@ -647,7 +647,130 @@ def reserve_production_materials(
                 f"for PO#{production_order.code}"
             )
     
+    # Sync op-material rows: distribute reserved qty across op-material rows
+    # for each component, in operation-sequence order, filling each row up to
+    # its quantity_required.  Under partial reservation (HARD-5 shortage path)
+    # we allocate only what was actually reserved.
+    for reservation_info in reservations:
+        component_id = reservation_info["product_id"]
+        qty_reserved = Decimal(str(reservation_info["quantity_reserved"]))
+        _sync_op_material_allocation(db, production_order, component_id, qty_reserved)
+
     return reservations
+
+
+def _sync_op_material_allocation(
+    db: Session,
+    production_order: "ProductionOrder",
+    component_id: int,
+    qty_reserved: "Decimal",
+) -> None:
+    """
+    Distribute *qty_reserved* across the op-material rows for *component_id*
+    on *production_order*, in operation-sequence order.
+
+    Fills each row up to its quantity_required; any remainder spills to the
+    next row.  Excess reservation beyond the total requirement is capped at
+    quantity_required (shouldn't happen in practice, but keeps the column
+    semantically valid).
+
+    This is the single writer of ProductionOrderOperationMaterial.quantity_allocated
+    for the reservation direction.  It is idempotent: calling it twice with the
+    same qty_reserved leaves the rows in the same state.
+    """
+    from app.models.production_order import ProductionOrderOperation
+
+    # Collect op-material rows for this component across all operations,
+    # ordered by operation.sequence then row id for deterministic distribution.
+    rows = (
+        db.query(ProductionOrderOperationMaterial)
+        .join(
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial.production_order_operation_id
+            == ProductionOrderOperation.id,
+        )
+        .filter(
+            ProductionOrderOperation.production_order_id == production_order.id,
+            ProductionOrderOperationMaterial.component_id == component_id,
+        )
+        .order_by(
+            ProductionOrderOperation.sequence,
+            ProductionOrderOperationMaterial.id,
+        )
+        .all()
+    )
+
+    if not rows:
+        return
+
+    remaining = qty_reserved
+    for row in rows:
+        if remaining <= Decimal("0"):
+            row.quantity_allocated = Decimal("0")
+            continue
+        required = Decimal(str(row.quantity_required))
+        alloc = min(remaining, required)
+        row.quantity_allocated = alloc
+        remaining -= alloc
+
+
+def _backfill_op_material_from_ledger(
+    db: Session,
+    production_order: "ProductionOrder",
+) -> None:
+    """
+    Self-heal: rebuild quantity_allocated on op-material rows from the
+    inventory reservation ledger for *production_order*.
+
+    Called at the top of release_production_order when active reservations
+    exist but op-material rows still show quantity_allocated=0.  The heal
+    is idempotent and logged.
+
+    Distribution rule: same as _sync_op_material_allocation — fill each row
+    up to its quantity_required in operation-sequence order per component.
+    """
+    # Sum reservations minus reservation_releases per component
+    from sqlalchemy import func as sqlfunc
+    from sqlalchemy import case
+
+    net_rows = (
+        db.query(
+            InventoryTransaction.product_id,
+            sqlfunc.sum(
+                case(
+                    (InventoryTransaction.transaction_type == "reservation",
+                     InventoryTransaction.quantity),
+                    else_=Decimal("0"),
+                )
+                - case(
+                    (InventoryTransaction.transaction_type == "reservation_release",
+                     InventoryTransaction.quantity),
+                    else_=Decimal("0"),
+                )
+            ).label("net_reserved"),
+        )
+        .filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == production_order.id,
+            InventoryTransaction.transaction_type.in_(
+                ["reservation", "reservation_release"]
+            ),
+        )
+        .group_by(InventoryTransaction.product_id)
+        .all()
+    )
+
+    for row in net_rows:
+        qty = max(Decimal("0"), Decimal(str(row.net_reserved)))
+        if qty > Decimal("0"):
+            _sync_op_material_allocation(db, production_order, row.product_id, qty)
+
+    logger.info(
+        "Self-heal: backfilled op-material quantity_allocated from ledger "
+        "for PO#%s (%d component(s))",
+        production_order.code,
+        len(net_rows),
+    )
 
 
 def release_production_reservations(
@@ -722,11 +845,39 @@ def release_production_reservations(
                 "quantity_released": float(release_qty),
                 "new_allocated": float(new_allocated),
             })
-            
+
             logger.info(
                 f"Released reservation of {release_qty} for PO#{production_order.code}"
             )
-    
+
+    # Mirror the release on op-material rows: zero out quantity_allocated for
+    # any rows that are still in a pre-consumption state (pending / allocated).
+    # Rows already consumed retain their quantity_consumed; only the allocation
+    # field is cleared so the two books stay in sync.
+    from app.models.production_order import ProductionOrderOperation
+    unconsumed_rows = (
+        db.query(ProductionOrderOperationMaterial)
+        .join(
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial.production_order_operation_id
+            == ProductionOrderOperation.id,
+        )
+        .filter(
+            ProductionOrderOperation.production_order_id == production_order.id,
+            ProductionOrderOperationMaterial.status.in_(["pending", "allocated"]),
+        )
+        .all()
+    )
+    for row in unconsumed_rows:
+        row.quantity_allocated = Decimal("0")
+
+    if unconsumed_rows:
+        logger.info(
+            "Zeroed quantity_allocated on %d op-material row(s) for PO#%s",
+            len(unconsumed_rows),
+            production_order.code,
+        )
+
     return releases
 
 
