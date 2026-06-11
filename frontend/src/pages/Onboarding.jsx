@@ -2,11 +2,14 @@
  * First-Time Onboarding Wizard
  *
  * Multi-step wizard for new FilaOps installations:
- * 1. Admin account creation
- * 2. CSV import for products
- * 3. CSV import for customers
- * 4. CSV import for inventory (optional)
- * 5. Complete - redirect to dashboard
+ * 1. Admin account creation (+ currency / locale)
+ * 2. Load example data
+ * 3. CSV import for products
+ * 4. CSV import for customers
+ * 5. CSV import for orders
+ * 6. CSV import for inventory (optional)
+ * 7. Connect your first printer (optional)
+ * 8. Complete - redirect to dashboard
  */
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,8 +22,47 @@ const STEPS = {
   CUSTOMERS: 4,
   ORDERS: 5,
   INVENTORY: 6,
-  COMPLETE: 7,
+  PRINTER: 7,
+  COMPLETE: 8,
 };
+
+// Community-tier brands (no PRO required).  Must stay in sync with
+// _CORE_BRAND_CODES in backend/app/api/v1/endpoints/printers.py.
+const COMMUNITY_BRANDS = [
+  { value: "generic", label: "Generic / Other" },
+  { value: "bambulab", label: "Bambu Lab" },
+];
+
+// Common currency options surfaced in the onboarding wizard.
+// Full list is available in Admin → Settings after first login.
+const COMMON_CURRENCIES = [
+  { code: "USD", label: "USD — US Dollar" },
+  { code: "CAD", label: "CAD — Canadian Dollar" },
+  { code: "EUR", label: "EUR — Euro" },
+  { code: "GBP", label: "GBP — British Pound" },
+  { code: "AUD", label: "AUD — Australian Dollar" },
+  { code: "NZD", label: "NZD — New Zealand Dollar" },
+  { code: "JPY", label: "JPY — Japanese Yen" },
+  { code: "MXN", label: "MXN — Mexican Peso" },
+  { code: "BRL", label: "BRL — Brazilian Real" },
+  { code: "INR", label: "INR — Indian Rupee" },
+];
+
+// Common BCP-47 locale options.
+const COMMON_LOCALES = [
+  { code: "en-US", label: "English (United States)" },
+  { code: "en-CA", label: "English (Canada)" },
+  { code: "en-GB", label: "English (United Kingdom)" },
+  { code: "en-AU", label: "English (Australia)" },
+  { code: "en-NZ", label: "English (New Zealand)" },
+  { code: "fr-CA", label: "French (Canada)" },
+  { code: "fr-FR", label: "French (France)" },
+  { code: "de-DE", label: "German (Germany)" },
+  { code: "es-MX", label: "Spanish (Mexico)" },
+  { code: "es-ES", label: "Spanish (Spain)" },
+  { code: "pt-BR", label: "Portuguese (Brazil)" },
+  { code: "ja-JP", label: "Japanese (Japan)" },
+];
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -30,30 +72,32 @@ export default function Onboarding() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [error, setError] = useState(null);
 
-  // Step 1: Admin account
+  // Step 1: Admin account + currency/locale
   const [accountData, setAccountData] = useState({
     email: "",
     password: "",
     confirmPassword: "",
     full_name: "",
     company_name: "",
+    currency_code: "USD",
+    locale: "en-US",
   });
   const [submittingAccount, setSubmittingAccount] = useState(false);
 
-  // Step 2: Products CSV
+  // Step 2: Example data
+  const [seedExampleData, setSeedExampleData] = useState(true);
+  const [seedingData, setSeedingData] = useState(false);
+  const [seedResult, setSeedResult] = useState(null);
+
+  // Step 3: Products CSV
   const [productsFile, setProductsFile] = useState(null);
   const [productsResult, setProductsResult] = useState(null);
   const [importingProducts, setImportingProducts] = useState(false);
 
-  // Step 3: Customers CSV
+  // Step 4: Customers CSV
   const [customersFile, setCustomersFile] = useState(null);
   const [customersResult, setCustomersResult] = useState(null);
   const [importingCustomers, setImportingCustomers] = useState(false);
-
-  // Step 2: Example Data (optional)
-  const [seedExampleData, setSeedExampleData] = useState(true); // Default to true
-  const [seedingData, setSeedingData] = useState(false);
-  const [seedResult, setSeedResult] = useState(null);
 
   // Step 5: Orders CSV (optional)
   const [ordersFile, setOrdersFile] = useState(null);
@@ -65,6 +109,15 @@ export default function Onboarding() {
   const [inventoryFile, setInventoryFile] = useState(null);
   const [inventoryResult, setInventoryResult] = useState(null);
   const [importingInventory, setImportingInventory] = useState(false);
+
+  // Step 7: Printer (optional)
+  const [printerData, setPrinterData] = useState({
+    name: "",
+    brand: "generic",
+    model: "",
+  });
+  const [printerResult, setPrinterResult] = useState(null);
+  const [savingPrinter, setSavingPrinter] = useState(false);
 
   // Auth token from step 1 — used as Authorization header for subsequent steps
   // (cookies alone are unreliable through nginx proxies in Docker)
@@ -182,6 +235,25 @@ export default function Onboarding() {
         }
       } catch {
         // If this fails, user will be treated as non-admin until re-login
+      }
+
+      // Persist currency + locale to company settings immediately after
+      // account creation while we still have the setup token.
+      try {
+        await fetch(`${API_URL}/api/v1/settings/company`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            currency_code: accountData.currency_code || "USD",
+            locale: accountData.locale || "en-US",
+          }),
+        });
+      } catch {
+        // Non-critical — operator can update in Settings later
       }
 
       // Move to next step (example data)
@@ -347,7 +419,7 @@ export default function Onboarding() {
 
   const handleInventoryImport = async () => {
     if (!inventoryFile) {
-      setCurrentStep(STEPS.COMPLETE);
+      setCurrentStep(STEPS.PRINTER);
       return;
     }
 
@@ -378,12 +450,95 @@ export default function Onboarding() {
       const data = await res.json();
 
       setInventoryResult(data);
-      scheduleAdvance(STEPS.COMPLETE);
+      scheduleAdvance(STEPS.PRINTER);
     } catch (err) {
       setError(err.message);
     } finally {
       setImportingInventory(false);
     }
+  };
+
+  /**
+   * Step 7: Create a printer.
+   *
+   * Minimal payload — name + brand + model (all required by PrinterCreate).
+   * The code is auto-generated server-side via GET /printers/generate-code
+   * before the POST so we always supply a valid unique code.
+   *
+   * Only Community-tier brands (bambulab, generic) are offered here;
+   * Klipper / OctoPrint / Prusa / Creality require PRO and can be added
+   * from Admin → Printers after first login.
+   */
+  const handleAddPrinter = async () => {
+    const { name, brand, model } = printerData;
+
+    if (!name.trim() || !model.trim()) {
+      setError("Printer name and model are required.");
+      return;
+    }
+
+    setSavingPrinter(true);
+    setError(null);
+
+    try {
+      // Auto-generate a printer code
+      const prefix = brand === "generic" ? "PRT" : brand.toUpperCase().slice(0, 3);
+      const codeRes = await fetch(
+        `${API_URL}/api/v1/printers/generate-code?prefix=${prefix}`,
+        {
+          credentials: "include",
+          headers: setupToken ? { Authorization: `Bearer ${setupToken}` } : {},
+        }
+      );
+      let printerCode = `${prefix}-001`;
+      if (codeRes.ok) {
+        const codeData = await codeRes.json();
+        printerCode = codeData.code;
+      } else {
+        // Code gen failed — fall back to a safe default.
+        // The backend enforces duplicate-code uniqueness (400), so the POST
+        // will surface a clear error to the user if the fallback is taken.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[Onboarding] /printers/generate-code returned ${codeRes.status}; using fallback ${printerCode}`,
+        );
+      }
+
+      const res = await fetch(`${API_URL}/api/v1/printers/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(setupToken ? { Authorization: `Bearer ${setupToken}` } : {}),
+        },
+        body: JSON.stringify({
+          code: printerCode,
+          name: name.trim(),
+          brand,
+          model: model.trim(),
+          active: true,
+          connection_config: {},
+          capabilities: {},
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to add printer");
+      }
+
+      setPrinterResult(data);
+      scheduleAdvance(STEPS.COMPLETE);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPrinter(false);
+    }
+  };
+
+  const skipPrinterStep = () => {
+    setCurrentStep(STEPS.COMPLETE);
   };
 
   const prevStep = () => {
@@ -427,6 +582,8 @@ export default function Onboarding() {
         return "Import Orders";
       case STEPS.INVENTORY:
         return "Import Inventory (Optional)";
+      case STEPS.PRINTER:
+        return "Connect Your First Printer";
       case STEPS.COMPLETE:
         return "Setup Complete!";
       default:
@@ -439,7 +596,7 @@ export default function Onboarding() {
   };
 
   const getTotalSteps = () => {
-    return 7;
+    return 8;
   };
 
   return (
@@ -481,6 +638,8 @@ export default function Onboarding() {
               "Upload a CSV file with your orders from your e-commerce platform, or skip to add them later"}
             {currentStep === STEPS.INVENTORY &&
               "Upload a CSV file with your inventory levels, or skip to add them later"}
+            {currentStep === STEPS.PRINTER &&
+              "Add your first printer, or skip to set up your fleet later"}
             {currentStep === STEPS.COMPLETE &&
               "You're all set! Start managing your print farm."}
           </p>
@@ -495,7 +654,7 @@ export default function Onboarding() {
 
         {/* Step Content */}
         <div className="rounded-xl p-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
-          {/* Step 1: Account Creation */}
+          {/* Step 1: Account Creation + Currency/Locale */}
           {currentStep === STEPS.ACCOUNT && (
             <form onSubmit={handleCreateAccount} className="space-y-4">
               <div>
@@ -610,6 +769,58 @@ export default function Onboarding() {
                 />
               </div>
 
+              {/* Currency & Locale — affects invoices and number formatting */}
+              <div className="pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                  These settings control how money and dates appear on invoices and reports.
+                  You can change them later in Admin → Settings.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1"
+                    style={{ color: 'var(--text-secondary)' }}>
+                      Currency
+                    </label>
+                    <select
+                      name="currency_code"
+                      value={accountData.currency_code}
+                      onChange={handleAccountChange}
+                      className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                      style={{
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-primary)'
+                      }}
+                    >
+                      {COMMON_CURRENCIES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1"
+                    style={{ color: 'var(--text-secondary)' }}>
+                      Locale
+                    </label>
+                    <select
+                      name="locale"
+                      value={accountData.locale}
+                      onChange={handleAccountChange}
+                      className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                      style={{
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-primary)'
+                      }}
+                    >
+                      {COMMON_LOCALES.map((l) => (
+                        <option key={l.code} value={l.code}>{l.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={submittingAccount}
@@ -631,7 +842,7 @@ export default function Onboarding() {
             <div className="space-y-6">
               <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(2, 109, 248, 0.1)', border: '1px solid rgba(2, 109, 248, 0.3)' }}>
                 <h3 className="font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-                  Load BambuLab Materials & Example Data?
+                  Load BambuLab Materials &amp; Example Data?
                 </h3>
                 <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
                   We can populate your database with BambuLab-compatible materials:
@@ -655,7 +866,7 @@ export default function Onboarding() {
 
               {!seedExampleData && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <h4 className="text-yellow-400 font-medium mb-2">⚠️ Skipping seed data?</h4>
+                  <h4 className="text-yellow-400 font-medium mb-2">Skipping seed data?</h4>
                   <p className="text-yellow-200/70 text-sm">
                     Without seed data, you'll need to manually create colors when adding materials.
                     Use the <strong>"+ Create new color for this material"</strong> link in the material form to add colors as needed.
@@ -688,7 +899,7 @@ export default function Onboarding() {
               {seedResult && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
                   <div className="text-green-400 font-medium mb-2">
-                    ✅ Example data loaded successfully!
+                    Example data loaded successfully!
                   </div>
                   <div className="text-sm space-y-1" style={{ color: 'var(--text-primary)' }}>
                     <div>
@@ -706,7 +917,7 @@ export default function Onboarding() {
                       material product SKUs created (0 on-hand)
                     </div>
                     <div className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
-                      💡 Just update inventory quantities to start using!
+                      Just update inventory quantities to start using!
                     </div>
                   </div>
                 </div>
@@ -1029,7 +1240,197 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 5: Complete */}
+          {/* Step 7: Connect First Printer (Optional) */}
+          {currentStep === STEPS.PRINTER && (
+            <div className="space-y-4">
+              <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(2, 109, 248, 0.1)', border: '1px solid rgba(2, 109, 248, 0.3)' }}>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Register your first printer so FilaOps can track print jobs and
+                  material consumption. Bambu Lab and generic printers are supported
+                  on Community. Additional brands (Klipper, OctoPrint, Prusa,
+                  Creality) require a PRO license.
+                </p>
+              </div>
+
+              {printerResult ? (
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <div className="text-green-400 font-medium mb-1">
+                    Printer added — {printerResult.name} ({printerResult.code})
+                  </div>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    You can configure the IP address and connection settings from
+                    Admin → Printers.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1"
+                    style={{ color: 'var(--text-secondary)' }}>
+                      Printer Name <span style={{ color: 'var(--text-secondary)' }}>(e.g. "X1C Bay 1")</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={printerData.name}
+                      onChange={(e) =>
+                        setPrinterData({ ...printerData, name: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                      style={{
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-primary)'
+                      }}
+                      placeholder="X1C Bay 1"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                        Brand
+                      </label>
+                      <select
+                        value={printerData.brand}
+                        onChange={(e) =>
+                          setPrinterData({ ...printerData, brand: e.target.value, model: "" })
+                        }
+                        className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                        style={{
+                          backgroundColor: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-subtle)',
+                          color: 'var(--text-primary)'
+                        }}
+                      >
+                        {COMMUNITY_BRANDS.map((b) => (
+                          <option key={b.value} value={b.value}>{b.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                        Model
+                      </label>
+                      {printerData.brand === "bambulab" ? (
+                        <select
+                          value={printerData.model}
+                          onChange={(e) =>
+                            setPrinterData({ ...printerData, model: e.target.value })
+                          }
+                          className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                          style={{
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-primary)'
+                          }}
+                        >
+                          <option value="">Select model…</option>
+                          <option value="X1C">X1 Carbon</option>
+                          <option value="X1E">X1E</option>
+                          <option value="P1S">P1S</option>
+                          <option value="P1P">P1P</option>
+                          <option value="A1">A1</option>
+                          <option value="A1 mini">A1 mini</option>
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={printerData.model}
+                          onChange={(e) =>
+                            setPrinterData({ ...printerData, model: e.target.value })
+                          }
+                          className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                          style={{
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-primary)'
+                          }}
+                          placeholder="e.g. Ender 3 Pro"
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={prevStep}
+                  disabled={savingPrinter}
+                  className="px-4 py-3 disabled:opacity-50 transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Back
+                </button>
+
+                {!printerResult && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleAddPrinter}
+                      disabled={savingPrinter || !printerData.name.trim() || !printerData.model.trim()}
+                      className="flex-1 py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      style={{
+                        background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                        color: 'white'
+                      }}
+                    >
+                      {savingPrinter ? "Adding Printer…" : "Add Printer"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={skipPrinterStep}
+                      disabled={savingPrinter}
+                      className="px-4 py-3 rounded-lg disabled:opacity-50 transition-colors"
+                      style={{
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      Skip
+                    </button>
+                  </>
+                )}
+
+                {printerResult && (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(STEPS.COMPLETE)}
+                    className="flex-1 py-3 rounded-lg font-medium transition-colors"
+                    style={{
+                      background: 'linear-gradient(90deg, var(--primary), var(--primary-light))',
+                      color: 'white'
+                    }}
+                  >
+                    Continue
+                  </button>
+                )}
+              </div>
+
+              {/* Plain anchor (not react-router Link) is intentional here.
+                  Clicking it mid-wizard abandons onboarding and navigates to
+                  the printers page — the full-page reload is the right UX
+                  because the user is explicitly leaving the setup flow. */}
+              <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
+                You can manage your full printer fleet from{" "}
+                <a
+                  href="/admin/printers"
+                  className="underline"
+                  style={{ color: 'var(--primary)' }}
+                >
+                  Admin → Printers
+                </a>{" "}
+                after setup.
+              </p>
+            </div>
+          )}
+
+          {/* Step 8: Complete */}
           {currentStep === STEPS.COMPLETE && (
             <div className="text-center space-y-6">
               <div className="text-6xl mb-4">🎉</div>
