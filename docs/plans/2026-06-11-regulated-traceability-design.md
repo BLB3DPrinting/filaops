@@ -110,15 +110,27 @@ CREATE INDEX ix_material_spools_material_lot_id ON material_spools (material_lot
 
 - **Nullable on purpose.** Legacy spools and manually-registered spools predate any receipt
   and will have no lot. New spools created at receiving get it populated.
-- **Populated at receiving.** In `purchase_order_service.py`, after the lot is flushed
-  (`:1077`) and inside the spool-creation loop (`:1145`), set
-  `spool.material_lot_id = material_lot.id`. Both already exist in scope; no extra query.
+- **Populated at receiving (new code).** The column does not exist today — PR-A adds it
+  (see §8). Once added, in `purchase_order_service.py`, after the lot is flushed (`:1077`)
+  and inside the spool-creation loop (`:1145`), set
+  `spool.material_lot_id = material_lot.id`. Both the flushed lot id and the spool are
+  already in scope at that point; no extra query is needed.
 - **Read-side fallback for legacy rows only.** The correlation join
   (`ProductionOrderSpool` ↔ `ProductionLotConsumption` on the same PO) stays as a fallback
   for rows where `material_lot_id IS NULL`. New data must never rely on it.
 
 Migration goes in `backend/migrations/versions/` (Alembic; latest heads under that dir).
-Brownfield backfill of the FK is discussed in §6.
+
+**Backfill of legacy spools — explicit decision:** existing `MaterialSpool` rows that
+predate the FK are **not** backfilled in PR-A. They keep `material_lot_id = NULL` and resolve
+their PO/vendor through the read-side correlation fallback above (and where even that finds
+nothing, the chain shows "—" rather than a wrong guess). Rationale: the correlation can be
+ambiguous for a spool used across multiple POs' worth of material, and a regulated auditor
+only cares about traced-epoch parts going forward (§6) — so silently inventing a lot link for
+old spools would be worse than an honest null. If a specific customer later needs a
+best-effort backfill, it is a separate, optional one-time admin script (infer the lot from
+the `ProductionOrderSpool` ↔ `ProductionLotConsumption` correlation, write the FK only where
+the correlation is unambiguous, leave the rest null) — explicitly **out of scope for PR-A.**
 
 ### 3.2 The company setting
 
@@ -311,9 +323,12 @@ material reservation under OFF rules and have no spool selections. **Do not retr
 block them.** The grace rule:
 
 - An operation is subject to the spool requirement only if its production order was
-  **created (or released) at/after the enablement moment.** Store the enablement timestamp
-  (alongside the setting, or derive it from the setting's `updated_at`) and compare against
-  the production order's `created_at` / release event.
+  **created at/after the enablement moment.** The proposed anchor (pending owner sign-off in
+  §7.4): store a dedicated `traceability_enabled_at` timestamp alongside the setting and
+  compare it against the production order's `created_at`. The doc proposes `created_at` over
+  the release event so that an order drafted under OFF and released after the flip is judged
+  by when it was conceived, not the accident of when someone clicked release. This is one of
+  the open questions (§7.4) — §6.1 and §7.4 must land on the same anchor before PR-A.
 - Pre-existing in-progress orders complete under OFF rules (no 400), but the completion modal
   shows a soft banner: *"This order started before regulated mode — spool assignment is
   optional here. New orders will require it."* The operator may still assign a spool
