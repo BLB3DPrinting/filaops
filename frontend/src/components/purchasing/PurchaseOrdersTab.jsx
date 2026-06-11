@@ -1,7 +1,12 @@
 import { statusColors } from "./constants";
+import EmptyState from "../EmptyState";
 
 export default function PurchaseOrdersTab({
   filteredOrders,
+  totalOrders,
+  hasActiveFilters,
+  onClearFilters,
+  onCreatePO,
   onViewPO,
   onStatusChange,
   onReceivePO,
@@ -126,8 +131,22 @@ export default function PurchaseOrdersTab({
           ))}
           {filteredOrders.length === 0 && (
             <tr>
-              <td colSpan={9} className="py-12 text-center text-gray-500">
-                No purchase orders found
+              <td colSpan={9} className="py-4">
+                {hasActiveFilters ? (
+                  <EmptyState
+                    icon="filter"
+                    title="No purchase orders match your filters"
+                    onClearFilters={onClearFilters}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="inventory"
+                    title="No purchase orders yet"
+                    description="Create a purchase order to restock your materials."
+                    actionLabel="Create PO"
+                    onAction={onCreatePO}
+                  />
+                )}
               </td>
             </tr>
           )}

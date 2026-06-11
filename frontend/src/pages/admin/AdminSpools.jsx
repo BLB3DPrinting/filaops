@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
+import EmptyState from "../../components/EmptyState";
 import { SPOOL_COLORS as statusColors } from "../../lib/statusColors.js";
 
 export default function AdminSpools() {
@@ -135,7 +136,21 @@ export default function AdminSpools() {
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading spools...</div>
       ) : filteredSpools.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No spools found</div>
+        spools.length === 0 ? (
+          <EmptyState
+            icon="inventory"
+            title="No spools yet"
+            description="Add your first filament spool to start tracking material inventory."
+            actionLabel="Add Spool"
+            onAction={() => setShowAddModal(true)}
+          />
+        ) : (
+          <EmptyState
+            icon="filter"
+            title="No spools match your filters"
+            onClearFilters={() => setFilters({ status: "all", search: "" })}
+          />
+        )
       ) : (
         <div className="bg-gray-800 rounded-lg overflow-hidden">
           <div className="overflow-x-auto">

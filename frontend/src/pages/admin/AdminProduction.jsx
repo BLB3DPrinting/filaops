@@ -509,6 +509,7 @@ export default function AdminProduction() {
         loading={loading}
         filters={filters}
         onFiltersChange={setFilters}
+        onCreateOrder={() => { setShowCreateModal(true); setCreateError(null); }}
         onOrderClick={(order) => {
           setSelectedOrderForScheduling(order);
           setShowSchedulingModal(true);

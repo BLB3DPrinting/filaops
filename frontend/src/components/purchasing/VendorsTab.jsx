@@ -1,5 +1,10 @@
+import EmptyState from "../EmptyState";
+
 export default function VendorsTab({
   filteredVendors,
+  hasActiveFilters,
+  onClearFilters,
+  onCreateVendor,
   onViewVendor,
   onEditVendor,
   onDeleteVendor,
@@ -103,8 +108,22 @@ export default function VendorsTab({
           ))}
           {filteredVendors.length === 0 && (
             <tr>
-              <td colSpan={9} className="py-12 text-center text-gray-500">
-                No vendors found
+              <td colSpan={9} className="py-4">
+                {hasActiveFilters ? (
+                  <EmptyState
+                    icon="filter"
+                    title="No vendors match your filters"
+                    onClearFilters={onClearFilters}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="customers"
+                    title="No vendors yet"
+                    description="Add your first vendor to start creating purchase orders."
+                    actionLabel="Add Vendor"
+                    onAction={onCreateVendor}
+                  />
+                )}
               </td>
             </tr>
           )}

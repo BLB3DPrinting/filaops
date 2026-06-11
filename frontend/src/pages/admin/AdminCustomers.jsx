@@ -5,6 +5,7 @@ import { useApi } from "../../hooks/useApi";
 import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
 import StatCard from "../../components/StatCard";
+import EmptyState from "../../components/EmptyState";
 import { STATUS_OPTIONS, getStatusStyle, PAYMENT_TERMS_LABELS } from "../../components/customers/constants";
 import CustomerModal from "../../components/customers/CustomerModal";
 import CustomerDetailsModal from "../../components/customers/CustomerDetailsModal";
@@ -347,8 +348,22 @@ export default function AdminCustomers() {
               ))}
               {filteredCustomers.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-500">
-                    No customers found
+                  <td colSpan={11} className="py-4">
+                    {customers.length === 0 ? (
+                      <EmptyState
+                        icon="customers"
+                        title="No customers yet"
+                        description="Add your first customer to start creating quotes and orders."
+                        actionLabel="Add Customer"
+                        onAction={() => { setEditingCustomer(null); setShowCustomerModal(true); }}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon="filter"
+                        title="No customers match your filters"
+                        onClearFilters={() => setFilters({ search: "", status: "all" })}
+                      />
+                    )}
                   </td>
                 </tr>
               )}

@@ -84,4 +84,34 @@ describe('EmptyState', () => {
     expect(wrapper.className).toContain('items-center')
     expect(wrapper.className).not.toContain('flex-col')
   })
+
+  it('renders Clear filters button when onClearFilters is provided', () => {
+    const onClearFilters = vi.fn()
+    renderWithRouter(
+      <EmptyState
+        title="No matches"
+        onClearFilters={onClearFilters}
+      />
+    )
+    const btn = screen.getByText('Clear filters')
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(onClearFilters).toHaveBeenCalledTimes(1)
+  })
+
+  it('onClearFilters takes precedence over actionLabel/onAction', () => {
+    const onClearFilters = vi.fn()
+    const onAction = vi.fn()
+    renderWithRouter(
+      <EmptyState
+        title="No matches"
+        actionLabel="Create"
+        onAction={onAction}
+        onClearFilters={onClearFilters}
+      />
+    )
+    // Should show Clear filters, not Create
+    expect(screen.getByText('Clear filters')).toBeInTheDocument()
+    expect(screen.queryByText('Create')).not.toBeInTheDocument()
+  })
 })

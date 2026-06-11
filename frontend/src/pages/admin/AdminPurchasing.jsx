@@ -695,6 +695,10 @@ export default function AdminPurchasing() {
       {!loading && activeTab === "orders" && (
         <PurchaseOrdersTab
           filteredOrders={filteredOrders}
+          totalOrders={orders.length}
+          hasActiveFilters={!!(filters.search || (filters.status && filters.status !== "all"))}
+          onClearFilters={() => setFilters({ status: "all", search: "" })}
+          onCreatePO={() => { setSelectedPO(null); setShowPOModal(true); }}
           onViewPO={fetchPODetails}
           onStatusChange={handleStatusChange}
           onReceivePO={async (poId) => {
@@ -710,6 +714,9 @@ export default function AdminPurchasing() {
       {!loading && activeTab === "vendors" && (
         <VendorsTab
           filteredVendors={filteredVendors}
+          hasActiveFilters={!!filters.search}
+          onClearFilters={() => setFilters({ status: "all", search: "" })}
+          onCreateVendor={() => { setSelectedVendor(null); setShowVendorModal(true); }}
           onViewVendor={(vendor) => {
             setSelectedVendor(vendor);
             setShowVendorDetail(true);
