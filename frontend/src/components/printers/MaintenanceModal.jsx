@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import { toLocalInputValue } from "../../utils/formatting";
 import Modal from "../Modal";
 
 const maintenanceTypes = [
@@ -23,7 +24,7 @@ export default function MaintenanceModal({ printers, selectedPrinterId, onClose,
     maintenance_type: "routine",
     description: "",
     performed_by: "",
-    performed_at: new Date().toISOString().slice(0, 16),
+    performed_at: toLocalInputValue(new Date()),
     next_due_at: "",
     cost: "",
     downtime_minutes: "",

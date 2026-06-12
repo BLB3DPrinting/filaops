@@ -6,7 +6,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useResources, useResourceConflicts } from "../../hooks/useResources";
-import { formatDuration, formatTime } from "../../utils/formatting";
+import { formatDuration, formatTime, toLocalInputValue } from "../../utils/formatting";
 import Modal from "../Modal";
 
 /**
@@ -497,10 +497,10 @@ export default function OperationSchedulerModal({
       setResourceId(wizardSuggestion.resourceId);
     }
     if (wizardSuggestion.startTime) {
-      setStartTime(wizardSuggestion.startTime);
+      setStartTime(toLocalInputValue(wizardSuggestion.startTime));
     }
     if (wizardSuggestion.endTime) {
-      setEndTime(wizardSuggestion.endTime);
+      setEndTime(toLocalInputValue(wizardSuggestion.endTime));
     }
   }, [wizardMode, isOpen, wizardSuggestion, isEditMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -536,7 +536,7 @@ export default function OperationSchedulerModal({
     if (startTime && estimatedMinutes > 0) {
       const start = new Date(startTime);
       const end = new Date(start.getTime() + estimatedMinutes * 60000);
-      setEndTime(end.toISOString().slice(0, 16));
+      setEndTime(toLocalInputValue(end));
     }
   }, [startTime, estimatedMinutes]);
 
@@ -545,7 +545,7 @@ export default function OperationSchedulerModal({
     if (isOpen && !startTime) {
       const now = new Date();
       now.setMinutes(Math.ceil(now.getMinutes() / 15) * 15, 0, 0);
-      setStartTime(now.toISOString().slice(0, 16));
+      setStartTime(toLocalInputValue(now));
     }
   }, [isOpen, startTime]);
 
@@ -565,11 +565,12 @@ export default function OperationSchedulerModal({
   // chose this slot and we should show it rather than immediately replacing it.
   useEffect(() => {
     if (isOpen && isEditMode && currentOp?.scheduled_start) {
-      const start = new Date(currentOp.scheduled_start);
-      setStartTime(start.toISOString().slice(0, 16));
+      // scheduled_start/end are naive-UTC server strings — toLocalInputValue
+      // routes them through parseDateTime so they land at local wall time.
+      // (Plain `new Date(naiveString)` would mis-parse them as local.)
+      setStartTime(toLocalInputValue(currentOp.scheduled_start));
       if (currentOp.scheduled_end) {
-        const end = new Date(currentOp.scheduled_end);
-        setEndTime(end.toISOString().slice(0, 16));
+        setEndTime(toLocalInputValue(currentOp.scheduled_end));
       }
     }
   }, [isOpen, isEditMode, currentOp?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -638,10 +639,8 @@ export default function OperationSchedulerModal({
         if (res.ok && !cancelled) {
           const data = await res.json();
           if (data.next_available && !cancelled) {
-            const start = new Date(data.next_available);
-            const end = new Date(data.suggested_end);
-            setStartTime(start.toISOString().slice(0, 16));
-            setEndTime(end.toISOString().slice(0, 16));
+            setStartTime(toLocalInputValue(data.next_available));
+            setEndTime(toLocalInputValue(data.suggested_end));
           }
         }
       } catch {
@@ -821,14 +820,13 @@ export default function OperationSchedulerModal({
     // Set fresh default start time
     const now = new Date();
     now.setMinutes(Math.ceil(now.getMinutes() / 15) * 15, 0, 0);
-    setStartTime(now.toISOString().slice(0, 16));
+    setStartTime(toLocalInputValue(now));
   };
 
   const handleUseSuggestedSlot = (suggestedStart, suggestedEnd) => {
-    const start = new Date(suggestedStart);
-    setStartTime(start.toISOString().slice(0, 16));
+    setStartTime(toLocalInputValue(suggestedStart));
     if (suggestedEnd) {
-      setEndTime(new Date(suggestedEnd).toISOString().slice(0, 16));
+      setEndTime(toLocalInputValue(suggestedEnd));
     }
     setServerConflicts([]);
     setPredecessorConflict(null);
@@ -1007,8 +1005,8 @@ export default function OperationSchedulerModal({
                     productionOrderId={productionOrder.id}
                     disabled={submitting}
                     onSlotPicked={(start, end) => {
-                      setStartTime(new Date(start).toISOString().slice(0, 16));
-                      setEndTime(new Date(end).toISOString().slice(0, 16));
+                      setStartTime(toLocalInputValue(start));
+                      setEndTime(toLocalInputValue(end));
                       setServerConflicts([]);
                       setPredecessorConflict(null);
                       setSuccessorConflicts([]);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { API_URL } from "../../config/api";
-import { formatDuration, formatDate } from "../../utils/formatting";
+import { formatDuration, formatDate, toLocalInputValue } from "../../utils/formatting";
 import { PRODUCTION_ORDER_BADGE_CONFIGS } from "../../lib/statusColors.js";
 import Modal from "../Modal";
 import OperationCard from "./OperationCard";
@@ -388,7 +388,7 @@ export default function ProductionOrderModal({
     setSelectedWorkCenter(operation.work_center_id || null);
     const now = new Date();
     now.setHours(now.getHours() + 1);
-    setScheduledStart(now.toISOString().slice(0, 16));
+    setScheduledStart(toLocalInputValue(now));
     setScheduleModalOpen(true);
   };
 
@@ -491,8 +491,7 @@ export default function ProductionOrderModal({
   // Apply suggested time slot
   const applySuggestedSlot = () => {
     if (suggestedSlot) {
-      const suggested = new Date(suggestedSlot.start);
-      setScheduledStart(suggested.toISOString().slice(0, 16));
+      setScheduledStart(toLocalInputValue(suggestedSlot.start));
       setSuggestedSlot(null);
       setError(null);
     }

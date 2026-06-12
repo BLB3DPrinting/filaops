@@ -37,6 +37,25 @@ export function parseDateTime(datetime) {
 }
 
 /**
+ * Convert a datetime to the local wall-time string a `datetime-local` input
+ * expects ("YYYY-MM-DDTHH:mm").
+ *
+ * `datetime-local` inputs hold LOCAL wall time by definition — never feed
+ * them `Date.toISOString().slice(0, 16)`, which is UTC and renders shifted
+ * by the user's timezone offset. String inputs go through `parseDateTime`,
+ * so naive-UTC server strings (no 'Z' suffix) land at the correct local time.
+ *
+ * @param {string|Date} datetime - ISO datetime string (naive strings assumed UTC) or Date object
+ * @returns {string} Local wall-time value for datetime-local inputs (e.g., "2026-06-12T14:42"), or "" if unparseable
+ */
+export function toLocalInputValue(datetime) {
+  const d = parseDateTime(datetime);
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
  * Format datetime to time string
  * @param {string|Date} datetime - ISO datetime string or Date object
  * @returns {string} Formatted time (e.g., "2:30 PM")
