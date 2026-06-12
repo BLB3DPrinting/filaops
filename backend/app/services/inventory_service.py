@@ -900,11 +900,20 @@ def _sync_op_material_allocation(
     quantity_required (shouldn't happen in practice, but keeps the column
     semantically valid).
 
+    UNITS: *qty_reserved* arrives in the COMPONENT's inventory unit (that is
+    what reserve_production_materials reserves in), while row.quantity_required
+    is stored in the ROW's unit (copied verbatim from the routing).  Each
+    row's requirement is converted into the component unit for the
+    distribution math, and the allocation is written back in the ROW's unit —
+    quantity_allocated must be comparable to quantity_required because the
+    release gate compares them directly.
+
     This is the single writer of ProductionOrderOperationMaterial.quantity_allocated
     for the reservation direction.  It is idempotent: calling it twice with the
     same qty_reserved leaves the rows in the same state.
     """
     from app.models.production_order import ProductionOrderOperation
+    from app.services.uom_service import convert_quantity_safe
 
     # Collect op-material rows for this component across all operations,
     # ordered by operation.sequence then row id for deterministic distribution.
@@ -929,15 +938,46 @@ def _sync_op_material_allocation(
     if not rows:
         return
 
+    component = db.query(Product).filter(Product.id == component_id).first()
+    component_unit = (
+        (component.unit if component else None) or "EA"
+    ).upper()
+
     remaining = qty_reserved
     for row in rows:
         if remaining <= Decimal("0"):
             row.quantity_allocated = Decimal("0")
             continue
-        required = Decimal(str(row.quantity_required))
-        alloc = min(remaining, required)
-        row.quantity_allocated = alloc
-        remaining -= alloc
+        required_row = Decimal(str(row.quantity_required))
+        row_unit = (row.unit or component_unit).upper()
+        # convert_quantity_safe fast-paths same-unit (the overwhelmingly
+        # common case) and falls back to inline G/KG-style conversion when
+        # the UOM table is unseeded — same resilience as
+        # convert_and_generate_notes on the reservation side.
+        required_comp, converted = convert_quantity_safe(
+            db, required_row, row_unit, component_unit
+        )
+        if not converted:
+            logger.error(
+                "UOM conversion failed distributing reservation for "
+                "component %s on PO#%s (row %s: %s -> %s) — assuming 1:1",
+                component_id,
+                production_order.code,
+                row.id,
+                row_unit,
+                component_unit,
+            )
+            required_comp = required_row
+
+        alloc_comp = min(remaining, required_comp)
+        # Write the allocation back in the ROW's unit via the coverage
+        # ratio — full coverage yields exactly quantity_required with no
+        # round-trip conversion error.
+        if required_comp > Decimal("0"):
+            row.quantity_allocated = (alloc_comp / required_comp) * required_row
+        else:
+            row.quantity_allocated = Decimal("0")
+        remaining -= alloc_comp
 
 
 def _backfill_op_material_from_ledger(

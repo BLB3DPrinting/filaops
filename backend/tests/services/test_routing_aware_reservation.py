@@ -559,3 +559,78 @@ class TestZeroStockHard5:
         assert reservations[0]["is_shortage"] is True
         assert reservations[0]["quantity_reserved"] == 30.0
         assert reservations[0]["available_after"] < 0
+
+
+class TestMixedUomDistribution:
+    """Row unit != component inventory unit (CodeRabbit finding on #728).
+
+    Routing rows may carry KG while the component's inventory unit is G.
+    Requirements are reserved in the component unit (grams), but
+    quantity_allocated must be written back in the ROW's unit so the
+    release gate's allocated-vs-required comparison is unit-consistent.
+    """
+
+    def test_kg_routing_row_against_gram_inventory(
+        self, db, finished_good, raw_material
+    ):
+        # 0.05 KG per unit x 10 units = 0.5 KG required = 500 G
+        routing, _ = _make_routing_with_materials(db, finished_good, [
+            {
+                "component_id": raw_material.id,
+                "quantity": Decimal("0.05"),
+                "unit": "KG",
+            },
+        ])
+        _seed_inventory(db, raw_material.id, Decimal("1000"))
+        order = _make_draft_order_with_ops(db, finished_good, routing, quantity=10)
+
+        reservations = reserve_production_materials(
+            db, order, created_by="test@filaops.dev"
+        )
+
+        # Ledger reserves in the component unit: 500 G
+        assert len(reservations) == 1
+        assert reservations[0]["quantity_reserved"] == 500.0
+        assert reservations[0]["unit"] == "G"
+        txns = _reservation_txns(db, order.id, raw_material.id)
+        assert sum(Decimal(str(t.quantity)) for t in txns) == Decimal("500")
+
+        # Row allocation is written in the ROW's unit (KG): fully covered
+        # means allocated == required exactly (0.5 KG), NOT 500.
+        rows = _op_material_rows(db, order)
+        assert len(rows) == 1
+        assert Decimal(str(rows[0].quantity_required)) == Decimal("0.5")
+        assert Decimal(str(rows[0].quantity_allocated)) == Decimal("0.5")
+
+        # Inventory allocated in component unit
+        inv = _get_inventory(db, raw_material.id)
+        assert Decimal(str(inv.allocated_quantity)) == Decimal("500")
+
+        # And the release gate (allocated >= required, row units) passes
+        released = po_svc.release_production_order(
+            db, order.id, user_email="test@filaops.dev"
+        )
+        assert released.status == "released"
+
+    def test_partial_coverage_mixed_uom_prorates_in_row_units(
+        self, db, finished_good, raw_material
+    ):
+        """Partial reservation must prorate the row allocation in row units."""
+        routing, _ = _make_routing_with_materials(db, finished_good, [
+            {
+                "component_id": raw_material.id,
+                "quantity": Decimal("0.1"),
+                "unit": "KG",
+            },
+        ])
+        _seed_inventory(db, raw_material.id, Decimal("0"))
+        order = _make_draft_order_with_ops(db, finished_good, routing, quantity=5)
+        # 0.5 KG = 500 G required; pre-reserve only 200 G via a direct call
+        # with a hand-rolled ledger row, then sync via the delta-safe path.
+        from app.services.inventory_service import _sync_op_material_allocation
+        _sync_op_material_allocation(
+            db, order, raw_material.id, Decimal("200")
+        )
+        rows = _op_material_rows(db, order)
+        # 200 G of 500 G = 40% coverage -> 0.2 KG of 0.5 KG in row units
+        assert Decimal(str(rows[0].quantity_allocated)) == Decimal("0.2")
