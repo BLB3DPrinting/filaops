@@ -115,10 +115,14 @@ async function fetchSuggestionForOp(op, earliestStart) {
       if (slotRes.ok) {
         const slotData = await slotRes.json();
         if (slotData.next_available) {
+          // Pass the server's UTC ISO strings through untouched — the modal
+          // converts them to local wall time (toLocalInputValue) exactly once
+          // when seeding the datetime-local inputs. Slicing toISOString()
+          // here would inject UTC into a local-by-definition input.
           return {
             resourceId: String(suggestedResourceId),
-            startTime: new Date(slotData.next_available).toISOString().slice(0, 16),
-            endTime: new Date(slotData.suggested_end).toISOString().slice(0, 16),
+            startTime: slotData.next_available,
+            endTime: slotData.suggested_end,
             maintenanceWarning,
           };
         }
@@ -136,10 +140,11 @@ async function fetchSuggestionForOp(op, earliestStart) {
         estimatedMinutes > 0
           ? new Date(base.getTime() + estimatedMinutes * 60000)
           : new Date(base.getTime() + 60 * 60000);
+      // Full UTC ISO strings (with 'Z') — the modal localizes them once.
       return {
         resourceId: String(suggestedResourceId),
-        startTime: base.toISOString().slice(0, 16),
-        endTime: end.toISOString().slice(0, 16),
+        startTime: base.toISOString(),
+        endTime: end.toISOString(),
         maintenanceWarning,
       };
     }
