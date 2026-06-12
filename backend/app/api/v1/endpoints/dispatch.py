@@ -17,7 +17,8 @@ from app.api.v1.deps import get_current_staff_user, get_db
 from app.models.user import User
 from app.schemas.dispatch import AssignRequest, AssignResponse, DispatchSuggestionsResponse
 from app.services.dispatch_service import dispatch_operation, get_dispatch_suggestions
-from app.services.resource_scheduling import SequenceError
+from app.services.maintenance_window_service import sync_printer_maintenance_status
+from app.services.resource_scheduling import MaintenanceWindowConflictError, SequenceError
 
 router = APIRouter(
     prefix="/dispatch",
@@ -48,8 +49,13 @@ async def get_suggestions(
     - ``maintenance_warning``: non-null when maintenance is due before the job
       would finish (the operator decides whether to proceed)
 
-    ZERO writes — safe to poll frequently.
+    Near-zero writes: the suggestion computation itself never writes, but
+    this endpoint first runs the SCHED-7 lazy status sync (windows whose
+    start/end has passed flip printer status between idle and maintenance —
+    see maintenance_window_service docstring for the seam rationale).
     """
+    if sync_printer_maintenance_status(db):
+        db.commit()
     return get_dispatch_suggestions(db, printer_id=printer_id)
 
 
@@ -86,6 +92,9 @@ async def assign_operation(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SequenceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except MaintenanceWindowConflictError as exc:
+        # SCHED-7: proposed slot overlaps a blocking maintenance window
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

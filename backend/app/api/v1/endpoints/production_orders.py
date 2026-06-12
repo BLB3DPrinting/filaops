@@ -79,6 +79,7 @@ from app.services import production_order_service
 from app.services.resource_scheduling import (
     find_conflicts,
     find_next_available_slot,
+    find_window_conflicts,
     check_predecessor_scheduling,
     check_successor_scheduling,
     get_earliest_start_after_predecessors,
@@ -1026,6 +1027,38 @@ async def reschedule_operation(
             message=f"Scheduling conflict with {len(resource_conflicts)} existing operation(s)",
             conflicts=conflict_details,
             conflict_type="resource",
+            next_available_start=next_start,
+            next_available_end=next_start + timedelta(minutes=duration_minutes),
+        )
+
+    # --- Maintenance-window check (SCHED-7) ---
+    window_conflicts = find_window_conflicts(
+        db=db,
+        resource_id=new_resource_id,
+        start_time=new_start,
+        end_time=new_end,
+        is_printer=is_printer,
+    )
+    if window_conflicts:
+        w = window_conflicts[0]
+        # find_next_available_slot is window-aware, so the suggested slot
+        # already skips past the maintenance block.
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=new_resource_id,
+            duration_minutes=duration_minutes,
+            after=get_earliest_start_after_predecessors(db=db, operation=op, after=new_start),
+            is_printer=is_printer,
+        )
+        return RescheduleResponse(
+            success=False,
+            message=(
+                f"Overlaps maintenance window "
+                f"{w.starts_at:%Y-%m-%d %H:%M}–{w.ends_at:%H:%M} UTC"
+                + (f" ({w.reason})" if w.reason else "")
+            ),
+            conflicts=[],
+            conflict_type="maintenance",
             next_available_start=next_start,
             next_available_end=next_start + timedelta(minutes=duration_minutes),
         )

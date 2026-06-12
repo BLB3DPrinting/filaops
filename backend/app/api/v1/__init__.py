@@ -33,6 +33,7 @@ from app.api.v1.endpoints import (
     traceability,
     quality,
     maintenance,
+    maintenance_windows,
     command_center,
     security,
     invoices,
@@ -245,6 +246,9 @@ router.include_router(
     prefix="/maintenance",
     tags=["maintenance"]
 )
+
+# Maintenance Windows (SCHED-7 — planned downtime the scheduler respects)
+router.include_router(maintenance_windows.router)
 
 # Command Center (dashboard)
 router.include_router(

@@ -16,11 +16,13 @@ from app.schemas.resource_scheduling import (
     ResourceScheduleResponse,
     ConflictCheckResponse,
     ConflictInfo,
+    MaintenanceWindowInfo,
     ScheduledOperationInfo,
 )
 from app.services.resource_scheduling import (
     get_resource_schedule,
     find_conflicts,
+    find_window_conflicts,
 )
 
 router = APIRouter()
@@ -106,8 +108,14 @@ def check_conflicts(
 
     conflicts = find_conflicts(db, resource_id, start, end, exclude_operation_id)
 
+    # SCHED-7: blocking maintenance windows count as conflicts too
+    window_conflicts = find_window_conflicts(db, resource_id, start, end)
+
     return ConflictCheckResponse(
-        has_conflicts=len(conflicts) > 0,
+        has_conflicts=len(conflicts) > 0 or len(window_conflicts) > 0,
+        maintenance_windows=[
+            MaintenanceWindowInfo.model_validate(w) for w in window_conflicts
+        ],
         conflicts=[
             ConflictInfo(
                 operation_id=op.id,

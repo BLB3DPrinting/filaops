@@ -21,13 +21,19 @@ This is intentional: assigning ≠ starting.  The PO status is left
 untouched here; it transitions to ``in_progress`` when the first
 operation actually starts.
 
-Maintenance warning heuristic
+Maintenance awareness (SCHED-7)
 -------------------------------
-We compare ``printer.maintenance_logs[-1].next_due_at`` (latest log by
-performed_at) against ``now + estimated_duration``.  If due before job
-end → add ``maintenance_warning``.  This is a heuristic (not a hard
-block); the operator decides.  SCHED-7 will replace this with real
-maintenance-window rows.
+Real maintenance windows come first:
+
+- A printer inside an ACTIVE blocking window is excluded from
+  suggestions entirely (same treatment as status="maintenance").
+- A job whose estimated duration would overlap an UPCOMING window gets
+  a ``maintenance_warning`` naming the window start — warn, never
+  silently skip; the operator decides.
+
+When no windows exist for the printer, the original heuristic stays as
+fallback: compare the latest ``MaintenanceLog.next_due_at`` against
+``now + estimated_duration``.
 
 Default duration
 ----------------
@@ -55,8 +61,13 @@ from app.schemas.dispatch import (
     PrinterDispatchResult,
     PrinterInfo,
 )
+from app.services.maintenance_window_service import (
+    get_active_window,
+    get_next_window_overlapping,
+)
 from app.services.resource_compatibility_service import is_machine_compatible
 from app.services.resource_scheduling import (
+    MaintenanceWindowConflictError as MaintenanceWindowConflictError,  # re-exported
     SequenceError as SequenceError,  # re-exported for callers (endpoint catches it)
     check_predecessor_scheduling,
     schedule_operation,
@@ -142,8 +153,40 @@ def _get_maintenance_warning(
     duration_minutes: int,
 ) -> Optional[str]:
     """
-    Return a maintenance warning string if the printer's latest next_due_at
-    falls before now + duration, else None.
+    Return a maintenance warning string when the job would collide with
+    maintenance, else None.
+
+    Order of authority (SCHED-7):
+    1. Real maintenance windows — if a blocking window overlaps
+       [now, now + duration], warn naming the window start.
+    2. Heuristic fallback — latest MaintenanceLog.next_due_at before
+       now + duration (kept for installs with no windows scheduled).
+    """
+    now = _now_utc()
+    job_end_aware = now + timedelta(minutes=duration_minutes)
+
+    window = get_next_window_overlapping(
+        db, printer_id=printer.id, start=now, end=job_end_aware
+    )
+    if window is not None:
+        label = window.reason or "maintenance"
+        return (
+            f"Maintenance window ({label}) starts "
+            f"{window.starts_at:%Y-%m-%d %H:%M} UTC — "
+            f"before this job would finish"
+        )
+
+    return _get_next_due_warning(db, printer, duration_minutes)
+
+
+def _get_next_due_warning(
+    db: Session,
+    printer: Printer,
+    duration_minutes: int,
+) -> Optional[str]:
+    """
+    Heuristic fallback: warn if the printer's latest next_due_at falls
+    before now + duration, else None.
     """
     latest_log: Optional[MaintenanceLog] = (
         db.query(MaintenanceLog)
@@ -344,6 +387,12 @@ def get_dispatch_suggestions(
     results: List[PrinterDispatchResult] = []
 
     for printer in printers:
+        # SCHED-7: a printer inside an active maintenance window is not
+        # dispatchable, regardless of its status field (the lazy status
+        # sync may not have run yet).
+        if get_active_window(db, printer_id=printer.id) is not None:
+            continue
+
         candidates = _rank_candidates(db, printer)
 
         printer_info = PrinterInfo(
@@ -413,6 +462,8 @@ def dispatch_operation(
             is not eligible (maintenance status), if the operation is not in
             a dispatchable status, or if material-machine compatibility fails.
         SequenceError: If predecessor operations would be violated.
+        MaintenanceWindowConflictError: If the proposed slot overlaps a
+            blocking maintenance window (SCHED-7).
         RuntimeError: If schedule_operation reports a conflict.
     """
     op: Optional[ProductionOrderOperation] = db.get(
@@ -440,6 +491,16 @@ def dispatch_operation(
     if printer.status in SKIP_STATUSES:
         raise ValueError(
             f"Printer {printer.code} has status '{printer.status}' "
+            f"and cannot accept new assignments"
+        )
+
+    # SCHED-7: active maintenance window blocks assignment even if the
+    # printer's status field hasn't been flipped yet.
+    active_window = get_active_window(db, printer_id=printer.id)
+    if active_window is not None:
+        raise ValueError(
+            f"Printer {printer.code} is in a maintenance window until "
+            f"{active_window.ends_at:%Y-%m-%d %H:%M} UTC "
             f"and cannot accept new assignments"
         )
 

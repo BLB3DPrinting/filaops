@@ -50,10 +50,25 @@ class ResourceScheduleResponse(BaseModel):
     operations: List[ScheduledOperationInfo]
 
 
+class MaintenanceWindowInfo(BaseModel):
+    """Information about a conflicting maintenance window (SCHED-7)."""
+    id: int
+    starts_at: datetime
+    ends_at: datetime
+    reason: Optional[str] = None
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
 class ConflictCheckResponse(BaseModel):
     """Response from conflict check."""
     has_conflicts: bool
     conflicts: List[ConflictInfo]
+    # Maintenance windows overlapping the range (SCHED-7) — additive field,
+    # also counted in has_conflicts.
+    maintenance_windows: List[MaintenanceWindowInfo] = Field(default_factory=list)
 
 
 class ScheduleOperationResponse(BaseModel):
@@ -66,8 +81,9 @@ class ScheduleOperationResponse(BaseModel):
     next_available_end: Optional[datetime] = None
     # Predecessor-specific fields
     # conflict_type is "resource" when blocked by another op on the same
-    # resource, "predecessor" when blocked purely by sequence constraints.
-    conflict_type: Optional[Literal["predecessor", "resource"]] = None
+    # resource, "predecessor" when blocked purely by sequence constraints,
+    # "maintenance" when blocked by a maintenance window (SCHED-7).
+    conflict_type: Optional[Literal["predecessor", "resource", "maintenance"]] = None
     # earliest_valid_start is the latest predecessor scheduled_end — the
     # absolute floor for this operation regardless of resource availability.
     # Present only for predecessor conflicts (conflict_type == "predecessor").
@@ -135,7 +151,9 @@ class RescheduleResponse(BaseModel):
     # Conflict fields — same shape as ScheduleOperationResponse so the modal
     # can reuse its existing conflict/suggestion affordances.
     conflicts: List[ConflictInfo] = Field(default_factory=list)
-    conflict_type: Optional[Literal["predecessor", "resource", "successor"]] = None
+    conflict_type: Optional[
+        Literal["predecessor", "resource", "successor", "maintenance"]
+    ] = None
     earliest_valid_start: Optional[datetime] = None
     next_available_start: Optional[datetime] = None
     next_available_end: Optional[datetime] = None

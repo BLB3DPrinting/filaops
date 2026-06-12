@@ -54,9 +54,19 @@ async def get_scheduler_board(
     """
     from sqlalchemy.orm import joinedload
 
+    from app.models.maintenance import MaintenanceWindow
     from app.models.printer import Printer
     from app.models.production_order import ProductionOrderOperation
+    from app.services.maintenance_window_service import (
+        sync_printer_maintenance_status,
+    )
     from app.services.resource_scheduling import TERMINAL_STATUSES
+
+    # SCHED-7 lazy seam: the board is one of the two surfaces that display
+    # printer status, so it advances window state / flips printer status
+    # before painting (see maintenance_window_service docstring).
+    if sync_printer_maintenance_status(db):
+        db.commit()
 
     # Scheduled_* columns are timezone-naive UTC, but values still in the
     # session identity map (or from other DBs) may carry tzinfo. Normalize
@@ -148,6 +158,37 @@ async def get_scheduler_board(
             key = f"resource-{op.resource_id}"
         ops_by_lane.setdefault(key, []).append(op)
 
+    # --- Maintenance windows in window (single query, SCHED-7) -------------
+    # Non-cancelled windows render as blocks; status lets the UI distinguish
+    # upcoming/active from already-completed history.
+    windows = (
+        db.query(MaintenanceWindow)
+        .filter(
+            MaintenanceWindow.status != "cancelled",
+            MaintenanceWindow.starts_at < end_date,
+            MaintenanceWindow.ends_at > start_date,
+        )
+        .order_by(MaintenanceWindow.starts_at)
+        .all()
+    )
+
+    windows_by_lane: dict[str, list] = {}
+    for w in windows:
+        if w.printer_id is not None:
+            key = f"printer-{w.printer_id}"
+        else:
+            key = f"resource-{w.resource_id}"
+        windows_by_lane.setdefault(key, []).append(w)
+
+    def _window_block(w) -> dict:
+        return {
+            "id": w.id,
+            "starts_at": _naive_utc(w.starts_at).isoformat(),
+            "ends_at": _naive_utc(w.ends_at).isoformat(),
+            "reason": w.reason,
+            "status": w.status,
+        }
+
     def _lane(kind: str, obj, work_center_code: Optional[str]) -> dict:
         key = f"{kind}-{obj.id}"
         lane_ops = ops_by_lane.get(key, [])
@@ -168,6 +209,7 @@ async def get_scheduler_board(
             "work_center_code": work_center_code,
             "utilization_percent": round(min(utilization, 100.0), 1),
             "operations": [_op_block(op) for op in lane_ops],
+            "windows": [_window_block(w) for w in windows_by_lane.get(key, [])],
         }
 
     lanes = [
@@ -624,9 +666,14 @@ async def get_resource_conflicts(
     Check for scheduling conflicts on a resource/printer in a time range.
 
     Used by the frontend's live conflict checker to warn before submitting.
-    Returns list of conflicting operations with their PO codes and times.
+    Returns list of conflicting operations with their PO codes and times,
+    plus maintenance-window conflicts (SCHED-7) discriminated by
+    ``type: "maintenance"`` (operations carry ``type: "operation"``).
     """
-    from app.services.resource_scheduling import find_conflicts
+    from app.services.resource_scheduling import (
+        find_conflicts,
+        find_window_conflicts,
+    )
 
     # Parse ISO timestamps (handle trailing Z for UTC)
     try:
@@ -650,12 +697,34 @@ async def get_resource_conflicts(
     for op in conflicting_ops:
         po = op.production_order
         conflicts.append({
+            "type": "operation",
             "operation_id": op.id,
             "operation_code": op.operation_code,
             "production_order_code": po.code if po else None,
             "po_code": po.code if po else None,
             "scheduled_start": op.scheduled_start.isoformat() if op.scheduled_start else None,
             "scheduled_end": op.scheduled_end.isoformat() if op.scheduled_end else None,
+        })
+
+    # Maintenance windows — shaped so the existing ConflictAlert renders
+    # them without changes ("Maintenance window - <reason> (start – end)").
+    conflicting_windows = find_window_conflicts(
+        db=db,
+        resource_id=resource_id,
+        start_time=start_time,
+        end_time=end_time,
+        is_printer=is_printer,
+    )
+    for w in conflicting_windows:
+        conflicts.append({
+            "type": "maintenance",
+            "window_id": w.id,
+            "operation_id": None,
+            "operation_code": w.reason or "Scheduled downtime",
+            "production_order_code": "Maintenance window",
+            "po_code": "Maintenance window",
+            "scheduled_start": w.starts_at.isoformat(),
+            "scheduled_end": w.ends_at.isoformat(),
         })
 
     return {"conflicts": conflicts}

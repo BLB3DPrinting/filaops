@@ -3,11 +3,19 @@ Resource scheduling service with conflict detection.
 
 Handles scheduling operations on resources and detecting time conflicts.
 Enforces operation sequencing and material/printer compatibility.
+
+SCHED-7: maintenance windows are busy time. ``find_window_conflicts`` is a
+PARALLEL check to ``find_conflicts`` (which keeps returning only
+ProductionOrderOperation rows — its return type is a public contract used
+by several endpoints). ``schedule_operation`` consults both and raises
+``MaintenanceWindowConflictError`` for window overlaps;
+``find_next_available_slot`` skips over windows when hunting for gaps.
 """
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 
+from app.models.maintenance import WINDOW_BLOCKING_STATUSES, MaintenanceWindow
 from app.models.production_order import ProductionOrderOperation
 from app.models.manufacturing import RoutingOperation
 
@@ -105,6 +113,55 @@ def find_conflicts(
     return query.all()
 
 
+def find_window_conflicts(
+    db: Session,
+    resource_id: int,
+    start_time: datetime,
+    end_time: datetime,
+    is_printer: bool = False,
+) -> List[MaintenanceWindow]:
+    """
+    Find maintenance windows that conflict with a proposed time range (SCHED-7).
+
+    Parallel to ``find_conflicts`` (which only returns operations — its
+    return type is a public contract). A window conflicts when it targets
+    the same machine, is blocking (scheduled / in_progress), and overlaps:
+    (window.starts_at < end_time) AND (window.ends_at > start_time).
+
+    Args:
+        db: Database session
+        resource_id: Resource or printer ID to check
+        start_time: Proposed start
+        end_time: Proposed end
+        is_printer: True if checking a printer (uses printer_id column)
+
+    Returns:
+        List of conflicting MaintenanceWindow rows
+    """
+    if is_printer:
+        id_filter = MaintenanceWindow.printer_id == resource_id
+    else:
+        id_filter = MaintenanceWindow.resource_id == resource_id
+
+    # Window columns are naive UTC; normalize aware inputs before comparing.
+    def _naive(dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    return (
+        db.query(MaintenanceWindow)
+        .filter(
+            id_filter,
+            MaintenanceWindow.status.in_(WINDOW_BLOCKING_STATUSES),
+            MaintenanceWindow.starts_at < _naive(end_time),
+            MaintenanceWindow.ends_at > _naive(start_time),
+        )
+        .order_by(MaintenanceWindow.starts_at)
+        .all()
+    )
+
+
 def find_running_operations(
     db: Session,
     resource_id: int,
@@ -172,7 +229,8 @@ def find_next_available_slot(
     """
     Find the next available time slot on a resource or printer.
 
-    Looks at scheduled operations and finds the first gap of sufficient duration.
+    Busy time = scheduled operations PLUS blocking maintenance windows
+    (SCHED-7). Returns the start of the first gap of sufficient duration.
 
     Args:
         db: Database session
@@ -184,28 +242,16 @@ def find_next_available_slot(
     Returns:
         datetime: Start time of next available slot
     """
-    from datetime import timedelta
-
     if after is None:
         after = datetime.now(timezone.utc)
 
     # Choose the correct column based on resource type
     if is_printer:
         id_filter = ProductionOrderOperation.printer_id == resource_id
+        window_filter = MaintenanceWindow.printer_id == resource_id
     else:
         id_filter = ProductionOrderOperation.resource_id == resource_id
-
-    # Get all scheduled ops on this resource starting from 'after'
-    scheduled_ops = db.query(ProductionOrderOperation).filter(
-        id_filter,
-        ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
-        ProductionOrderOperation.scheduled_end.isnot(None),
-        ProductionOrderOperation.scheduled_end > after
-    ).order_by(ProductionOrderOperation.scheduled_start).all()
-
-    if not scheduled_ops:
-        # No scheduled ops - can start immediately
-        return after
+        window_filter = MaintenanceWindow.resource_id == resource_id
 
     # DB columns are TIMESTAMP WITHOUT TIME ZONE, so values come back naive.
     # Treat them as UTC to allow arithmetic with tz-aware `after`.
@@ -214,31 +260,51 @@ def find_next_available_slot(
             return dt.replace(tzinfo=timezone.utc)
         return dt
 
-    # Check if there's a gap before the first scheduled op
-    first_op = scheduled_ops[0]
-    if first_op.scheduled_start:
-        gap_before_first = (_as_utc(first_op.scheduled_start) - after).total_seconds() / 60
-        if gap_before_first >= duration_minutes:
-            return after
+    # Naive variant of `after` for SQL comparisons against naive columns
+    after_naive = (
+        after.astimezone(timezone.utc).replace(tzinfo=None)
+        if after.tzinfo is not None
+        else after
+    )
 
-    # Look for gaps between scheduled operations
-    for i in range(len(scheduled_ops) - 1):
-        current_op = scheduled_ops[i]
-        next_op = scheduled_ops[i + 1]
+    # Get all scheduled ops on this resource still relevant after 'after'
+    scheduled_ops = db.query(ProductionOrderOperation).filter(
+        id_filter,
+        ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+        ProductionOrderOperation.scheduled_end.isnot(None),
+        ProductionOrderOperation.scheduled_end > after_naive
+    ).order_by(ProductionOrderOperation.scheduled_start).all()
 
-        if current_op.scheduled_end and next_op.scheduled_start:
-            gap_start = _as_utc(current_op.scheduled_end)
-            gap_duration = (_as_utc(next_op.scheduled_start) - gap_start).total_seconds() / 60
-            if gap_duration >= duration_minutes:
-                return max(gap_start, after)
+    # Blocking maintenance windows still relevant after 'after'
+    windows = (
+        db.query(MaintenanceWindow)
+        .filter(
+            window_filter,
+            MaintenanceWindow.status.in_(WINDOW_BLOCKING_STATUSES),
+            MaintenanceWindow.ends_at > after_naive,
+        )
+        .all()
+    )
 
-    # No gap found - schedule after the last operation
-    last_op = scheduled_ops[-1]
-    if last_op.scheduled_end:
-        return max(_as_utc(last_op.scheduled_end), after)
+    # Merge ops + windows into one sorted busy-interval sweep
+    intervals = []
+    for op in scheduled_ops:
+        if op.scheduled_start and op.scheduled_end:
+            intervals.append((_as_utc(op.scheduled_start), _as_utc(op.scheduled_end)))
+    for w in windows:
+        intervals.append((_as_utc(w.starts_at), _as_utc(w.ends_at)))
+    intervals.sort(key=lambda pair: pair[0])
 
-    # Fallback: start 1 hour from now
-    return after + timedelta(hours=1)
+    cursor = after
+    for busy_start, busy_end in intervals:
+        if busy_start > cursor:
+            gap_minutes = (busy_start - cursor).total_seconds() / 60
+            if gap_minutes >= duration_minutes:
+                return cursor
+        if busy_end > cursor:
+            cursor = busy_end
+
+    return cursor
 
 
 def check_predecessor_scheduling(
@@ -399,7 +465,8 @@ def schedule_operation(
 
     Validates:
     1. No time conflicts with other operations on the same resource
-    2. Predecessor operations are scheduled/complete first
+    2. No overlap with blocking maintenance windows (SCHED-7)
+    3. Predecessor operations are scheduled/complete first
 
     Args:
         db: Database session
@@ -413,6 +480,11 @@ def schedule_operation(
         Tuple of (success, conflicts_or_errors)
         - If success=True, operation was scheduled
         - If success=False, conflicts contains blocking operations
+
+    Raises:
+        MaintenanceWindowConflictError: range overlaps a blocking
+            maintenance window (carries ``.windows``)
+        SequenceError: predecessor sequencing violated
     """
     # Check for conflicts using the appropriate column
     conflicts = find_conflicts(
@@ -426,6 +498,19 @@ def schedule_operation(
 
     if conflicts:
         return False, conflicts
+
+    # Maintenance windows are busy time (SCHED-7). Raised as a typed error
+    # rather than mixed into the conflicts list, which only carries
+    # ProductionOrderOperation rows by contract.
+    window_conflicts = find_window_conflicts(
+        db=db,
+        resource_id=resource_id,
+        start_time=scheduled_start,
+        end_time=scheduled_end,
+        is_printer=is_printer,
+    )
+    if window_conflicts:
+        raise MaintenanceWindowConflictError(window_conflicts)
 
     # Check predecessor sequencing
     seq_error = check_predecessor_scheduling(db, operation, scheduled_start)
@@ -452,3 +537,20 @@ def schedule_operation(
 class SequenceError(Exception):
     """Raised when operation scheduling violates sequence constraints."""
     pass
+
+
+class MaintenanceWindowConflictError(Exception):
+    """Raised when a proposed schedule overlaps a blocking maintenance window.
+
+    ``windows`` carries the conflicting MaintenanceWindow rows so callers
+    can surface them with a ``type: "maintenance"`` discriminator.
+    """
+
+    def __init__(self, windows: List[MaintenanceWindow]):
+        self.windows = windows
+        first = windows[0]
+        super().__init__(
+            f"Overlaps maintenance window "
+            f"{first.starts_at:%Y-%m-%d %H:%M}–{first.ends_at:%H:%M} UTC"
+            + (f" ({first.reason})" if first.reason else "")
+        )
