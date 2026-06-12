@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import ProductionOrderModal from "../../components/production/ProductionOrderModal";
 import ProductionQueueList from "../../components/production/ProductionQueueList";
 import OperationSchedulerModal from "../../components/production/OperationSchedulerModal";
+import SchedulerBoard from "../../components/production/SchedulerBoard";
 import SplitOrderModal from "../../components/SplitOrderModal";
 import ScrapOrderModal from "../../components/ScrapOrderModal";
 import CompleteOrderModal from "../../components/CompleteOrderModal";
@@ -272,6 +273,13 @@ export default function AdminProduction() {
     productionOrder: null,
   });
 
+  // SCHED-5: Queue list vs Scheduler (Gantt) view
+  const [pageView, setPageView] = useState(
+    searchParams.get("view") === "scheduler" ? "scheduler" : "queue"
+  );
+  // Bumped after the scheduler modal saves so the board refetches.
+  const [boardRefresh, setBoardRefresh] = useState(0);
+
   // Split modal state
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [selectedOrderForSplit, setSelectedOrderForSplit] = useState(null);
@@ -423,14 +431,53 @@ export default function AdminProduction() {
             Track print jobs and production orders
           </p>
         </div>
-        <button
-          onClick={() => { setShowCreateModal(true); setCreateError(null); }}
-          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500"
-        >
-          + Create Production Order
-        </button>
+        <div className="flex items-center gap-3">
+          {/* SCHED-5: view toggle */}
+          <div className="flex rounded-lg border border-gray-700 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setPageView("queue")}
+              className={`px-3 py-2 text-sm transition-colors ${
+                pageView === "queue"
+                  ? "bg-gray-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-white"
+              }`}
+            >
+              Queue
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageView("scheduler")}
+              className={`px-3 py-2 text-sm transition-colors ${
+                pageView === "scheduler"
+                  ? "bg-gray-700 text-white"
+                  : "bg-gray-900 text-gray-400 hover:text-white"
+              }`}
+            >
+              Scheduler
+            </button>
+          </div>
+          <button
+            onClick={() => { setShowCreateModal(true); setCreateError(null); }}
+            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500"
+          >
+            + Create Production Order
+          </button>
+        </div>
       </div>
 
+      {/* SCHED-5: Scheduler (Gantt) view */}
+      {pageView === "scheduler" && (
+        <SchedulerBoard
+          refreshSignal={boardRefresh}
+          onScheduleOperation={(operation, productionOrder) =>
+            setDispatchModal({ isOpen: true, operation, productionOrder })
+          }
+        />
+      )}
+
+      {pageView === "queue" && (
+        <>
       {/* Production Trend Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <ProductionChart
@@ -531,6 +578,8 @@ export default function AdminProduction() {
           });
         }}
       />
+        </>
+      )}
 
       {/* Scheduling Modal */}
       {showSchedulingModal && selectedOrderForScheduling && (
@@ -557,6 +606,7 @@ export default function AdminProduction() {
           productionOrder={dispatchModal.productionOrder}
           onScheduled={() => {
             fetchProductionOrders();
+            setBoardRefresh((n) => n + 1);
             setDispatchModal({ isOpen: false, operation: null, productionOrder: null });
           }}
         />
