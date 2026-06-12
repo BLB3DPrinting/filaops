@@ -24,7 +24,7 @@ export function formatDuration(minutes) {
  * @param {string|Date} datetime - ISO datetime string or Date object
  * @returns {Date} Date object
  */
-function parseDateTime(datetime) {
+export function parseDateTime(datetime) {
   if (!datetime) return null;
   if (datetime instanceof Date) return datetime;
 

@@ -33,6 +33,218 @@ from app.services.resource_compatibility_service import (
 router = APIRouter()
 
 
+@router.get("/board")
+async def get_scheduler_board(
+    start_date: datetime = Query(..., description="Window start (ISO 8601)"),
+    end_date: datetime = Query(..., description="Window end (ISO 8601)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    SCHED-5: One-call payload for the Scheduler (Gantt) view.
+
+    Returns every machine lane (machine-type Resources + Printers) with the
+    operations scheduled on it inside the window, plus the unscheduled-orders
+    work queue. Operations may be scheduled against either a Resource
+    (scheduler modal path, op.resource_id) or a Printer (dispatch path,
+    op.printer_id) — the two are distinct models with no FK between them, so
+    lanes are keyed "resource-{id}" / "printer-{id}".
+
+    Read-only; one query per concern (no per-lane N+1).
+    """
+    from sqlalchemy.orm import joinedload
+
+    from app.models.printer import Printer
+    from app.models.production_order import ProductionOrderOperation
+    from app.services.resource_scheduling import TERMINAL_STATUSES
+
+    # Scheduled_* columns are timezone-naive UTC, but values still in the
+    # session identity map (or from other DBs) may carry tzinfo. Normalize
+    # BOTH the window and every op timestamp to naive UTC so Python-side
+    # clipping never mixes aware and naive datetimes.
+    def _naive_utc(dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    start_date = _naive_utc(start_date)
+    end_date = _naive_utc(end_date)
+
+    if end_date <= start_date:
+        raise HTTPException(status_code=422, detail="end_date must be after start_date")
+
+    window_hours = (end_date - start_date).total_seconds() / 3600
+
+    # --- Lanes -----------------------------------------------------------
+    resources = (
+        db.query(Resource)
+        .join(WorkCenter, Resource.work_center_id == WorkCenter.id)
+        .filter(
+            Resource.is_active.is_(True),
+            WorkCenter.center_type == "machine",
+        )
+        .order_by(WorkCenter.code, Resource.code)
+        .all()
+    )
+    printers = db.query(Printer).order_by(Printer.code).all()
+
+    # --- Scheduled operations in window (single query) --------------------
+    ops = (
+        db.query(ProductionOrderOperation)
+        .options(
+            joinedload(ProductionOrderOperation.production_order)
+            .joinedload(ProductionOrder.product)
+        )
+        .filter(
+            ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+            ProductionOrderOperation.scheduled_start.isnot(None),
+            ProductionOrderOperation.scheduled_end.isnot(None),
+            ProductionOrderOperation.scheduled_start < end_date,
+            ProductionOrderOperation.scheduled_end > start_date,
+            or_(
+                ProductionOrderOperation.resource_id.isnot(None),
+                ProductionOrderOperation.printer_id.isnot(None),
+            ),
+        )
+        .order_by(ProductionOrderOperation.scheduled_start)
+        .all()
+    )
+
+    def _op_block(op) -> dict:
+        po = op.production_order
+        return {
+            "id": op.id,
+            "operation_code": op.operation_code,
+            "operation_name": op.operation_name,
+            "sequence": op.sequence,
+            "status": op.status,
+            "scheduled_start": op.scheduled_start.isoformat(),
+            "scheduled_end": op.scheduled_end.isoformat(),
+            "planned_setup_minutes": (
+                str(op.planned_setup_minutes)
+                if op.planned_setup_minutes is not None
+                else "0"
+            ),
+            "planned_run_minutes": (
+                str(op.planned_run_minutes)
+                if op.planned_run_minutes is not None
+                else "0"
+            ),
+            "production_order_id": po.id if po else None,
+            "production_order_code": po.code if po else None,
+            "production_order_status": po.status if po else None,
+            "product_name": po.product.name if po and po.product else None,
+            "quantity": float(po.quantity_ordered) if po else None,
+        }
+
+    ops_by_lane: dict[str, list] = {}
+    for op in ops:
+        if op.printer_id is not None:
+            key = f"printer-{op.printer_id}"
+        else:
+            key = f"resource-{op.resource_id}"
+        ops_by_lane.setdefault(key, []).append(op)
+
+    def _lane(kind: str, obj, work_center_code: Optional[str]) -> dict:
+        key = f"{kind}-{obj.id}"
+        lane_ops = ops_by_lane.get(key, [])
+        # Utilization = scheduled time clipped to the window / window length
+        busy_hours = 0.0
+        for op in lane_ops:
+            clip_start = max(_naive_utc(op.scheduled_start), start_date)
+            clip_end = min(_naive_utc(op.scheduled_end), end_date)
+            busy_hours += max(0.0, (clip_end - clip_start).total_seconds() / 3600)
+        utilization = (busy_hours / window_hours * 100) if window_hours > 0 else 0.0
+        return {
+            "key": key,
+            "kind": kind,
+            "id": obj.id,
+            "code": obj.code,
+            "name": obj.name,
+            "status": obj.status or "unknown",
+            "work_center_code": work_center_code,
+            "utilization_percent": round(min(utilization, 100.0), 1),
+            "operations": [_op_block(op) for op in lane_ops],
+        }
+
+    lanes = [
+        _lane("resource", r, r.work_center.code if r.work_center else None)
+        for r in resources
+    ]
+    lanes += [_lane("printer", p, None) for p in printers]
+
+    # --- Unscheduled work queue (single query) -----------------------------
+    unscheduled_ops = (
+        db.query(ProductionOrderOperation)
+        .options(
+            joinedload(ProductionOrderOperation.production_order)
+            .joinedload(ProductionOrder.product)
+        )
+        .join(
+            ProductionOrder,
+            ProductionOrderOperation.production_order_id == ProductionOrder.id,
+        )
+        .filter(
+            ProductionOrder.status.in_(["released", "scheduled", "in_progress"]),
+            ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+            ProductionOrderOperation.scheduled_start.is_(None),
+        )
+        .order_by(
+            ProductionOrder.priority,
+            ProductionOrder.due_date.asc().nullslast(),
+            ProductionOrderOperation.sequence,
+        )
+        .all()
+    )
+
+    unscheduled_by_po: dict[int, dict] = {}
+    for op in unscheduled_ops:
+        po = op.production_order
+        if po.id not in unscheduled_by_po:
+            unscheduled_by_po[po.id] = {
+                "production_order_id": po.id,
+                "production_order_code": po.code,
+                "production_order_status": po.status,
+                "product_name": po.product.name if po.product else None,
+                "quantity": float(po.quantity_ordered or 0),
+                "priority": po.priority,
+                "due_date": po.due_date.isoformat() if po.due_date else None,
+                "unscheduled_operation_count": 0,
+                # First unscheduled op (lowest sequence) — click target for
+                # the scheduler modal.
+                "first_unscheduled_operation": _op_unscheduled_block(op),
+            }
+        unscheduled_by_po[po.id]["unscheduled_operation_count"] += 1
+
+    return {
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "lanes": lanes,
+        "unscheduled": list(unscheduled_by_po.values()),
+    }
+
+
+def _op_unscheduled_block(op) -> dict:
+    """Minimal operation payload the OperationSchedulerModal needs."""
+    return {
+        "id": op.id,
+        "operation_code": op.operation_code,
+        "operation_name": op.operation_name,
+        "sequence": op.sequence,
+        "status": op.status,
+        "planned_setup_minutes": (
+            str(op.planned_setup_minutes)
+            if op.planned_setup_minutes is not None
+            else "0"
+        ),
+        "planned_run_minutes": (
+            str(op.planned_run_minutes)
+            if op.planned_run_minutes is not None
+            else "0"
+        ),
+    }
+
+
 @router.post("/capacity/check", response_model=CapacityCheckResponse)
 async def check_capacity(
     request: CapacityCheckRequest,
