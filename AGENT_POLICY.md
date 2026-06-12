@@ -100,6 +100,19 @@ Comply with hook and CI feedback instead of routing around it.
 - When renaming or changing a contract, search direct calls, type references,
   string literals, dynamic imports, re-exports, tests, and mocks.
 
+### File-Size Limits (DEBT-1, owner-approved 2026-06-12)
+
+- New functionality goes in NEW modules by default — "match the surrounding
+  file" governs style, not placement.
+- Files over 1,200 lines (backend Python) or 800 lines (frontend
+  components/pages) must NOT accept new responsibilities. Extract the area
+  you are touching into a focused module first, or split as part of the
+  change.
+- Mechanical splits are always SEPARATE PRs from behavior changes — never
+  mix moves with logic edits in one diff.
+- The decomposition backlog and split conventions live in
+  docs/plans/2026-06-12-god-file-decomposition.md.
+
 ## Core Vs PRO Architecture
 
 ```text
