@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Breadcrumbs from "./Breadcrumbs";
 import SecurityBadge from "./SecurityBadge";
 import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
+import { useApi } from "../hooks/useApi";
 import {
   getCurrentVersion,
   getCurrentVersionSync,
@@ -626,6 +627,7 @@ const navGroups = [
 
 export default function AdminLayout() {
   const navigate = useNavigate();
+  const api = useApi();
   // Persist sidebar state in localStorage
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
@@ -739,6 +741,20 @@ export default function AdminLayout() {
       navigate("/admin/login");
     }
   }, [navigate]);
+
+  // Validate the session against the server on entering the admin shell.
+  // The localStorage check above is only a fast hint — after a backend
+  // restart the cookie session can be dead while adminUser persists,
+  // which used to leave users on a 401-riddled page until they manually
+  // re-signed in. The shared apiClient attempts a silent token refresh
+  // on 401; if that fails, its onUnauthorized clears adminUser and
+  // redirects to login, so a dead session bounces cleanly instead of
+  // looking broken. Network-level failures (backend fully down) are
+  // swallowed — login couldn't succeed either, and the connection
+  // banner already communicates the outage.
+  useEffect(() => {
+    api.get("/api/v1/auth/me").catch(() => {});
+  }, [api]);
 
   useEffect(() => {
     const fetchVersion = async () => {

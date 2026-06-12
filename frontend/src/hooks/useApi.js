@@ -16,7 +16,11 @@ function getClient() {
     _sharedClient = createApiClient({
       baseUrl: API_URL,
       onUnauthorized: () => {
-        // Redirect to login on 401
+        // Session is genuinely dead (silent refresh already failed): clear
+        // the stale auth flag so AdminLayout's localStorage guard agrees,
+        // then go to login. Without the removeItem, a restarted backend
+        // left users on a half-rendered admin shell full of 401 errors.
+        localStorage.removeItem("adminUser");
         if (!window.location.pathname.includes("/login")) {
           window.location.href = "/admin/login";
         }
