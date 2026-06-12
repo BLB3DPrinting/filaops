@@ -72,8 +72,17 @@ and fewer serialize-or-conflict coordination constraints.
   in bulk import, preview truncation indicator + validation-scope alignment.
 
 ### Wave 3 (owner pull, lower urgency)
-inventory_service.py, purchase_order_service.py, endpoints/production_orders.py,
-AdminLayout.jsx (nav config extraction), Onboarding.jsx, SalesOrderWizard.jsx.
+- **D3-A** `inventory_service.py` (1,826) → reservation/allocation module,
+  transactions/adjustments module, core CRUD.
+- **D3-B** `purchase_order_service.py` (1,794) → receiving module,
+  landed-cost module, core CRUD.
+- **D3-C** `endpoints/production_orders.py` (1,639) → split by sub-resource
+  (operations, materials, lifecycle) mirroring the service split from D2-A.
+- **D3-D** `AdminLayout.jsx` (1,129) → extract nav config to a data module,
+  sidebar + header into components.
+- **D3-E** `Onboarding.jsx` (1,465) → per-step components.
+- **D3-F** `SalesOrderWizard.jsx` (1,423) → per-step components + shared
+  wizard state hook.
 
 ## Regrowth prevention (lands with Wave 1)
 - **AGENT_POLICY.md** gains: "New functionality goes in new modules. Files
