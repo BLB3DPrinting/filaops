@@ -131,8 +131,10 @@ export default function App() {
               <UpgradeModal />
               <BrowserRouter>
                 <Routes>
-                  {/* Redirect root to admin */}
-                  <Route path="/" element={<Navigate to="/admin" replace />} />
+                  {/* Root defaults to the login screen (owner decision
+                      2026-06-12): opening the app always starts at sign-in;
+                      authenticated deep links to /admin/* are unaffected. */}
+                  <Route path="/" element={<Navigate to="/admin/login" replace />} />
 
                   {/* First-run setup — /setup redirects to /onboarding (Setup.jsx removed in PR-3) */}
                   <Route path="/setup" element={<Navigate to="/onboarding" replace />} />
