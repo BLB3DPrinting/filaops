@@ -429,6 +429,63 @@ def _maybe_backfill_op_material_allocation(
     db.flush()
 
 
+def _maybe_reserve_missing_materials(
+    db: Session,
+    order: "ProductionOrder",
+    user_email: str,
+) -> None:
+    """RESERVE-1 level-2 self-heal: reserve at release time when reservation
+    never ran or under-ran.
+
+    Level 1 (_maybe_backfill_op_material_allocation) only repairs ledger↔row
+    desync — it cannot help when the ledger itself has no (or insufficient)
+    reservations.  That happens for brownfield orders whose creation-time
+    reservation walked an empty/production-line-less BOM while the materials
+    actually live on the routing (op-material rows).
+
+    If any op-material row still shows quantity_allocated < quantity_required
+    after level 1, the net ledger reservation for that component is missing
+    or short, so run reserve_production_materials — it is delta-safe
+    (RESERVE-1) and tops up only the shortfall.  HARD-5 semantics are
+    preserved: zero-stock components reserve ahead of receipt (flag, not
+    block) and release proceeds.
+    """
+    rows = [mat for op in order.operations for mat in op.materials]
+    if not rows:
+        return
+
+    shortfall_rows = [
+        mat for mat in rows
+        if Decimal(str(mat.quantity_allocated or 0))
+        < Decimal(str(mat.quantity_required or 0))
+    ]
+    if not shortfall_rows:
+        return
+
+    never_ran = all(
+        Decimal(str(mat.quantity_allocated or 0)) == Decimal("0")
+        for mat in rows
+    )
+    if never_ran:
+        logger.info(
+            "RESERVE-1 self-heal: reservation had never run for PO#%s — "
+            "reserving at release",
+            order.code,
+        )
+    else:
+        logger.info(
+            "RESERVE-1 self-heal: reservation under-ran for PO#%s "
+            "(%d op-material row(s) short) — topping up at release",
+            order.code,
+            len(shortfall_rows),
+        )
+
+    from app.services.inventory_service import reserve_production_materials
+    reserve_production_materials(db, order, created_by=user_email)
+    # Flush so the gate re-check reads the updated rows.
+    db.flush()
+
+
 def release_production_order(
     db: Session,
     order_id: int,
@@ -453,15 +510,22 @@ def release_production_order(
             detail=f"Cannot release order in {order.status} status"
         )
 
-    # Self-heal: if the order has active ledger reservations but op-material
-    # rows still show quantity_allocated=0, the reservation sync was skipped
-    # (e.g. orders created before fix #715, or a future code path that calls
-    # reserve_production_materials without the sync step).  Backfill now so
-    # the gate below reads truth rather than always-zero.
+    # Self-heal level 1: if the order has active ledger reservations but
+    # op-material rows still show quantity_allocated=0, the reservation sync
+    # was skipped (e.g. orders created before fix #715, or a future code path
+    # that calls reserve_production_materials without the sync step).
+    # Backfill now so the gate below reads truth rather than always-zero.
     _maybe_backfill_op_material_allocation(db, order)
 
     # Check material availability unless forced
     if not force:
+        # Self-heal level 2 (RESERVE-1): if rows still show a shortfall after
+        # the ledger backfill, reservation never ran or under-ran (e.g. pure
+        # routing-material products whose creation-time reservation walked an
+        # empty BOM).  reserve_production_materials is delta-safe, so this
+        # tops up only the missing quantities, then the gate re-checks.
+        _maybe_reserve_missing_materials(db, order, user_email)
+
         blocking_issues = []
         for op in order.operations:
             for mat in op.materials:
@@ -502,9 +566,12 @@ def release_production_order(
             ]
 
             if not_allocated and not short:
+                # Nearly unreachable after the level-2 self-heal above: it
+                # fires only when reservation itself errored for every
+                # shortfall component (e.g. UOMConversionError skip).
                 message = (
-                    "Materials not yet allocated — re-run material reservation "
-                    "for this order"
+                    "Material reservation failed during release — check "
+                    "component/UOM configuration"
                 )
             else:
                 parts = []

@@ -618,11 +618,17 @@ class TestReleaseProductionOrder:
             svc.release_production_order(db, order.id, "test@filaops.dev")
         assert exc_info.value.status_code == 400
 
-    def test_release_with_no_reservation_blocked_not_allocated(
+    def test_release_blocked_not_allocated_when_reservation_errors(
         self, db, finished_good, raw_material
     ):
-        """Should block release with 'not yet allocated' message when no
-        inventory reservation exists (e.g. allocation step was never run)."""
+        """Should block release with 'reservation failed' message when the
+        RESERVE-1 level-2 self-heal cannot reserve (incompatible UOM).
+
+        Note: since RESERVE-1, a plain unreserved order with valid units
+        self-heals at release time (see TestRoutingAwareReservation in
+        test_routing_aware_reservation.py) — the not_allocated gate now only
+        fires when reservation itself errors, e.g. a UOM conversion failure.
+        """
         # Create order directly (bypassing service) so no BOM/reservation exists
         order = _make_production_order(db, finished_good, status="draft")
         op = ProductionOrderOperation(
@@ -637,12 +643,15 @@ class TestReleaseProductionOrder:
         )
         db.add(op)
         db.flush()
+        # Row unit EA is incompatible with the component's inventory unit G,
+        # so the self-heal's reservation attempt raises UOMConversionError
+        # and skips this component — leaving it not_allocated.
         mat = ProductionOrderOperationMaterial(
             production_order_operation_id=op.id,
             component_id=raw_material.id,
             quantity_required=Decimal("500"),
             quantity_allocated=Decimal("0"),
-            unit="G",
+            unit="EA",
             status="pending",
         )
         db.add(mat)
@@ -656,7 +665,7 @@ class TestReleaseProductionOrder:
         assert isinstance(detail, dict)
         assert "shortages" in detail
         assert any(s["reason"] == "not_allocated" for s in detail["shortages"])
-        assert "not yet allocated" in detail["message"].lower()
+        assert "reservation failed" in detail["message"].lower()
 
     def test_release_with_force_overrides_shortage(self, db, finished_good, raw_material):
         """Should release despite shortages when force=True."""
@@ -838,7 +847,14 @@ class TestReleaseProductionOrder:
     def test_release_insufficient_stock_error_message(
         self, db, finished_good, raw_material
     ):
-        """When stock is genuinely short, error should say 'Insufficient stock for ...'"""
+        """When a partial reservation exists and the RESERVE-1 top-up cannot
+        complete it (incompatible UOM), error should say 'Insufficient stock
+        for ...'.
+
+        Note: since RESERVE-1, a partial reservation with valid units is
+        topped up by the level-2 self-heal at release time — this gate case
+        now only fires when the top-up itself errors.
+        """
         from app.models.inventory import InventoryLocation, InventoryTransaction
 
         location = db.query(InventoryLocation).first()
@@ -857,12 +873,15 @@ class TestReleaseProductionOrder:
         db.add(op)
         db.flush()
 
+        # Row unit EA is incompatible with the component's inventory unit G,
+        # so the self-heal's top-up attempt raises UOMConversionError and
+        # skips this component — leaving the partial reservation in place.
         mat = ProductionOrderOperationMaterial(
             production_order_operation_id=op.id,
             component_id=raw_material.id,
             quantity_required=Decimal("500"),
             quantity_allocated=Decimal("0"),
-            unit="G",
+            unit="EA",
             status="pending",
         )
         db.add(mat)
