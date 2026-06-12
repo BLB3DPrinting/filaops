@@ -118,8 +118,11 @@ async def get_scheduler_board(
             "operation_name": op.operation_name,
             "sequence": op.sequence,
             "status": op.status,
-            "scheduled_start": op.scheduled_start.isoformat(),
-            "scheduled_end": op.scheduled_end.isoformat(),
+            # Normalize through _naive_utc so every serialized timestamp is a
+            # naive-UTC string, matching the window echo and the frontend's
+            # parseDateTime convention (appends 'Z' to naive strings).
+            "scheduled_start": _naive_utc(op.scheduled_start).isoformat(),
+            "scheduled_end": _naive_utc(op.scheduled_end).isoformat(),
             "planned_setup_minutes": (
                 str(op.planned_setup_minutes)
                 if op.planned_setup_minutes is not None

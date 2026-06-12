@@ -5,7 +5,7 @@
  * the component is tested against a mocked /scheduling/board payload.
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import SchedulerBoard, { getWindow, pctOf, getTicks } from "../SchedulerBoard";
 
 const mocks = vi.hoisted(() => {
@@ -19,12 +19,13 @@ vi.mock("../../../hooks/useApi", () => ({
   useApi: () => mocks.api,
 }));
 
-// Window: the component requests [anchor day 00:00, +24h) in day mode.
-// Build ops relative to "today" so positioning is deterministic.
-const today = new Date();
-const dayStart = new Date(
-  today.getFullYear(), today.getMonth(), today.getDate()
-);
+// The component anchors to "today" via new Date() at mount, so the clock is
+// FROZEN to a fixed instant (10 AM local on 2026-06-15) in beforeEach —
+// otherwise a suite that crosses midnight would shift the day window out
+// from under the mocked block timestamps. shouldAdvanceTime keeps
+// waitFor/findBy working under fake timers.
+const FROZEN_NOW = new Date(2026, 5, 15, 10, 0, 0);
+const dayStart = new Date(2026, 5, 15);
 const at = (h) => new Date(dayStart.getTime() + h * 3600 * 1000).toISOString();
 
 const BOARD = {
@@ -95,8 +96,14 @@ const BOARD = {
 };
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(FROZEN_NOW);
   mocks.get.mockReset();
   mocks.get.mockResolvedValue(BOARD);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("helpers", () => {
@@ -119,6 +126,19 @@ describe("helpers", () => {
     expect(start.getDate()).toBe(1);
     expect(start.getMonth()).toBe(5);
     expect(end.getMonth()).toBe(6);
+  });
+
+  it("getWindow day mode ends at local midnight across DST transitions", () => {
+    // US spring-forward 2026-03-08: the day is 23h long. Millisecond math
+    // (start + 24h) would land at 01:00 on 3/9; calendar math must land
+    // at exactly 00:00 local regardless of the runner's timezone.
+    const { end } = getWindow(new Date(2026, 2, 8), "day");
+    expect(end.getHours()).toBe(0);
+    expect(end.getDate()).toBe(9);
+    // And fall-back (2026-11-01, 25h day) must too.
+    const fall = getWindow(new Date(2026, 10, 1), "day");
+    expect(fall.end.getHours()).toBe(0);
+    expect(fall.end.getDate()).toBe(2);
   });
 
   it("pctOf clamps to [0, 100]", () => {

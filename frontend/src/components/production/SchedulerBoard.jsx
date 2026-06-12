@@ -19,23 +19,30 @@
  *   refreshSignal — increment to force a refetch (parent bumps it after the
  *     modal schedules/reschedules something).
  */
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { parseDateTime } from "../../utils/formatting";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Local midnight N days after the given date. Uses calendar arithmetic
+ * (Date handles month/year rollover) — NOT millisecond math, which lands
+ * an hour off on DST transition days (23h/25h days).
+ */
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
 
 /** Window [start, end) for the given anchor date + view mode, local time. */
 export function getWindow(anchor, viewMode) {
   const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
   if (viewMode === "day") {
-    return { start: d, end: new Date(d.getTime() + DAY_MS) };
+    return { start: d, end: addDays(d, 1) };
   }
   if (viewMode === "week") {
     // Monday-start week
     const dow = (d.getDay() + 6) % 7;
-    const monday = new Date(d.getTime() - dow * DAY_MS);
-    return { start: monday, end: new Date(monday.getTime() + 7 * DAY_MS) };
+    const monday = addDays(d, -dow);
+    return { start: monday, end: addDays(monday, 7) };
   }
   // month
   const first = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -63,10 +70,14 @@ export function getTicks(start, end, viewMode) {
     }
     return ticks;
   }
-  const days = Math.round((end.getTime() - start.getTime()) / DAY_MS);
-  const labelEvery = viewMode === "week" ? 1 : days > 20 ? 5 : 2;
-  for (let i = 0; i < days; i++) {
-    const t = new Date(start.getTime() + i * DAY_MS);
+  // Walk day-by-day with calendar arithmetic so each tick lands on local
+  // midnight even across DST transitions.
+  const labelEveryFor = (days) => (viewMode === "week" ? 1 : days > 20 ? 5 : 2);
+  const totalDays = Math.round(
+    (end.getTime() - start.getTime()) / (24 * 3600 * 1000)
+  );
+  const labelEvery = labelEveryFor(totalDays);
+  for (let i = 0, t = start; t < end; i++, t = addDays(start, i)) {
     const label =
       i % labelEvery === 0
         ? t.toLocaleDateString(undefined, {
@@ -153,7 +164,12 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
 
   const { start, end } = useMemo(() => getWindow(anchor, viewMode), [anchor, viewMode]);
 
+  // Guards against out-of-order responses: rapid view/date changes can have
+  // several /board requests in flight, and only the latest may paint.
+  const fetchSeq = useRef(0);
+
   const fetchBoard = useCallback(async () => {
+    const seq = ++fetchSeq.current;
     setLoading(true);
     setError(null);
     try {
@@ -162,11 +178,13 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
         end_date: end.toISOString(),
       });
       const data = await api.get(`/api/v1/scheduling/board?${params}`);
+      if (seq !== fetchSeq.current) return; // stale response — a newer fetch won
       setBoard(data);
     } catch (err) {
+      if (seq !== fetchSeq.current) return;
       setError(err.message || "Failed to load schedule");
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
   }, [api, start, end]);
 
@@ -181,9 +199,9 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
 
   const shift = (dir) => {
     if (viewMode === "day") {
-      setAnchor((a) => new Date(a.getTime() + dir * DAY_MS));
+      setAnchor((a) => addDays(a, dir));
     } else if (viewMode === "week") {
-      setAnchor((a) => new Date(a.getTime() + dir * 7 * DAY_MS));
+      setAnchor((a) => addDays(a, dir * 7));
     } else {
       setAnchor((a) => new Date(a.getFullYear(), a.getMonth() + dir, 1));
     }
