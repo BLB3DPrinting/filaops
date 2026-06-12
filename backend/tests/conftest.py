@@ -268,6 +268,12 @@ def setup_database():
             "ALTER TABLE purchase_orders "
             "ADD COLUMN IF NOT EXISTS landed_cost_allocated NUMERIC(18, 4) NOT NULL DEFAULT 0"
         ))
+        # SCHED-3+4: auto_dispatch company setting (column added to the model
+        # without a conftest patch entry — accumulated test DBs lack it)
+        conn.execute(text(
+            "ALTER TABLE company_settings "
+            "ADD COLUMN IF NOT EXISTS auto_dispatch BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
         conn.commit()
 
     # Seed required data

@@ -498,69 +498,190 @@ def create_inventory_transaction(
     return transaction
 
 
-def reserve_production_materials(
+def _get_net_reserved_by_component(
+    db: Session,
+    production_order_id: int,
+) -> Dict[int, Decimal]:
+    """
+    Net ledger reservations per component for a production order:
+    sum(reservation) - sum(reservation_release), floored at 0.
+
+    Single source for the "how much is already reserved" question used by
+    both the delta-idempotent reservation path (RESERVE-1) and the
+    ledger→row backfill self-heal.
+    """
+    from sqlalchemy import func as sqlfunc
+    from sqlalchemy import case
+
+    net_rows = (
+        db.query(
+            InventoryTransaction.product_id,
+            sqlfunc.sum(
+                case(
+                    (InventoryTransaction.transaction_type == "reservation",
+                     InventoryTransaction.quantity),
+                    else_=Decimal("0"),
+                )
+                - case(
+                    (InventoryTransaction.transaction_type == "reservation_release",
+                     InventoryTransaction.quantity),
+                    else_=Decimal("0"),
+                )
+            ).label("net_reserved"),
+        )
+        .filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == production_order_id,
+            InventoryTransaction.transaction_type.in_(
+                ["reservation", "reservation_release"]
+            ),
+        )
+        .group_by(InventoryTransaction.product_id)
+        .all()
+    )
+    return {
+        row.product_id: max(Decimal("0"), Decimal(str(row.net_reserved)))
+        for row in net_rows
+    }
+
+
+def _get_reservation_requirements(
     db: Session,
     production_order: ProductionOrder,
-    created_by: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> Dict[int, Dict[str, Any]]:
     """
-    Reserve (allocate) materials when a production order is scheduled.
-    
-    This increases the allocated_quantity on inventory records, reducing
-    available quantity without actually consuming the materials.
-    
-    Materials are reserved based on BOM quantity * ordered quantity.
-    
-    Args:
-        db: Database session
-        production_order: The production order being scheduled
-        created_by: User scheduling the order
-    
+    Canonical per-component reservation requirements for a production order
+    (RESERVE-1, mirrors the HARD-12 routing-first explosion semantics).
+
+    PRIMARY source — ProductionOrderOperationMaterial rows: when the order
+    has materialized op-material rows (copied from the routing at creation),
+    those rows are the order-specific truth and exactly what the release
+    gate checks.  Rows already include scrap (applied by
+    calculate_required_quantity at copy time) and cost-only routing
+    materials were already excluded by copy_routing_to_operations, so
+    neither is re-applied here.
+
+    FALLBACK — legacy BOM walk: products without routing materials keep the
+    original behavior (active BOM, consume_stage='production', scrap factor
+    applied, cost-only lines skipped).
+
+    The two sources are never mixed: op rows REPLACE the BOM walk entirely,
+    preventing double reservation for mixed-source products.
+
     Returns:
-        List of reservation records with details about what was reserved
+        Dict mapping component_id -> {
+            "component": Product,
+            "quantity": Decimal,  # in the component's inventory unit
+            "unit": str,          # component inventory unit
+            "source": "routing" | "bom",
+        }
     """
-    reservations = []
-    location = get_or_create_default_location(db)
-    
-    # Get BOM for the product
+    from app.models.production_order import ProductionOrderOperation
+
+    requirements: Dict[int, Dict[str, Any]] = {}
+
+    op_rows = (
+        db.query(ProductionOrderOperationMaterial)
+        .join(
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial.production_order_operation_id
+            == ProductionOrderOperation.id,
+        )
+        .filter(
+            ProductionOrderOperation.production_order_id == production_order.id,
+        )
+        .order_by(
+            ProductionOrderOperation.sequence,
+            ProductionOrderOperationMaterial.id,
+        )
+        .all()
+    )
+
+    if op_rows:
+        for row in op_rows:
+            component = db.query(Product).filter(
+                Product.id == row.component_id
+            ).first()
+            if not component:
+                continue
+
+            row_qty = Decimal(str(row.quantity_required or 0))
+            if row_qty <= Decimal("0"):
+                continue
+
+            row_unit = (row.unit or component.unit or "EA").upper()
+            component_unit = (component.unit or "EA").upper()
+
+            try:
+                converted_qty, _ = convert_and_generate_notes(
+                    db=db,
+                    bom_qty=row_qty,
+                    line_unit=row_unit,
+                    component_unit=component_unit,
+                    component_name=component.name,
+                    component_sku=component.sku,
+                    reference_prefix="Reserved for PO#",
+                    reference_code=production_order.code,
+                )
+            except UOMConversionError as e:
+                logger.error(
+                    f"Failed to reserve materials (op-material row {row.id}): {e}"
+                )
+                continue
+
+            entry = requirements.get(row.component_id)
+            if entry:
+                entry["quantity"] += converted_qty
+            else:
+                requirements[row.component_id] = {
+                    "component": component,
+                    "quantity": converted_qty,
+                    "unit": component_unit,
+                    "source": "routing",
+                }
+        return requirements
+
+    # FALLBACK — legacy BOM walk (no op-material rows on this order)
     bom = db.query(BOM).filter(
         BOM.product_id == production_order.product_id,
         BOM.active.is_(True)
     ).first()
-    
+
     if not bom:
-        logger.warning(f"No active BOM found for product {production_order.product_id} - no materials to reserve")
-        return reservations
-    
+        logger.warning(
+            f"No active BOM found for product {production_order.product_id} "
+            f"- no materials to reserve"
+        )
+        return requirements
+
     quantity_ordered = Decimal(str(production_order.quantity_ordered or 0))
-    
-    # Get BOM lines for production consumption
+
     bom_lines = db.query(BOMLine).filter(
         BOMLine.bom_id == bom.id,
         BOMLine.consume_stage == "production",
     ).all()
-    
+
     for line in bom_lines:
         # Skip cost-only items (machine time, overhead)
         if line.is_cost_only:
             continue
-        
+
         # Skip non-inventory items
         component = db.query(Product).filter(Product.id == line.component_id).first()
         if not component:
             continue
-        
+
         # Calculate quantity to reserve (BOM qty per unit * ordered units)
         # Apply scrap factor if any
         base_qty = Decimal(str(line.quantity))
         scrap_factor = Decimal(str(line.scrap_factor or 0)) / Decimal("100")
         qty_with_scrap = base_qty * (Decimal("1") + scrap_factor)
         bom_qty = qty_with_scrap * quantity_ordered
-        
+
         # UOM Conversion: Convert BOM line unit to component's inventory unit
         line_unit = (line.unit or component.unit or "EA").upper()
         component_unit = (component.unit or "EA").upper()
-        
+
         try:
             total_qty, _ = convert_and_generate_notes(
                 db=db,
@@ -575,28 +696,112 @@ def reserve_production_materials(
         except UOMConversionError as e:
             logger.error(f"Failed to reserve materials: {e}")
             continue
-        
+
+        entry = requirements.get(line.component_id)
+        if entry:
+            entry["quantity"] += total_qty
+        else:
+            requirements[line.component_id] = {
+                "component": component,
+                "quantity": total_qty,
+                "unit": component_unit,
+                "source": "bom",
+            }
+
+    return requirements
+
+
+def reserve_production_materials(
+    db: Session,
+    production_order: ProductionOrder,
+    created_by: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Reserve (allocate) materials for a production order.
+
+    This increases the allocated_quantity on inventory records, reducing
+    available quantity without actually consuming the materials.
+
+    RESERVE-1 — requirement source is routing-first: when the order has
+    ProductionOrderOperationMaterial rows (materialized from the routing at
+    creation), those rows drive the reservation; otherwise the legacy
+    active-BOM walk applies.  See _get_reservation_requirements.
+
+    RESERVE-1 — delta idempotency: the function is safely re-runnable.  For
+    each component the net already-reserved quantity (reservation minus
+    reservation_release in the ledger) is subtracted from the requirement
+    and only the shortfall is reserved ("top-up reservation").  Calling it
+    on a fully-reserved order is a no-op apart from re-syncing op-material
+    rows.
+
+    HARD-5: reservations may exceed on_hand (flag, not block) — production
+    legitimately reserves ahead of receipt.
+
+    Args:
+        db: Database session
+        production_order: The production order being scheduled
+        created_by: User scheduling the order
+
+    Returns:
+        List of reservation records with details about what was reserved
+        in THIS call (deltas only; components already fully reserved are
+        omitted).
+    """
+    reservations = []
+    location = get_or_create_default_location(db)
+
+    requirements = _get_reservation_requirements(db, production_order)
+    if not requirements:
+        return reservations
+
+    # Net already-reserved per component from the ledger — only reserve the
+    # delta up to the requirement so re-runs never double-reserve.
+    net_reserved = _get_net_reserved_by_component(db, production_order.id)
+    net_after: Dict[int, Decimal] = {}
+
+    for component_id, req in requirements.items():
+        component = req["component"]
+        component_unit = req["unit"]
+        required_qty = req["quantity"]
+        already_reserved = net_reserved.get(component_id, Decimal("0"))
+        delta_qty = required_qty - already_reserved
+
+        if delta_qty <= Decimal("0"):
+            # Already fully reserved — nothing to add; rows re-synced below.
+            net_after[component_id] = already_reserved
+            logger.info(
+                "Reservation already covers requirement for %s on PO#%s "
+                "(required %s, net reserved %s) — skipping",
+                component.sku,
+                production_order.code,
+                required_qty,
+                already_reserved,
+            )
+            continue
+
+        is_topup = already_reserved > Decimal("0")
+
         # Get or create inventory record
-        inventory = get_or_create_inventory(db, line.component_id, location.id)
+        inventory = get_or_create_inventory(db, component_id, location.id)
 
         # Increase allocated quantity
         current_allocated = Decimal(str(inventory.allocated_quantity))
         current_on_hand = Decimal(str(inventory.on_hand_quantity))
-        new_allocated = current_allocated + total_qty
+        new_allocated = current_allocated + delta_qty
 
         # HARD-5 write-time guard: flag (not block) when reservation would
         # exceed on_hand.  Production is allowed to reserve ahead of receipt,
         # so we log + flag but proceed.  The shortage is visible in the
         # reservation return value so callers/UIs can surface it.
         would_exceed, available_after = check_allocation_guard(
-            current_on_hand, current_allocated, total_qty
+            current_on_hand, current_allocated, delta_qty
         )
         if would_exceed:
             logger.warning(
                 "HARD-5 allocation guard: reserving %s %s of %s for PO#%s "
                 "would exceed on_hand (%s). allocated %s → %s, available_after=%s. "
                 "Proceeding (legitimate ahead-of-receipt reservation).",
-                total_qty,
+                delta_qty,
                 component_unit,
                 component.sku,
                 production_order.code,
@@ -611,15 +816,26 @@ def reserve_production_materials(
 
         # Create reservation transaction for audit trail
         unit_cost = get_effective_cost_per_inventory_unit(component)
-        total_cost = abs(total_qty) * unit_cost if unit_cost else None
+        total_cost = abs(delta_qty) * unit_cost if unit_cost else None
+        if is_topup:
+            notes = (
+                f"Top-up reservation for PO#{production_order.code}: "
+                f"{delta_qty} {component_unit} of {component.name} "
+                f"(net already reserved: {already_reserved} {component_unit})"
+            )
+        else:
+            notes = (
+                f"Reserved for PO#{production_order.code}: "
+                f"{delta_qty} {component_unit} of {component.name}"
+            )
         txn = InventoryTransaction(
-            product_id=line.component_id,
+            product_id=component_id,
             location_id=location.id,
             transaction_type="reservation",
-            quantity=total_qty,
+            quantity=delta_qty,
             reference_type="production_order",
             reference_id=production_order.id,
-            notes=f"Reserved for PO#{production_order.code}: {total_qty} {component_unit} of {component.name}",
+            notes=notes,
             cost_per_unit=unit_cost,
             total_cost=total_cost,
             unit=component_unit,
@@ -628,11 +844,15 @@ def reserve_production_materials(
         )
         db.add(txn)
 
+        net_after[component_id] = already_reserved + delta_qty
+
         reservation_info = {
-            "product_id": line.component_id,
+            "product_id": component_id,
             "product_sku": component.sku,
             "product_name": component.name,
-            "quantity_reserved": float(total_qty),
+            "quantity_reserved": float(delta_qty),
+            "already_reserved": float(already_reserved),
+            "is_topup": is_topup,
             "unit": component_unit,
             "on_hand": float(current_on_hand),
             "allocated_after": float(new_allocated),
@@ -641,20 +861,26 @@ def reserve_production_materials(
         }
         reservations.append(reservation_info)
 
-        if not would_exceed:
+        if is_topup:
             logger.info(
-                f"Reserved {total_qty} {component_unit} of {component.sku} "
+                f"Top-up reservation: {delta_qty} {component_unit} of "
+                f"{component.sku} for PO#{production_order.code} "
+                f"(already reserved {already_reserved})"
+            )
+        elif not would_exceed:
+            logger.info(
+                f"Reserved {delta_qty} {component_unit} of {component.sku} "
                 f"for PO#{production_order.code}"
             )
-    
-    # Sync op-material rows: distribute reserved qty across op-material rows
-    # for each component, in operation-sequence order, filling each row up to
-    # its quantity_required.  Under partial reservation (HARD-5 shortage path)
-    # we allocate only what was actually reserved.
-    for reservation_info in reservations:
-        component_id = reservation_info["product_id"]
-        qty_reserved = Decimal(str(reservation_info["quantity_reserved"]))
-        _sync_op_material_allocation(db, production_order, component_id, qty_reserved)
+
+    # Sync op-material rows: distribute the TOTAL net reserved quantity
+    # (prior reservations + this run's delta) across op-material rows for
+    # each component, in operation-sequence order, filling each row up to
+    # its quantity_required.  Under partial reservation (HARD-5 shortage
+    # path or UOM-skipped top-up) we allocate only what was actually
+    # reserved.
+    for component_id, qty_net in net_after.items():
+        _sync_op_material_allocation(db, production_order, component_id, qty_net)
 
     return reservations
 
@@ -674,11 +900,20 @@ def _sync_op_material_allocation(
     quantity_required (shouldn't happen in practice, but keeps the column
     semantically valid).
 
+    UNITS: *qty_reserved* arrives in the COMPONENT's inventory unit (that is
+    what reserve_production_materials reserves in), while row.quantity_required
+    is stored in the ROW's unit (copied verbatim from the routing).  Each
+    row's requirement is converted into the component unit for the
+    distribution math, and the allocation is written back in the ROW's unit —
+    quantity_allocated must be comparable to quantity_required because the
+    release gate compares them directly.
+
     This is the single writer of ProductionOrderOperationMaterial.quantity_allocated
     for the reservation direction.  It is idempotent: calling it twice with the
     same qty_reserved leaves the rows in the same state.
     """
     from app.models.production_order import ProductionOrderOperation
+    from app.services.uom_service import convert_quantity_safe
 
     # Collect op-material rows for this component across all operations,
     # ordered by operation.sequence then row id for deterministic distribution.
@@ -703,15 +938,46 @@ def _sync_op_material_allocation(
     if not rows:
         return
 
+    component = db.query(Product).filter(Product.id == component_id).first()
+    component_unit = (
+        (component.unit if component else None) or "EA"
+    ).upper()
+
     remaining = qty_reserved
     for row in rows:
         if remaining <= Decimal("0"):
             row.quantity_allocated = Decimal("0")
             continue
-        required = Decimal(str(row.quantity_required))
-        alloc = min(remaining, required)
-        row.quantity_allocated = alloc
-        remaining -= alloc
+        required_row = Decimal(str(row.quantity_required))
+        row_unit = (row.unit or component_unit).upper()
+        # convert_quantity_safe fast-paths same-unit (the overwhelmingly
+        # common case) and falls back to inline G/KG-style conversion when
+        # the UOM table is unseeded — same resilience as
+        # convert_and_generate_notes on the reservation side.
+        required_comp, converted = convert_quantity_safe(
+            db, required_row, row_unit, component_unit
+        )
+        if not converted:
+            logger.error(
+                "UOM conversion failed distributing reservation for "
+                "component %s on PO#%s (row %s: %s -> %s) — assuming 1:1",
+                component_id,
+                production_order.code,
+                row.id,
+                row_unit,
+                component_unit,
+            )
+            required_comp = required_row
+
+        alloc_comp = min(remaining, required_comp)
+        # Write the allocation back in the ROW's unit via the coverage
+        # ratio — full coverage yields exactly quantity_required with no
+        # round-trip conversion error.
+        if required_comp > Decimal("0"):
+            row.quantity_allocated = (alloc_comp / required_comp) * required_row
+        else:
+            row.quantity_allocated = Decimal("0")
+        remaining -= alloc_comp
 
 
 def _backfill_op_material_from_ledger(
@@ -730,46 +996,17 @@ def _backfill_op_material_from_ledger(
     up to its quantity_required in operation-sequence order per component.
     """
     # Sum reservations minus reservation_releases per component
-    from sqlalchemy import func as sqlfunc
-    from sqlalchemy import case
+    net_reserved = _get_net_reserved_by_component(db, production_order.id)
 
-    net_rows = (
-        db.query(
-            InventoryTransaction.product_id,
-            sqlfunc.sum(
-                case(
-                    (InventoryTransaction.transaction_type == "reservation",
-                     InventoryTransaction.quantity),
-                    else_=Decimal("0"),
-                )
-                - case(
-                    (InventoryTransaction.transaction_type == "reservation_release",
-                     InventoryTransaction.quantity),
-                    else_=Decimal("0"),
-                )
-            ).label("net_reserved"),
-        )
-        .filter(
-            InventoryTransaction.reference_type == "production_order",
-            InventoryTransaction.reference_id == production_order.id,
-            InventoryTransaction.transaction_type.in_(
-                ["reservation", "reservation_release"]
-            ),
-        )
-        .group_by(InventoryTransaction.product_id)
-        .all()
-    )
-
-    for row in net_rows:
-        qty = max(Decimal("0"), Decimal(str(row.net_reserved)))
+    for component_id, qty in net_reserved.items():
         if qty > Decimal("0"):
-            _sync_op_material_allocation(db, production_order, row.product_id, qty)
+            _sync_op_material_allocation(db, production_order, component_id, qty)
 
     logger.info(
         "Self-heal: backfilled op-material quantity_allocated from ledger "
         "for PO#%s (%d component(s))",
         production_order.code,
-        len(net_rows),
+        len(net_reserved),
     )
 
 
