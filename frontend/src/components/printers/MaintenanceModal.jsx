@@ -11,6 +11,9 @@
  * datetime-local convention: inputs are seeded ONLY via toLocalInputValue
  * (local wall time) and submitted via new Date(localValue).toISOString().
  *
+ * All API calls go through useApi (shared client: silent token refresh,
+ * 401 bounce to login, app-wide error events) — never raw fetch.
+ *
  * Props:
  *   printers          — printer list for the selector
  *   selectedPrinterId — preselected printer (optional)
@@ -20,7 +23,7 @@
  *   onWindowsChanged  — () => void (optional; a window was created/cancelled/completed)
  */
 import { useState, useEffect, useCallback } from "react";
-import { API_URL } from "../../config/api";
+import { useApi } from "../../hooks/useApi";
 import { useToast } from "../Toast";
 import { toLocalInputValue, parseDateTime } from "../../utils/formatting";
 import Modal from "../Modal";
@@ -55,6 +58,7 @@ export default function MaintenanceModal({
   onSave,
   onWindowsChanged,
 }) {
+  const api = useApi();
   const toast = useToast();
   const [mode, setMode] = useState(initialMode); // log | schedule
   const [loading, setLoading] = useState(false);
@@ -93,18 +97,14 @@ export default function MaintenanceModal({
   const fetchWindows = useCallback(async () => {
     try {
       // Default listing = blocking windows only (scheduled / in_progress)
-      const res = await fetch(`${API_URL}/api/v1/maintenance-windows`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load maintenance windows");
-      const data = await res.json();
-      setWindows(data.items || []);
+      const data = await api.get("/api/v1/maintenance-windows");
+      setWindows(data?.items || []);
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || "Failed to load maintenance windows");
     } finally {
       setWindowsLoading(false);
     }
-  }, [toast]);
+  }, [api, toast]);
 
   useEffect(() => {
     if (mode === "schedule") {
@@ -135,24 +135,15 @@ export default function MaintenanceModal({
         notes: form.notes || null,
       };
 
-      const res = await fetch(`${API_URL}/api/v1/maintenance/printers/${form.printer_id}/maintenance`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to log maintenance");
-      }
+      await api.post(
+        `/api/v1/maintenance/printers/${form.printer_id}/maintenance`,
+        payload
+      );
 
       toast.success("Maintenance logged successfully");
       onSave();
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || "Failed to log maintenance");
     } finally {
       setLoading(false);
     }
@@ -183,23 +174,13 @@ export default function MaintenanceModal({
         reason: windowForm.reason || null,
       };
 
-      const res = await fetch(`${API_URL}/api/v1/maintenance-windows`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to schedule maintenance window");
-      }
+      await api.post("/api/v1/maintenance-windows", payload);
 
       toast.success("Maintenance window scheduled");
       await fetchWindows();
       onWindowsChanged?.();
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || "Failed to schedule maintenance window");
     } finally {
       setLoading(false);
     }
@@ -208,28 +189,16 @@ export default function MaintenanceModal({
   const handleWindowAction = async (windowId, action) => {
     setWindowActionId(windowId);
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/maintenance-windows/${windowId}/${action}`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          // complete: server defaults (routine type, current user, window-span
-          // downtime) — the detailed MaintenanceLog form stays on the Log tab.
-          body: JSON.stringify({}),
-        }
-      );
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || `Failed to ${action} window`);
-      }
+      // complete: server defaults (routine type, current user, window-span
+      // downtime) — the detailed MaintenanceLog form stays on the Log tab.
+      await api.post(`/api/v1/maintenance-windows/${windowId}/${action}`, {});
       toast.success(
         action === "cancel" ? "Maintenance window cancelled" : "Maintenance window completed"
       );
       await fetchWindows();
       onWindowsChanged?.();
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || `Failed to ${action} window`);
     } finally {
       setWindowActionId(null);
     }

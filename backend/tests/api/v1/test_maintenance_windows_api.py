@@ -201,7 +201,7 @@ class TestSchedulerBoardWindows:
         board = res.json()
 
         lane = next(
-            (l for l in board["lanes"] if l["key"] == f"printer-{printer.id}"), None
+            (x for x in board["lanes"] if x["key"] == f"printer-{printer.id}"), None
         )
         assert lane is not None, "printer lane missing from board"
         assert "windows" in lane
@@ -234,7 +234,62 @@ class TestSchedulerBoardWindows:
         )
         assert res.status_code == 200
         lane = next(
-            (l for l in res.json()["lanes"] if l["key"] == f"printer-{printer.id}"),
+            (x for x in res.json()["lanes"] if x["key"] == f"printer-{printer.id}"),
+            None,
+        )
+        assert lane is not None
+        assert lane["windows"] == []
+
+    def test_board_excludes_completed_and_cancelled_windows(self, client, db):
+        """CR #733: a window completed EARLY must release its lane
+        immediately — only blocking (scheduled/in_progress) windows render
+        on the board; completed/cancelled are history."""
+        printer = _make_printer(db)
+        # Active window, completed early (well before its scheduled ends_at)
+        res = client.post(
+            "/api/v1/maintenance-windows",
+            json={
+                "printer_id": printer.id,
+                "starts_at": _iso(_now() - timedelta(hours=1)),
+                "ends_at": _iso(_now() + timedelta(hours=6)),
+            },
+        )
+        assert res.status_code == 201
+        completed_id = res.json()["id"]
+        assert (
+            client.post(
+                f"/api/v1/maintenance-windows/{completed_id}/complete", json={}
+            ).status_code
+            == 200
+        )
+
+        # Future window, cancelled
+        res = client.post(
+            "/api/v1/maintenance-windows",
+            json={
+                "printer_id": printer.id,
+                "starts_at": _iso(_now() + timedelta(hours=8)),
+                "ends_at": _iso(_now() + timedelta(hours=9)),
+            },
+        )
+        cancelled_id = res.json()["id"]
+        assert (
+            client.post(
+                f"/api/v1/maintenance-windows/{cancelled_id}/cancel"
+            ).status_code
+            == 200
+        )
+
+        res = client.get(
+            "/api/v1/scheduling/board",
+            params={
+                "start_date": _iso(_now() - timedelta(hours=2)),
+                "end_date": _iso(_now() + timedelta(hours=12)),
+            },
+        )
+        assert res.status_code == 200
+        lane = next(
+            (x for x in res.json()["lanes"] if x["key"] == f"printer-{printer.id}"),
             None,
         )
         assert lane is not None
@@ -262,7 +317,7 @@ class TestSchedulerBoardWindows:
         )
         assert res.status_code == 200
         lane = next(
-            (l for l in res.json()["lanes"] if l["key"] == f"printer-{printer.id}"),
+            (x for x in res.json()["lanes"] if x["key"] == f"printer-{printer.id}"),
             None,
         )
         assert lane is not None

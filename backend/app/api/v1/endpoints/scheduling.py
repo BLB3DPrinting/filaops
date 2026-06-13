@@ -54,7 +54,7 @@ async def get_scheduler_board(
     """
     from sqlalchemy.orm import joinedload
 
-    from app.models.maintenance import MaintenanceWindow
+    from app.models.maintenance import WINDOW_BLOCKING_STATUSES, MaintenanceWindow
     from app.models.printer import Printer
     from app.models.production_order import ProductionOrderOperation
     from app.services.maintenance_window_service import (
@@ -159,12 +159,14 @@ async def get_scheduler_board(
         ops_by_lane.setdefault(key, []).append(op)
 
     # --- Maintenance windows in window (single query, SCHED-7) -------------
-    # Non-cancelled windows render as blocks; status lets the UI distinguish
-    # upcoming/active from already-completed history.
+    # Only blocking windows (scheduled / in_progress) render as blocks —
+    # the same statuses the engine treats as busy time. A window completed
+    # early must release its lane immediately, not ghost-block until its
+    # scheduled ends_at; completed windows are history (MaintenanceLog).
     windows = (
         db.query(MaintenanceWindow)
         .filter(
-            MaintenanceWindow.status != "cancelled",
+            MaintenanceWindow.status.in_(WINDOW_BLOCKING_STATUSES),
             MaintenanceWindow.starts_at < end_date,
             MaintenanceWindow.ends_at > start_date,
         )

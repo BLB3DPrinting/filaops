@@ -56,6 +56,10 @@ def upgrade() -> None:
             sa.ForeignKey("maintenance_logs.id", ondelete="SET NULL"),
             nullable=True,
         ),
+        # Printer status recorded when the window flipped the printer to
+        # 'maintenance'; restored verbatim when the last blocking window
+        # closes. NULL for resource windows / windows that never flipped.
+        sa.Column("prior_printer_status", sa.String(50), nullable=True),
         sa.Column("created_by", sa.String(100), nullable=True),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
@@ -66,6 +70,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "ends_at > starts_at",
             name="ck_maintenance_windows_valid_range",
+        ),
+        sa.CheckConstraint(
+            "status IN ('scheduled', 'in_progress', 'completed', 'cancelled')",
+            name="ck_maintenance_windows_status",
         ),
     )
     op.create_index(

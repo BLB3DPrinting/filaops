@@ -22,12 +22,13 @@ the scheduler board). It:
 
 - advances ``scheduled`` windows whose start has passed to ``in_progress``
   and flips the printer to 'maintenance' (only from 'idle'/'available' —
-  never overwrites offline/printing/error);
+  never overwrites offline/printing/error), recording the prior status on
+  the window (``prior_printer_status``);
 - when an ``in_progress`` window's end has passed, flips the printer back
-  to 'idle' (only from 'maintenance', and only when no other blocking
-  window is active). The window itself stays ``in_progress`` until the
-  operator explicitly completes or cancels it — elapsed time is not proof
-  the work was done.
+  to its recorded prior status ('idle' if none was recorded; only from
+  'maintenance', and only when no other blocking window is active). The
+  window itself stays ``in_progress`` until the operator explicitly
+  completes or cancels it — elapsed time is not proof the work was done.
 
 Resource (non-printer) windows block scheduling but do not auto-flip
 Resource.status — resources have no live status poll to fight with, and
@@ -90,10 +91,31 @@ def create_window(
     if (printer_id is None) == (resource_id is None):
         raise ValueError("Exactly one of printer_id or resource_id must be set")
 
-    if printer_id is not None and db.get(Printer, printer_id) is None:
-        raise ValueError(f"Printer {printer_id} not found")
-    if resource_id is not None and db.get(Resource, resource_id) is None:
-        raise ValueError(f"Resource {resource_id} not found")
+    # Race: the overlap check below is read-then-insert — two concurrent
+    # creates for the same machine could both see "no overlap" and both
+    # insert, persisting overlapping windows. Serialize per machine by
+    # taking a row lock (SELECT ... FOR UPDATE) on the target Printer /
+    # Resource BEFORE the overlap check, so the second transaction waits
+    # for the first to commit and then sees its window. Same pattern as
+    # the HARD-8 PO row lock in purchase_order_service.receive path.
+    if printer_id is not None:
+        machine = (
+            db.query(Printer)
+            .filter(Printer.id == printer_id)
+            .with_for_update()
+            .first()
+        )
+        if machine is None:
+            raise ValueError(f"Printer {printer_id} not found")
+    else:
+        machine = (
+            db.query(Resource)
+            .filter(Resource.id == resource_id)
+            .with_for_update()
+            .first()
+        )
+        if machine is None:
+            raise ValueError(f"Resource {resource_id} not found")
 
     starts_at = _naive_utc(starts_at)
     ends_at = _naive_utc(ends_at)
@@ -164,7 +186,8 @@ def cancel_window(db: Session, window_id: int) -> MaintenanceWindow:
     Cancel a scheduled or in-progress window.
 
     If the window was active and had flipped its printer to 'maintenance',
-    the printer is flipped back to 'idle' (only from 'maintenance').
+    the printer is restored to its recorded prior status (only from
+    'maintenance'; 'idle' if no prior status was recorded).
     """
     window = db.get(MaintenanceWindow, window_id)
     if window is None:
@@ -179,7 +202,7 @@ def cancel_window(db: Session, window_id: int) -> MaintenanceWindow:
     db.flush()
 
     if was_in_progress and window.printer_id is not None:
-        _restore_printer_status(db, window.printer_id)
+        _restore_printer_status(db, window)
     return window
 
 
@@ -239,7 +262,7 @@ def complete_window(
     db.flush()
 
     if was_in_progress and window.printer_id is not None:
-        _restore_printer_status(db, window.printer_id)
+        _restore_printer_status(db, window)
     return window
 
 
@@ -289,15 +312,19 @@ def get_next_window_overlapping(
     )
 
 
-def _restore_printer_status(db: Session, printer_id: int) -> None:
-    """Flip the printer back to 'idle' — only from 'maintenance', and only
-    when no other blocking window is currently active."""
-    printer = db.get(Printer, printer_id)
+def _restore_printer_status(db: Session, window: MaintenanceWindow) -> None:
+    """Flip the printer back to the status recorded when the window flipped
+    it ('idle' if somehow unrecorded) — only from 'maintenance', and only
+    when no other blocking window is currently active (never clobbers
+    offline/printing/error)."""
+    if window.printer_id is None:
+        return
+    printer = db.get(Printer, window.printer_id)
     if printer is None or printer.status != "maintenance":
         return
-    if get_active_window(db, printer_id=printer_id) is not None:
+    if get_active_window(db, printer_id=window.printer_id) is not None:
         return
-    printer.status = "idle"
+    printer.status = window.prior_printer_status or "idle"
     db.flush()
 
 
@@ -330,6 +357,13 @@ def sync_printer_maintenance_status(db: Session) -> bool:
         if window.printer_id is not None:
             printer = db.get(Printer, window.printer_id)
             if printer is not None and printer.status in _FLIPPABLE_STATUSES:
+                # Record what we are overwriting so flip-out can restore it
+                # exactly ('available' must come back as 'available', not
+                # 'idle'). Keep the first recording — a telemetry revert
+                # mid-window (e.g. MQTT wrote 'idle') must not clobber the
+                # originally observed status.
+                if window.prior_printer_status is None:
+                    window.prior_printer_status = printer.status
                 printer.status = "maintenance"
                 changed = True
 
@@ -350,7 +384,7 @@ def sync_printer_maintenance_status(db: Session) -> bool:
             continue
         if get_active_window(db, printer_id=window.printer_id, at=now) is not None:
             continue
-        printer.status = "idle"
+        printer.status = window.prior_printer_status or "idle"
         changed = True
 
     if changed:

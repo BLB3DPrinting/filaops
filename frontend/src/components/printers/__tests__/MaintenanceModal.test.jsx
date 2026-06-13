@@ -4,6 +4,11 @@
  * Verifies the datetime-local seeding contract (toLocalInputValue local
  * wall time), the submit contract (new Date(local).toISOString()), and the
  * upcoming-window list's cancel/complete actions.
+ *
+ * API access goes through a mocked useApi (CR #733 — the component uses
+ * the shared client, never raw fetch). The mock returns a STABLE object:
+ * the real hook memoizes a module-level singleton, and an unstable mock
+ * would retrigger every effect keyed on `api`.
  */
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -13,6 +18,8 @@ const { mocks } = vi.hoisted(() => ({
   mocks: {
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
+    apiGet: vi.fn(),
+    apiPost: vi.fn(),
   },
 }));
 
@@ -24,6 +31,19 @@ vi.mock("../../Toast", () => ({
     info: vi.fn(),
   }),
 }));
+
+// Stable object — created once at mock-definition time, same reference on
+// every useApi() call (mirrors the real hook's memoized singleton).
+vi.mock("../../../hooks/useApi", () => {
+  const api = {
+    get: mocks.apiGet,
+    post: mocks.apiPost,
+    put: vi.fn(),
+    patch: vi.fn(),
+    del: vi.fn(),
+  };
+  return { useApi: () => api };
+});
 
 vi.mock("../../Modal", () => ({
   default: ({ children }) => <div role="dialog">{children}</div>,
@@ -54,21 +74,15 @@ const WINDOWS = [
 // Frozen clock so the datetime-local seeds are deterministic.
 const FROZEN_NOW = new Date(2026, 5, 15, 10, 0, 0);
 
-const jsonRes = (body) => ({ ok: true, json: async () => body });
-
 /**
- * Find the last fetch call whose URL matches `re` (and, when given,
- * whose method matches); returns [url, opts]. The method filter matters
- * because a successful POST immediately triggers a list-refresh GET to
- * the same collection URL.
+ * Find the last api.post call whose path matches `re`; returns
+ * [path, payload]. The filter matters because a successful POST
+ * immediately triggers a list-refresh GET via api.get.
  */
-function lastFetchMatching(re, method) {
-  const calls = globalThis.fetch.mock.calls;
+function lastPostMatching(re) {
+  const calls = mocks.apiPost.mock.calls;
   for (let i = calls.length - 1; i >= 0; i--) {
-    const [url, opts] = calls[i];
-    if (re.test(String(url)) && (!method || opts?.method === method)) {
-      return calls[i];
-    }
+    if (re.test(String(calls[i][0]))) return calls[i];
   }
   return null;
 }
@@ -78,18 +92,20 @@ beforeEach(() => {
   vi.setSystemTime(FROZEN_NOW);
   mocks.toastError.mockReset();
   mocks.toastSuccess.mockReset();
-  globalThis.fetch = vi.fn(async (url, opts = {}) => {
-    const u = String(url);
-    if (/\/api\/v1\/maintenance-windows\/\d+\/(cancel|complete)$/.test(u)) {
-      return jsonRes({ ...WINDOWS[0], status: "cancelled" });
+  mocks.apiGet.mockReset();
+  mocks.apiPost.mockReset();
+  mocks.apiGet.mockImplementation(async () => ({
+    items: WINDOWS,
+    total: WINDOWS.length,
+  }));
+  mocks.apiPost.mockImplementation(async (path) => {
+    if (/\/api\/v1\/maintenance-windows\/\d+\/(cancel|complete)$/.test(path)) {
+      return { ...WINDOWS[0], status: "cancelled" };
     }
-    if (u.includes("/api/v1/maintenance-windows")) {
-      if (opts.method === "POST") {
-        return jsonRes({ id: 9, status: "scheduled" });
-      }
-      return jsonRes({ items: WINDOWS, total: WINDOWS.length });
+    if (path === "/api/v1/maintenance-windows") {
+      return { id: 9, status: "scheduled" };
     }
-    return jsonRes({});
+    return {};
   });
 });
 
@@ -106,7 +122,7 @@ describe("MaintenanceModal schedule-window tab (SCHED-7)", () => {
       screen.getByRole("heading", { name: "Log Maintenance" })
     ).toBeInTheDocument();
     // No window list fetched in log mode
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mocks.apiGet).not.toHaveBeenCalled();
   });
 
   it("seeds the window start/end inputs with local wall time via toLocalInputValue", async () => {
@@ -161,15 +177,14 @@ describe("MaintenanceModal schedule-window tab (SCHED-7)", () => {
       );
     });
 
-    const [url, opts] = lastFetchMatching(/maintenance-windows$/, "POST") || [];
-    expect(url).toMatch(/\/api\/v1\/maintenance-windows$/);
-    expect(opts.method).toBe("POST");
-    const body = JSON.parse(opts.body);
-    expect(body.printer_id).toBe(1);
+    const [path, payload] =
+      lastPostMatching(/\/api\/v1\/maintenance-windows$/) || [];
+    expect(path).toBe("/api/v1/maintenance-windows");
+    expect(payload.printer_id).toBe(1);
     // The submit contract: new Date(localValue).toISOString()
-    expect(body.starts_at).toBe(new Date("2026-06-16T08:00").toISOString());
-    expect(body.ends_at).toBe(new Date("2026-06-16T12:30").toISOString());
-    expect(body.reason).toBe("Quarterly service");
+    expect(payload.starts_at).toBe(new Date("2026-06-16T08:00").toISOString());
+    expect(payload.ends_at).toBe(new Date("2026-06-16T12:30").toISOString());
+    expect(payload.reason).toBe("Quarterly service");
   });
 
   it("rejects an end time at or before the start time client-side", async () => {
@@ -194,9 +209,7 @@ describe("MaintenanceModal schedule-window tab (SCHED-7)", () => {
         "End time must be after start time"
       );
     });
-    expect(lastFetchMatching(/maintenance-windows$/)?.[1]?.method).not.toBe(
-      "POST"
-    );
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it("lists upcoming windows with printer name, times, and reason", async () => {
@@ -233,9 +246,8 @@ describe("MaintenanceModal schedule-window tab (SCHED-7)", () => {
         "Maintenance window cancelled"
       );
     });
-    const [url, opts] = lastFetchMatching(/\/5\/cancel$/);
-    expect(url).toMatch(/\/api\/v1\/maintenance-windows\/5\/cancel$/);
-    expect(opts.method).toBe("POST");
+    const [path] = lastPostMatching(/\/5\/cancel$/);
+    expect(path).toBe("/api/v1/maintenance-windows/5/cancel");
     expect(onWindowsChanged).toHaveBeenCalled();
   });
 
@@ -258,24 +270,19 @@ describe("MaintenanceModal schedule-window tab (SCHED-7)", () => {
         "Maintenance window completed"
       );
     });
-    const [url, opts] = lastFetchMatching(/\/5\/complete$/);
-    expect(url).toMatch(/\/api\/v1\/maintenance-windows\/5\/complete$/);
-    expect(opts.method).toBe("POST");
+    const [path] = lastPostMatching(/\/5\/complete$/);
+    expect(path).toBe("/api/v1/maintenance-windows/5/complete");
     expect(onWindowsChanged).toHaveBeenCalled();
   });
 
   it("surfaces a backend overlap rejection as a toast error", async () => {
-    globalThis.fetch.mockImplementation(async (url, opts = {}) => {
-      const u = String(url);
-      if (u.includes("/api/v1/maintenance-windows") && opts.method === "POST") {
-        return {
-          ok: false,
-          json: async () => ({
-            detail: "Overlaps existing maintenance window #5",
-          }),
-        };
-      }
-      return jsonRes({ items: [], total: 0 });
+    // The shared client throws ApiError with message = response detail
+    mocks.apiGet.mockImplementation(async () => ({ items: [], total: 0 }));
+    mocks.apiPost.mockImplementation(async () => {
+      throw Object.assign(
+        new Error("Overlaps existing maintenance window #5"),
+        { name: "ApiError", status: 400 }
+      );
     });
 
     render(

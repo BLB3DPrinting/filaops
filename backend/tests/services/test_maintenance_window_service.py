@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 
 from app.models.maintenance import MaintenanceLog, MaintenanceWindow
 from app.models.manufacturing import Resource
@@ -247,6 +249,65 @@ class TestCreateWindow:
             db, printer_id=printer.id, starts_at=mid, ends_at=mid + timedelta(hours=1)
         )
         assert w.id is not None
+
+    def test_create_locks_machine_row_before_overlap_check(self, db):
+        """CR #733: the overlap check is read-then-insert, so concurrent
+        creates for the same machine could both pass it and insert
+        overlapping windows. create_window must serialize per machine by
+        SELECT ... FOR UPDATE on the target Printer/Resource row BEFORE
+        the overlap check (HARD-8 PO row-lock precedent)."""
+        printer = _make_printer(db)
+        captured: list[str] = []
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):
+            captured.append(statement)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", _capture)
+        try:
+            start = _now() + timedelta(hours=2)
+            create_window(
+                db,
+                printer_id=printer.id,
+                starts_at=start,
+                ends_at=start + timedelta(hours=1),
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", _capture)
+
+        lock_selects = [
+            s for s in captured if "FOR UPDATE" in s and "printers" in s
+        ]
+        assert lock_selects, (
+            "create_window must take a FOR UPDATE row lock on the printer "
+            f"before the overlap check; statements seen: {captured}"
+        )
+        # And the lock must come before the overlap SELECT on windows
+        first_lock = next(
+            i for i, s in enumerate(captured) if "FOR UPDATE" in s
+        )
+        overlap_selects = [
+            i
+            for i, s in enumerate(captured)
+            if "maintenance_windows" in s and s.lstrip().upper().startswith("SELECT")
+        ]
+        assert overlap_selects and first_lock < overlap_selects[0]
+
+    def test_status_check_constraint_rejects_unknown_status(self, db):
+        """CR #733: status is DB-CHECK constrained, not a free-form string."""
+        printer = _make_printer(db)
+        start = _now() + timedelta(hours=2)
+        db.add(
+            MaintenanceWindow(
+                printer_id=printer.id,
+                starts_at=start,
+                ends_at=start + timedelta(hours=1),
+                status="paused",  # not in the allowed set
+            )
+        )
+        with pytest.raises(IntegrityError, match="ck_maintenance_windows_status"):
+            db.flush()
+        db.rollback()
 
 
 class TestListWindows:
@@ -776,6 +837,100 @@ class TestStatusSync:
         sync_printer_maintenance_status(db)
         db.refresh(printer)
         assert printer.status == "maintenance"
+
+    def test_restore_returns_available_printer_to_available(self, db):
+        """CR #733: flip-in records the prior status; complete restores it
+        verbatim — 'available' must NOT land on 'idle'."""
+        printer = _make_printer(db, status="available")
+        w = create_window(
+            db,
+            printer_id=printer.id,
+            starts_at=_now() - timedelta(minutes=5),
+            ends_at=_now() + timedelta(hours=1),
+        )
+
+        sync_printer_maintenance_status(db)
+        db.refresh(printer)
+        db.refresh(w)
+        assert printer.status == "maintenance"
+        assert w.prior_printer_status == "available"
+
+        complete_window(db, w.id)
+        db.refresh(printer)
+        assert printer.status == "available"
+
+    def test_restore_returns_idle_printer_to_idle(self, db):
+        """Symmetric case: idle → maintenance → idle (via cancel)."""
+        printer = _make_printer(db, status="idle")
+        w = create_window(
+            db,
+            printer_id=printer.id,
+            starts_at=_now() - timedelta(minutes=5),
+            ends_at=_now() + timedelta(hours=1),
+        )
+
+        sync_printer_maintenance_status(db)
+        db.refresh(printer)
+        db.refresh(w)
+        assert printer.status == "maintenance"
+        assert w.prior_printer_status == "idle"
+
+        cancel_window(db, w.id)
+        db.refresh(printer)
+        assert printer.status == "idle"
+
+    def test_lazy_expiry_restores_prior_available(self, db):
+        """Lazy flip-out (window end passed, no explicit complete) also
+        restores the recorded prior status."""
+        printer = _make_printer(db, status="available")
+        w = create_window(
+            db,
+            printer_id=printer.id,
+            starts_at=_now() - timedelta(minutes=30),
+            ends_at=_now() + timedelta(minutes=5),
+        )
+        sync_printer_maintenance_status(db)
+        db.refresh(printer)
+        assert printer.status == "maintenance"
+
+        # Window end passes without operator action
+        w.ends_at = _now() - timedelta(minutes=1)
+        db.flush()
+
+        sync_printer_maintenance_status(db)
+        db.refresh(printer)
+        db.refresh(w)
+        assert printer.status == "available"
+        # Window still awaits explicit complete/cancel
+        assert w.status == "in_progress"
+
+    def test_telemetry_revert_does_not_clobber_prior_status(self, db):
+        """If telemetry reverts the printer mid-window (e.g. MQTT wrote
+        'idle'), the re-flip keeps the originally recorded prior status."""
+        printer = _make_printer(db, status="available")
+        w = create_window(
+            db,
+            printer_id=printer.id,
+            starts_at=_now() - timedelta(minutes=10),
+            ends_at=_now() + timedelta(hours=1),
+        )
+        sync_printer_maintenance_status(db)
+        db.refresh(w)
+        assert w.prior_printer_status == "available"
+
+        # Telemetry revert mid-window
+        printer.status = "idle"
+        db.flush()
+
+        sync_printer_maintenance_status(db)
+        db.refresh(printer)
+        db.refresh(w)
+        assert printer.status == "maintenance"  # re-flipped
+        assert w.prior_printer_status == "available"  # first recording kept
+
+        complete_window(db, w.id)
+        db.refresh(printer)
+        assert printer.status == "available"
 
     def test_active_window_recorded_by_get_active_window(self, db):
         printer = _make_printer(db)

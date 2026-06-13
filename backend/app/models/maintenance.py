@@ -105,6 +105,10 @@ class MaintenanceWindow(Base):
             "ends_at > starts_at",
             name="ck_maintenance_windows_valid_range",
         ),
+        CheckConstraint(
+            "status IN ('scheduled', 'in_progress', 'completed', 'cancelled')",
+            name="ck_maintenance_windows_status",
+        ),
         Index("ix_maintenance_windows_printer_starts", "printer_id", "starts_at"),
         Index("ix_maintenance_windows_resource_starts", "resource_id", "starts_at"),
     )
@@ -125,8 +129,14 @@ class MaintenanceWindow(Base):
 
     reason = Column(String(255), nullable=True)
 
-    # scheduled | in_progress | completed | cancelled
+    # scheduled | in_progress | completed | cancelled (DB CHECK enforced)
     status = Column(String(20), nullable=False, default="scheduled", index=True)
+
+    # Printer status recorded when this window flipped the printer to
+    # 'maintenance' (always 'idle' or 'available' — the only flippable
+    # statuses). Restored verbatim when the last blocking window closes.
+    # NULL for resource windows and windows that never flipped a printer.
+    prior_printer_status = Column(String(50), nullable=True)
 
     # Set when the window is completed (printer windows only — MaintenanceLog
     # requires a printer_id)
