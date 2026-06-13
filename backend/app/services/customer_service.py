@@ -679,6 +679,7 @@ __all__ = [
     "COLUMN_MAPPINGS",
     "normalize_column_name",
     "map_row_to_fields",
+    "_detect_csv_format",
     "preview_customer_import",
     "import_customers",
 ]
