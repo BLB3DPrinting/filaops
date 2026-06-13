@@ -9,15 +9,6 @@
  */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Circle,
-  CreditCard,
-  Factory,
-  FileText,
-  Truck,
-} from "lucide-react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { API_URL } from "../../config/api";
@@ -34,15 +25,20 @@ import PaymentsSection from "../../components/orders/PaymentsSection";
 import ShippingAddressSection from "../../components/orders/ShippingAddressSection";
 import { CancelOrderModal, DeleteOrderModal } from "../../components/orders/OrderModals";
 import ReleaseScheduleWizard from "../../components/production/ReleaseScheduleWizard";
+import OrderHeaderActions from "../../components/orders/OrderHeaderActions";
+import LegacyFulfillmentBanner from "../../components/orders/LegacyFulfillmentBanner";
+import OrderLineItemsTable from "../../components/orders/OrderLineItemsTable";
+import OrderWorkflowPanel from "../../components/orders/OrderWorkflowPanel";
+import {
+  formatMoney,
+  SHIPPED_ORDER_STATUSES,
+  UNCONFIRMED_ORDER_STATUSES,
+} from "../../components/orders/orderWorkflowUtils";
 
 const getInvoiceBalanceDue = (invoice) =>
   invoice?.balance_due ?? invoice?.amount_due ?? 0;
 
-const formatMoney = (value) => `$${parseFloat(value || 0).toFixed(2)}`;
-
 const COMPLETE_PRODUCTION_STATUSES = new Set(["complete", "completed", "closed"]);
-const SHIPPED_ORDER_STATUSES = new Set(["shipped", "delivered", "completed"]);
-const UNCONFIRMED_ORDER_STATUSES = new Set(["draft", "pending", "pending_confirmation"]);
 // LEGACY-1: order-level fulfillment_status values that count as shipment
 // evidence (order_status.py sets "shipped"/"delivered"; "fulfilled" is
 // accepted defensively for older data).
@@ -179,14 +175,6 @@ export default function OrderDetail() {
 
   const canGenerateProductionOrder = () => !getProductionReleaseBlockReason();
 
-  // Line editing state
-  const [editingLineId, setEditingLineId] = useState(null);
-  const [editQty, setEditQty] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editReason, setEditReason] = useState("");
-  const [savingLineEdit, setSavingLineEdit] = useState(false);
-  const [removingLineId, setRemovingLineId] = useState(null);
-
   // Close short state
   const [showCloseShortModal, setShowCloseShortModal] = useState(false);
   const [closeShortReason, setCloseShortReason] = useState("");
@@ -196,11 +184,6 @@ export default function OrderDetail() {
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false);
-
-  // LEGACY-1: legacy fulfillment resolution state
-  // legacyResolveAction is "close_out" | "reopen" | null (null = modal closed)
-  const [legacyResolveAction, setLegacyResolveAction] = useState(null);
-  const [resolvingLegacy, setResolvingLegacy] = useState(false);
 
   // SCHED-3b: guided schedule wizard state
   // wizardPending=true means we're waiting for fetchProductionOrders to
@@ -565,10 +548,6 @@ export default function OrderDetail() {
     }
   };
 
-  const canCancelOrder = () => {
-    return order && ["pending", "confirmed", "on_hold"].includes(order.status);
-  };
-
   const handleCancelOrder = async (cancellationReason) => {
     try {
       await api.post(`/api/v1/sales-orders/${orderId}/cancel`, {
@@ -581,18 +560,6 @@ export default function OrderDetail() {
     } catch (err) {
       toast.error(err.message || "Failed to cancel order");
     }
-  };
-
-  const canCloseShort = () => {
-    return (
-      order &&
-      !order.closed_short &&
-      ["confirmed", "in_production", "ready_to_ship"].includes(order.status)
-    );
-  };
-
-  const canDeleteOrder = () => {
-    return order && ["cancelled", "pending"].includes(order.status);
   };
 
   const openCloseShortModal = async () => {
@@ -627,75 +594,6 @@ export default function OrderDetail() {
     } finally {
       setClosingShort(false);
     }
-  };
-
-  // LEGACY-1: resolve a legacy fulfillment mismatch (close_out | reopen)
-  const handleResolveLegacyFulfillment = async () => {
-    if (!legacyResolveAction) return;
-    setResolvingLegacy(true);
-    try {
-      await api.post(
-        `/api/v1/sales-orders/${orderId}/resolve-legacy-fulfillment`,
-        { action: legacyResolveAction }
-      );
-      toast.success(
-        legacyResolveAction === "close_out"
-          ? `Order ${order.order_number} closed out — fulfillment recorded`
-          : `Order ${order.order_number} reopened — ready to ship`
-      );
-      setLegacyResolveAction(null);
-      fetchOrder();
-      fetchProductionOrders();
-      refetchFulfillment();
-    } catch (err) {
-      toast.error(err.message || "Failed to resolve legacy fulfillment");
-    } finally {
-      setResolvingLegacy(false);
-    }
-  };
-
-  const handleSaveLineEdit = async (lineId) => {
-    if ((editQty === "" && editPrice === "") || !editReason.trim()) return;
-    setSavingLineEdit(true);
-    try {
-      await api.patch(`/api/v1/sales-orders/${orderId}/lines`, {
-        lines: [{
-          line_id: lineId,
-          new_quantity: editQty !== "" ? parseFloat(editQty) : undefined,
-          new_unit_price: editPrice !== "" ? parseFloat(editPrice) : undefined,
-          reason: editReason,
-        }],
-      });
-      toast.success("Line updated");
-      setEditingLineId(null);
-      setEditQty("");
-      setEditPrice("");
-      setEditReason("");
-      fetchOrder();
-    } catch (err) {
-      toast.error(err.message || "Failed to update line");
-    } finally {
-      setSavingLineEdit(false);
-    }
-  };
-
-  const handleRemoveLine = async (line) => {
-    const label = line.product_name || line.material_name || line.description || `Line ${line.id}`;
-    if (!window.confirm(`Remove "${label}" from this order? This cannot be undone.`)) return;
-    setRemovingLineId(line.id);
-    try {
-      await api.del(`/api/v1/sales-orders/${orderId}/lines/${line.id}`);
-      toast.success(`${label} removed from order`);
-      fetchOrder();
-    } catch (err) {
-      toast.error(err.message || "Failed to remove line");
-    } finally {
-      setRemovingLineId(null);
-    }
-  };
-
-  const canEditLines = () => {
-    return order && ["pending", "confirmed", "in_production", "on_hold"].includes(order.status);
   };
 
   const handleConfirmOrder = async () => {
@@ -822,239 +720,11 @@ export default function OrderDetail() {
     }
   };
 
-  const canGenerateInvoice = () => {
-    const invoiceableStatuses = [
-      "confirmed",
-      "in_production",
-      "ready_to_ship",
-      "shipped",
-      "delivered",
-      "completed",
-    ];
-    return order && !orderInvoice && invoiceableStatuses.includes(order.status);
-  };
-
   const getProductionComplete = () => {
     return (
       productionOrders.length > 0 &&
       productionOrders.every((po) => COMPLETE_PRODUCTION_STATUSES.has(po.status))
     );
-  };
-
-  const getShipBlockReason = () => {
-    if (!order) return "Order is still loading";
-    if (SHIPPED_ORDER_STATUSES.has(order.status)) return "Order already shipped";
-    if (productionOrders.length === 0) return "Create production order first";
-    if (!getProductionComplete()) return "Production must be complete";
-    if (materialRequirements.some((req) => req.net_shortage > 0)) {
-      return "Material shortages must be resolved";
-    }
-    return "";
-  };
-
-  const canShipOrder = () => !getShipBlockReason();
-
-  const getStepState = ({ done, active, blocked }) => {
-    if (done) return "done";
-    if (active) return "active";
-    if (blocked) return "blocked";
-    return "waiting";
-  };
-
-  const getStepClasses = (state) => {
-    if (state === "done") {
-      return {
-        panel: "border-emerald-500/40 bg-emerald-950/20",
-        icon: "bg-emerald-500/20 text-emerald-300",
-        label: "text-emerald-300",
-      };
-    }
-    if (state === "active") {
-      return {
-        panel: "border-blue-500/50 bg-blue-950/30",
-        icon: "bg-blue-500/20 text-blue-300",
-        label: "text-blue-300",
-      };
-    }
-    if (state === "blocked") {
-      return {
-        panel: "border-amber-500/40 bg-amber-950/20",
-        icon: "bg-amber-500/20 text-amber-300",
-        label: "text-amber-300",
-      };
-    }
-    return {
-      panel: "border-gray-700 bg-gray-900/60",
-      icon: "bg-gray-800 text-gray-400",
-      label: "text-gray-400",
-    };
-  };
-
-  const renderStepIcon = (step) => {
-    if (step.state === "done") {
-      return <CheckCircle2 className="h-5 w-5" />;
-    }
-    if (step.state === "blocked") {
-      return <AlertTriangle className="h-5 w-5" />;
-    }
-    if (step.Icon) {
-      return <step.Icon className="h-5 w-5" />;
-    }
-    return <Circle className="h-5 w-5" />;
-  };
-
-  const getOrderWorkflowSteps = () => {
-    const status = order?.status || "";
-    const orderConfirmed = !UNCONFIRMED_ORDER_STATUSES.has(status);
-    const canConfirmOrder = ["pending", "pending_confirmation"].includes(status);
-    const hasInvoice = Boolean(orderInvoice);
-    const invoiceStatus = orderInvoice?.status || "";
-    const hasPayment = Number(paymentSummary?.total_paid || 0) > 0;
-    const billingReleased = isBillingReleaseSatisfied();
-    const productionReleased = hasMainProductWO();
-    const productionComplete = getProductionComplete();
-    const shipped = SHIPPED_ORDER_STATUSES.has(status);
-    // LEGACY-1: "done" requires evidence, not just a status claim.
-    const shipmentEvidence = hasShipmentEvidence();
-    const legacyMismatch = shipped && !shipmentEvidence;
-    const noProductionNeeded = !hasOrderProduct();
-    const releaseBlockReason = getProductionReleaseBlockReason();
-    const shipBlockReason = getShipBlockReason();
-
-    const billingAction = (() => {
-      if (canGenerateInvoice()) {
-        return {
-          label: generatingInvoice ? "Creating..." : "Create Invoice",
-          onClick: handleGenerateInvoice,
-          disabled: generatingInvoice,
-        };
-      }
-      if (orderInvoice?.status === "draft") {
-        return {
-          label: sendingInvoice ? "Marking..." : "Mark Sent",
-          onClick: handleSendOrderInvoice,
-          disabled: sendingInvoice,
-        };
-      }
-      if (!billingReleased && orderConfirmed) {
-        return {
-          label: "Record Payment",
-          onClick: () => {
-            setIsRefund(false);
-            setShowPaymentModal(true);
-          },
-        };
-      }
-      if (orderInvoice) {
-        return {
-          label: "Open Invoice",
-          onClick: () => navigate(`/admin/invoices?invoice=${orderInvoice.id}`),
-        };
-      }
-      return null;
-    })();
-
-    return [
-      {
-        id: "confirm",
-        title: "Confirm Order",
-        Icon: CheckCircle2,
-        state: getStepState({
-          done: orderConfirmed,
-          active: canConfirmOrder,
-          blocked: status === "draft",
-        }),
-        meta: canConfirmOrder ? "Needs review" : status.replace(/_/g, " "),
-        detail: canConfirmOrder
-          ? "Review customer, lines, pricing, shipping, and tax."
-          : "Commercial order is ready for billing.",
-        action: canConfirmOrder
-          ? {
-              label: confirmingOrder ? "Confirming..." : "Confirm",
-              onClick: handleConfirmOrder,
-              disabled: confirmingOrder,
-            }
-          : null,
-      },
-      {
-        id: "billing",
-        title: "Invoice / Payment",
-        Icon: hasInvoice ? FileText : CreditCard,
-        state: getStepState({
-          done: billingReleased,
-          active: orderConfirmed && !billingReleased,
-          blocked: !orderConfirmed,
-        }),
-        meta: hasInvoice
-          ? `${orderInvoice.invoice_number} · ${invoiceStatus.replace(/_/g, " ")}`
-          : hasPayment
-          ? `${formatMoney(paymentSummary?.total_paid)} paid`
-          : "Not released",
-        detail: billingReleased
-          ? "Billing requirement is satisfied for production release."
-          : "Send an invoice or record payment before production.",
-        action: billingAction,
-      },
-      {
-        id: "production",
-        title: "Production Orders",
-        Icon: Factory,
-        state: getStepState({
-          done: productionReleased || noProductionNeeded,
-          active: !productionReleased && !noProductionNeeded && !releaseBlockReason,
-          blocked: Boolean(releaseBlockReason) && !productionReleased && !noProductionNeeded,
-        }),
-        meta: noProductionNeeded
-          ? "No product line"
-          : productionReleased
-          ? `${productionOrders.length} work order${productionOrders.length === 1 ? "" : "s"}`
-          : "Not released",
-        detail: noProductionNeeded
-          ? "No production release is required for service-only lines."
-          : productionReleased
-          ? "Work orders are created and linked. Open production to release, start, and complete them."
-          : releaseBlockReason || "Ready to create work orders.",
-        action: productionReleased && productionOrders.length > 0
-          ? {
-              label: "Open Work Order",
-              onClick: () => navigate(`/admin/production/${productionOrders[0].id}`),
-            }
-          : !releaseBlockReason
-          ? {
-              label: "Create Work Orders",
-              onClick: handleCreateProductionOrder,
-            }
-          : null,
-      },
-      {
-        id: "fulfillment",
-        title: "Fulfillment",
-        Icon: Truck,
-        state: getStepState({
-          done: shipped && shipmentEvidence,
-          active: canShipOrder(),
-          blocked: legacyMismatch || (!shipped && Boolean(shipBlockReason)),
-        }),
-        meta: legacyMismatch
-          ? "Needs review"
-          : shipped
-          ? status.replace(/_/g, " ")
-          : productionComplete
-          ? "Ready to ship"
-          : "Waiting",
-        detail: legacyMismatch
-          ? `Order status says ${status.replace(/_/g, " ")}, but no shipment was recorded.`
-          : shipped
-          ? "Shipment is already in progress or complete."
-          : shipBlockReason || "Production is complete and materials are clear.",
-        action: canShipOrder()
-          ? {
-              label: "Ship Order",
-              onClick: () => navigate(`/admin/shipping?orderId=${order.id}`),
-            }
-          : null,
-      },
-    ];
   };
 
   if (loading) {
@@ -1127,183 +797,55 @@ export default function OrderDetail() {
           </h1>
           <p className="text-gray-400 mt-1">Order Command Center</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50"
-            title="Refresh order data"
-          >
-            {refreshing ? "Refreshing..." : "\u21BB Refresh"}
-          </button>
-          <button
-            onClick={() =>
-              window.open(
-                `${API_URL}/api/v1/sales-orders/${order.id}/packing-slip/pdf`,
-                "_blank"
-              )
-            }
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
-            title="Print packing slip PDF"
-          >
-            Print Packing Slip
-          </button>
-        </div>
+        <OrderHeaderActions
+          orderId={order.id}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+        />
       </div>
 
       {/* LEGACY-1: data-health banner for legacy fulfillment mismatch */}
       {isLegacyFulfillmentMismatch() && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-amber-300">
-                  Legacy data issue: no shipment on record
-                </p>
-                <p className="mt-1 text-sm text-amber-200/80">
-                  This order&apos;s status says{" "}
-                  <span className="font-medium capitalize">
-                    {order.status.replace(/_/g, " ")}
-                  </span>
-                  , but no shipment was ever recorded — likely data from an
-                  older FilaOps version.
-                </p>
-              </div>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <button
-                onClick={() => setLegacyResolveAction("close_out")}
-                className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500"
-              >
-                Close Out as Fulfilled
-              </button>
-              <button
-                onClick={() => setLegacyResolveAction("reopen")}
-                className="rounded-lg border border-amber-500/40 bg-gray-800 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-gray-700"
-              >
-                Reopen for Shipping
-              </button>
-            </div>
-          </div>
-        </div>
+        <LegacyFulfillmentBanner
+          order={order}
+          orderId={orderId}
+          onResolved={() => {
+            fetchOrder();
+            fetchProductionOrders();
+            refetchFulfillment();
+          }}
+        />
       )}
 
       {/* Order Workflow */}
-      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-5">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Order Workflow</h2>
-            <p className="text-sm text-gray-400">
-              Confirm, bill, release production, then fulfill.
-            </p>
-          </div>
-          <span className="w-fit rounded-full bg-gray-800 px-3 py-1 text-xs font-medium text-gray-300">
-            {order.status?.replace(/_/g, " ") || "unknown"}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-          {getOrderWorkflowSteps().map((step, index) => {
-            const classes = getStepClasses(step.state);
-            return (
-              <div
-                key={step.id}
-                className={`flex min-h-[210px] flex-col rounded-lg border p-4 ${classes.panel}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${classes.icon}`}>
-                      {renderStepIcon(step)}
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Step {index + 1}
-                      </div>
-                      <h3 className="text-sm font-semibold text-white">
-                        {step.title}
-                      </h3>
-                    </div>
-                  </div>
-                  <span className={`rounded-full bg-gray-950/50 px-2 py-1 text-xs font-medium capitalize ${classes.label}`}>
-                    {step.state}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex-1">
-                  <div className={`text-sm font-medium capitalize ${classes.label}`}>
-                    {step.meta || "Waiting"}
-                  </div>
-                  <p className="mt-2 text-sm leading-5 text-gray-300">
-                    {step.detail}
-                  </p>
-                </div>
-
-                {step.action && (
-                  <button
-                    onClick={step.action.onClick}
-                    disabled={step.action.disabled}
-                    className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {step.action.label}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Secondary / destructive actions — below workflow steps */}
-        {(order.status === "pending_confirmation" || canCancelOrder() || canCloseShort() || canDeleteOrder()) && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-700/50 pt-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Order actions:
-            </span>
-            {(order.status === "pending" || order.status === "pending_confirmation") && (
-              <>
-                <button
-                  onClick={handleConfirmOrder}
-                  disabled={confirmingOrder}
-                  className="rounded-lg bg-green-700 px-3 py-1.5 text-sm text-white hover:bg-green-600 disabled:opacity-50"
-                >
-                  {confirmingOrder ? "Confirming..." : "Confirm Order"}
-                </button>
-                {order.status === "pending_confirmation" && (
-                  <button
-                    onClick={() => setShowRejectModal(true)}
-                    className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600"
-                  >
-                    Reject Order
-                  </button>
-                )}
-              </>
-            )}
-            {canCancelOrder() && (
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="rounded-lg bg-yellow-700 px-3 py-1.5 text-sm text-white hover:bg-yellow-600"
-              >
-                Cancel Order
-              </button>
-            )}
-            {canCloseShort() && (
-              <button
-                onClick={openCloseShortModal}
-                className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white hover:bg-amber-600"
-              >
-                Close Short
-              </button>
-            )}
-            {canDeleteOrder() && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="rounded-lg bg-red-900 px-3 py-1.5 text-sm text-white hover:bg-red-800 border border-red-700"
-              >
-                Delete Order
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      <OrderWorkflowPanel
+        order={order}
+        orderInvoice={orderInvoice}
+        paymentSummary={paymentSummary}
+        productionOrders={productionOrders}
+        materialRequirements={materialRequirements}
+        generatingInvoice={generatingInvoice}
+        sendingInvoice={sendingInvoice}
+        confirmingOrder={confirmingOrder}
+        hasOrderProduct={hasOrderProduct}
+        hasMainProductWO={hasMainProductWO}
+        hasShipmentEvidence={hasShipmentEvidence}
+        isBillingReleaseSatisfied={isBillingReleaseSatisfied}
+        getProductionComplete={getProductionComplete}
+        getProductionReleaseBlockReason={getProductionReleaseBlockReason}
+        onConfirmOrder={handleConfirmOrder}
+        onCreateProductionOrder={handleCreateProductionOrder}
+        onGenerateInvoice={handleGenerateInvoice}
+        onSendInvoice={handleSendOrderInvoice}
+        onRecordPayment={() => {
+          setIsRefund(false);
+          setShowPaymentModal(true);
+        }}
+        onRejectOrder={() => setShowRejectModal(true)}
+        onCancelOrder={() => setShowCancelModal(true)}
+        onCloseShort={openCloseShortModal}
+        onDeleteOrder={() => setShowDeleteConfirm(true)}
+      />
 
       {/* Quick Actions \u2014 idempotent tools only (links + checks) */}
       <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-500/30 rounded-xl p-6">
@@ -1483,151 +1025,11 @@ export default function OrderDetail() {
 
       {/* Line Items */}
       {order.lines && order.lines.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Line Items</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400">
-                <th className="text-left py-2 px-3">Product</th>
-                <th className="text-left py-2 px-3">SKU</th>
-                <th className="text-right py-2 px-3">Qty</th>
-                <th className="text-right py-2 px-3">Shipped</th>
-                <th className="text-right py-2 px-3">Unit Price</th>
-                <th className="text-right py-2 px-3">Total</th>
-                {canEditLines() && <th className="text-center py-2 px-3 w-16"></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {order.lines.map((line, idx) => {
-                const isEditing = editingLineId === line.id;
-                const shipped = parseFloat(line.shipped_quantity || 0);
-                const lineLabel = line.product_name || line.material_name || line.description || "One-time line";
-                const lineCode = line.product_sku || line.material_sku || line.sku || (line.line_type === "service" ? "FEE" : "\u2014");
-                return (
-                  <tr key={line.id || idx}>
-                    <td className="py-2 px-3 text-white">
-                      {lineLabel}
-                    </td>
-                    <td className="py-2 px-3 text-gray-400 font-mono text-xs">
-                      {lineCode}
-                    </td>
-                    <td className="py-2 px-3 text-right text-white">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          value={editQty}
-                          onChange={(e) => setEditQty(e.target.value)}
-                          min={shipped}
-                          step="1"
-                          className="w-20 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
-                          autoFocus
-                        />
-                      ) : (
-                        <span className="flex items-center justify-end gap-1">
-                          {line.original_quantity && parseFloat(line.original_quantity) !== parseFloat(line.quantity) && (
-                            <span className="text-gray-500 line-through text-xs">{line.original_quantity}</span>
-                          )}
-                          {line.quantity}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-right text-gray-400">
-                      {shipped > 0 ? shipped : "\u2014"}
-                    </td>
-                    <td className="py-2 px-3 text-right text-gray-300">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
-                          min="0"
-                          step="0.01"
-                          className="w-24 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
-                        />
-                      ) : (
-                        `$${parseFloat(line.unit_price || 0).toFixed(2)}`
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-right text-green-400 font-medium">
-                      ${parseFloat(line.total || 0).toFixed(2)}
-                    </td>
-                    {canEditLines() && (
-                      <td className="py-2 px-3 text-center">
-                        {isEditing ? (
-                          <div className="flex gap-1 justify-center">
-                            <button
-                              onClick={() => handleSaveLineEdit(line.id)}
-                              disabled={savingLineEdit || (editQty === "" && editPrice === "") || !editReason.trim()}
-                              className="text-green-400 hover:text-green-300 disabled:opacity-50 text-xs"
-                              title="Save"
-                            >
-                              {savingLineEdit ? "..." : "\u2713"}
-                            </button>
-                            <button
-                              onClick={() => { setEditingLineId(null); setEditQty(""); setEditPrice(""); setEditReason(""); }}
-                              className="text-gray-400 hover:text-white text-xs"
-                              title="Cancel"
-                            >
-                              \u2717
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2 justify-center">
-                            <button
-                              onClick={() => {
-                                setEditingLineId(line.id);
-                                setEditQty(String(line.quantity));
-                                setEditPrice(String(line.unit_price || 0));
-                                setEditReason("");
-                              }}
-                              className="text-gray-500 hover:text-blue-400 text-xs"
-                              title="Edit line"
-                            >
-                              Edit
-                            </button>
-                            {order.lines.length > 1 && parseFloat(line.shipped_quantity || 0) === 0 && (
-                              <button
-                                onClick={() => handleRemoveLine(line)}
-                                disabled={removingLineId === line.id}
-                                className="text-gray-600 hover:text-red-400 disabled:opacity-50 text-xs"
-                                title="Remove line"
-                              >
-                                {removingLineId === line.id ? "…" : "✕"}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-              {editingLineId && (
-                <tr>
-                  <td colSpan={canEditLines() ? 7 : 6} className="py-2 px-3">
-                    <input
-                      type="text"
-                      value={editReason}
-                      onChange={(e) => setEditReason(e.target.value)}
-                      placeholder="Reason for change (required)..."
-                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:border-blue-500"
-                    />
-                  </td>
-                </tr>
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-gray-700">
-                <td colSpan={canEditLines() ? 6 : 5} className="py-3 px-3 text-right text-white font-medium">
-                  Order Total
-                </td>
-                <td className="py-3 px-3 text-right text-green-400 font-bold">
-                  ${parseFloat(order.total_price || 0).toFixed(2)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <OrderLineItemsTable
+          order={order}
+          orderId={orderId}
+          onOrderUpdated={fetchOrder}
+        />
       )}
 
       {/* Customer Information */}
@@ -1918,60 +1320,6 @@ export default function OrderDetail() {
                 className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {closingShort ? "Closing..." : "Close Order Short"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* LEGACY-1: confirm dialog for legacy fulfillment resolution */}
-      {legacyResolveAction && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => !resolvingLegacy && setLegacyResolveAction(null)}
-        >
-          <div
-            className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold text-white mb-2">
-              {legacyResolveAction === "close_out"
-                ? "Close Out as Fulfilled"
-                : "Reopen for Shipping"}
-            </h3>
-            {legacyResolveAction === "close_out" ? (
-              <p className="text-gray-400 text-sm mb-4">
-                This records the order as fully shipped (paperwork only). No
-                inventory movements or accounting entries are created — the
-                goods already left under an older FilaOps version. An audit
-                note is added to the order.
-              </p>
-            ) : (
-              <p className="text-gray-400 text-sm mb-4">
-                This sets the order back to Ready to Ship so you can ship it
-                through the normal flow (which records inventory and
-                accounting). Invoice and payment are left untouched. An audit
-                note is added to the order.
-              </p>
-            )}
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setLegacyResolveAction(null)}
-                disabled={resolvingLegacy}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleResolveLegacyFulfillment}
-                disabled={resolvingLegacy}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {resolvingLegacy
-                  ? "Working..."
-                  : legacyResolveAction === "close_out"
-                  ? "Close Out"
-                  : "Reopen Order"}
               </button>
             </div>
           </div>
