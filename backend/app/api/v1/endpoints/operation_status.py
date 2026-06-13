@@ -38,6 +38,7 @@ from app.services.resource_scheduling import (
     schedule_operation as schedule_operation_service,
     find_next_available_slot,
     get_earliest_start_after_predecessors,
+    MaintenanceWindowConflictError,
     SequenceError,
 )
 from app.services.operation_generation import (
@@ -576,6 +577,30 @@ def schedule_operation_endpoint(
                 next_start + timedelta(minutes=duration_minutes)
                 if next_start is not None else None
             ),
+        )
+    except MaintenanceWindowConflictError as e:
+        # SCHED-7: the slot overlaps a blocking maintenance window. The
+        # suggested slot is window-aware (find_next_available_slot skips
+        # windows), so "Use this slot" lands after the maintenance block.
+        earliest = get_earliest_start_after_predecessors(
+            db=db,
+            operation=op,
+            after=request.scheduled_start,
+        )
+        next_start = find_next_available_slot(
+            db=db,
+            resource_id=request.resource_id,
+            duration_minutes=duration_minutes,
+            after=earliest,
+            is_printer=request.is_printer,
+        )
+        return ScheduleOperationResponse(
+            success=False,
+            message=str(e),
+            conflicts=[],
+            conflict_type="maintenance",
+            next_available_start=next_start,
+            next_available_end=next_start + timedelta(minutes=duration_minutes),
         )
 
     if not success:

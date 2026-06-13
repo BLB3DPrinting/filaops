@@ -18,8 +18,12 @@
  *   testing              — boolean (is this printer currently being connection-tested)
  *   commandPending       — boolean (is a fleet command currently in-flight for this printer)
  *   maintenanceDueSoon   — boolean (optional, SCHED-4 — show maintenance due badge)
+ *   upcomingMaintenanceWindow — object|null (optional, SCHED-7 — next blocking
+ *                          maintenance window {starts_at, ends_at, reason, status};
+ *                          shows a "Maint Scheduled" / "In Maintenance" badge)
  */
 import { brandLabels } from "./constants";
+import { parseDateTime } from "../../utils/formatting";
 
 const STATUS_STYLES = {
   printing:
@@ -103,6 +107,7 @@ export default function PrinterCard({
   testing,
   commandPending,
   maintenanceDueSoon,
+  upcomingMaintenanceWindow,
 }) {
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
@@ -116,6 +121,30 @@ export default function PrinterCard({
   const hasProgress = Number.isFinite(progressRaw);
   const eta = fmtEta(printer.remaining_minutes ?? printer.mc_remaining_time);
   const ams = getActiveAmsSlot(printer.ams_slots);
+
+  // SCHED-7: upcoming/active maintenance window badge. Backend timestamps
+  // are naive UTC, so parseDateTime (which appends 'Z') renders them local.
+  const windowBadge = (() => {
+    if (!upcomingMaintenanceWindow) return null;
+    const w = upcomingMaintenanceWindow;
+    const fmt = (v) => {
+      const d = parseDateTime(v);
+      return d && !Number.isNaN(d.getTime())
+        ? d.toLocaleString(undefined, {
+            month: "numeric",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : "?";
+    };
+    return {
+      label: w.status === "in_progress" ? "In Maintenance" : "Maint Scheduled",
+      title:
+        `Maintenance window ${fmt(w.starts_at)} → ${fmt(w.ends_at)}` +
+        (w.reason ? ` — ${w.reason}` : ""),
+    };
+  })();
 
   // Surface HMI errors from Bambu MQTT telemetry. print_error is an integer
   // (0 = none); hms_codes is an array of "ATTR_CODE" hex strings. hms_descriptions
@@ -232,6 +261,20 @@ export default function PrinterCard({
                   d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               Maint Due
+            </span>
+          )}
+          {/* SCHED-7: upcoming/active maintenance window badge */}
+          {windowBadge && (
+            <span
+              className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-400 ring-1 ring-inset ring-amber-400/30"
+              data-testid="maintenance-window-badge"
+              title={windowBadge.title}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              {windowBadge.label}
             </span>
           )}
         </div>

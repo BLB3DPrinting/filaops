@@ -41,6 +41,7 @@ const BOARD = {
       status: "available",
       work_center_code: "FDM-POOL",
       utilization_percent: 25.0,
+      windows: [],
       operations: [
         {
           id: 11,
@@ -69,6 +70,16 @@ const BOARD = {
       status: "maintenance",
       work_center_code: null,
       utilization_percent: 0,
+      // SCHED-7: blocking maintenance window 4h→10h on the day axis
+      windows: [
+        {
+          id: 7,
+          starts_at: at(4),
+          ends_at: at(10),
+          reason: "Hotend swap",
+          status: "in_progress",
+        },
+      ],
       operations: [],
     },
   ],
@@ -250,6 +261,41 @@ describe("SchedulerBoard", () => {
     await waitFor(() => {
       expect(mocks.get.mock.calls.length).toBeGreaterThan(callsBefore);
     });
+  });
+
+  it("renders maintenance window blocks as amber striped non-op blocks (SCHED-7)", async () => {
+    const onSchedule = vi.fn();
+    render(<SchedulerBoard onScheduleOperation={onSchedule} />);
+    const block = await screen.findByTestId("gantt-window-7");
+
+    // 4h→10h on a 24h axis = left 16.67%, width 25%
+    expect(parseFloat(block.style.left)).toBeCloseTo(16.67, 1);
+    expect(parseFloat(block.style.width)).toBeCloseTo(25, 1);
+
+    // Striped amber background, not a button — clicking never opens the
+    // scheduler modal (windows are non-operational blocks).
+    expect(block.style.backgroundImage).toContain("repeating-linear-gradient");
+    expect(block.tagName).not.toBe("BUTTON");
+    fireEvent.click(block);
+    expect(onSchedule).not.toHaveBeenCalled();
+
+    // Tooltip carries the reason
+    expect(block.title).toContain("Hotend swap");
+  });
+
+  it("includes a Maintenance legend entry (SCHED-7)", async () => {
+    render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+    await screen.findByText("FDM-01");
+    expect(screen.getByText("Maintenance")).toBeInTheDocument();
+  });
+
+  it("tolerates lanes without a windows array (older payloads)", async () => {
+    mocks.get.mockResolvedValue({
+      ...BOARD,
+      lanes: [{ ...BOARD.lanes[0], windows: undefined }],
+    });
+    render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+    expect(await screen.findByText("FDM-01")).toBeInTheDocument();
   });
 
   it("shows the error banner when the fetch fails", async () => {

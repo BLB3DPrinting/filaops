@@ -154,6 +154,44 @@ function OperationBlock({ op, windowStart, windowEnd, onClick }) {
   );
 }
 
+// SCHED-7: shared stripe pattern for maintenance blocks (amber diagonal).
+const MAINTENANCE_STRIPES =
+  "repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.28) 0 6px, rgba(245, 158, 11, 0.08) 6px 12px)";
+
+function MaintenanceWindowBlock({ win, windowStart, windowEnd }) {
+  // Same naive-UTC convention as OperationBlock.
+  const start = parseDateTime(win.starts_at);
+  const end = parseDateTime(win.ends_at);
+  const left = pctOf(start, windowStart, windowEnd);
+  const right = pctOf(end, windowStart, windowEnd);
+  const width = Math.max(right - left, 0.6);
+
+  const fmt = (d) =>
+    d.toLocaleString(undefined, {
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+  return (
+    <div
+      data-testid={`gantt-window-${win.id}`}
+      title={`Maintenance — ${win.reason || "scheduled downtime"}\n${fmt(start)} → ${fmt(
+        end
+      )} · ${win.status.replace(/_/g, " ")}`}
+      className={`absolute top-0 bottom-0 rounded-sm border-x border-amber-500/50 ${
+        win.status === "completed" ? "opacity-40" : ""
+      }`}
+      style={{
+        left: `${left}%`,
+        width: `${width}%`,
+        backgroundImage: MAINTENANCE_STRIPES,
+      }}
+    />
+  );
+}
+
 export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 }) {
   const api = useApi();
   const [viewMode, setViewMode] = useState("day");
@@ -303,6 +341,13 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
           On hold
         </span>
         <span className="flex items-center gap-1.5">
+          <span
+            className="w-3 h-3 rounded-sm border border-amber-500/50"
+            style={{ backgroundImage: MAINTENANCE_STRIPES }}
+          />
+          Maintenance
+        </span>
+        <span className="flex items-center gap-1.5">
           <span className="w-0.5 h-3 bg-red-500" />
           Now
         </span>
@@ -413,6 +458,18 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                             data-testid="now-line"
                           />
                         )}
+                        {/* Maintenance window blocks (SCHED-7) — render
+                            BEFORE operation blocks so ops paint above and
+                            stay clickable; windows are non-operational
+                            background blocks (no click-through). */}
+                        {(lane.windows || []).map((win) => (
+                          <MaintenanceWindowBlock
+                            key={`win-${win.id}`}
+                            win={win}
+                            windowStart={start}
+                            windowEnd={end}
+                          />
+                        ))}
                         {/* Operation blocks */}
                         {lane.operations.map((op) => (
                           <OperationBlock

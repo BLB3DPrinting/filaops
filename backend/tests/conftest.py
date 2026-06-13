@@ -274,6 +274,27 @@ def setup_database():
             "ALTER TABLE company_settings "
             "ADD COLUMN IF NOT EXISTS auto_dispatch BOOLEAN NOT NULL DEFAULT FALSE"
         ))
+        # Migration 092 (SCHED-7): prior-status restore + status CHECK on
+        # maintenance_windows (accumulated DBs created the table via
+        # create_all before these were added to the model)
+        conn.execute(text(
+            "ALTER TABLE maintenance_windows "
+            "ADD COLUMN IF NOT EXISTS prior_printer_status VARCHAR(50)"
+        ))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_maintenance_windows_status'
+                ) THEN
+                    ALTER TABLE maintenance_windows
+                    ADD CONSTRAINT ck_maintenance_windows_status
+                    CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled'));
+                END IF;
+            END
+            $$;
+        """))
         conn.commit()
 
     # Seed required data

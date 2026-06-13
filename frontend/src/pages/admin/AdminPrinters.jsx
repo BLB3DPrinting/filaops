@@ -43,6 +43,10 @@ export default function AdminPrinters() {
   const [maintenanceLogs, setMaintenanceLogs] = useState([]);
   const [maintenanceDue, setMaintenanceDue] = useState({ printers: [], total_overdue: 0, total_due_soon: 0 });
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  // SCHED-7: blocking maintenance windows (for PrinterCard badges)
+  const [maintenanceWindows, setMaintenanceWindows] = useState([]);
+  // Which tab the MaintenanceModal opens on: "log" | "schedule"
+  const [maintenanceModalMode, setMaintenanceModalMode] = useState("log");
 
   // Discovery state
   const [discovering, setDiscovering] = useState(false);
@@ -75,6 +79,7 @@ export default function AdminPrinters() {
     fetchBrandInfo();
     fetchActiveWork();
     fetchMaintenanceDue();
+    fetchMaintenanceWindows();
 
     // Poll for active work every 30 seconds
     const interval = setInterval(fetchActiveWork, 30000);
@@ -87,6 +92,7 @@ export default function AdminPrinters() {
     } else if (activeTab === "maintenance") {
       fetchMaintenanceLogs();
       fetchMaintenanceDue();
+      fetchMaintenanceWindows();
     }
   }, [activeTab, filters.brand, filters.status]);
 
@@ -207,6 +213,18 @@ export default function AdminPrinters() {
     try {
       const data = await api.get(`/api/v1/maintenance/due?days_ahead=14`);
       setMaintenanceDue(data);
+    } catch {
+      // Non-critical
+    }
+  };
+
+  // SCHED-7: blocking (scheduled / in_progress) maintenance windows —
+  // drives the "Maint Scheduled" badge on PrinterCard. Backend returns
+  // them sorted by starts_at, so find() yields the earliest per printer.
+  const fetchMaintenanceWindows = async () => {
+    try {
+      const data = await api.get(`/api/v1/maintenance-windows`);
+      setMaintenanceWindows(data.items || []);
     } catch {
       // Non-critical
     }
@@ -581,6 +599,11 @@ export default function AdminPrinters() {
                     maintenanceDueSoon={maintenanceDue.printers.some(
                       (p) => p.printer_id === printer.id
                     )}
+                    upcomingMaintenanceWindow={
+                      maintenanceWindows.find(
+                        (w) => w.printer_id === printer.id
+                      ) || null
+                    }
                   />
                 ))}
               </div>
@@ -949,21 +972,38 @@ export default function AdminPrinters() {
             </div>
           )}
 
-          {/* Log Maintenance Button */}
+          {/* Log Maintenance / Schedule Window Buttons */}
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-medium text-white">Maintenance History</h2>
-            <button
-              onClick={() => {
-                setSelectedPrinter(null);
-                setShowMaintenanceModal(true);
-              }}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Log Maintenance
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setSelectedPrinter(null);
+                  setMaintenanceModalMode("schedule");
+                  setShowMaintenanceModal(true);
+                }}
+                className="border border-orange-600/60 text-orange-400 hover:text-orange-300 hover:border-orange-500 px-4 py-2 rounded-lg flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Schedule Window
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedPrinter(null);
+                  setMaintenanceModalMode("log");
+                  setShowMaintenanceModal(true);
+                }}
+                className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Log Maintenance
+              </button>
+            </div>
           </div>
 
           {/* Maintenance Logs Table */}
@@ -1058,6 +1098,7 @@ export default function AdminPrinters() {
         <MaintenanceModal
           printers={printers}
           selectedPrinterId={selectedPrinter?.id}
+          initialMode={maintenanceModalMode}
           onClose={() => {
             setShowMaintenanceModal(false);
             setSelectedPrinter(null);
@@ -1067,6 +1108,13 @@ export default function AdminPrinters() {
             setSelectedPrinter(null);
             fetchMaintenanceLogs();
             fetchMaintenanceDue();
+          }}
+          onWindowsChanged={() => {
+            // SCHED-7: keep card badges + due summary in sync as windows
+            // are scheduled / cancelled / completed (modal stays open).
+            fetchMaintenanceWindows();
+            fetchMaintenanceDue();
+            fetchMaintenanceLogs();
           }}
         />
       )}
