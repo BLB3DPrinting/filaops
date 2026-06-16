@@ -22,8 +22,8 @@ import * as fs from 'fs';
 // Config
 // ---------------------------------------------------------------------------
 
-const DEV_EMAIL = 'admin@filaops.dev';
-const DEV_PASSWORD = 'FilaOps2026!';
+const DEV_EMAIL = process.env.WALKTHROUGH_EMAIL ?? 'admin@filaops.dev';
+const DEV_PASSWORD = process.env.WALKTHROUGH_PASSWORD ?? '';
 const SCREENSHOT_DIR = 'docs/screenshots/walkthrough';
 const API_BASE = 'http://localhost:8000';
 
@@ -130,6 +130,15 @@ test.describe.serial('Customer Walkthrough', () => {
       baseURL: process.env.BASE_URL || 'http://localhost:5173',
     });
     page = await context.newPage();
+
+    // Credentials must be supplied via env — no secrets committed to the repo.
+    if (!DEV_PASSWORD) {
+      throw new Error(
+        'WALKTHROUGH_PASSWORD env var is not set. Set WALKTHROUGH_EMAIL and ' +
+          'WALKTHROUGH_PASSWORD to your local dev seed credentials before running ' +
+          'the walkthrough suite.'
+      );
+    }
 
     // Login with dev seed credentials
     await page.goto('/admin/login');

@@ -26,7 +26,9 @@ Safety:
     - --reset prompts for confirmation before truncating
 """
 
+import os
 import sys
+import secrets
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta, date
@@ -38,6 +40,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal, engine
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dev admin credentials — resolved from env, never committed to source.
+# Set SEED_ADMIN_PASSWORD to pin a stable password (e.g. for repeat logins or
+# E2E runs); otherwise a random one is generated and printed once on seed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@filaops.dev")
+ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -255,8 +267,8 @@ def seed_admin_user(db: Session):
     from app.core.security import hash_password
 
     admin = User(
-        email="admin@filaops.dev",
-        password_hash=hash_password("FilaOps2026!"),
+        email=ADMIN_EMAIL,
+        password_hash=hash_password(ADMIN_PASSWORD),
         first_name="Admin",
         last_name="User",
         account_type="admin",
@@ -265,7 +277,7 @@ def seed_admin_user(db: Session):
     )
     db.add(admin)
     db.flush()
-    print("  Admin user: admin@filaops.dev / FilaOps2026!")
+    print(f"  Admin user: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
     return admin
 
 
@@ -1504,7 +1516,7 @@ def main():
         db.commit()
 
         print("\n-- Summary -----------------------------------------------------")
-        print("  Login:  admin@filaops.dev / FilaOps2026!")
+        print(f"  Login:  {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
         print("  Data includes:")
         print("    -14 raw materials (filament with G/KG UOM)")
         print("    -11 components & packaging (EA)")
