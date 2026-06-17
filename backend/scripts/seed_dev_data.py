@@ -46,10 +46,14 @@ from app.db.session import SessionLocal, engine
 # Dev admin credentials — resolved from env, never committed to source.
 # Set SEED_ADMIN_PASSWORD to pin a stable password (e.g. for repeat logins or
 # E2E runs); otherwise a random one is generated and printed once on seed.
+# A generated password is echoed exactly once (at admin creation); an
+# env-provided password is never echoed back (the caller already has it).
 # ─────────────────────────────────────────────────────────────────────────────
 
 ADMIN_EMAIL = os.environ.get("SEED_ADMIN_EMAIL", "admin@filaops.dev")
-ADMIN_PASSWORD = os.environ.get("SEED_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+_seed_admin_password = os.environ.get("SEED_ADMIN_PASSWORD")
+ADMIN_PASSWORD = _seed_admin_password or secrets.token_urlsafe(12)
+ADMIN_PASSWORD_WAS_GENERATED = not _seed_admin_password
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,7 +281,11 @@ def seed_admin_user(db: Session):
     )
     db.add(admin)
     db.flush()
-    print(f"  Admin user: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
+    if ADMIN_PASSWORD_WAS_GENERATED:
+        # Echo the generated password exactly once so the dev can log in.
+        print(f"  Admin user: {ADMIN_EMAIL} / {ADMIN_PASSWORD}  (generated — save this)")
+    else:
+        print(f"  Admin user: {ADMIN_EMAIL}  (password from SEED_ADMIN_PASSWORD)")
     return admin
 
 
@@ -1516,7 +1524,9 @@ def main():
         db.commit()
 
         print("\n-- Summary -----------------------------------------------------")
-        print(f"  Login:  {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
+        # Don't re-print the secret here; it was echoed once at admin creation
+        # (when generated) or supplied by the caller via SEED_ADMIN_PASSWORD.
+        print(f"  Login:  {ADMIN_EMAIL}  (password shown above / SEED_ADMIN_PASSWORD)")
         print("  Data includes:")
         print("    -14 raw materials (filament with G/KG UOM)")
         print("    -11 components & packaging (EA)")
