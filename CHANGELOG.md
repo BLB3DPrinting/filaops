@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Dev seed data and the walkthrough E2E suite no longer hardcode an admin password. Credentials are read from `SEED_ADMIN_PASSWORD` / `WALKTHROUGH_PASSWORD`; when unset, the seed script generates a random password and prints it once. The `walkthrough` Playwright project is also excluded from CI runs (#748).
+- E2E flow specs now reference the shared `E2E_CONFIG` credential instead of inline literals, and the intentional `admin@filaops.test` test-fixture password is allowlisted in `.gitguardian.yaml` so GitGuardian no longer flags it as a leak (#750).
 
 ## [4.0.0] - 2026-04-14
 
