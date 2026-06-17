@@ -6,6 +6,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { seedTestScenario, cleanupTestData } from '../fixtures/test-utils';
+import { E2E_CONFIG } from '../config';
 
 // Don't use shared auth - this test does its own login after seeding
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -23,8 +24,8 @@ test.describe.serial('E2E-201: Blocking Issues Flow', () => {
     // Get auth token once via API to avoid rate limiting browser logins
     const response = await request.post('http://127.0.0.1:8000/api/v1/auth/login', {
       form: {
-        username: 'admin@filaops.test',
-        password: 'TestPass123!',
+        username: E2E_CONFIG.email,
+        password: E2E_CONFIG.password,
       },
     });
     if (response.ok()) {
@@ -46,8 +47,8 @@ test.describe.serial('E2E-201: Blocking Issues Flow', () => {
       await expect(page).toHaveURL(/\/admin\/orders/);
     } else {
       // Fallback to form login if token not available
-      await page.getByRole('textbox', { name: 'Email Address' }).fill('admin@filaops.test');
-      await page.getByRole('textbox', { name: 'Password' }).fill('TestPass123!');
+      await page.getByRole('textbox', { name: 'Email Address' }).fill(E2E_CONFIG.email);
+      await page.getByRole('textbox', { name: 'Password' }).fill(E2E_CONFIG.password);
       await page.getByRole('button', { name: 'Sign In' }).click();
       await expect(page).toHaveURL(/\/admin(?!\/login)/);
     }
