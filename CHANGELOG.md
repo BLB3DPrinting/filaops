@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Portal quote checkout flow now keeps auto-priced quotes `approved` until payment succeeds instead of marking them `accepted` when checkout starts or fails.
 - Portal multi-color print selections are snapshotted to `QuoteMaterial` rows so selected red/yellow/black slot colors do not collapse back to the default single color.
 
+### Security
+
+- Dev seed data and the walkthrough E2E suite no longer hardcode an admin password. Credentials are read from `SEED_ADMIN_PASSWORD` / `WALKTHROUGH_PASSWORD`; when unset, the seed script generates a random password and prints it once. The `walkthrough` Playwright project is also excluded from CI runs (#748).
+
 ## [4.0.0] - 2026-04-14
 
 ### Added

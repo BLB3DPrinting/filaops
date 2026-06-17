@@ -42,12 +42,19 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
-    // Walkthrough — self-contained auth, no setup dependency
-    {
-      name: 'walkthrough',
-      testMatch: /walkthrough-screenshots\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'] },
-    },
+    // Walkthrough — self-contained auth, no setup dependency.
+    // Excluded from default CI runs: it depends on a locally-seeded dev
+    // environment. Opt in by running `npx playwright test --project=walkthrough`
+    // (or `npm run test:walkthrough`) outside CI.
+    ...(process.env.CI
+      ? []
+      : [
+          {
+            name: 'walkthrough',
+            testMatch: /walkthrough-screenshots\.spec\.ts/,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]),
   ],
 
   // Docker containers should be running before tests
