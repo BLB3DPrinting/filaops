@@ -1,0 +1,13 @@
+# GitGuardian configuration — https://docs.gitguardian.com/ggshield-docs/configuration
+#
+# `TestPass123!` is an intentional, non-production test fixture credential for the
+# ephemeral `admin@filaops.test` user created by the backend test seed
+# (backend/tests/scenarios.py, backend/scripts/seed_test_data.py) and exercised by
+# the pytest and Playwright E2E suites. It only unlocks a local throwaway test
+# database and is never used in production, so it is allowlisted here rather than
+# treated as a leaked secret.
+version: 2
+secret:
+  ignored-matches:
+    - name: "Test fixture password for admin@filaops.test (ephemeral test DB)"
+      match: "TestPass123!"
