@@ -110,7 +110,7 @@ class LicenseCache:
         the upgraded shape must call ``save_license_cache`` on the
         returned object.
         """
-        activated_at = data["activated_at"]
+        activated_at = data.get("activated_at") or EPOCH_ZERO_ISO
         # For legacy files, anchor the upgrade window at "now" rather
         # than at activated_at (see class docstring).
         upgrade_anchor_iso = utc_now_iso()
