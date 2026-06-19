@@ -495,6 +495,12 @@ const navGroups = [
         icon: InventoryIcon,
         adminOnly: true,
       },
+      {
+        path: "/admin/intake-studio",
+        label: "Intake Studio",
+        icon: ProductionIcon,
+        adminOnly: true,
+      },
     ],
   },
   {
