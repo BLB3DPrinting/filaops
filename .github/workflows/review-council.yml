@@ -23,12 +23,12 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Checkout Review Council
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: Blb3D/review-council
           path: .review-council-tool
