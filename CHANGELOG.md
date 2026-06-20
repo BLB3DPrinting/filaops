@@ -7,28 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-06-20
+
 ### Added
 
-- Quotes and quote-based orders now retain Core-owned pricing, component, packaging, shipping, artifact, and slicer diagnostic snapshots for durable public-quoter handoff.
-- Item create/edit now exposes optional weight and dimensions for shipping, with packaging items requiring all physical fields.
-- Public portal quote creation now passes selected component add-on ids through to the optional quote automation provider.
-- Manual quotes now support Core-owned file attachments with staff upload, download, list, and delete actions.
-- Public online quoter endpoints are now explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO.
-- Quotes now expose a Core-owned read-only archive response with retained file and material snapshots for downgrade/retrieval workflows.
-- Quote uploads now have a Core-owned authenticated download endpoint so retained customer files remain retrievable without PRO automation.
-- Staff can create a Core item/product from an approved quote through a deliberate quote action instead of automatic customer upload side effects.
+- **Production Scheduler (Gantt) & Dispatch** — new scheduling suite: a suggest-and-confirm dispatch engine (#718), machine-lane × time-axis Gantt view (#727), reschedule/unschedule operations with modal edit mode (#722), dispatch chips with an `auto_dispatch` setting (#723), a guided initial-schedule wizard on production release (#724), one-click earliest-valid-start for predecessor conflicts (#721), and first-class maintenance-window scheduler blocks (SCHED-7, #733).
+- **Intake Studio** — PRO-gated operator UI for parts intake (#759).
+- **Inventory reconciliation** — reconciliation report (HARD-4b, #694), count-entry tool with explicit fallback (HARD-4c, #695), and a canonical inventory-posting function routing all on-hand writers through one ledger (HARD-4a, #690).
+- **Consolidated buy list** — Layer 1 live view (HARD-7, #705).
+- **Landed cost capitalization** — landed cost capitalized into item cost and inventory GL (HARD-8, #701).
+- **Cycle count variance review** — review variance before posting (HARD-16, #706).
+- **Onboarding & navigation** — onboarding printer + currency/locale steps (PR-18, #710), nav regroup with a MONEY group and flow-ordered SALES plus a CommandCenter landing page (PR-13, #711), and `EmptyState` CTAs across list pages (PR-10, #712).
+- **Order workflow guidance** — guided order-workflow actions (#667) with the invoice workflow kept on orders (#660).
+- Quotes and quote-based orders retain Core-owned pricing, component, packaging, shipping, artifact, and slicer diagnostic snapshots for durable public-quoter handoff (#629).
+- Manual quotes support Core-owned file attachments with staff upload, download, list, and delete actions (#618), plus an authenticated download endpoint (#616).
+- Item create/edit exposes optional weight and dimensions for shipping; a new packaging item type requires physical metadata (#624, #625).
+- Public quoter endpoints are explicitly gated by `ENABLE_PUBLIC_QUOTER`, leaving Core manual quote creation independent of PRO (#614); portal quote creation passes selected component add-on ids through to the optional automation provider (#626).
+- Quotes expose a Core-owned read-only archive response, and staff can create a Core item/product from an approved quote through a deliberate action.
+- PRO Bambuddy connector UI (#621) and locally served PRO surfaces (#632).
+
+### Changed
+
+- **DEBT-1 god-file decomposition** — `customer_service`, `item_service`, `sales_order_service`, and `production_order_service` were split into focused modules; `OrderDetail` and `OperationScheduler` UI were decomposed into components (closes #428). `AGENT_POLICY` now documents file-size limits to prevent regrowth.
 
 ### Fixed
 
-- Quote file downloads now reject unsafe stored filenames that could escape the Core quote upload directory.
-- Public portal quote uploads now retain `.obj`, `.step`, and `.stp` files as Core quote archives for manual review instead of rejecting them before staff can inspect the model.
-- Public portal quote creation now falls back to a pending manual-review quote when the optional PRO quote automation provider fails, preserving the uploaded file, rolling back partial provider mutations, and avoiding customer-facing slicer 503 errors.
-- Upload format overrides now normalize case and missing leading dots so `.STL`, `stl`, and similar env values behave consistently.
-- Portal quote checkout flow now keeps auto-priced quotes `approved` until payment succeeds instead of marking them `accepted` when checkout starts or fails.
-- Portal multi-color print selections are snapshotted to `QuoteMaterial` rows so selected red/yellow/black slot colors do not collapse back to the default single color.
+- **Inventory/MRP hardening (HARD series)** — auth-gated `/mrp` and admin/material/system endpoints (#683, #687, #698); honest MRP triggers (#688); PO receiving routed exclusively through the receive workflow (#689); reservation reconciliation and stranded-allocation release (#696, #716); routing-aware material reservation with release-time self-heal (#728); consumption idempotency (#704); net on-order supply folded into shortage calculations (#703); regex+numeric-cast PO/MRP sequence generation (#685).
+- **Order workflow** — PR-8 consolidated action surface with backend-aligned gating and closed_short reconcile (#713), restored Delete Order trigger and hidden Close Short when already closed (#714) (closes #680); separated order confirmation from production release (#666); brownfield order data health — legacy WO linkage, fulfillment evidence, guided resolution (LEGACY-1, #725).
+- **Invoicing & accounting** — sales accounting entries posted (#669); invoice payments recorded in the ledger (#648); invoice/order line totals, service-line descriptions, and discount handling preserved (#645, #646, #647); invoices linked to customer orders (#644); customer paid/outstanding totals shown (#643); Indiana seller-billed shipping taxed correctly (#650) and shipping excluded from dashboard revenue (#649).
+- **Auth/session** — dead sessions bounce to login instead of a 401-riddled admin shell (#730); root route defaults to the login screen (#729); license cache reader tolerates a missing `activated_at` (#754).
+- Scheduler datetime-local inputs render local wall time and parse Numeric-as-string durations (#731, #720).
+- Quote file downloads reject unsafe stored filenames; portal quote uploads retain `.obj`/`.step`/`.stp` for manual review; portal quote creation falls back to a pending manual-review quote when the optional PRO automation provider fails; multi-color selections are snapshotted to `QuoteMaterial` rows.
 
 ### Security
 
+- `@babel/core` dev/build dependency bumped `7.29.0` → `7.29.7` to resolve CVE-2026-49356 / GHSA-4x5r-pxfx-6jf8 (arbitrary file read via `sourceMappingURL` comment; low severity, dev-only, transitive in `frontend/`).
 - Dev seed data and the walkthrough E2E suite no longer hardcode an admin password. Credentials are read from `SEED_ADMIN_PASSWORD` / `WALKTHROUGH_PASSWORD`; when unset, the seed script generates a random password and prints it once. The `walkthrough` Playwright project is also excluded from CI runs (#748).
 - E2E flow specs now reference the shared `E2E_CONFIG` credential instead of inline literals, and the intentional `admin@filaops.test` test-fixture password is allowlisted in `.gitguardian.yaml` so GitGuardian no longer flags it as a leak (#750).
 
