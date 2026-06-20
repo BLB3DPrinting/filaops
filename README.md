@@ -1,9 +1,9 @@
 # FilaOps
 
-[![CI](https://github.com/Blb3D/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/Blb3D/filaops/actions/workflows/filaops-ci.yml)
-[![CodeQL](https://github.com/Blb3D/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/Blb3D/filaops/actions/workflows/codeql.yml)
+[![CI](https://github.com/Blb3DPrinting/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/Blb3DPrinting/filaops/actions/workflows/filaops-ci.yml)
+[![CodeQL](https://github.com/Blb3DPrinting/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/Blb3DPrinting/filaops/actions/workflows/codeql.yml)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
-[![Latest Release](https://img.shields.io/github/v/release/Blb3D/filaops)](https://github.com/Blb3D/filaops/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/Blb3DPrinting/filaops)](https://github.com/Blb3D/filaops/releases/latest)
 
 Open-source ERP for 3D print farms. Manage inventory, production, sales, purchasing, MRP, and accounting in one system built specifically for additive manufacturing.
 
