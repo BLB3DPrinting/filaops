@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
@@ -84,9 +84,16 @@ export default function AdminIntakeStudio() {
   // Step 4 — new UX state
   const [partsOnPlate, setPartsOnPlate] = useState(1);
   const [skuCode, setSkuCode] = useState("");
+  const [skuEdited, setSkuEdited] = useState(false);
   const [estimatedCost, setEstimatedCost] = useState(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [priceEdited, setPriceEdited] = useState(false);
+
+  // Guards against stale /preview responses overwriting newer state, and a
+  // ref mirror of priceEdited so the async runPreview closure reads the live
+  // value rather than a stale capture. (No useEffect — Core eslint forbids it.)
+  const previewRequestIdRef = useRef(0);
+  const priceEditedRef = useRef(false);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -269,8 +276,8 @@ export default function AdminIntakeStudio() {
       if (mappedWcId) {
         setPrintWorkCenterId(mappedWcId);
       }
-      // Seed SKU code from product name if not already set
-      if (!skuCode && productName) {
+      // Seed SKU code from product name unless the operator has edited it
+      if (!skuEdited && productName) {
         setSkuCode(buildSuggestedSku(productName));
       }
       setStep(4);
@@ -300,12 +307,14 @@ export default function AdminIntakeStudio() {
         parts_on_plate: partsOnPlate,
         sku: skuCode || undefined,
         slots: buildSlotsPayload(),
-        finishing_ops: finishingOps.map((o) => ({
-          work_center_id: Number(o.work_center_id),
-          operation_name: o.operation_name,
-          run_time_minutes: Number(o.run_time_minutes) || 0,
-          setup_time_minutes: Number(o.setup_time_minutes) || 0,
-        })),
+        finishing_ops: finishingOps
+          .filter((o) => o.work_center_id)
+          .map((o) => ({
+            work_center_id: Number(o.work_center_id),
+            operation_name: o.operation_name,
+            run_time_minutes: Number(o.run_time_minutes) || 0,
+            setup_time_minutes: Number(o.setup_time_minutes) || 0,
+          })),
         packaging: [],
         persist_color_map: true,
       };
@@ -342,6 +351,8 @@ export default function AdminIntakeStudio() {
     const parts = overrides.partsOnPlate ?? partsOnPlate;
     const ops = overrides.finishingOps ?? finishingOps;
     if (!wcId || !parseResult) return;
+    // Token this request; a newer call invalidates anything in flight.
+    const requestId = ++previewRequestIdRef.current;
     setPreviewBusy(true);
     try {
       const body = {
@@ -349,23 +360,31 @@ export default function AdminIntakeStudio() {
         print_time_seconds: parseResult.print_time_seconds,
         parts_on_plate: parts,
         slots: buildSlotsPayload(),
-        finishing_ops: ops.map((o) => ({
-          work_center_id: Number(o.work_center_id),
-          operation_name: o.operation_name,
-          run_time_minutes: Number(o.run_time_minutes) || 0,
-          setup_time_minutes: Number(o.setup_time_minutes) || 0,
-        })),
+        finishing_ops: ops
+          .filter((o) => o.work_center_id)
+          .map((o) => ({
+            work_center_id: Number(o.work_center_id),
+            operation_name: o.operation_name,
+            run_time_minutes: Number(o.run_time_minutes) || 0,
+            setup_time_minutes: Number(o.setup_time_minutes) || 0,
+          })),
         packaging: [],
       };
       const data = await api.post("/api/v1/pro/intake/preview", body);
+      // A newer preview started while we awaited — drop this stale response.
+      if (requestId !== previewRequestIdRef.current) return;
       setEstimatedCost(data);
-      if (!priceEdited && data.suggested_price != null) {
+      if (!priceEditedRef.current && data.suggested_price != null) {
         setActualPrice(String(data.suggested_price));
       }
     } catch {
-      setEstimatedCost(null);
+      if (requestId === previewRequestIdRef.current) {
+        setEstimatedCost(null);
+      }
     } finally {
-      setPreviewBusy(false);
+      if (requestId === previewRequestIdRef.current) {
+        setPreviewBusy(false);
+      }
     }
   };
 
@@ -392,9 +411,13 @@ export default function AdminIntakeStudio() {
     // new UX state
     setPartsOnPlate(1);
     setSkuCode("");
+    setSkuEdited(false);
     setEstimatedCost(null);
     setPreviewBusy(false);
     setPriceEdited(false);
+    priceEditedRef.current = false;
+    // Invalidate any preview still in flight so its response is ignored.
+    previewRequestIdRef.current += 1;
   };
 
   // ---------------------------------------------------------------------------
@@ -873,7 +896,10 @@ export default function AdminIntakeStudio() {
                     <input
                       type="text"
                       value={skuCode}
-                      onChange={(e) => setSkuCode(e.target.value)}
+                      onChange={(e) => {
+                        setSkuCode(e.target.value);
+                        setSkuEdited(true);
+                      }}
                       placeholder="INTAKE-MY-PRODUCT"
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                     />
@@ -1090,6 +1116,7 @@ export default function AdminIntakeStudio() {
                                   String(estimatedCost.suggested_price)
                                 );
                                 setPriceEdited(false);
+                                priceEditedRef.current = false;
                               }}
                               className="text-xs text-blue-400 hover:text-blue-300 underline transition-colors"
                             >
@@ -1126,6 +1153,7 @@ export default function AdminIntakeStudio() {
                       onChange={(e) => {
                         setActualPrice(e.target.value);
                         setPriceEdited(true);
+                        priceEditedRef.current = true;
                       }}
                       placeholder="0.00"
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
