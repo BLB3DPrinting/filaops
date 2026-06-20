@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
@@ -80,6 +80,20 @@ export default function AdminIntakeStudio() {
   const [printWorkCenterId, setPrintWorkCenterId] = useState("");
   const [finishingOps, setFinishingOps] = useState([]);
   const [actualPrice, setActualPrice] = useState("");
+
+  // Step 4 — new UX state
+  const [partsOnPlate, setPartsOnPlate] = useState(1);
+  const [skuCode, setSkuCode] = useState("");
+  const [skuEdited, setSkuEdited] = useState(false);
+  const [estimatedCost, setEstimatedCost] = useState(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [priceEdited, setPriceEdited] = useState(false);
+
+  // Guards against stale /preview responses overwriting newer state, and a
+  // ref mirror of priceEdited so the async runPreview closure reads the live
+  // value rather than a stale capture. (No useEffect — Core eslint forbids it.)
+  const previewRequestIdRef = useRef(0);
+  const priceEditedRef = useRef(false);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -245,6 +259,9 @@ export default function AdminIntakeStudio() {
   // Step 3 → 4: GET /context
   // ---------------------------------------------------------------------------
 
+  const buildSuggestedSku = (name) =>
+    `INTAKE-${(name || "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+
   const runContext = async () => {
     setContextBusy(true);
     try {
@@ -253,10 +270,21 @@ export default function AdminIntakeStudio() {
       // Default print work center from printer map
       const mapped =
         data.printer_work_center_map?.[parseResult.printer_model];
-      if (mapped?.work_center_id) {
-        setPrintWorkCenterId(String(mapped.work_center_id));
+      const mappedWcId = mapped?.work_center_id
+        ? String(mapped.work_center_id)
+        : null;
+      if (mappedWcId) {
+        setPrintWorkCenterId(mappedWcId);
+      }
+      // Seed SKU code from product name unless the operator has edited it
+      if (!skuEdited && productName) {
+        setSkuCode(buildSuggestedSku(productName));
       }
       setStep(4);
+      // Kick off preview now that we have the work center (if available)
+      if (mappedWcId) {
+        runPreview({ printWorkCenterId: mappedWcId });
+      }
     } catch (err) {
       toast.error(err.message || "Failed to load context");
     } finally {
@@ -276,19 +304,17 @@ export default function AdminIntakeStudio() {
         actual_price: Number(actualPrice),
         print_work_center_id: Number(printWorkCenterId),
         print_time_seconds: parseResult.print_time_seconds,
-        slots: parseResult.slots.map((s) => ({
-          slot_id: s.slot_id,
-          filament_type: s.filament_type,
-          color_hex: s.color_hex,
-          used_g: s.used_g,
-          spool_product_id: matchChoices[s.slot_id]?.product_id,
-        })),
-        finishing_ops: finishingOps.map((o) => ({
-          work_center_id: Number(o.work_center_id),
-          operation_name: o.operation_name,
-          run_time_minutes: Number(o.run_time_minutes) || 0,
-          setup_time_minutes: Number(o.setup_time_minutes) || 0,
-        })),
+        parts_on_plate: partsOnPlate,
+        sku: skuCode || undefined,
+        slots: buildSlotsPayload(),
+        finishing_ops: finishingOps
+          .filter((o) => o.work_center_id)
+          .map((o) => ({
+            work_center_id: Number(o.work_center_id),
+            operation_name: o.operation_name,
+            run_time_minutes: Number(o.run_time_minutes) || 0,
+            setup_time_minutes: Number(o.setup_time_minutes) || 0,
+          })),
         packaging: [],
         persist_color_map: true,
       };
@@ -300,6 +326,65 @@ export default function AdminIntakeStudio() {
       toast.error(err.message || "SKU creation failed");
     } finally {
       setSkuBusy(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Shared slot-payload builder (used by /preview and /sku)
+  // ---------------------------------------------------------------------------
+
+  const buildSlotsPayload = () =>
+    (parseResult?.slots || []).map((s) => ({
+      slot_id: s.slot_id,
+      filament_type: s.filament_type,
+      color_hex: s.color_hex,
+      used_g: s.used_g,
+      spool_product_id: matchChoices[s.slot_id]?.product_id,
+    }));
+
+  // ---------------------------------------------------------------------------
+  // Step 4 — /preview (cost estimate before committing)
+  // ---------------------------------------------------------------------------
+
+  const runPreview = async (overrides = {}) => {
+    const wcId = overrides.printWorkCenterId ?? printWorkCenterId;
+    const parts = overrides.partsOnPlate ?? partsOnPlate;
+    const ops = overrides.finishingOps ?? finishingOps;
+    if (!wcId || !parseResult) return;
+    // Token this request; a newer call invalidates anything in flight.
+    const requestId = ++previewRequestIdRef.current;
+    setPreviewBusy(true);
+    try {
+      const body = {
+        print_work_center_id: Number(wcId),
+        print_time_seconds: parseResult.print_time_seconds,
+        parts_on_plate: parts,
+        slots: buildSlotsPayload(),
+        finishing_ops: ops
+          .filter((o) => o.work_center_id)
+          .map((o) => ({
+            work_center_id: Number(o.work_center_id),
+            operation_name: o.operation_name,
+            run_time_minutes: Number(o.run_time_minutes) || 0,
+            setup_time_minutes: Number(o.setup_time_minutes) || 0,
+          })),
+        packaging: [],
+      };
+      const data = await api.post("/api/v1/pro/intake/preview", body);
+      // A newer preview started while we awaited — drop this stale response.
+      if (requestId !== previewRequestIdRef.current) return;
+      setEstimatedCost(data);
+      if (!priceEditedRef.current && data.suggested_price != null) {
+        setActualPrice(String(data.suggested_price));
+      }
+    } catch {
+      if (requestId === previewRequestIdRef.current) {
+        setEstimatedCost(null);
+      }
+    } finally {
+      if (requestId === previewRequestIdRef.current) {
+        setPreviewBusy(false);
+      }
     }
   };
 
@@ -323,6 +408,16 @@ export default function AdminIntakeStudio() {
     setActualPrice("");
     setSkuResult(null);
     setSkuBusy(false);
+    // new UX state
+    setPartsOnPlate(1);
+    setSkuCode("");
+    setSkuEdited(false);
+    setEstimatedCost(null);
+    setPreviewBusy(false);
+    setPriceEdited(false);
+    priceEditedRef.current = false;
+    // Invalidate any preview still in flight so its response is ignored.
+    previewRequestIdRef.current += 1;
   };
 
   // ---------------------------------------------------------------------------
@@ -340,25 +435,31 @@ export default function AdminIntakeStudio() {
   // ---------------------------------------------------------------------------
 
   const addFinishingOp = () => {
-    setFinishingOps((prev) => [
-      ...prev,
+    const next = [
+      ...finishingOps,
       {
         work_center_id: "",
         operation_name: "",
         run_time_minutes: "",
         setup_time_minutes: "",
       },
-    ]);
+    ];
+    setFinishingOps(next);
+    runPreview({ finishingOps: next });
   };
 
   const updateFinishingOp = (idx, field, value) => {
-    setFinishingOps((prev) =>
-      prev.map((op, i) => (i === idx ? { ...op, [field]: value } : op))
+    const next = finishingOps.map((op, i) =>
+      i === idx ? { ...op, [field]: value } : op
     );
+    setFinishingOps(next);
+    runPreview({ finishingOps: next });
   };
 
   const removeFinishingOp = (idx) => {
-    setFinishingOps((prev) => prev.filter((_, i) => i !== idx));
+    const next = finishingOps.filter((_, i) => i !== idx);
+    setFinishingOps(next);
+    runPreview({ finishingOps: next });
   };
 
   // ---------------------------------------------------------------------------
@@ -578,12 +679,20 @@ export default function AdminIntakeStudio() {
 
           {/* Buttons */}
           <div className="flex justify-between pt-2">
-            <button
-              onClick={handleReset}
-              className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
-            >
-              Start over
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setStep(1)}
+                className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleReset}
+                className="border border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+              >
+                Start over
+              </button>
+            </div>
             <button
               onClick={runMatch}
               disabled={matchBusy || !productName.trim()}
@@ -743,7 +852,10 @@ export default function AdminIntakeStudio() {
                           sku: wc.code,
                         }))}
                       value={printWorkCenterId}
-                      onChange={setPrintWorkCenterId}
+                      onChange={(v) => {
+                        setPrintWorkCenterId(v);
+                        runPreview({ printWorkCenterId: v });
+                      }}
                       placeholder="Select work center…"
                       displayKey="name"
                       valueKey="id"
@@ -757,6 +869,43 @@ export default function AdminIntakeStudio() {
                     <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white">
                       {secondsToHms(parseResult.print_time_seconds)}
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Parts on this plate
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={partsOnPlate}
+                      onChange={(e) => {
+                        const v = Math.max(1, parseInt(e.target.value, 10) || 1);
+                        setPartsOnPlate(v);
+                        runPreview({ partsOnPlate: v });
+                      }}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-gray-600 text-xs mt-1">
+                      Per-unit cost = plate &divide; parts.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      SKU code
+                    </label>
+                    <input
+                      type="text"
+                      value={skuCode}
+                      onChange={(e) => {
+                        setSkuCode(e.target.value);
+                        setSkuEdited(true);
+                      }}
+                      placeholder="INTAKE-MY-PRODUCT"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-gray-600 text-xs mt-1">
+                      Letters, numbers, hyphens — auto-uppercased on save.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -911,6 +1060,86 @@ export default function AdminIntakeStudio() {
                 <h2 className="text-base font-semibold text-white mb-3">
                   Pricing
                 </h2>
+
+                {/* Estimated cost panel — shown BEFORE the price input */}
+                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-4">
+                  {previewBusy && (
+                    <p className="text-gray-400 text-sm">Calculating…</p>
+                  )}
+                  {!previewBusy && estimatedCost == null && (
+                    <p className="text-gray-500 text-sm">
+                      Pick a work center to estimate cost.
+                    </p>
+                  )}
+                  {!previewBusy && estimatedCost != null && (
+                    <>
+                      <div className="flex items-baseline gap-3 mb-3">
+                        <span className="text-2xl font-bold text-white">
+                          ${Number(estimatedCost.per_unit_cost || 0).toFixed(2)}
+                        </span>
+                        <span className="text-gray-400 text-sm">
+                          estimated cost per unit
+                        </span>
+                      </div>
+                      <div className="flex gap-6 text-sm mb-3">
+                        <div>
+                          <span className="text-gray-400">Material</span>
+                          <span className="text-gray-200 ml-2">
+                            ${Number(estimatedCost.bom_cost || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Labor</span>
+                          <span className="text-gray-200 ml-2">
+                            ${Number(estimatedCost.routing_cost || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                      {estimatedCost.suggested_price != null && (
+                        <div className="flex items-center gap-3 border-t border-gray-700 pt-3">
+                          <p className="text-blue-300 text-sm">
+                            Suggested price:{" "}
+                            <span className="font-semibold">
+                              ${Number(estimatedCost.suggested_price).toFixed(2)}
+                            </span>
+                            {estimatedCost.default_margin_percent != null && (
+                              <span className="text-gray-400 ml-1">
+                                ({estimatedCost.default_margin_percent}% margin)
+                              </span>
+                            )}
+                          </p>
+                          {priceEdited && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActualPrice(
+                                  String(estimatedCost.suggested_price)
+                                );
+                                setPriceEdited(false);
+                                priceEditedRef.current = false;
+                              }}
+                              className="text-xs text-blue-400 hover:text-blue-300 underline transition-colors"
+                            >
+                              Use suggested
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="flex justify-end mb-2">
+                  <button
+                    type="button"
+                    onClick={() => runPreview()}
+                    disabled={previewBusy || !printWorkCenterId}
+                    className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Recalculate cost
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">
@@ -921,7 +1150,11 @@ export default function AdminIntakeStudio() {
                       min="0"
                       step="0.01"
                       value={actualPrice}
-                      onChange={(e) => setActualPrice(e.target.value)}
+                      onChange={(e) => {
+                        setActualPrice(e.target.value);
+                        setPriceEdited(true);
+                        priceEditedRef.current = true;
+                      }}
                       placeholder="0.00"
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                     />
@@ -1098,12 +1331,22 @@ export default function AdminIntakeStudio() {
             </p>
           )}
 
-          <button
-            onClick={handleReset}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-          >
-            Create another
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleReset}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              Create another
+            </button>
+            {skuResult.product?.id && (
+              <a
+                href={`/admin/products/${skuResult.product.id}`}
+                className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
+              >
+                View / edit product
+              </a>
+            )}
+          </div>
         </div>
       )}
     </div>
