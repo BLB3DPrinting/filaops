@@ -13,7 +13,7 @@ PyJWT==2.13.0
 # Direct dep (PR-05 token encryption — Fernet+HKDF in app/core/crypto.py).
 # Pulled in transitively by PyJWT/python-jose/passlib in many envs, but CI's
 # install path doesn't always get those extras, so declare it explicitly.
-cryptography>=48.0.0
+cryptography>=49.0.0
 bcrypt>=5.0.0,<6
 python-dotenv==1.2.2
 slowapi==0.1.9
