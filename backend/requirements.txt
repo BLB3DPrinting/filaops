@@ -30,6 +30,6 @@ mypy==2.1.0
 types-python-dateutil==2.9.0.20260518
 
 # Testing
-pytest>=9.0.3
+pytest>=9.1.0
 pytest-asyncio>=1.4.0
 pytest-cov>=7.1.0
