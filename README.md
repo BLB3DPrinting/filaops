@@ -7,7 +7,7 @@
 
 Open-source ERP for 3D print farms. Manage inventory, production, sales, purchasing, MRP, and accounting in one system built specifically for additive manufacturing.
 
-**[Documentation](https://blb3d.github.io/filaops/)** | **[Release Notes](https://github.com/Blb3D/filaops/releases/latest)**
+**[Documentation](https://blb3dPrinting.github.io/filaops/)** | **[Release Notes](https://github.com/Blb3DPrinting/filaops/releases/latest)**
 
 ## Quick Start (Docker)
 
