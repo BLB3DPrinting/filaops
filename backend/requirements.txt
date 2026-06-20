@@ -22,7 +22,7 @@ httpx==0.28.1
 requests==2.34.2
 semver==3.0.4
 reportlab==4.5.1
-sentry-sdk[fastapi]>=2.61.1
+sentry-sdk[fastapi]>=2.62.0
 
 # AI Invoice Parsing is a PRO feature (anthropic, pypdf)
 
