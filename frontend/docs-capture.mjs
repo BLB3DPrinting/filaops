@@ -90,8 +90,12 @@ const SHOTS = [
   // BOM detail is a modal opened by the row View button
   { name: 'catalog/06-bom-detail', url: '/admin/bom', actions: [{ clickBtn: 'View' }, { wait: 1200 }], full: false },
 
-  // --- mrp (buy list / low stock live under purchasing) ---
-  { name: 'mrp/01-buy-list-overview', url: '/admin/purchasing', actions: [{ click: 'Buy List' }], full: true },
+  // --- mrp (buy list / low stock live under purchasing; material reqs on order detail) ---
+  { name: 'mrp/01-buy-list-overview', url: '/admin/purchasing?tab=buy-list', full: true },
+  // first chevron button expands the first buy-list row's demand/incoming detail
+  { name: 'mrp/02-buy-list-row-expanded', url: '/admin/purchasing?tab=buy-list', actions: [{ clickSelector: 'table tbody tr button' }, { wait: 800 }], full: true },
+  { name: 'mrp/03-low-stock-tab', url: '/admin/purchasing?tab=low-stock', full: true },
+  { name: 'mrp/04-order-detail-material-requirements', url: '/admin/orders/1', actions: [{ wait: 1000 }], clip: '.bg-gray-900.rounded-xl:has-text("Material Requirements")' },
 
   // --- quality ---
   { name: 'quality/01-quality-dashboard', url: '/admin/quality', full: true },
@@ -135,6 +139,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         if (a.clickFirstRow) { await page.locator('table tbody tr').first().click({ timeout: 8000 }).catch((e) => console.log('  row miss:', e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1500); }
         if (a.fill) { await page.locator(a.fill.selector).first().fill(a.fill.value, { timeout: 8000 }).catch((e) => console.log('  fill miss:', a.fill.selector, e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1200); }
         if (a.selectOption) { await page.locator(a.selectOption.selector).first().selectOption(a.selectOption.value, { timeout: 8000 }).catch((e) => console.log('  select miss:', a.selectOption.selector, e.message.split('\n')[0])); await sleep(800); }
+        if (a.clickSelector) { await page.locator(a.clickSelector).first().click({ timeout: 8000 }).catch((e) => console.log('  clickSel miss:', a.clickSelector, e.message.split('\n')[0])); await sleep(1000); }
         if (a.waitModal) { await page.locator('[role="dialog"], .modal, [class*="modal"]').first().waitFor({ timeout: 6000 }).catch(() => console.log('  modal not detected')); await sleep(800); }
         if (a.wait) await sleep(a.wait);
       }
