@@ -102,16 +102,33 @@ const SHOTS = [
   { name: 'mrp/03-low-stock-tab', url: '/admin/purchasing?tab=low-stock', full: true },
   { name: 'mrp/04-order-detail-material-requirements', url: '/admin/orders/1', actions: [{ wait: 1000 }], clip: '.bg-gray-900.rounded-xl:has-text("Material Requirements")' },
 
-  // --- quality ---
-  { name: 'quality/01-quality-dashboard', url: '/admin/quality', full: true },
+  // --- overview (index) ---
+  { name: 'overview/01-sidebar-nav', url: '/admin', actions: [{ wait: 800 }], clip: 'aside' },
+  { name: 'overview/02-command-center', url: '/admin', full: true },
+  { name: 'overview/03-production-list', url: '/admin/production', full: true },
 
-  // --- settings / users ---
-  { name: 'settings/01-system-settings', url: '/admin/settings', full: true },
-  { name: 'users/01-users-list', url: '/admin/users', full: true },
+  // --- dashboard (command center only; Analytics is @require_tier(PRO) — excluded from Core docs) ---
+  { name: 'dashboard/01-command-center-overview', url: '/admin', full: true },
+  { name: 'dashboard/02-command-center-summary-cards', url: '/admin', actions: [{ wait: 900 }], clip: 'section:has-text("Today")' },
+  { name: 'dashboard/03-command-center-action-items', url: '/admin', actions: [{ wait: 900 }], clip: 'section:has-text("Action Items")' },
+  { name: 'dashboard/04-command-center-machines', url: '/admin', actions: [{ wait: 900 }], clip: 'section:has-text("Machines")' },
+  // single idle FDM card carries the dispatch chip (NEXT UP / Confirm / Pick different)
+  { name: 'dashboard/05-command-center-dispatch-chip', url: '/admin', actions: [{ wait: 900 }], clip: '.rounded-lg:has-text("FDM-03")' },
 
-  // --- dashboard (command center + analytics) ---
-  { name: 'dashboard/01-command-center', url: '/admin', full: true },
-  { name: 'dashboard/02-analytics', url: '/admin/analytics', full: true },
+  // --- glossary (reuses cross-feature views) ---
+  { name: 'glossary/02-command-center', url: '/admin', full: true },
+  { name: 'glossary/03-mrp-planned-orders', url: '/admin/purchasing?tab=buy-list', full: true },
+  { name: 'glossary/04-production-order-detail', url: '/admin/production', actions: [{ clickFirstRow: true }], full: true },
+  { name: 'glossary/06-work-centers', url: '/admin/manufacturing', full: true },
+  { name: 'glossary/01-bom-detail', url: '/admin/bom', actions: [{ clickBtn: 'View' }, { wait: 1200 }], full: false },
+
+  // --- system settings (settings/); price-levels is PRO and intentionally not captured ---
+  { name: 'settings/03-locations', url: '/admin/locations', full: true },
+  { name: 'settings/04-scrap-reasons', url: '/admin/scrap-reasons', full: true },
+
+  // --- users ---
+  { name: 'users/01-team-members-overview', url: '/admin/users', full: true },
+  { name: 'users/04-security-audit-overview', url: '/admin/security', full: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

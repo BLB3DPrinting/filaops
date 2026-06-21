@@ -1,169 +1,158 @@
-# Understanding the Dashboard
+# Command Center
 
-> Your daily overview of what's happening across your print farm — sales, inventory, production, and what needs your attention right now.
+The **Command Center** is your moment-to-moment view of the shop floor — it answers the most important daily question: "What do I need to do right now?" It is the **default landing page** when you open FilaOps.
 
-## What You'll Learn
+## What You Will Learn
 
-- How to read the Dashboard and what each section tells you
-- How to use the Command Center for real-time monitoring
-- How to spot problems before they become urgent
-- How to navigate from dashboard cards directly to the relevant pages
-
-## The Two Views
-
-FilaOps gives you two ways to monitor your business:
-
-| View | Purpose | Best For |
-|------|---------|----------|
-| **Dashboard** | Business overview with sales trends and stats | Morning check-in, weekly review |
-| **Command Center** | Real-time operational status with action items | During the workday, shift handoffs |
-
-Both are accessible from the sidebar — **Dashboard** is at the top, and **Command Center** is right below it.
+- How to use the Command Center as your primary day-to-day view
+- What each stat card shows and where it links
+- How dispatch suggestions work on idle machines
+- How to navigate directly from cards and alerts to the relevant pages
 
 ---
 
-## Dashboard
-
-Navigate to **Dashboard** in the sidebar (it's the first item). The Dashboard is organized into four sections: Sales, Inventory, Production, and Recent Activity.
-
-<!-- TODO: screenshot of full dashboard -->
-
-### Sales Section
-
-The top of the Dashboard shows a **sales trend chart** and four stat cards.
-
-**Sales Trend Chart**
-
-A line chart showing your revenue over time. Use the period selector in the top-right corner to switch between views:
-
-- **MTD** — Month to date
-- **QTD** — Quarter to date
-- **YTD** — Year to date
-- **Last 30 Days**
-- **Last 90 Days**
-
-**Sales Stat Cards**
-
-| Card | What It Shows | Click To Go To |
-|------|--------------|----------------|
-| **Pending Quotes** | Quotes awaiting customer review | Quotes page |
-| **Orders in Progress** | Confirmed + in-production orders | Orders page |
-| **Ready to Ship** | Completed orders awaiting shipment (highlights overdue count) | Shipping page |
-| **Revenue (30 Days)** | Total revenue and order count for the last 30 days | Payments page |
-
-!!! tip "Color coding"
-    Cards turn **red** when something needs attention — for example, the Ready to Ship card turns red if any orders are overdue.
-
-### Inventory Section
-
-Three cards summarize your inventory health:
-
-| Card | What It Shows | Click To Go To |
-|------|--------------|----------------|
-| **Low Stock Items** | Items below their reorder point or flagged by MRP | Purchasing page (low stock tab) |
-| **Active BOMs** | Bill of Materials count and how many need review | Bill of Materials page |
-| **Orders Needing Materials** | Orders that require material procurement | Purchasing page |
-
-!!! warning "Low stock matters"
-    A green Low Stock card means you're well-stocked. A red card means you have items that could delay production. Click through to see exactly which items need reordering.
-
-### Production Section
-
-A **Production Pipeline** chart shows work orders by status (Draft, Released, Scheduled, In Progress, Complete). Below it, two stat cards summarize:
-
-| Card | What It Shows | Click To Go To |
-|------|--------------|----------------|
-| **Work Orders In Progress** | Active work orders and how many are ready to start | Production page (filtered to in-progress) |
-| **Completed Today** | Units finished today | Manufacturing page |
-
-### Recent Activity
-
-The bottom of the Dashboard shows two side-by-side tables:
-
-**Recent Orders** — Your latest sales orders with customer, product, status, and total. Click any row to open that order.
-
-**Pending Purchases** — Open purchase orders showing vendor, status (Draft or Ordered), item count, total amount, and expected delivery date. Click any row to open that PO.
+!!! note "Command Center vs. the dashboard URL"
+    The home screen at `/admin` is the **Command Center**. A separate **Analytics** trend page lives at `/admin/dashboard`, but Analytics is a **PRO feature** and is not covered in this Core guide. Do not refer to the Command Center as "the dashboard."
 
 ---
 
 ## Command Center
 
-Navigate to **Command Center** in the sidebar. This is your real-time operational view — think of it as your shop floor monitor.
+Navigate to **Command Center** by opening the app or clicking the top entry in the sidebar (URL: `/admin`).
 
-<!-- TODO: screenshot of command center -->
+![Command Center — full page view showing Today's Summary cards, Action Items, and Machine grid](../assets/screenshots/dashboard/01-command-center-overview.png)
 
-The Command Center auto-refreshes every 60 seconds. You can also click the **Refresh** button in the top-right corner for an immediate update.
+The page heading reads **Command Center** and shows today's date. Controls appear in the top-right corner:
+
+- **Auto-dispatch ON** badge — visible only when auto-dispatch is enabled in Company Settings (see [Dispatch Suggestions](#dispatch-suggestions) below)
+- **Refresh** button — triggers an immediate data reload across all three sections
+
+The page auto-refreshes every 60 seconds. A small indicator at the bottom-right corner of the screen confirms this.
 
 ### Today's Summary
 
-Four summary cards give you an instant pulse check:
+Four cards give an instant operational pulse:
 
-| Card | What It Shows |
-|------|--------------|
-| **Orders Due Today** | How many orders are due, and how many are ready to ship |
-| **Shipped Today** | Orders you've already shipped |
-| **In Production** | Active production orders and running operations |
-| **Blocked** | Blocked production orders + overdue orders |
+| Card | What it shows | Turns warning/danger when… |
+| --- | --- | --- |
+| **Orders Due Today** | Count of orders whose due date is today; subtitle shows how many are already ready to ship | Fewer are ready than are due (some still in production) |
+| **Shipped Today** | Orders shipped so far today | Never — always shown as a positive metric |
+| **In Production** | Active production work orders; subtitle counts individual operations currently running | — |
+| **Blocked** | Sum of blocked production orders and overdue sales orders; subtitle shows the overdue order count | Any blocked or overdue item exists |
 
-!!! warning "Watch the Blocked card"
-    If the Blocked card shows a number greater than zero, something needs your immediate attention. Click it to see what's stuck.
+!!! tip "Blocked is your most important number"
+    A non-zero Blocked count means something is already past its deadline or stuck in production. Address these before starting new work.
+
+Click **Orders Due Today** to open the Orders page filtered to today's due date. Click **In Production** to open the Production page filtered to in-progress work orders.
+
+![Command Center — Today's Summary cards detail](../assets/screenshots/dashboard/02-command-center-summary-cards.png)
 
 ### Action Items
 
-The heart of the Command Center. Action items are prioritized alerts that tell you exactly what needs attention:
+Below the summary cards is the **Action Items** section — a prioritized list of issues that need your attention. Items are sorted by priority (Critical first), then by age (oldest first within the same priority level). The section heading shows the total count in parentheses.
 
-- **Overdue orders** — Orders past their due date
-- **Low stock alerts** — Materials running low
-- **Production blocks** — Work orders that can't proceed
-- **Pending approvals** — Items waiting for your decision
+Six types of action items can appear:
 
-Each action item shows:
+| Type | Priority | What it means |
+| --- | --- | --- |
+| **Blocked production order** | Critical (1) | A released or in-progress work order cannot proceed due to a material shortage |
+| **Overdue sales order** | Critical (1) | A confirmed, in-production, or ready-to-ship order is past its estimated completion date |
+| **Due today** | High (2) | A sales order is due today but has not yet shipped |
+| **Overrunning operation** | Medium (3) | A production operation has been running for more than twice its estimated time |
+| **Maintenance due** | Medium (3) | A printer has scheduled maintenance due within the next 7 days |
+| **Idle resource with work waiting** | Low (4) | A machine is idle but has production operations queued |
 
-- A **priority indicator** (color-coded)
-- A **title** describing the issue
-- A **description** with details
-- **Suggested actions** you can take
+Each action item card shows:
 
-Click any action item to navigate directly to the relevant page.
+- A **priority icon** color-coded by severity (red = Critical, orange = High, yellow = Medium, blue = Low)
+- A **type icon** for quick recognition
+- A **title** with the order or resource code
+- A **description** with specifics (for example: "Shortage: PLA-BLACK need 250g more" or "Due 2 days ago — in_production")
+- **Suggested action buttons** that navigate directly to the relevant page (for example: "View Order", "View Production")
 
-When everything is handled, you'll see a green **All Clear!** message — your goal for the day.
+![Command Center — Action Items list with mixed priorities](../assets/screenshots/dashboard/03-command-center-action-items.png)
+
+!!! note "All Clear"
+    When there are no action items, a green **All Clear!** panel replaces the list. No issues require immediate attention.
 
 ### Machines
 
-The bottom section shows a **Machine Status Grid** — a visual overview of all your printers and their current state:
+The bottom section is the **Machines** grid. All configured resources (printers) appear here, grouped by work center. The section heading shows a live running count, for example "(3/8 running)".
 
-- Which machines are **running** (and what they're printing)
-- Which machines are **idle** and available
-- Which machines are **offline** or need attention
+Each machine card shows:
 
-Click any machine to jump to its current production order.
+- **Machine code** (for example `FDM-01`) and a colored status dot
+- **Machine name** below the code
+- **Status label**: Running (green), Idle (yellow), Maintenance (orange), or Offline (red)
+
+Running machines additionally display:
+
+- The current **production order code**
+- The **operation sequence number**
+- An **elapsed timer** counting up from when the operation started
+
+![Command Center — Machine Status Grid with running and idle printers](../assets/screenshots/dashboard/04-command-center-machines.png)
+
+Clicking a running machine card navigates to that production order's detail page.
+
+!!! note "No resources configured"
+    If you have not set up any resources yet, the grid shows a "No resources configured" message with a link to the Manufacturing page.
+
+#### Maintenance Due-Soon Badge
+
+If a printer has maintenance due within 7 days, a small amber **Maint** badge appears next to its code in the card header. This corresponds to the Medium-priority action item that also appears in the Action Items section above.
+
+#### Dispatch Suggestions
+
+When a machine is idle and the scheduler has identified a suggested next operation for it, a **Next up** chip appears inside that machine card. The chip shows:
+
+- The **production order code** and **product name**
+- **Quantity** and **due date** (due date renders in red if it is already past)
+- A **Why?** link that expands a list of scoring reasons
+- A **maintenance warning** banner (amber) if the printer has a pending maintenance concern
+
+Two action buttons appear at the bottom of the chip:
+
+- **Confirm** — assigns the suggested operation to this printer immediately and refreshes the queue
+- **Pick different…** — opens the Operation Scheduler modal so you can manually choose a different operation or time slot
+
+![Command Center — Dispatch chip on an idle machine card](../assets/screenshots/dashboard/05-command-center-dispatch-chip.png)
+
+!!! warning "Maintenance warnings block auto-dispatch"
+    If a dispatch chip shows a maintenance warning, the **Confirm** button is still available for manual confirmation. However, auto-dispatch will **never** confirm that suggestion automatically — regardless of the auto-dispatch setting. You must review the warning and confirm manually.
+
+##### Auto-Dispatch
+
+When **Auto-dispatch** is enabled in Company Settings, the Command Center automatically confirms the top dispatch suggestion for each idle printer on every 30-second polling cycle — except for any suggestion that carries a maintenance warning.
+
+When auto-dispatch is active, an **Auto-dispatch ON** badge appears in the Command Center header, and a success toast notification appears each time an operation is automatically assigned.
 
 ---
 
-## Tips & Best Practices
+## Tips and Best Practices
 
-- **Start your day on the Dashboard** to review sales trends, then switch to the Command Center to plan your work
-- **Use the Command Center during the day** — it refreshes automatically and surfaces new issues as they arise
-- **Address red items first** — the color coding is designed to draw your eye to problems
-- **Click through stat cards** instead of navigating manually — every card links to the relevant page with the right filters applied
-- **Check the Command Center before leaving** — the All Clear state means nothing urgent will be waiting for you tomorrow
+- **Start with Command Center** — it is the default landing page. Scan the Blocked count and Action Items before doing anything else each shift.
+- **Resolve Critical items first** — blocked production orders and overdue sales orders carry Priority 1 (Critical). These directly affect customer delivery promises.
+- **Use dispatch chips to keep machines running** — an idle machine with a **Next up** chip is one **Confirm** click away from productive work.
+- **All Clear is the daily target** — when the Command Center Action Items section shows All Clear, all known operational issues are handled.
 
-## What's Next?
-
-Now that you understand your dashboard, learn about the pages you'll navigate to most often:
-
-- [Managing Your Product Catalog](product-catalog.md) — the items you sell and make
-- [Taking and Fulfilling Orders](orders.md) — your sales workflow
-- [Running Production](production.md) — managing work orders and operations
+---
 
 ## Quick Reference
 
-| Task | Where to Find It |
-|------|------------------|
-| Check today's revenue | **Dashboard** > Sales section > Revenue card |
-| See what needs attention | **Command Center** > Action Items |
-| Check printer status | **Command Center** > Machines section |
-| Find overdue orders | **Dashboard** > Ready to Ship card (red = overdue) |
-| View production pipeline | **Dashboard** > Production section > Pipeline chart |
-| Check low stock | **Dashboard** > Inventory section > Low Stock card |
-| Refresh Command Center | **Command Center** > **Refresh** button (top-right) |
+| Task | Where |
+| --- | --- |
+| See what needs attention right now | **Command Center** > Action Items |
+| Check which machines are running | **Command Center** > Machines |
+| Assign an operation to an idle printer | **Command Center** > Machines > dispatch chip > **Confirm** |
+| Check how many orders shipped today | **Command Center** > Shipped Today card |
+| Refresh Command Center immediately | **Command Center** > **Refresh** button (top-right) |
+
+---
+
+## What is Next?
+
+- [Managing Your Product Catalog](product-catalog.md) — items, materials, and pricing
+- [Taking and Fulfilling Orders](orders.md) — the sales workflow from quote to shipment
+- [Running Production](production.md) — work orders, operations, and the scheduler
+- [Purchasing and MRP](purchasing.md) — purchase orders and material requirements planning
