@@ -56,7 +56,7 @@ def _read_version_file() -> Optional[str]:
 class VersionManager:
     """Manages FilaOps version information and update checking"""
 
-    GITHUB_REPO = "Blb3D/filaops"
+    GITHUB_REPO = "BLB3DPrinting/filaops"
     FALLBACK_VERSION = _read_version_file() or "0.0.0"
 
     # Known deployment shapes. Anything outside this set still flows through
@@ -311,10 +311,10 @@ class VersionManager:
                     "FilaOps backs up your database automatically before each update. "
                     "No manual action required."
                 ),
-                "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+                "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
                 "rollback_steps": [
                     "Re-install the previous version from "
-                    "https://github.com/Blb3D/filaops/releases — the Tauri installer "
+                    "https://github.com/BLB3DPrinting/filaops/releases — the Tauri installer "
                     "preserves your data directory across versions.",
                 ],
                 "requires_manual_steps": False,
@@ -344,7 +344,7 @@ class VersionManager:
                     "Alembic downgrades exist but recovering from a botched upgrade "
                     "via backup is faster and safer."
                 ),
-                "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+                "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
                 "rollback_steps": [
                     "1. Restore the pre-upgrade database backup.",
                     "2. Check out the previous version: git checkout vX.X.X",
@@ -371,7 +371,7 @@ class VersionManager:
                 "8. Clear browser cache (Ctrl+Shift+R) and test"
             ],
             "backup_recommendation": "Backup database before starting (recommended for production)",
-            "documentation_url": "https://github.com/Blb3D/filaops/blob/main/UPGRADE.md",
+            "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
             "rollback_steps": [
                 "1. Stop services: docker-compose down",
                 "2. Checkout previous version: git checkout vX.X.X",
