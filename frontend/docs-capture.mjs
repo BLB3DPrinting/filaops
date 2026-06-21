@@ -139,6 +139,9 @@ const SHOTS = [
 
   // --- users ---
   { name: 'users/01-team-members-overview', url: '/admin/users', full: true },
+  { name: 'users/02-add-user-modal', url: '/admin/users', actions: [{ clickBtn: 'Add User' }, { wait: 1000 }], full: false },
+  // "Reset PW" is the per-row reset action; first row opens the reset-password modal
+  { name: 'users/03-reset-password-modal', url: '/admin/users', actions: [{ clickBtn: 'Reset PW' }, { wait: 1000 }], full: false },
   { name: 'users/04-security-audit-overview', url: '/admin/security', full: true },
 ];
 
