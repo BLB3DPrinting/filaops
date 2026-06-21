@@ -33,10 +33,17 @@ const SHOTS = [
   { name: 'orders/07-shipping-page', url: '/admin/shipping', full: true },
   { name: 'orders/08-payments-page', url: '/admin/payments', full: true },
 
-  // --- inventory ---
-  { name: 'inventory/01-transactions-page', url: '/admin/inventory/transactions', full: true },
+  // --- inventory (transactions page has a very long ledger; viewport keeps panels/form in focus) ---
+  { name: 'inventory/01-transactions-page', url: '/admin/inventory/transactions', full: false },
+  // inline form; the type <select> is the only one with a transfer option → To Location appears
+  { name: 'inventory/02-new-transaction-form', url: '/admin/inventory/transactions', actions: [{ clickBtn: 'New Transaction' }, { selectOption: { selector: 'select:has(option[value="transfer"])', value: 'transfer' } }, { wait: 800 }], full: false },
+  { name: 'inventory/03-pending-approvals', url: '/admin/inventory/transactions', actions: [{ click: 'Pending Approvals' }, { wait: 1000 }], full: false },
+  { name: 'inventory/04-reconciliation-panel', url: '/admin/inventory/transactions', actions: [{ click: 'items needing a count' }, { wait: 1200 }], full: false },
   { name: 'inventory/05-spools-page', url: '/admin/spools', full: true },
+  { name: 'inventory/06-add-spool-modal', url: '/admin/spools', actions: [{ clickBtn: 'Add Spool' }, { wait: 1000 }], full: false },
   { name: 'inventory/07-cycle-count-page', url: '/admin/inventory/cycle-count', full: true },
+  // pre-fill all rows to system qty, override one to create a variance, then open the review modal
+  { name: 'inventory/08-variance-review-modal', url: '/admin/inventory/cycle-count', actions: [{ clickBtn: 'Fill Current Qty' }, { wait: 600 }, { fill: { selector: 'input[type="number"]', value: '200' } }, { clickBtn: 'Submit Count' }, { wait: 1200 }], full: false },
 
   // --- reconciliation ---
   { name: 'reconciliation/01-transactions-page-collapsed', url: '/admin/inventory/transactions', full: true },
@@ -110,6 +117,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         if (a.clickBtn) { await page.getByRole('button', { name: new RegExp(a.clickBtn + '\\s*$') }).first().click({ timeout: 8000 }).catch((e) => console.log('  btn miss:', a.clickBtn, e.message.split('\n')[0])); await sleep(1000); }
         if (a.clickFirstRow) { await page.locator('table tbody tr').first().click({ timeout: 8000 }).catch((e) => console.log('  row miss:', e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1500); }
         if (a.fill) { await page.locator(a.fill.selector).first().fill(a.fill.value, { timeout: 8000 }).catch((e) => console.log('  fill miss:', a.fill.selector, e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1200); }
+        if (a.selectOption) { await page.locator(a.selectOption.selector).first().selectOption(a.selectOption.value, { timeout: 8000 }).catch((e) => console.log('  select miss:', a.selectOption.selector, e.message.split('\n')[0])); await sleep(800); }
         if (a.waitModal) { await page.locator('[role="dialog"], .modal, [class*="modal"]').first().waitFor({ timeout: 6000 }).catch(() => console.log('  modal not detected')); await sleep(800); }
         if (a.wait) await sleep(a.wait);
       }
