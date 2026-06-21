@@ -63,7 +63,8 @@ class TestGetAnalyticsDashboard:
         assert 29 <= delta.days <= 31
 
     def test_defaults_to_30_days(self, db):
-        result = get_analytics_dashboard(db, days=30)
+        # No days= arg: exercise the default-parameter path (days=30).
+        result = get_analytics_dashboard(db)
         delta = result["period_end"] - result["period_start"]
         assert abs(delta.days - 30) <= 1
 
