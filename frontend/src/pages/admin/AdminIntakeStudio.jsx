@@ -139,7 +139,7 @@ export default function AdminIntakeStudio() {
             Intake Studio lets you drop a sliced .gcode.3mf file, automatically
             match filament spools from your inventory, configure print work
             centers and finishing operations, and instantly create a sellable SKU
-            with a full BOM and routing — all in one guided workflow.
+            with a fully costed routing — all in one guided workflow.
           </p>
           <a
             href="/pricing"
@@ -1081,20 +1081,6 @@ export default function AdminIntakeStudio() {
                           estimated cost per unit
                         </span>
                       </div>
-                      <div className="flex gap-6 text-sm mb-3">
-                        <div>
-                          <span className="text-gray-400">Material</span>
-                          <span className="text-gray-200 ml-2">
-                            ${Number(estimatedCost.bom_cost || 0).toFixed(2)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Labor</span>
-                          <span className="text-gray-200 ml-2">
-                            ${Number(estimatedCost.routing_cost || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
                       {estimatedCost.suggested_price != null && (
                         <div className="flex items-center gap-3 border-t border-gray-700 pt-3">
                           <p className="text-blue-300 text-sm">
@@ -1260,13 +1246,7 @@ export default function AdminIntakeStudio() {
               {skuResult.cost && (
                 <>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">BOM cost</span>
-                    <span className="text-white">
-                      ${Number(skuResult.cost.bom_cost || 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Routing cost</span>
+                    <span className="text-gray-400">Routing cost (materials + labor)</span>
                     <span className="text-white">
                       ${Number(skuResult.cost.routing_cost || 0).toFixed(2)}
                     </span>
@@ -1294,21 +1274,7 @@ export default function AdminIntakeStudio() {
               </div>
             </div>
 
-            {/* BOM */}
-            <div className="bg-gray-800/50 rounded-lg p-4 space-y-1">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
-                BOM
-              </h3>
-              <p className="text-white font-mono">
-                {skuResult.bom?.code}
-              </p>
-              <p className="text-gray-400 text-sm">
-                {skuResult.bom?.line_count} line
-                {skuResult.bom?.line_count !== 1 ? "s" : ""}
-              </p>
-            </div>
-
-            {/* Routing */}
+            {/* Routing (materials live on the operations) */}
             <div className="bg-gray-800/50 rounded-lg p-4 space-y-1">
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
                 Routing
@@ -1319,6 +1285,9 @@ export default function AdminIntakeStudio() {
               <p className="text-gray-400 text-sm">
                 {skuResult.routing?.operation_count} operation
                 {skuResult.routing?.operation_count !== 1 ? "s" : ""}
+                {" · "}
+                {skuResult.routing?.material_count} material
+                {skuResult.routing?.material_count !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
