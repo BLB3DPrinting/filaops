@@ -1,8 +1,11 @@
 """Tests for analytics_service.py — dashboard metrics computation."""
+import uuid
+
 import pytest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.models.user import User
 from app.services.analytics_service import (
     get_analytics_dashboard,
     _compute_revenue_metrics,
@@ -12,15 +15,39 @@ from app.services.analytics_service import (
 )
 
 
+@pytest.fixture
+def make_customer_user(db):
+    """Create a customer-type User (sales_orders.user_id points here).
+
+    The seeded user (id=1) is an admin, so customer-scoped metrics need a
+    real account_type='customer' row to assert against.
+    """
+    def _factory(company_name=None, account_type="customer"):
+        uid = uuid.uuid4().hex[:8]
+        user = User(
+            email=f"cust-{uid}@example.com",
+            password_hash="not-a-real-hash",
+            first_name="Cust",
+            last_name=uid,
+            company_name=company_name or f"Customer Co {uid}",
+            account_type=account_type,
+        )
+        db.add(user)
+        db.flush()
+        return user
+
+    return _factory
+
+
 class TestGetAnalyticsDashboard:
     """Test the main analytics dashboard function.
 
-    Note: get_analytics_dashboard calls _compute_customer_metrics which has
-    an ambiguous FK join (User <-> SalesOrder). These tests are skipped until
-    that service bug is fixed.
+    Regression coverage for the AmbiguousForeignKeysError that used to crash
+    GET /api/v1/admin/analytics/dashboard: sales_orders has two FKs to users
+    (user_id and customer_id), so the top-customers join in
+    _compute_customer_metrics must specify an explicit ON clause.
     """
 
-    @pytest.mark.skip(reason="Pre-existing ambiguous FK bug in _compute_customer_metrics")
     def test_returns_expected_top_level_keys(self, db):
         result = get_analytics_dashboard(db)
         assert "revenue" in result
@@ -30,23 +57,49 @@ class TestGetAnalyticsDashboard:
         assert "period_start" in result
         assert "period_end" in result
 
-    @pytest.mark.skip(reason="Pre-existing ambiguous FK bug in _compute_customer_metrics")
     def test_period_dates_reflect_days_param(self, db):
         result = get_analytics_dashboard(db, days=30)
         delta = result["period_end"] - result["period_start"]
         assert 29 <= delta.days <= 31
 
-    @pytest.mark.skip(reason="Pre-existing ambiguous FK bug in _compute_customer_metrics")
     def test_defaults_to_30_days(self, db):
-        result = get_analytics_dashboard(db, days=30)
+        # No days= arg: exercise the default-parameter path (days=30).
+        result = get_analytics_dashboard(db)
         delta = result["period_end"] - result["period_start"]
         assert abs(delta.days - 30) <= 1
 
-    @pytest.mark.skip(reason="Pre-existing ambiguous FK bug in _compute_customer_metrics")
     def test_custom_period_90_days(self, db):
         result = get_analytics_dashboard(db, days=90)
         delta = result["period_end"] - result["period_start"]
         assert abs(delta.days - 90) <= 1
+
+    def test_dashboard_with_completed_order_exercises_customer_join(
+        self, db, make_customer_user, make_product, make_sales_order
+    ):
+        """Full dashboard against a populated DB must not raise and must roll
+        the order's revenue up under its owning customer.
+
+        This is the direct regression for AmbiguousForeignKeysError — the
+        top-customers query joins users<->sales_orders, which only compiles
+        once the join specifies SalesOrder.user_id == User.id explicitly.
+        """
+        customer = make_customer_user(company_name="Acme Robotics")
+        product = make_product(selling_price=Decimal("50.00"))
+        make_sales_order(
+            user_id=customer.id,
+            product_id=product.id,
+            unit_price=Decimal("50.00"),
+            quantity=2,
+            status="completed",
+        )
+
+        result = get_analytics_dashboard(db, days=30)
+
+        top = result["customers"]["top_customers"]
+        assert any(c["customer_id"] == customer.id for c in top)
+        acme = next(c for c in top if c["customer_id"] == customer.id)
+        assert acme["company_name"] == "Acme Robotics"
+        assert acme["revenue"] >= 100.0
 
 
 class TestComputeRevenueMetrics:
@@ -103,7 +156,6 @@ class TestComputeRevenueMetrics:
 class TestComputeCustomerMetrics:
     """Test customer metric computation."""
 
-    @pytest.mark.skip(reason="Pre-existing ambiguous FK bug in _compute_customer_metrics")
     def test_empty_db_returns_zeros(self, db):
         now = datetime.now(timezone.utc)
         result = _compute_customer_metrics(
@@ -117,6 +169,40 @@ class TestComputeCustomerMetrics:
         assert result["new_customers_30_days"] >= 0
         assert result["average_customer_value"] == Decimal("0")
         assert isinstance(result["top_customers"], list)
+
+    def test_top_customers_joins_on_owning_account(
+        self, db, make_customer_user, make_product, make_sales_order
+    ):
+        """top_customers must aggregate revenue by SalesOrder.user_id.
+
+        Regression for the ambiguous users<->sales_orders join: with a
+        completed order the join must compile AND attribute revenue to the
+        order's user_id (not customer_id).
+        """
+        customer = make_customer_user(company_name="Beta Industries")
+        product = make_product(selling_price=Decimal("25.00"))
+        make_sales_order(
+            user_id=customer.id,
+            product_id=product.id,
+            unit_price=Decimal("25.00"),
+            quantity=4,
+            status="completed",
+        )
+        now = datetime.now(timezone.utc)
+
+        result = _compute_customer_metrics(
+            db,
+            end_date=now,
+            start_date=now - timedelta(days=30),
+            period_revenue=Decimal("100"),
+        )
+
+        ids = {c["customer_id"] for c in result["top_customers"]}
+        assert customer.id in ids
+        beta = next(c for c in result["top_customers"] if c["customer_id"] == customer.id)
+        assert beta["company_name"] == "Beta Industries"
+        assert beta["revenue"] >= 100.0
+        assert result["active_customers_30_days"] >= 1
 
 
 class TestComputeProductMetrics:
