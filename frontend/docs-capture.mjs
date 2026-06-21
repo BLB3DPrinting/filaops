@@ -126,8 +126,16 @@ const SHOTS = [
   { name: 'glossary/05-routing-editor', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("Routings")' }, { wait: 800 }, { clickBtn: 'Edit' }, { wait: 1200 }], full: false },
 
   // --- system settings (settings/); price-levels is PRO and intentionally not captured ---
+  { name: 'settings/01-company-settings-top', url: '/admin/settings', actions: [{ wait: 900 }], full: false },
+  { name: 'settings/02-tax-settings', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.bg-gray-800.rounded-lg:has-text("Tax Rates")' },
   { name: 'settings/03-locations', url: '/admin/locations', full: true },
   { name: 'settings/04-scrap-reasons', url: '/admin/scrap-reasons', full: true },
+  { name: 'settings/06-integrations-ai', url: '/admin/integrations', actions: [{ wait: 900 }], full: true },
+
+  // --- troubleshooting (settings clips + login) ---
+  { name: 'troubleshooting/01-login-forgot-password', url: '/admin/login', actions: [{ wait: 800 }], full: false },
+  { name: 'troubleshooting/02-settings-smtp-warning', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.rounded-xl:has-text("Email (SMTP) Not Configured")' },
+  { name: 'troubleshooting/04-settings-version-updates', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.bg-gray-800.rounded-lg:has-text("Check for Updates")' },
 
   // --- users ---
   { name: 'users/01-team-members-overview', url: '/admin/users', full: true },
