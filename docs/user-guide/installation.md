@@ -1,180 +1,266 @@
 # Installation & Setup
 
-> Get FilaOps running on your computer in about 15 minutes.
-
-## What You'll Learn
-
-- How to install the required software
-- How to set up the database
-- How to configure and start FilaOps
-- How to verify everything is working
+Get FilaOps running on your server or local machine. The recommended path is
+**Docker Compose** — it handles the database, migrations, and both servers in
+one command. A **manual (bare-metal)** path is also documented for developers
+or environments where Docker is not available.
 
 ## Prerequisites
 
-You need the following software installed before you begin:
+### Docker path (recommended)
 
-| Software | Minimum Version | Purpose |
-|----------|----------------|---------|
-| **Python** | 3.11 or newer | Runs the backend server |
-| **Node.js** | 18 or newer | Builds the frontend interface |
-| **PostgreSQL** | 15 or newer | Stores all your data |
-| **Git** | 2.0 or newer | Downloads the source code |
+| Software | Minimum version | Notes |
+|---|---|---|
+| **Docker** | 20.10 or newer | Desktop or Engine |
+| **Docker Compose** | v2 (the `docker compose` plugin) | `docker-compose` v1 is not supported |
+| **Git** | any | To clone the repository |
 
-!!! warning "PostgreSQL Required"
-    FilaOps requires PostgreSQL. It uses PostgreSQL-specific features like JSONB columns and array types, so SQLite or MySQL will not work.
+### Manual path
+
+| Software | Minimum version | Purpose |
+|---|---|---|
+| **Python** | 3.11 or newer | Backend runtime |
+| **Node.js** | 18 or newer | Frontend build |
+| **PostgreSQL** | **16** or newer | Database (16+ required) |
+| **Git** | any | Clone the repository |
+
+!!! warning "PostgreSQL 16 required"
+    FilaOps uses PostgreSQL-specific features (JSONB, array types) and its
+    migration history targets PostgreSQL 16+. SQLite and MySQL will not work.
+    The `.env.example` and `docker-compose.yml` both default to `postgres:16`.
 
 **Download links:**
 
+- Docker Desktop: [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
 - Python: [python.org/downloads](https://www.python.org/downloads/)
 - Node.js: [nodejs.org](https://nodejs.org/)
 - PostgreSQL: [postgresql.org/download](https://www.postgresql.org/download/)
-- Git: [git-scm.com/downloads](https://git-scm.com/downloads/)
 
-## Step 1: Download FilaOps
+---
 
-Open a terminal and clone the repository:
+## Option A — Docker Compose (recommended)
+
+This is the fastest path and the one used in production. Docker handles
+PostgreSQL, runs database migrations automatically before the backend starts,
+and serves the React frontend on port 80.
+
+### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/Blb3D/filaops.git
+git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 ```
 
-## Step 2: Create the Database
-
-Connect to PostgreSQL and create a new database:
-
-=== "Using psql (command line)"
-
-    ```bash
-    psql -U postgres
-    ```
-
-    Then in the psql prompt:
-
-    ```sql
-    CREATE DATABASE filaops;
-    \q
-    ```
-
-=== "Using pgAdmin (GUI)"
-
-    1. Open pgAdmin and connect to your PostgreSQL server
-    2. Right-click **Databases** and choose **Create > Database**
-    3. Name it `filaops` and click **Save**
-
-## Step 3: Configure the Backend
-
-Create your environment file:
+### Step 2: Create your environment file
 
 ```bash
-cd backend
+cp backend/.env.example .env
 ```
 
-Create a file named `.env` in the `backend/` directory with the following contents:
+Then open `.env` and set **two required secrets**. The application refuses to
+start in production if either is left at a placeholder value:
+
+```bash
+# Generate a secure random SECRET_KEY:
+openssl rand -hex 32
+
+# Generate a secure DB_PASSWORD:
+openssl rand -hex 24
+```
+
+Paste the output into your `.env`:
 
 ```ini
-# Database — change the password to match your PostgreSQL setup
-DATABASE_URL=postgresql+psycopg://postgres:your_password@localhost:5432/filaops
-
-# Security — generate a unique key for your installation
-SECRET_KEY=change-this-to-a-random-string
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=43200
-
-# Environment
-ENVIRONMENT=development
-
-# Frontend URL (for CORS)
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+SECRET_KEY=<paste output here>
+DB_PASSWORD=<paste output here>
 ```
 
-!!! tip "Generate a secure secret key"
-    For production use, generate a proper random key:
+!!! tip "One-liner to append both secrets"
+    ```bash
+    echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+    echo "DB_PASSWORD=$(openssl rand -hex 24)" >> .env
+    ```
+    On Windows without OpenSSL, use Python:
+    ```powershell
+    python -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" >> .env
+    python -c "import secrets; print('DB_PASSWORD=' + secrets.token_hex(24))" >> .env
+    ```
 
-    === "Linux / Mac"
+The full list of supported environment variables is in `backend/.env.example`
+with inline comments. The most common ones to review before first boot:
 
-        ```bash
-        openssl rand -hex 32
-        ```
+| Variable | Default | When to change |
+|---|---|---|
+| `DB_NAME` | `filaops` | If you want a different database name |
+| `ALLOWED_ORIGINS` | `http://localhost,http://localhost:5173` | Add your server's hostname for remote access |
+| `FRONTEND_URL` | `http://localhost` | Set to your public URL |
+| `ENVIRONMENT` | `development` | Set to `production` for live deployments |
 
-    === "Python (any platform)"
-
-        ```bash
-        python -c "import secrets; print(secrets.token_hex(32))"
-        ```
-
-    Copy the output and paste it as your `SECRET_KEY` value.
-
-**Important:** Replace `your_password` with your actual PostgreSQL password.
-
-## Step 4: Install Backend Dependencies
+### Step 3: Start FilaOps
 
 ```bash
-# Make sure you're in the backend/ directory
-cd backend
+docker compose up -d
+```
 
-# Create a Python virtual environment
+Docker Compose starts four services in dependency order:
+
+1. **`db`** — PostgreSQL 16, with a health check that gates the next step.
+2. **`migrate`** — runs `alembic upgrade head` (Core migrations) and exits cleanly. The backend does not start until this completes successfully.
+3. **`backend`** — FastAPI on port 8000, served via uvicorn with `--proxy-headers`.
+4. **`frontend`** — pre-built React SPA served on port 80.
+
+!!! note "First boot takes longer"
+    Docker pulls images and builds the backend and frontend containers on first
+    run. Subsequent starts are fast. Watch progress with:
+    ```bash
+    docker compose logs -f
+    ```
+
+### Step 4: Verify
+
+Open **http://localhost** in your browser. On a fresh database FilaOps
+redirects you to the **Onboarding Wizard** at `/onboarding`.
+
+You can also check the backend health endpoint directly:
+
+```
+http://localhost:8000/health
+```
+
+A healthy response looks like:
+
+```json
+{
+  "status": "healthy",
+  "checks": { "database": "ok" },
+  "version": "4.1.0"
+}
+```
+
+![Docker Compose first boot — browser at http://localhost showing the Onboarding Wizard step 1](../assets/screenshots/setup/01-onboarding-wizard-step1.png)
+
+---
+
+## Option B — Manual (bare metal)
+
+Use this path for local development or when you cannot run Docker.
+
+### Step 1: Clone the repository
+
+```bash
+git clone https://github.com/BLB3DPrinting/filaops.git
+cd filaops
+```
+
+### Step 2: Create the database
+
+=== "psql (command line)"
+
+    ```bash
+    psql -U postgres -c "CREATE DATABASE filaops;"
+    ```
+
+=== "pgAdmin (GUI)"
+
+    1. Open pgAdmin and connect to your server.
+    2. Right-click **Databases** and choose **Create > Database**.
+    3. Name it `filaops` and click **Save**.
+
+### Step 3: Configure the backend
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Edit `backend/.env`. At minimum set your database credentials and a secret key:
+
+```ini
+# Use individual variables (recommended):
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=filaops
+DB_USER=postgres
+DB_PASSWORD=your_actual_password
+
+# OR a full connection URL (overrides the individual variables above):
+# DATABASE_URL=postgresql+psycopg://postgres:your_actual_password@localhost:5432/filaops
+
+# Required — generate with: openssl rand -hex 32
+SECRET_KEY=<your-generated-key>
+
+# Token lifetime (default: 30 minutes)
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Origins the browser is allowed to contact the API from
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+FRONTEND_URL=http://localhost:5173
+```
+
+!!! warning "Driver name in the connection URL"
+    The connection URL must use the `postgresql+psycopg://` scheme (psycopg3),
+    not `postgresql+psycopg2://`. The old driver name will cause an import error
+    at startup.
+
+### Step 4: Install backend dependencies
+
+```bash
+# From the backend/ directory:
 python -m venv venv
 
-# Activate it
-# On Windows:
+# Activate the virtual environment
+# Windows:
 .\venv\Scripts\Activate
-# On Linux/Mac:
+# Linux / macOS:
 source venv/bin/activate
 
-# Install Python packages
 pip install -r requirements.txt
+```
 
-# Set up the database tables
+### Step 5: Run database migrations
+
+```bash
+# Still in backend/ with the venv active:
 alembic upgrade head
 ```
 
-You should see a series of migration messages. The last line will look like:
+You should see a series of lines ending with the current head revision. The
+final line looks like:
 
 ```
-INFO  [alembic.runtime.migration] Running upgrade ... -> ..., [migration name]
+INFO  [alembic.runtime.migration] Running upgrade <prev> -> <head>, ...
 ```
 
-!!! warning "If migrations fail"
-    If you see errors about relations already existing, your database may have leftover tables from a previous attempt. See [Troubleshooting](troubleshooting.md) for how to reset.
+!!! warning "If alembic reports a mismatch"
+    `Can't locate revision` usually means a database from a different version of
+    FilaOps is present. Drop and recreate the database, then re-run
+    `alembic upgrade head`.
 
-## Step 5: Install Frontend Dependencies
+### Step 6: Start the backend
 
-Open a **second terminal window** (keep the backend terminal open):
+```bash
+# backend/ directory, venv active:
+uvicorn app.main:app --reload
+```
+
+Expected output:
+
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Application startup complete.
+```
+
+### Step 7: Install frontend dependencies and start the dev server
+
+Open a **second terminal**:
 
 ```bash
 cd frontend
 npm install
-```
-
-## Step 6: Start FilaOps
-
-You need two terminal windows running at the same time.
-
-**Terminal 1 — Backend:**
-
-```bash
-cd backend
-.\venv\Scripts\Activate    # Windows
-# source venv/bin/activate  # Linux/Mac
-uvicorn app.main:app --reload
-```
-
-You should see:
-
-```
-INFO:     Uvicorn running on http://127.0.0.1:8000
-INFO:     Application startup complete.
-```
-
-**Terminal 2 — Frontend:**
-
-```bash
-cd frontend
 npm run dev
 ```
 
-You should see:
+Expected output:
 
 ```
 VITE v5.x.x  ready in xxx ms
@@ -182,52 +268,213 @@ VITE v5.x.x  ready in xxx ms
   ➜  Local:   http://localhost:5173/
 ```
 
-## Step 7: Verify It Works
+### Step 8: Verify
 
-Open your browser and go to **http://localhost:5173**. On a fresh database (no users), FilaOps automatically redirects to the **Setup Wizard** where you create your admin account and optionally load example data.
+Open **http://localhost:5173** in your browser. On a fresh database FilaOps
+redirects to the Onboarding Wizard.
 
-**Verification checklist:**
+**Checklist:**
 
-- [ ] Backend responds at http://127.0.0.1:8000 (shows "FilaOps API is running")
-- [ ] Frontend loads at http://localhost:5173
-- [ ] No database connection errors in the backend terminal
-- [ ] The setup wizard appears (if this is a fresh installation)
+- [ ] Backend responds at `http://127.0.0.1:8000/health` with `"status": "healthy"`
+- [ ] Frontend loads at `http://localhost:5173`
+- [ ] No database errors in the backend terminal
+- [ ] The Onboarding Wizard appears at `/onboarding`
 
-If all four checks pass, FilaOps is installed and ready to use.
+---
 
-!!! note "Setup wizard only appears once"
-    The setup wizard is shown only when **zero users** exist in the database. Once you create an admin account, the wizard is permanently disabled and you are redirected to the login page. For details on the full setup flow and password reset behavior, see the [First-Run Setup Guide](../FIRST-RUN-SETUP.md).
+## The Onboarding Wizard
 
-## Docker Alternative
+The first time FilaOps detects zero users in the database, every visit
+redirects to `/onboarding`. The wizard walks you through eight steps — all
+optional except Step 1:
 
-If you prefer Docker, you can run FilaOps with Docker Compose:
+| Step | Title | Required? |
+|---|---|---|
+| 1 | Create Admin Account | Yes |
+| 2 | Load Example Data | Optional (recommended) |
+| 3 | Import Products (CSV) | Optional |
+| 4 | Import Customers (CSV) | Optional |
+| 5 | Import Orders (CSV) | Optional |
+| 6 | Import Inventory (CSV) | Optional |
+| 7 | Connect Your First Printer | Optional |
+| 8 | Complete | — |
 
-```bash
-git clone https://github.com/Blb3D/filaops.git
-cd filaops
-cp backend/.env.example .env    # Edit with your settings
-docker compose up -d
-```
+### Step 1 — Create Admin Account
 
-Open **http://localhost** to access FilaOps.
+Fill in the following fields:
 
-For full Docker deployment details, see the [Deployment Guide](../deployment/index.md).
+- **Your Name** — first and last name; displayed in the UI
+- **Email Address** — used to log in; must be a valid email format
+- **Password** — must satisfy all four requirements shown on screen:
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character (e.g. `!@#$%^&*`)
+- **Confirm Password**
+- **Company Name** *(optional)* — saved to company settings immediately; editable later in **Admin → Settings**
+- **Currency** — controls how amounts appear on invoices and reports (e.g. USD, EUR, GBP). Editable later in **Admin → Settings**
+- **Locale** — controls date and number formatting (e.g. `en-US`, `en-GB`, `fr-FR`). Editable later in **Admin → Settings**
+
+Click **Create Account & Continue**. FilaOps creates the admin user, saves your
+currency and locale to company settings, and advances to Step 2. You are
+logged in automatically.
+
+![Onboarding wizard Step 1 — Create Admin Account showing name, email, password, company name, currency, and locale fields](../assets/screenshots/setup/02-onboarding-step1-account.png)
+
+!!! note "The wizard appears only once"
+    Once the first admin account exists, `/api/v1/setup/status` returns
+    `needs_setup: false` and the onboarding route redirects every visitor to
+    `/admin/login`. There is no way to re-run the wizard without resetting the
+    database.
+
+### Step 2 — Load Example Data (recommended)
+
+FilaOps can seed your database with a starter dataset built around BambuLab
+materials:
+
+- **18 material types** — PLA Basic, PLA Matte, PLA Silk, PETG, ABS, ASA, TPU, PA-CF, PC, and more
+- **15 colors** — Black, White, Gray, Red, Blue, Green, Yellow, Orange, Purple, Pink, Brown, Gold, Silver, Clear
+- **24 material + color SKUs** — pre-linked combinations, all starting at 0 on-hand; update quantities to start using them
+- **Example catalog items** — covering packaging, hardware, and finished goods categories
+
+Check **Yes, load example data (recommended)** and click **Load Example Data**,
+or uncheck it and click **Skip This Step** to start with an empty catalog.
+
+!!! tip "Skipping seed data"
+    If you skip, you can still add materials manually. When creating a material,
+    use the **"+ Create new color for this material"** link in the material form
+    to add colors on demand.
+
+### Steps 3–6 — CSV Imports (optional)
+
+Each step accepts a CSV file. If you have no file ready, click
+**Skip This Step** to continue. All of these imports are also available after
+setup from the relevant admin pages.
+
+| Step | Admin page | Required CSV columns |
+|---|---|---|
+| Products | Admin → Items | SKU, Name, Description, Item Type, Unit, Standard Cost, Selling Price |
+| Customers | Admin → Customers | Email, First Name, Last Name, Company, Phone, Address fields |
+| Orders | Admin → Orders | Order ID, Customer Email, Product SKU, Quantity |
+| Inventory | Admin → Inventory | SKU, Location, Quantity |
+
+For the Orders step, select your **Order Source** from the dropdown before
+uploading: Manual / Generic, Squarespace, WooCommerce, Etsy, or TikTok Shop.
+
+### Step 7 — Connect Your First Printer (optional)
+
+Register a printer so FilaOps can track print jobs and material consumption.
+On Community edition, **Bambu Lab** and **Generic / Other** brands are
+available. Additional brands (Klipper, OctoPrint, Prusa, Creality) require a
+PRO license and can be added later from **Admin → Printers**.
+
+Fill in:
+
+- **Printer Name** — a display label, e.g. "X1C Bay 1"
+- **Brand** — Bambu Lab or Generic / Other
+- **Model** — for Bambu Lab, choose from the dropdown (X1 Carbon, X1E, P1S, P1P, A1, A1 mini); for Generic, type the model name
+
+Click **Add Printer**, or click **Skip** to add printers later.
+
+![Onboarding wizard Step 7 — Connect Your First Printer showing brand dropdown, model field, and printer name field](../assets/screenshots/setup/03-onboarding-step7-printer.png)
+
+### Step 8 — Complete
+
+Click **Go to Dashboard** to enter the Command Center. Setup is complete.
+
+---
 
 ## Development vs. Production
 
-This guide covers **development setup** — running FilaOps locally for testing or small-scale use. For a production deployment with HTTPS, proper backups, and reverse proxy, see the [Deployment Guide](../deployment/index.md).
+This guide covers getting FilaOps running. For a hardened deployment with
+HTTPS, a reverse proxy, and backups, see the [Deployment Guide](../deployment/index.md).
 
-## What's Next?
+Key differences when setting `ENVIRONMENT=production`:
 
-Now that FilaOps is running, head to [Your First Day](first-day.md) to create your admin account, load sample data, and take a tour of the system.
+- The Swagger UI (`/docs`, `/redoc`, `/openapi.json`) is disabled to prevent API schema exposure.
+- `Strict-Transport-Security` headers are added to every response (HSTS).
+- `COOKIE_SECURE=true` must be set — auth cookies require HTTPS.
+- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` are set to any known placeholder value (e.g. `changeme`, `change-in-production`).
+
+---
+
+## Troubleshooting
+
+### "Cannot connect to server" in the wizard
+
+The Onboarding Wizard displays this message if it cannot reach the backend at
+`/api/v1/setup/status`. Check:
+
+1. The backend container or uvicorn process is running.
+2. `ALLOWED_ORIGINS` in `.env` includes the origin your browser is using.
+3. No firewall rules block port 8000 (manual) or port 80 (Docker).
+
+### Migration mismatch error on Docker
+
+If the `migrate` container exits with a `DATABASE MIGRATION MISMATCH DETECTED`
+banner, your database volume was created by a different version of FilaOps:
+
+```bash
+docker compose down
+docker volume rm filaops_pgdata
+docker compose up --build -d
+```
+
+!!! warning "This deletes all data"
+    Removing `filaops_pgdata` permanently deletes your database. Export any
+    data you need before running this command.
+
+### "Secret key is a placeholder" startup error
+
+`SECRET_KEY` must be a randomly generated value. The application logs a clear
+error and refuses to start if a known placeholder is detected. Fix it:
+
+```bash
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+docker compose restart backend   # Docker
+# or restart uvicorn for manual installs
+```
+
+### Frontend cannot reach the backend
+
+For manual installs, the frontend reads the API URL from `VITE_API_URL` at
+build time. The development server defaults to `http://localhost:8000`. If you
+access FilaOps from another machine, set `VITE_API_URL` before starting the
+dev server (or rebuilding for production):
+
+```bash
+VITE_API_URL=http://<server-ip>:8000 npm run dev
+```
+
+Also ensure the frontend's origin is listed in `ALLOWED_ORIGINS` in
+`backend/.env`.
+
+### PostgreSQL port conflict (Docker)
+
+If port 5432 is already used by a local PostgreSQL instance, either stop the
+local service before running `docker compose up -d`, or remap the host port in
+`docker-compose.yml`:
+
+```yaml
+ports:
+  - "5433:5432"    # host port 5433 → container port 5432
+```
+
+---
 
 ## Quick Reference
 
-| Task | How |
-|------|-----|
-| Start the backend | `cd backend && uvicorn app.main:app --reload` |
-| Start the frontend | `cd frontend && npm run dev` |
-| Run database migrations | `cd backend && alembic upgrade head` |
-| Check backend health | Visit http://127.0.0.1:8000 |
-| Access the application | Visit http://localhost:5173 |
-| Stop either server | Press ++ctrl+c++ in its terminal |
+| Task | Command / URL |
+|---|---|
+| Start (Docker) | `docker compose up -d` |
+| Stop (Docker) | `docker compose down` |
+| View logs (Docker) | `docker compose logs -f backend` |
+| Start backend (manual) | `cd backend && uvicorn app.main:app --reload` |
+| Start frontend (manual) | `cd frontend && npm run dev` |
+| Run migrations (manual) | `cd backend && alembic upgrade head` |
+| Health check | `http://localhost:8000/health` |
+| Application (Docker) | `http://localhost` |
+| Application (manual dev) | `http://localhost:5173` |
+| Onboarding wizard | `/onboarding` (auto-redirect on fresh install) |
+| Sign in (after setup) | `/admin/login` |

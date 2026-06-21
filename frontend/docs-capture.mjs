@@ -178,6 +178,15 @@ const SHOTS = [
   // expand the first work center (▶) to reveal its resources + Add Resource button, then open the modal
   { name: 'workflows/03-add-resource-modal', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("▶")' }, { wait: 1000 }, { clickBtn: 'Add Resource' }, { wait: 1000 }], full: false },
   { name: 'workflows/04-printer-list-table', url: '/admin/printers', full: true },
+
+  // ===== getting-started (first-day): Core pages reachable on the demo =====
+  { name: 'getting-started/03-sidebar-expanded', url: '/admin', actions: [{ wait: 800 }], clip: 'aside' },
+  { name: 'getting-started/04-settings-company-info', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.bg-gray-800.rounded-lg:has-text("Company Information")' },
+  // NOTE: the onboarding-wizard shots (getting-started/01,02 + setup/01,02,03) are intentionally NOT
+  // captured here. /onboarding redirects to login once setup is complete, so the 8-step wizard only
+  // renders against a FRESH, empty (migrated) install DB. They were captured by pointing a throwaway
+  // backend + frontend at an empty DB and driving the wizard (create account → skip imports →
+  // printer step → complete). Re-capture the same way against a fresh DB on the next release.
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
