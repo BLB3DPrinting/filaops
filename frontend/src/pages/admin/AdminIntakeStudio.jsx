@@ -1340,7 +1340,7 @@ export default function AdminIntakeStudio() {
             </button>
             {skuResult.product?.id && (
               <a
-                href={`/admin/products/${skuResult.product.id}`}
+                href="/admin/items"
                 className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
               >
                 View / edit product
