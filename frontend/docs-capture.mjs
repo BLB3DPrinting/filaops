@@ -145,6 +145,39 @@ const SHOTS = [
   // "Reset PW" is the per-row reset action; first row opens the reset-password modal
   { name: 'users/03-reset-password-modal', url: '/admin/users', actions: [{ clickBtn: 'Reset PW' }, { wait: 1000 }], full: false },
   { name: 'users/04-security-audit-overview', url: '/admin/security', full: true },
+
+  // ===== WORKFLOWS (recipe pages; reuse cross-feature views + a few modals under workflows/ names) =====
+  // weekly-planning
+  { name: 'workflows/01-command-center', url: '/admin', actions: [{ wait: 900 }], full: true },
+  { name: 'workflows/02-buy-list', url: '/admin/purchasing?tab=buy-list', full: true },
+  { name: 'workflows/03-low-stock', url: '/admin/purchasing?tab=low-stock', full: true },
+  { name: 'workflows/04-scheduler-gantt', url: '/admin/production', actions: [{ click: 'Scheduler' }, { wait: 1200 }], full: false },
+  { name: 'workflows/05-printers-fleet', url: '/admin/printers', full: true },
+  // quote-to-cash
+  { name: 'workflows/01-quote-create', url: '/admin/quotes', actions: [{ clickBtn: 'New Quote' }, { wait: 1000 }], full: false },
+  { name: 'workflows/02-order-created-from-quote', url: '/admin/orders/3', full: true },
+  { name: 'workflows/03-order-confirm-invoice', url: '/admin/orders/1', full: true },
+  { name: 'workflows/04-production-order-detail', url: '/admin/production', actions: [{ clickFirstRow: true }], full: true },
+  { name: 'workflows/05-order-ship', url: '/admin/orders/4', full: true },
+  { name: 'workflows/06-record-payment', url: '/admin/payments', actions: [{ clickBtn: 'Record Payment' }, { wait: 1000 }], full: false },
+  // month-end-close
+  { name: 'workflows/01-orders-in-progress', url: '/admin/orders', full: true },
+  { name: 'workflows/02-record-payment', url: '/admin/payments', actions: [{ clickBtn: 'Record Payment' }, { wait: 1000 }], full: false },
+  { name: 'workflows/03-accounting-dashboard', url: '/admin/accounting', full: true },
+  // new-product-launch
+  { name: 'workflows/01-items-new-item-button', url: '/admin/items', full: true },
+  { name: 'workflows/02-work-centers-tab', url: '/admin/manufacturing', full: true },
+  { name: 'workflows/03-bom-create-modal', url: '/admin/bom', actions: [{ clickBtn: 'Create BOM' }, { wait: 1000 }], full: false },
+  { name: 'workflows/04-routings-tab', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("Routings")' }, { wait: 800 }], full: true },
+  { name: 'workflows/05-item-cost-price-fields', url: '/admin/items', full: true },
+  { name: 'workflows/06-production-new-order', url: '/admin/production', full: true },
+  { name: 'workflows/07-purchasing-buy-list', url: '/admin/purchasing?tab=buy-list', full: true },
+  // onboarding-a-printer
+  { name: 'workflows/01-work-center-create', url: '/admin/manufacturing', actions: [{ clickBtn: 'Add Work Center' }, { wait: 1000 }], full: false },
+  { name: 'workflows/02-add-printer-modal', url: '/admin/printers', actions: [{ clickBtn: 'Add Printer' }, { wait: 1000 }], full: false },
+  // expand the first work center (▶) to reveal its resources + Add Resource button, then open the modal
+  { name: 'workflows/03-add-resource-modal', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("▶")' }, { wait: 1000 }, { clickBtn: 'Add Resource' }, { wait: 1000 }], full: false },
+  { name: 'workflows/04-printer-list-table', url: '/admin/printers', full: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
