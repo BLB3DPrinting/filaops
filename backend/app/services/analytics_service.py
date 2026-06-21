@@ -121,13 +121,18 @@ def _compute_customer_metrics(
         or 0
     )
 
+    # sales_orders has two FKs to users (user_id = owning account, customer_id =
+    # optional customer record), so the join must be qualified explicitly or
+    # SQLAlchemy raises AmbiguousForeignKeysError. Join on user_id to stay
+    # consistent with active_customers (counts distinct SalesOrder.user_id) and
+    # the User.sales_orders relationship (foreign_keys=[user_id]).
     top_customers_rows = (
         db.query(
             User.company_name,
             User.id,
             func.sum(SalesOrder.total_price).label("revenue"),
         )
-        .join(SalesOrder)
+        .join(SalesOrder, SalesOrder.user_id == User.id)
         .filter(SalesOrder.status == "completed", SalesOrder.created_at >= start_date)
         .group_by(User.id, User.company_name)
         .order_by(func.sum(SalesOrder.total_price).desc())
