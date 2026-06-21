@@ -57,7 +57,7 @@ The **Machines** section shows a status grid for every registered printer and wo
 
 Clicking a running machine card navigates to the active production order detail page.
 
-![Command Center showing summary cards, action items, and the machine status grid with dispatch suggestions](../assets/screenshots/workflows/01-command-center.png)
+![Command Center showing summary cards, action items, and the machine status grid with dispatch suggestions](../../assets/screenshots/workflows/01-command-center.png)
 
 !!! tip "Quick links from action items"
     Each action item links directly to the affected order or production job. Click through to take action instead of navigating manually.
@@ -116,7 +116,7 @@ For each short component it shows:
 2. FilaOps opens the **Purchasing > Orders** tab with the PO modal pre-filled with the vendor and suggested quantity.
 3. Review and adjust quantities and costs if needed, then **Save** the PO.
 
-![Purchasing page showing the Buy List tab with shortage rows and Create PO buttons](../assets/screenshots/workflows/02-buy-list.png)
+![Purchasing page showing the Buy List tab with shortage rows and Create PO buttons](../../assets/screenshots/workflows/02-buy-list.png)
 
 !!! note "Buy List vs. full MRP"
     The Buy List uses the same BOM-explosion and netting logic as the MRP engine but skips time-phasing and planned order management. It is ideal for day-to-day purchasing decisions. The full MRP run adds time-phased planned orders, sub-assembly cascading, and supply/demand timelines for more complex planning scenarios.
@@ -148,7 +148,7 @@ A blue banner appears when **MRP-driven shortages** (items short because of acti
 2. Use the **Create PO** dropdown (appears when items are selected) to group by vendor and open one PO modal per vendor.
 3. Or click **Create PO** on an individual row to open a pre-filled modal for that item alone.
 
-![Low Stock tab showing critical and urgent items with selection checkboxes and Create PO dropdown](../assets/screenshots/workflows/03-low-stock.png)
+![Low Stock tab showing critical and urgent items with selection checkboxes and Create PO dropdown](../../assets/screenshots/workflows/03-low-stock.png)
 
 ---
 
@@ -235,7 +235,7 @@ The Scheduler shows a **Gantt-style board**:
 4. The conflict checker warns if the slot overlaps an existing operation or a maintenance window.
 5. Click **Schedule** to place the block on the Gantt.
 
-![Production Scheduler board showing machine lanes, scheduled operation blocks, maintenance windows, and the unscheduled queue panel](../assets/screenshots/workflows/04-scheduler-gantt.png)
+![Production Scheduler board showing machine lanes, scheduled operation blocks, maintenance windows, and the unscheduled queue panel](../../assets/screenshots/workflows/04-scheduler-gantt.png)
 
 !!! note "Scheduling is operation-level, not order-level"
     FilaOps schedules individual routing **operations** (e.g., "Print," "Post-Process," "Pack") rather than whole orders. Each operation can be assigned to a different machine lane, which lets you manage multi-step workflows across different work centers.
@@ -257,7 +257,7 @@ The Printers page shows a card or table for each registered printer with its cur
 3. Use **Schedule Maintenance** on a printer card to block time on the Gantt for upcoming downtime — this prevents the scheduler from placing jobs into that window.
 4. Use **Log Maintenance** to record completed maintenance work.
 
-![Printers page showing fleet status cards with online, idle, and maintenance indicators](../assets/screenshots/workflows/05-printers-fleet.png)
+![Printers page showing fleet status cards with online, idle, and maintenance indicators](../../assets/screenshots/workflows/05-printers-fleet.png)
 
 !!! warning "Add maintenance windows before scheduling jobs"
     Maintenance windows appear as blocked time on the Production Scheduler Gantt. If you add a window after jobs are already scheduled into that slot, the Gantt will flag the conflict.

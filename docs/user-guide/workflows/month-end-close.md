@@ -45,7 +45,7 @@ reports until it ships.
    earlier in the month, the revenue still falls in the correct calendar month as long as
    you mark it shipped before midnight on the last day.
 
-![Orders list filtered by Confirmed/In Progress status](../assets/screenshots/workflows/01-orders-in-progress.png)
+![Orders list filtered by Confirmed/In Progress status](../../assets/screenshots/workflows/01-orders-in-progress.png)
 
 !!! warning "Ship dates are immutable"
     FilaOps uses the timestamp at the time you click **Ship** for revenue recognition.
@@ -78,9 +78,9 @@ and click **Record Payment** from the order detail.
 4. For refunds, click **Record Refund** and enter the amount as a positive number — the
    type field marks it as a refund automatically.
 
-![Order detail with Record Payment button](../assets/screenshots/workflows/02-record-payment.png)
+![Order detail with Record Payment button](../../assets/screenshots/workflows/02-record-payment.png)
 
-**Details:** [Payments](../payments.md)
+**Details:** [Recording Payments](../orders.md#recording-payments)
 
 ---
 
@@ -156,7 +156,7 @@ The Dashboard gives a snapshot of the current month-to-date position:
 | COGS MTD | Direct material costs of shipped goods |
 | Gross Profit MTD | Revenue minus COGS, with gross margin percentage |
 
-![Accounting Dashboard showing Revenue MTD and Gross Profit cards](../assets/screenshots/workflows/03-accounting-dashboard.png)
+![Accounting Dashboard showing Revenue MTD and Gross Profit cards](../../assets/screenshots/workflows/03-accounting-dashboard.png)
 
 Check that Revenue MTD matches the orders you know shipped this month, and that the
 gross margin percentage is consistent with prior months. A large swing usually means

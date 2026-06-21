@@ -380,7 +380,7 @@ Click **Create Routing** to start a new routing from scratch.
 With printers configured and linked to work centers, put them to work:
 
 - [Running Production](production.md) — create and release production orders that schedule operations to your work centers
-- [Bill of Materials](bom.md) — define product BOMs and attach routings for accurate job costing
+- [Bill of Materials](product-catalog.md#bills-of-materials-boms) — define product BOMs and attach routings for accurate job costing
 - [Material Planning (MRP)](mrp.md) — plan material needs based on your production schedule
 - [Tracking Inventory](inventory.md) — track filament spools and raw material stock
 

@@ -45,7 +45,7 @@ Quotes are numbered automatically in the format **Q-YYYY-NNNNNN** (e.g. `Q-2026-
 
 The quote starts in **Pending** status.
 
-![New Quote wizard — Step 1, selecting products and one-time fees to add to the quote](../assets/screenshots/workflows/01-quote-create.png)
+![New Quote wizard — Step 1, selecting products and one-time fees to add to the quote](../../assets/screenshots/workflows/01-quote-create.png)
 
 ### Quote statuses
 
@@ -92,7 +92,7 @@ shipping address from the quote (falling back to the customer's saved address if
 - The quote is marked **Converted** and cannot be changed.
 - FilaOps navigates you directly to the new order.
 
-![Sales order created from a quote, showing order number, line items, and status badges](../assets/screenshots/workflows/02-order-created-from-quote.png)
+![Sales order created from a quote, showing order number, line items, and status badges](../../assets/screenshots/workflows/02-order-created-from-quote.png)
 
 !!! note "Manual orders"
     You can also create a sales order directly at Sales > Orders > **+ New Order** without going through a quote. The workflow from Step 4 onward is identical.
@@ -133,7 +133,7 @@ Invoice statuses:
 
 You can download the invoice as a PDF from the order detail page or from Money > Invoices.
 
-![Order detail page showing Confirm button, invoice panel with Generate Invoice action, and status badges](../assets/screenshots/workflows/03-order-confirm-invoice.png)
+![Order detail page showing Confirm button, invoice panel with Generate Invoice action, and status badges](../../assets/screenshots/workflows/03-order-confirm-invoice.png)
 
 ---
 
@@ -208,7 +208,7 @@ If you cannot produce the full ordered quantity:
     All work orders linked to the sales order must be in a resolved state (Completed, Closed,
     Accepted Short, or Cancelled) before Close Short is available on the sales order.
 
-![Work order detail showing Operations panel, status badge, and Release / Start Production buttons](../assets/screenshots/workflows/04-production-order-detail.png)
+![Work order detail showing Operations panel, status badge, and Release / Start Production buttons](../../assets/screenshots/workflows/04-production-order-detail.png)
 
 ---
 
@@ -235,7 +235,7 @@ The shipping timeline on the order detail page shows all shipping events.
     Receivable (1100) and credits Sales Revenue (4000) at that point, not at shipment. The
     shipment GL entry covers COGS only. Both entries appear in Money > Accounting > Sales Journal.
 
-![Order detail in Ready to Ship status with Ship button highlighted and shipping address visible](../assets/screenshots/workflows/05-order-ship.png)
+![Order detail in Ready to Ship status with Ship button highlighted and shipping address visible](../../assets/screenshots/workflows/05-order-ship.png)
 
 ---
 
@@ -267,7 +267,7 @@ FilaOps:
 
 To record a refund, open the Payments section on the order and click **Record Refund**.
 
-![Record Payment modal showing amount, method, and reference fields](../assets/screenshots/workflows/06-record-payment.png)
+![Record Payment modal showing amount, method, and reference fields](../../assets/screenshots/workflows/06-record-payment.png)
 
 ---
 

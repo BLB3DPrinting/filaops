@@ -69,7 +69,7 @@ Every printer must be placed inside a work center before it can receive schedule
 
 3. Click **Create Work Center**.
 
-![New Work Center dialog showing Code, Name, Type, capacity, and hourly rate fields](../assets/screenshots/workflows/01-work-center-create.png)
+![New Work Center dialog showing Code, Name, Type, capacity, and hourly rate fields](../../assets/screenshots/workflows/01-work-center-create.png)
 
 !!! tip "Overhead calculator"
     The **Calculate** link next to the Overhead field opens a built-in calculator. Enter printer cost, expected lifespan in years, hours/day, electricity rate ($/kWh), wattage, and annual maintenance cost — FilaOps computes the overhead rate and pre-fills the field.
@@ -101,7 +101,7 @@ Every printer must be placed inside a work center before it can receive schedule
 
     3. Click **Add Printer**.
 
-    ![Add Printer dialog showing Brand, Model, Code, Name, IP Address, and LAN Access Code fields](../assets/screenshots/workflows/02-add-printer-modal.png)
+    ![Add Printer dialog showing Brand, Model, Code, Name, IP Address, and LAN Access Code fields](../../assets/screenshots/workflows/02-add-printer-modal.png)
 
 === "IP probe (discover by address)"
 
@@ -169,7 +169,7 @@ Registering the printer on the **Printers** page creates its hardware identity. 
 
 5. Click **Add Resource**.
 
-![Add Resource dialog inside a Machine Pool work center, showing Code, Name, Machine Type, Status, and Capacity fields](../assets/screenshots/workflows/03-add-resource-modal.png)
+![Add Resource dialog inside a Machine Pool work center, showing Code, Name, Machine Type, Status, and Capacity fields](../../assets/screenshots/workflows/03-add-resource-modal.png)
 
 !!! tip "Linking shortcut"
     You can link a printer to a work center from the **Add Printer** / **Edit Printer** form by setting the **Machine Pool** dropdown. Once linked, the resource Quick Add dropdown in the work center will offer it automatically.
@@ -196,7 +196,7 @@ Verifying connectivity confirms FilaOps can reach the printer for status polling
 
 The printer's status remains `offline` until a successful test or until the printer itself sends a status update.
 
-![All Printers tab showing printer cards in a three-column grid with status badges and Test/Edit/Delete action buttons](../assets/screenshots/workflows/04-printer-list-table.png)
+![All Printers tab showing printer cards in a three-column grid with status badges and Test/Edit/Delete action buttons](../../assets/screenshots/workflows/04-printer-list-table.png)
 
 ---
 

@@ -33,7 +33,7 @@ Add the finished product to your item catalog.
 
 **Where:** **Inventory > Items**, then click **+ New Item**
 
-![Items page with + New Item button highlighted](../assets/screenshots/workflows/01-items-new-item-button.png)
+![Items page with + New Item button highlighted](../../assets/screenshots/workflows/01-items-new-item-button.png)
 
 1. Enter a **Name** (required). Leave **SKU** blank to let FilaOps auto-generate one, or type your own.
 2. Set **Item Type** to **Finished Good**.
@@ -56,7 +56,7 @@ Routings reference work centers. If your shop's work centers are already defined
 
 **Where:** **Operations > Work Centers & Routings**, then the **Work Centers** tab
 
-![Work Centers tab with Add Work Center button](../assets/screenshots/workflows/02-work-centers-tab.png)
+![Work Centers tab with Add Work Center button](../../assets/screenshots/workflows/02-work-centers-tab.png)
 
 1. Click **+ Add Work Center**.
 2. Enter a **Code** (e.g., `FDM-POOL`) and **Name** (e.g., `FDM Printer Pool`).
@@ -74,7 +74,7 @@ The BOM lists every component and material consumed to produce one unit of the f
 
 **Where:** **Inventory > Bill of Materials**, then click **+ New BOM**
 
-![Bill of Materials page showing Create BOM modal](../assets/screenshots/workflows/03-bom-create-modal.png)
+![Bill of Materials page showing Create BOM modal](../../assets/screenshots/workflows/03-bom-create-modal.png)
 
 1. In the **Create BOM** dialog, select your new product from the **Product** dropdown.
 2. Optionally enter a **Name** and **Revision** (defaults to `1.0`).
@@ -100,7 +100,7 @@ A routing defines the production steps (operations) and the work center that per
 
 **Where:** **Operations > Work Centers & Routings**, then the **Routings** tab, then click **+ Create Routing**
 
-![Routings tab showing Create Routing button and routing list](../assets/screenshots/workflows/04-routings-tab.png)
+![Routings tab showing Create Routing button and routing list](../../assets/screenshots/workflows/04-routings-tab.png)
 
 Alternatively, the **BOM detail view** contains an embedded **Routing** section. Click **Edit Routing** there to open the same editor without leaving the BOM page.
 
@@ -139,7 +139,7 @@ After BOM and routing are saved, FilaOps can compute the product's full standard
 
 **Where:** **Inventory > Items**, toolbar button **Recost All**; then edit the item for **Selling Price**
 
-![Items page showing Recost All button and item cost fields](../assets/screenshots/workflows/05-item-cost-price-fields.png)
+![Items page showing Recost All button and item cost fields](../../assets/screenshots/workflows/05-item-cost-price-fields.png)
 
 1. On the Items page, click **Recost All** (top-right toolbar). FilaOps walks every manufactured item and rolls up BOM material cost + routing labor cost + operation material cost into **Standard Cost**.
 2. Open your new product. The BOM detail (**Inventory > Bill of Materials**) also shows the cost breakdown:
@@ -159,7 +159,7 @@ Before accepting customer orders, run a small test batch to validate BOM quantit
 
 **Where:** **Operations > Production**, then click **+ New Production Order**
 
-![Production page with New Production Order button](../assets/screenshots/workflows/06-production-new-order.png)
+![Production page with New Production Order button](../../assets/screenshots/workflows/06-production-new-order.png)
 
 1. Select your new product and enter a small **Quantity** (1–3 units).
 2. Set a **Due Date** and click **Create**.
@@ -195,7 +195,7 @@ With a new product ready for orders, confirm you have enough raw materials on ha
 
 **Where:** **Purchasing > Buy List**
 
-![Purchasing page showing Buy List tab](../assets/screenshots/workflows/07-purchasing-buy-list.png)
+![Purchasing page showing Buy List tab](../../assets/screenshots/workflows/07-purchasing-buy-list.png)
 
 The Buy List nets all open demand (production orders and sales orders) against available inventory and tells you exactly what to buy, in what quantity, and by when. Any shortage row includes a **Create PO** button that opens the Purchase Order form pre-filled with the item and suggested quantity.
 
