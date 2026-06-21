@@ -6,15 +6,15 @@
 
 - How to manage customers and import them from CSV
 - How to create quotes and convert them into sales orders
-- How to create sales orders directly using the order wizard
-- How to track fulfillment status and ship orders
-- How to record payments and track outstanding balances
+- How to create sales orders directly using the three-step order wizard
+- How to track the four-step order workflow (confirm, bill, produce, ship)
+- How to ship orders and record payments
 
 ## Prerequisites
 
 - Admin access to FilaOps
-- At least one product in your catalog (see [Managing Your Product Catalog](product-catalog.md))
-- At least one location set up (see [System Settings](system-settings.md))
+- At least one active product in your catalog (see [Managing Your Product Catalog](product-catalog.md))
+- At least one inventory location set up (see [System Settings](system-settings.md))
 
 ---
 
@@ -22,65 +22,57 @@
 
 Before you can take orders, you need customers. Navigate to **Admin > Customers** in the sidebar.
 
-<!-- TODO: screenshot of customers page -->
+![Customers list page showing six stat cards, search bar, and customer table](../assets/screenshots/orders/01-customers-list.png)
 
 ### The Customers Page
 
-The page shows four stat cards at the top:
+Six stat cards at the top give you a live snapshot:
 
 | Stat | What It Shows |
 |------|--------------|
 | **Total Customers** | Total number of customer records |
 | **Active** | Customers with active status |
 | **With Orders** | Customers who have placed at least one order |
-| **Total Revenue** | Sum of all customer spending |
+| **Booked Orders** | Sum of all order values across all customers |
+| **Paid Cash** | Total amount actually collected |
+| **Outstanding** | Total unpaid balances |
 
-Below the stats, you'll find a search bar and status filter dropdown, followed by a table of all customers.
+Below the stats, a search bar and a status dropdown let you filter the customer table.
 
 ### Creating a Customer
 
-**Step 1.** Click **+ Add Customer**.
+1. Click **+ Add Customer**.
+2. Fill in the customer details:
 
-**Step 2.** Fill in the customer details:
+    - **Email** — Required. Used for communication and as a unique identifier.
+    - **First Name / Last Name** — The customer's name.
+    - **Company Name** — Optional, for business customers.
+    - **Customer Number** — Your internal customer ID (optional but recommended).
+    - **Phone** — Contact phone number.
+    - **Address** — Shipping and billing address fields.
+    - **Status** — Active, Inactive, or Suspended.
 
-- **Email** — Required. Used for communication and as a unique identifier.
-- **First Name / Last Name** — The customer's name
-- **Company Name** — Optional, for business customers
-- **Customer Number** — Your internal customer ID (optional but recommended)
-- **Phone** — Contact phone number
-- **Address** — Shipping and billing address fields
-- **Status** — Active, Inactive, or Suspended
+3. Click **Save**.
 
-**Step 3.** Click **Save**.
-
-!!! tip "Quick customer creation from orders"
-    If you're in the middle of creating an order and realize the customer doesn't exist yet, the order wizard has a shortcut. It will send you to the Customers page with the new customer form pre-opened, and once you save, it returns you to the order wizard with the new customer selected.
+!!! tip "Quick customer creation during order entry"
+    If you are in the middle of creating an order and the customer does not exist yet, the order wizard saves your progress and redirects you to the Customers page with the new customer form pre-opened. After saving, navigating back to **Sales > Orders** re-opens the wizard with the new customer already selected and your previous line items restored.
 
 ### Importing Customers from CSV
 
-If you have an existing customer list in a spreadsheet, you can bulk import it.
+If you have an existing customer list in a spreadsheet, use bulk import:
 
-**Step 1.** Click **Import CSV**.
+1. Click **Import CSV**.
+2. Upload your CSV file.
+3. Map your CSV columns to FilaOps fields and review the preview.
+4. Click **Import** to create all customer records at once.
 
-**Step 2.** Upload your CSV file. The file should have columns for email, name, company, and other customer fields.
+### Searching and Filtering
 
-**Step 3.** Map your CSV columns to FilaOps fields and review the preview.
+Use the **search bar** to find customers by email, name, company name, or customer number. Use the **status dropdown** to show only active, inactive, or suspended customers.
 
-**Step 4.** Click **Import** to create all customer records at once.
+### Viewing and Editing Customer Details
 
-### Viewing Customer Details
-
-Click **View** on any customer row to see their full profile, including:
-
-- Contact information and address
-- Order history and total spending
-- Status and account details
-
-Click **Edit** to modify any customer's details.
-
-### Filtering Customers
-
-Use the **search bar** to find customers by email, name, company, or customer number. Use the **status dropdown** to show only active, inactive, or suspended customers.
+Click **View** on any customer row to see their full profile, including contact information, order history, and a financial summary (booked, paid, outstanding). Click **Edit** to modify a customer's details.
 
 ---
 
@@ -88,97 +80,95 @@ Use the **search bar** to find customers by email, name, company, or customer nu
 
 Quotes let you propose pricing to a customer before committing to a sales order. Navigate to **Sales > Quotes** in the sidebar.
 
-<!-- TODO: screenshot of quotes page -->
+![Quote management page showing six stat cards and the quotes table](../assets/screenshots/orders/02-quotes-list.png)
 
 ### The Quotes Page
 
-Six stat cards across the top give you a snapshot of your quoting activity:
+Six stat cards give you a snapshot of quoting activity. Five of them act as **click-to-filter** buttons:
 
-| Stat | What It Shows |
-|------|--------------|
-| **Pending** | Quotes waiting for review, with total dollar value |
-| **Approved** | Quotes you've approved — ready for the customer to accept |
-| **Accepted** | Quotes the customer has accepted — ready to convert to orders |
+| Stat Card | Filter Applied |
+|-----------|----------------|
+| **Pending** | Quotes awaiting your review (shows total dollar value) |
+| **Approved** | Quotes you have approved — ready for the customer |
+| **Accepted** | Quotes the customer has accepted — ready to convert |
 | **Converted** | Quotes that have become sales orders |
-| **Conversion Rate** | Percentage of quotes that become orders |
-| **Total Value** | Total dollar value across all quotes |
-
-!!! tip "Click the stat cards"
-    Each stat card acts as a quick filter. Click **Pending** to see only pending quotes, click **Accepted** to see quotes ready to convert, and so on.
+| **Quote Pipeline** | Clears the status filter; shows all quotes with total pipeline value |
+| **Conversion Rate** | Display only — not a filter |
 
 ### Quote Lifecycle
 
-Quotes move through a series of statuses:
-
 ```mermaid
 graph LR
-    A[Draft] --> B[Pending]
-    B --> C[Approved]
-    C --> D[Accepted]
-    D --> E[Converted to Order]
-    B --> F[Rejected]
-    C --> F
+    A[Pending] --> B[Approved]
+    B --> C[Accepted]
+    C --> D[Converted to Order]
+    A --> E[Rejected]
+    B --> E
 ```
 
-- **Pending** — The quote has been created and is awaiting your review
-- **Approved** — You've approved the pricing; it's ready for the customer
-- **Accepted** — The customer has accepted the quote
-- **Converted** — The quote has been turned into a sales order
-- **Rejected** — The quote was declined (by you or the customer)
+| Status | Meaning |
+|--------|---------|
+| **Pending** | Created and awaiting your internal review |
+| **Approved** | You have approved the pricing; the customer can now accept it |
+| **Accepted** | The customer has accepted the quote |
+| **Converted** | A sales order has been created from this quote |
+| **Rejected** | Declined by you or the customer |
 
 ### Creating a Quote
 
-**Step 1.** Click **+ New Quote**.
+1. Click **New Quote**.
+2. Fill in the quote details:
 
-**Step 2.** Fill in the quote details:
+    - **Customer name / email** — The recipient of this quote.
+    - **Product** — The item or service being quoted.
+    - **Quantity** — How many units.
+    - **Unit Price** — Your proposed price per unit.
+    - **Valid Days** — How many days until the quote expires (defaults to 30).
+    - **Customer Notes** — Any special terms or conditions visible to the customer.
+    - **Admin Notes** — Internal notes for your team.
 
-- **Customer** — Select an existing customer
-- **Product** — The item being quoted
-- **Quantity** — How many units
-- **Unit Price** — Your proposed price per unit
-- **Expiration Date** — When the quote expires (optional but recommended)
-- **Notes** — Any special terms or conditions
+3. Click **Save**.
 
-**Step 3.** Click **Save**.
+### Quote Expiry
 
-### Working with Quotes
+FilaOps tracks quote expiration and displays visual indicators in the quote table:
 
-From the quotes table, each quote has action buttons depending on its status:
+| Indicator | Meaning |
+|-----------|---------|
+| Red badge | The quote has already expired |
+| Yellow badge | Expires within the next 7 days |
+| Normal date display | More than 7 days remaining |
 
-| Status | Available Actions |
-|--------|------------------|
-| **Any status** | Download PDF, Print, Duplicate, Delete |
-| **Pending** | Approve |
-| **Approved / Accepted** | Convert to Order |
+!!! warning "Expired quotes cannot be converted"
+    Once a quote expires, FilaOps refuses to convert it to a sales order. Duplicate the quote with a new validity period if the customer still wants to proceed.
 
-### Quote Expiry Tracking
+### Quote Actions
 
-FilaOps tracks quote expiration dates and shows visual warnings:
+From the quotes table, actions available depend on status:
 
-- **Red badge** — The quote has expired
-- **Yellow badge** — The quote expires within 7 days (shows "X days left")
-- **Normal date** — The quote has time remaining
+| Action | When Available |
+|--------|---------------|
+| **View** | Any status |
+| **Edit** | Pending |
+| **Approve** | Pending |
+| **Download PDF** | Any status |
+| **Print** | Any status |
+| **Duplicate** | Any status |
+| **Copy Quote Link** | Any status |
+| **Delete** | Any status (requires confirmation) |
+| **Convert to Order** | Accepted status only |
 
-!!! warning "Expired quotes can't be converted"
-    Once a quote expires, you cannot convert it to a sales order. Duplicate the quote with updated dates if the customer wants to proceed.
-
-### Converting a Quote to an Order
+### Converting a Quote to a Sales Order
 
 When a customer accepts a quote:
 
-**Step 1.** Find the quote in the list (use the **Accepted** stat card to filter).
-
-**Step 2.** Click the **Convert to Order** button.
-
-**Step 3.** FilaOps creates a new sales order with all the details from the quote and navigates you to it.
+1. Find the quote in the list (click the **Accepted** stat card to filter).
+2. Open the quote and click **Convert to Order**.
+3. FilaOps creates a new sales order from the quote details, navigates you directly to it, and automatically creates a linked production order if the product has an active BOM.
 
 ### Duplicating a Quote
 
-Click **Duplicate** to create a copy of any quote. The duplicate copies all fields and adds a note referencing the original quote number. This is useful for creating variations or renewing expired quotes.
-
-### Downloading and Printing Quotes
-
-Every quote has **Download PDF** and **Print** buttons. Use these to share professional-looking quotes with customers via email or in person.
+Click **Duplicate** to create a copy of any quote. The duplicate starts in Pending status with a fresh validity period and an admin note referencing the original quote number. This is the correct way to renew expired quotes or create pricing variations.
 
 ---
 
@@ -186,28 +176,27 @@ Every quote has **Download PDF** and **Print** buttons. Use these to share profe
 
 Sales orders are the core of your fulfillment workflow. Navigate to **Sales > Orders** in the sidebar.
 
-<!-- TODO: screenshot of orders page -->
+![Orders list page showing filter buttons, sort dropdown, search bar, and order cards in a grid](../assets/screenshots/orders/03-orders-list.png)
 
 ### The Orders Page
 
-Orders display in a **card grid** layout (not a traditional table). Each card shows the order number, customer, products, total value, date, and fulfillment status at a glance.
+Orders display in a **card grid** layout — not a table. Each card shows the order number, customer, product summary, total value, date, and fulfillment status at a glance.
 
-At the top, you'll find:
+The **OrderFilters** panel at the top has three controls:
 
-- **Search** — Find orders by order number, product name, customer name, or email
-- **Fulfillment filters** — Quick-filter buttons to show orders by fulfillment state
-- **Sort dropdown** — Control the order of results
+- **Search** — Find orders by order number, product name, customer name, or email (client-side filter).
+- **Sort by** dropdown — Controls the card sort order.
+- **Filter** row — Color-coded quick-filter buttons by fulfillment state.
 
-### Fulfillment Filters
-
-Color-coded filter buttons let you focus on what needs attention:
+### Fulfillment Filter Buttons
 
 | Filter | Color | What It Shows |
 |--------|-------|--------------|
-| **All** | Blue | Every order |
-| **Ready to Ship** | Green | All items produced and available — ready to pack and ship |
-| **Partially Ready** | Yellow | Some items ready, others still in production or out of stock |
-| **Blocked** | Red | Cannot be fulfilled — missing inventory or production not started |
+| **All** | Blue (default) | Every order |
+| **Pending Review** | Purple | Orders in `pending_confirmation` status awaiting admin review |
+| **Ready to Ship** | Green | Orders where all production is complete |
+| **Partially Ready** | Yellow | Some items ready, others still in progress |
+| **Blocked** | Red | Cannot be fulfilled — missing inventory or production issues |
 | **Shipped** | Gray | Already shipped to the customer |
 
 ### Sort Options
@@ -215,90 +204,179 @@ Color-coded filter buttons let you focus on what needs attention:
 | Sort | What It Does |
 |------|-------------|
 | **Most Actionable First** | Orders you can act on right now appear first (default) |
-| **Newest / Oldest First** | Sort by order date |
-| **Most / Least Complete First** | Sort by fulfillment percentage |
+| **Newest First** | Sort by order date, newest first |
+| **Oldest First** | Sort by order date, oldest first |
+| **Most Complete First** | Highest fulfillment percentage first |
+| **Least Complete First** | Lowest fulfillment percentage first |
 | **Customer A-Z** | Alphabetical by customer name |
 | **Highest Value First** | Largest dollar orders first |
 
 ### Creating an Order with the Wizard
 
-**Step 1.** Click **Create Order** to open the Sales Order Wizard.
+Click **Create Order** to open the Sales Order Wizard.
 
-The wizard walks you through three steps:
+#### Step 1: Customer
 
-#### Step 1: Select Customer
+Choose an existing customer from the dropdown. If the customer does not exist yet, the wizard saves your progress and takes you to customer creation; after saving, return to **Sales > Orders** and the wizard re-opens with the new customer selected and your previous entries restored.
 
-Choose an existing customer from the dropdown, or click **Create New Customer** to add one on the fly.
+![Order wizard Step 1 — customer selection dropdown](../assets/screenshots/orders/04-wizard-step1-customer.png)
 
-<!-- TODO: screenshot of customer selection step -->
+#### Step 2: Products
 
-#### Step 2: Add Products
+Add one or more line items. Three line types are supported:
 
-Add line items to the order. For each line:
+| Line Type | What It Is |
+|-----------|-----------|
+| **Product** | A catalog item (Finished Good, Component, Supply, or Service product). Unit price defaults to the catalog selling price but can be overridden. |
+| **Material** | A raw-material spool from inventory. Unit price defaults to cost per kg but can be overridden. |
+| **Service** | A one-time non-inventory charge. Description and unit price are required. |
 
-- **Product** — Select from your catalog (Finished Goods, Components, Supplies, or Services)
-- **Quantity** — How many units
-- **Unit Price** — Price per unit (defaults to the item's selling price)
+If a product does not exist yet, an inline **item wizard** (three sub-steps: basic details, BOM, pricing) lets you create it without leaving the order wizard. You can also create sub-components and filament materials inline during item creation.
 
-If a product doesn't exist yet, you can create one inline using the **item wizard** — a 3-sub-step form covering basic details, BOM (if manufactured), and pricing.
+The Products step also collects shipping address fields and a shipping cost charge.
 
-Each line item has a procurement type that determines how it will be fulfilled:
-
-| Type | Meaning |
-|------|---------|
-| **Manufactured** | Needs to be produced — requires a BOM |
-| **Purchased** | Bought from a supplier |
-| **Flexible** | Can be either manufactured or purchased |
-
-<!-- TODO: screenshot of product selection step -->
+![Order wizard Step 2 — product line items with quantities and prices](../assets/screenshots/orders/05-wizard-step2-products.png)
 
 #### Step 3: Review and Submit
 
-Review the complete order:
+Review the full order: customer, line items, shipping charge, tax (applied automatically if a default tax rate is configured), and grand total. Add customer-visible notes if needed.
 
-- Customer details and shipping address
-- All line items with quantities and prices
-- Order total and any notes
+Click **Submit Order** to create the sales order. FilaOps generates an order number in the format `SO-YYYY-NNN` (e.g. `SO-2026-042`).
 
-Add **customer notes** (visible to the customer) or **admin notes** (internal only).
+---
 
-Click **Submit Order** to create it.
+## The Four-Step Order Workflow
 
-### Viewing Order Details
+Every order detail page opens with an **Order Workflow** panel showing four sequential steps. Each step is color-coded by state:
 
-Click any order card to open the detail view, which shows:
+| Color | State | Meaning |
+|-------|-------|---------|
+| Green | Done | Step is complete |
+| Blue | Active | This is the current step — an action button is shown |
+| Amber | Blocked | A prerequisite is unmet |
+| Gray | Waiting | Not yet reached |
 
-- **Order header** — Order number, date, status, and source
-- **Customer info** — Name, email, and shipping address
-- **Line items** — Each product with quantity, unit price, and line total
-- **Grand total** — The complete order value
+![Order detail showing the four-step Order Workflow panel](../assets/screenshots/orders/06-order-detail-workflow.png)
 
-### Generating a Production Order
+### Step 1: Confirm Order
 
-For manufactured items, you can create production orders directly from a sales order:
+New manually created orders start in **Pending** status. Orders received from external sources arrive as **Pending Confirmation**.
 
-**Step 1.** Open the order detail view.
+- **Pending orders**: click **Confirm** in the workflow panel to move to **Confirmed** status.
+- **Pending Confirmation orders**: click **Confirm Order** to accept, or **Reject Order** (available in the secondary actions row) to cancel with a reason.
 
-**Step 2.** Click **Generate Production Order**.
+Once confirmed, the order is ready for billing and production release.
 
-**Step 3.** FilaOps creates a production order linked to the BOM for each manufactured line item, with the quantity from the sales order.
+### Step 2: Invoice / Payment
 
-This connects your sales pipeline directly to the shop floor. See [Running Production](production.md) for the full production workflow.
+Before production can be released, the billing requirement must be satisfied. Any one of the following satisfies it:
 
-### Canceling an Order
+- Create an invoice and mark it Sent.
+- Record a direct payment on the order.
 
-If an order needs to be canceled:
+The workflow step shows the current invoice number and status, and offers the most relevant action for your current state:
 
-**Step 1.** Open the order detail view.
+| Button | When It Appears |
+|--------|----------------|
+| **Create Invoice** | Order confirmed, no invoice exists yet |
+| **Mark Sent** | Invoice exists in Draft status |
+| **Record Payment** | Invoice exists but billing not yet satisfied |
+| **Open Invoice** | Invoice is already sent or paid |
 
-**Step 2.** Click **Cancel Order**.
+### Step 3: Production Orders
 
-**Step 3.** Enter a cancellation reason (required, up to 500 characters) explaining why the order is being canceled.
+After billing is satisfied, the **Create Work Orders** button becomes active. Click it to generate production orders for every product line that has a BOM. FilaOps creates one work order per qualifying line and immediately opens the **Release & Schedule Wizard** so you can assign work to a machine and set a schedule.
 
-**Step 4.** Confirm the cancellation.
+!!! note "Service-only orders skip this step"
+    If an order contains only service lines (no product or material lines requiring production), the Production Orders step is automatically satisfied and shows "No product line."
 
-!!! warning "Canceling is permanent"
-    Canceled orders cannot be reopened. If the customer changes their mind, you'll need to create a new order.
+Click **Open Work Order** to navigate directly to a linked production order. The **View in Production** quick action below the workflow panel also takes you to the production order detail.
+
+### Step 4: Fulfillment
+
+When all production orders are complete and material shortages are cleared, a **Ship Order** button appears. Clicking it navigates you to **Sales > Shipping** with this order pre-selected.
+
+!!! tip "Check material availability before releasing"
+    The **Check Material Availability** quick action (below the workflow panel) runs a live inventory check for all production orders linked to this order. Use it to catch material shortages before they delay production.
+
+---
+
+## Order Statuses
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Created manually, awaiting admin confirmation |
+| `pending_confirmation` | Received from an external channel, awaiting review |
+| `confirmed` | Accepted — ready for billing and production |
+| `on_hold` | Paused; can be resumed to any allowed status |
+| `in_production` | Work orders are active on the shop floor |
+| `ready_to_ship` | Production complete; awaiting shipment |
+| `shipped` | Order has left the building |
+| `delivered` | Delivery confirmed |
+| `completed` | Fully closed |
+| `cancelled` | Cancelled with a recorded reason |
+
+---
+
+## Editing Order Lines
+
+Admins can edit line quantities and unit prices, and remove lines on orders in `pending`, `confirmed`, `in_production`, or `on_hold` status.
+
+### Changing a Quantity or Price
+
+1. Open the order detail view.
+2. In the **Line Items** table, click **Edit** on the target line.
+3. Enter the new quantity and/or unit price.
+
+    - Quantity cannot go below the amount already shipped for that line.
+    - Unit price must be ≥ 0.
+
+4. Enter a reason — this is recorded in the order activity timeline.
+5. Click the save button to confirm.
+
+The subtotal, tax, and grand total recalculate automatically.
+
+### Removing a Line
+
+A remove button appears next to a line when all of the following are true:
+
+- The order has more than one line (you cannot remove the last line — cancel the order instead).
+- The line has no shipped quantity yet.
+- No non-cancelled production orders are linked to this line.
+
+Click the remove button, confirm the prompt, and the line is deleted. Totals recalculate automatically.
+
+!!! warning "Cancel linked production orders first"
+    If a production order exists for a line — including completed or closed ones — you must cancel it before the line can be removed.
+
+---
+
+## Close-Short Workflow
+
+Close-short lets you accept partial fulfillment when the full ordered quantity cannot be completed. This closes the order at whatever quantity was actually produced rather than leaving it open indefinitely.
+
+### When to Use
+
+- A production order completed with fewer units than ordered (scrap, material shortage).
+- The customer agreed to accept partial shipment.
+- You want to finalize an order rather than keep it open.
+
+### Prerequisites
+
+All linked production orders must be resolved (complete, closed, or cancelled) before Close-Short is available. If a production order ended short, use **Accept Short** on that production order first to lock in the completed quantity.
+
+### How It Works
+
+1. Open the order detail view. The **Close Short** button appears in the secondary actions row of the Order Workflow panel when the order is in `confirmed`, `in_production`, or `ready_to_ship` status and has not already been closed short.
+2. Click **Close Short**. FilaOps loads a preview modal showing the achievable quantity per line, calculated from completed production quantities (with fallback to available finished-goods inventory if no linked production order exists).
+3. Review the per-line breakdown. Lines that cannot be fully fulfilled show the reason (e.g., "Limited by PO WO-2026-001: produced 8 of 10").
+4. Enter a reason for closing short.
+5. Confirm. FilaOps adjusts each line quantity to what was achievable, recalculates the grand total, transitions the order to **Ready to Ship**, and writes an audit record.
+
+After Close-Short, ship the order through the normal shipping workflow.
+
+!!! tip "The order total adjusts automatically"
+    Close-Short lowers line quantities and recalculates the grand total. If an invoice exists, its balance will reflect the adjusted amount.
 
 ---
 
@@ -306,212 +384,220 @@ If an order needs to be canceled:
 
 Once production is complete and items are ready, navigate to **Sales > Shipping** to manage the shipping workflow.
 
-<!-- TODO: screenshot of shipping page -->
+![Shipping page showing the trend chart, five metric cards, and three workflow tabs](../assets/screenshots/orders/07-shipping-page.png)
 
 ### Shipping Dashboard
 
-At the top of the page, a **shipping chart** shows your shipping activity over time. Toggle between time periods:
+At the top of the page, a **shipping trend chart** shows your activity over a selectable period:
 
-- **WTD** — Week to date
-- **MTD** — Month to date
-- **QTD** — Quarter to date
-- **YTD** — Year to date
+| Button | Period |
+|--------|--------|
+| **Week** | Week to date |
+| **Month** | Month to date |
+| **Quarter** | Quarter to date |
+| **Year** | Year to date |
 
-The chart shows daily shipped quantities as bars and cumulative value as a line, plus a pipeline count of orders still in progress.
+The chart displays daily shipped counts as bars and cumulative order value as a green line. Summary figures to the right show total shipped, total value shipped, and orders still in the pipeline.
+
+Below the chart, five compact metric cards show:
+
+| Card | What It Shows |
+|------|--------------|
+| **Total Pending** | All open orders in the shipping queue |
+| **Packaging** | Production not yet complete |
+| **Needs Label** | Production complete, no tracking entered |
+| **Ready to Ship** | Tracking entered, awaiting dispatch |
+| **Shipped Today** | Orders shipped today |
 
 ### The Three-Tab Workflow
 
-Shipping uses a three-tab workflow that guides orders from production through delivery:
-
-```mermaid
-graph LR
-    A["Ready for Packaging\n(Blue)"] --> B["Needs Label\n(Yellow)"]
-    B --> C["Ready to Ship\n(Green)"]
-    C --> D["Shipped"]
+```
+Ready for Packaging  →  Needs Label  →  Ready to Ship
 ```
 
-#### Tab 1: Ready for Packaging (Blue)
+All tabs sort orders by due date, most urgent first. Click an order number to open its full detail page.
 
-Orders where production is **not yet complete**. These are in the pipeline but not ready to pack. Monitor these to track what's coming.
+#### Tab 1: Ready for Packaging
 
-#### Tab 2: Needs Label (Yellow)
+Orders where production is **not yet complete**. These are in your pipeline but cannot be packed yet. Monitor this tab to anticipate incoming work.
 
-Orders where production is **complete** but no tracking number has been entered yet. These need carrier and tracking information.
+#### Tab 2: Needs Label
 
-**To add tracking:**
+Orders where production is **complete** but no tracking number has been entered.
 
-**Step 1.** Click on an order in this tab.
+**To enter tracking and ship:**
 
-**Step 2.** Select the **Carrier** from the dropdown (USPS is the default).
+1. Click the order row to expand it.
+2. Select the **Carrier** (defaults to USPS).
+3. Enter the **Tracking Number**.
+4. Click **Save Tracking**.
 
-**Step 3.** Enter the **Tracking Number**.
+FilaOps marks the order as Shipped, processes inventory deductions, posts a COGS journal entry, and removes the order from the queue.
 
-**Step 4.** Click **Save** to move the order to the Ready to Ship tab.
+!!! note "A shipping address is required"
+    FilaOps will block the ship action if the order has no shipping address. Edit the address on the order detail page first.
 
-#### Tab 3: Ready to Ship (Green)
+#### Tab 3: Ready to Ship
 
-Orders that have tracking numbers and are ready to go out the door.
-
-**To mark as shipped:**
-
-Click **Mark Shipped** to update the order status. This moves it to the Shipped filter on the main Orders page.
+Orders that have a tracking number recorded and are ready to go out the door. This tab shows what has been labeled but not yet physically dispatched — use it as a dispatch checklist.
 
 ### Due Date Urgency
 
-Each order card in the shipping tabs shows a due date indicator:
+Each order row shows a color-coded due date:
 
-| Indicator | Meaning |
-|-----------|---------|
-| **Red "Overdue"** | Past the promised delivery date |
-| **Orange "Due Today"** | Needs to ship today |
-| **Yellow "Due Soon"** | Due within the next 2 days |
-| **Normal date** | Has time remaining |
+| Color | Meaning |
+|-------|---------|
+| Red | Overdue (days late shown) |
+| Yellow | Due today |
+| Orange | Due within the next 2 days |
+| Gray | Normal — more time remaining |
+| Dim gray | No due date set |
 
 ### Packing Slips
 
-Click **Packing Slip** on any order to generate a printable packing slip PDF. This opens in a new tab for printing.
+Open any order's detail page and click **Packing Slip** to generate a printable PDF in a new browser tab.
+
+---
+
+## Invoices
+
+FilaOps can generate a PDF invoice directly from a sales order. From any confirmed (or later-status) order detail page:
+
+1. In the **Invoice / Payment** workflow step, click **Create Invoice**.
+2. FilaOps creates the invoice, assigns an invoice number, and links it to the order.
+3. Click **Mark Sent** to record that the invoice was delivered to the customer.
+4. Use **Open Invoice** to view it in **Sales > Invoices**, or **Download PDF** to save a copy.
+
+The invoice number and status appear in both the Order Workflow panel and the **Quick Actions** section of the order detail page once an invoice exists.
 
 ---
 
 ## Recording Payments
 
-Track payments against your sales orders. Navigate to **Sales > Payments** in the sidebar.
+Track payments against sales orders. Navigate to **Sales > Payments** in the sidebar.
 
-<!-- TODO: screenshot of payments page -->
+![Payments page showing four KPI cards and the payment history table](../assets/screenshots/orders/08-payments-page.png)
 
 ### Payment Dashboard
 
-The payments page shows key performance indicators at the top, including total received, outstanding balances, and payment trends.
+Four KPI cards at the top show:
+
+| Card | What It Shows |
+|------|--------------|
+| **Today** | Amount collected today and payment count |
+| **This Week** | Amount collected this week |
+| **This Month** | Amount collected this month |
+| **Outstanding** | Total balance due across all open orders |
+
+A **This Month by Method** breakdown below the cards shows totals per payment method for quick reconciliation.
 
 ### Recording a Payment
 
-**Step 1.** Click **Record Payment**.
+Payments can be recorded from two places:
 
-**Step 2.** Fill in the payment details:
+- **Sales > Payments** page — click **Record Payment**.
+- **Order detail page** — click **Record Payment** in the Order Workflow panel or the Payments section.
 
-- **Order** — Which sales order this payment applies to
-- **Amount** — How much was received
-- **Payment Method** — Choose from:
-    - Cash
-    - Check
-    - Credit Card
-    - PayPal
-    - Stripe
-    - Venmo
-    - Zelle
-    - Wire Transfer
-    - Other
+Fill in the payment details:
+
+- **Order** — Which sales order this payment applies to.
+- **Amount** — How much was received.
+- **Payment Method** — Cash, Check, Credit Card, PayPal, Stripe, Venmo, Zelle, Wire Transfer, or Other.
 - **Reference Number** — Check number, transaction ID, etc.
-- **Notes** — Any additional details
+- **Notes** — Any additional details.
 
-**Step 3.** Click **Save**.
+Click **Save**.
 
 ### Recording a Refund
 
-The process is similar to recording a payment, but select **Refund** as the payment type. Refunds reduce the amount collected against an order.
+From the **Sales > Payments** header, click **Record Refund** (a separate button from Record Payment). Refunds appear in payment history with a Refund type and reduce the amount collected against the order.
 
 ### Filtering Payment History
 
-Use the filters to narrow down your payment records:
-
-- **Search** — Find by order number, customer, or reference
-- **Payment Method** — Show only a specific payment type
-- **Payment Type** — Filter between payments and refunds
-- **Date Range** — Set start and end dates to view a specific period
+| Filter | What It Does |
+|--------|-------------|
+| **Search** | Find by order number, customer, or reference |
+| **All Methods** | Filter by a specific payment method |
+| **All Types** | Toggle between payments only or refunds only |
+| **From / To** | Date range picker |
 
 ---
 
 ## The Full Order Lifecycle
 
-Here's how all the pieces fit together, from first contact to cash in hand:
+Here is how all the pieces fit together, from first contact to cash in hand:
 
 ```mermaid
 graph TD
     A[Customer Inquiry] --> B{Quote or Direct Order?}
     B -->|Quote| C[Create Quote]
-    C --> D[Customer Reviews]
-    D -->|Accepted| E[Convert to Order]
-    D -->|Rejected| F[Quote Closed]
-    B -->|Direct| E
-    E --> G[Sales Order Created]
-    G --> H{Manufactured or Purchased?}
-    H -->|Manufactured| I[Generate Production Order]
-    I --> J[Production Complete]
-    H -->|Purchased| J
-    J --> K[Ready for Packaging]
-    K --> L[Add Tracking Number]
-    L --> M[Ship to Customer]
-    M --> N[Record Payment]
+    C --> D[Approve Quote]
+    D --> E[Customer Accepts]
+    E --> F[Convert to Order]
+    B -->|Direct| G[Sales Order Wizard]
+    G --> F
+    F --> H[SO: Pending]
+    H --> I[Confirm Order]
+    I --> J[Create Invoice / Record Payment]
+    J --> K[Create Work Orders]
+    K --> L[Production Runs]
+    L -->|All complete| M[Ready to Ship]
+    L -->|Produced short| N[Accept Short on WO]
+    N --> O[Close Short on SO]
+    O --> M
+    M --> P[Enter Tracking — Ship]
+    P --> Q[Record Payment / Close Invoice]
 ```
 
 For a detailed walkthrough of this end-to-end process, see the [Quote to Cash](workflows/quote-to-cash.md) workflow guide.
 
 ---
 
-## Editing Order Lines
+## Canceling and Deleting Orders
 
-Admins can edit line quantities and remove lines on orders in **pending**, **confirmed**, **in_production**, or **on_hold** status.
+### Canceling an Order
 
-### Changing a Quantity
+Orders in `pending`, `confirmed`, or `on_hold` status can be cancelled.
 
-1. Open the order detail view
-2. In the **Line Items** table, click **Edit** on the line
-3. Enter the new quantity (cannot go below already-shipped amount)
-4. Enter a reason — this is recorded in the order history
-5. Click ✓ to save
+1. Open the order detail view.
+2. Click **Cancel Order** in the secondary actions row of the Order Workflow panel.
+3. Enter a cancellation reason (required).
+4. Confirm.
 
-### Removing a Line
+!!! warning "Cancel linked production orders first"
+    If any production orders are still active (not cancelled), FilaOps will block the cancellation. Cancel all work orders first, then cancel the sales order.
 
-A **✕** button appears next to each line when:
+!!! warning "Cancellation is permanent"
+    Cancelled orders cannot be reopened. Create a new order if the customer changes their mind.
 
-- The order has more than one line
-- The line has not been shipped
-- No non-cancelled production orders are linked to that line (including completed or closed POs)
+### Deleting an Order
 
-Click **✕** → confirm the prompt → the line is removed and totals recalculate automatically.
-
-> **Note**: If any non-cancelled production order (including completed or closed states) exists for the line, cancel it first before removing the line.
+Only `pending` or `cancelled` orders can be deleted, and only when no active production orders are linked. Click **Delete Order** in the secondary actions row and confirm. Deletion is permanent.
 
 ---
 
-## Close-Short Workflow
+## Tips and Best Practices
 
-Close-short lets you accept partial fulfillment when the full ordered quantity cannot be produced or shipped. This closes the order without waiting indefinitely for the remaining units.
-
-### When to Use
-
-- A production order completed with fewer units than ordered (scrap, material shortage)
-- Customer agreed to accept partial shipment
-- You want to close out an order rather than leave it open
-
-### How It Works
-
-1. Open the order detail — you'll see a **Close Short** button when the order is in `confirmed`, `in_production`, or `ready_to_ship` status
-2. Click **Close Short** → a preview modal shows per-line achievable quantities based on completed production
-3. Review the breakdown — lines that can't be fully fulfilled are flagged
-4. Confirm → FilaOps adjusts line quantities to what was actually fulfilled, marks the order closed-short, and updates fulfillment status
-
-> **Tip**: Use **PO Accept-Short** on linked production orders first to lock in completed quantities, then use Close-Short on the sales order.
+- **Use quotes for custom work** — Quotes give customers time to review pricing and let you track your conversion rate.
+- **Set a validity period on quotes** — This creates urgency and keeps your pipeline clean.
+- **Sort by "Most Actionable First"** — The default sort surfaces orders you can act on right now.
+- **Check the Blocked filter daily** — Red-flagged orders need attention: missing materials, incomplete production, or other issues.
+- **Satisfy billing before releasing production** — FilaOps enforces this gate to protect revenue.
+- **Accept Short on the work order before Close-Short on the sales order** — The sales order reads the work order's completed quantity.
+- **Record payments promptly** — This keeps your outstanding balance reports accurate.
+- **Use the shipping tabs in sequence** — Ready for Packaging → Needs Label → Ready to Ship prevents missed steps.
 
 ---
-
-## Tips & Best Practices
-
-- **Use quotes for custom work** — Quotes give customers time to review pricing and let you track conversion rates
-- **Set expiration dates on quotes** — This creates urgency and keeps your pipeline clean
-- **Sort by "Most Actionable First"** — The default sort puts orders you can act on right now at the top of the list
-- **Check the Blocked filter daily** — Red-flagged orders need attention: missing materials, incomplete production, or other issues
-- **Record payments promptly** — This keeps your outstanding balance reports accurate
-- **Use the shipping tabs in order** — The Ready for Packaging → Needs Label → Ready to Ship flow prevents missed steps
-- **Add cancellation reasons** — They help you identify patterns (pricing issues, lead time, competitor loss) to improve your process
 
 ## What's Next?
 
-With orders flowing, you'll want to manage the production and delivery side:
+With orders flowing, manage the production and fulfillment side:
 
-- [Running Production](production.md) — manufacture items from your sales orders
-- [Tracking Inventory](inventory.md) — keep stock levels accurate
-- [Ordering Supplies](purchasing.md) — make sure you have materials on hand
+- [Running Production](production.md) — manufacture items from your sales orders.
+- [Tracking Inventory](inventory.md) — keep stock levels accurate.
+- [Ordering Supplies](purchasing.md) — make sure you have materials on hand.
+
+---
 
 ## Quick Reference
 
@@ -519,18 +605,21 @@ With orders flowing, you'll want to manage the production and delivery side:
 |------|------------------|
 | Create a customer | **Admin > Customers** > **+ Add Customer** |
 | Import customers from CSV | **Admin > Customers** > **Import CSV** |
-| Create a quote | **Sales > Quotes** > **+ New Quote** |
-| Convert a quote to an order | **Sales > Quotes** > **Convert to Order** button |
-| Download a quote PDF | **Sales > Quotes** > **Download PDF** button |
+| Create a quote | **Sales > Quotes** > **New Quote** |
+| Approve a quote | **Sales > Quotes** > open quote > **Approve** |
+| Convert a quote to an order | **Sales > Quotes** > open quote > **Convert to Order** |
+| Download a quote PDF | **Sales > Quotes** > open quote > **Download PDF** |
 | Create a sales order | **Sales > Orders** > **Create Order** |
-| View order details | **Sales > Orders** > Click an order card |
-| Generate a production order | Order detail view > **Generate Production Order** |
-| Cancel an order | Order detail view > **Cancel Order** |
-| Edit a line quantity | Order detail view > Line Items table > **Edit** |
-| Remove a line | Order detail view > Line Items table > **✕** |
-| Close an order short | Order detail view > **Close Short** |
-| Add a tracking number | **Sales > Shipping** > **Needs Label** tab > Enter tracking |
-| Mark an order as shipped | **Sales > Shipping** > **Ready to Ship** tab > **Mark Shipped** |
-| Print a packing slip | **Sales > Shipping** > **Packing Slip** button |
+| View order details | **Sales > Orders** > click an order card |
+| Confirm an order | Order detail > **Order Workflow** panel > **Confirm** |
+| Create an invoice | Order detail > **Order Workflow** > **Create Invoice** |
+| Create work orders | Order detail > **Order Workflow** > **Create Work Orders** |
+| Check material availability | Order detail > **Quick Actions** > **Check Material Availability** |
+| Edit a line quantity or price | Order detail > **Line Items** table > **Edit** |
+| Remove a line | Order detail > **Line Items** table > remove button |
+| Close an order short | Order detail > **Order Workflow** secondary actions > **Close Short** |
+| Cancel an order | Order detail > **Order Workflow** secondary actions > **Cancel Order** |
+| Enter tracking / ship | **Sales > Shipping** > **Needs Label** tab > expand order > **Save Tracking** |
+| Print a packing slip | Order detail > **Packing Slip** quick action |
 | Record a payment | **Sales > Payments** > **Record Payment** |
-| Record a refund | **Sales > Payments** > **Record Payment** (Refund type) |
+| Record a refund | **Sales > Payments** > **Record Refund** |
