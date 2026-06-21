@@ -80,9 +80,15 @@ const SHOTS = [
   { name: 'printers/06-work-centers-page', url: '/admin/manufacturing', full: true },
   { name: 'printers/07-routings-list', url: '/admin/manufacturing', actions: [{ click: 'Routings' }], full: true },
 
-  // --- catalog (items) ---
-  { name: 'catalog/01-items-list', url: '/admin/items', full: true },
-  { name: 'catalog/02-bom-list', url: '/admin/bom', full: true },
+  // --- catalog (items + bom) ---
+  { name: 'catalog/01-items-page-table-view', url: '/admin/items', full: true },
+  { name: 'catalog/02-new-item-modal', url: '/admin/items', actions: [{ clickBtn: 'New Item' }, { wait: 1000 }], full: false },
+  { name: 'catalog/03-new-material-form', url: '/admin/items', actions: [{ clickBtn: 'New Material' }, { wait: 1000 }], full: false },
+  // filter to finished goods first so the first Duplicate target has a BOM (Swap rows)
+  { name: 'catalog/04-duplicate-item-modal', url: '/admin/items', actions: [{ selectOption: { selector: 'select:has(option[value="finished_good"])', value: 'finished_good' } }, { wait: 800 }, { clickBtn: 'Duplicate' }, { wait: 1000 }], full: false },
+  { name: 'catalog/05-bom-list', url: '/admin/bom', full: true },
+  // BOM detail is a modal opened by the row View button
+  { name: 'catalog/06-bom-detail', url: '/admin/bom', actions: [{ clickBtn: 'View' }, { wait: 1200 }], full: false },
 
   // --- mrp (buy list / low stock live under purchasing) ---
   { name: 'mrp/01-buy-list-overview', url: '/admin/purchasing', actions: [{ click: 'Buy List' }], full: true },
