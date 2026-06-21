@@ -182,8 +182,8 @@ Verifying connectivity confirms FilaOps can reach the printer for status polling
 
 **Where:** **Printers** > **All Printers** tab.
 
-1. Find the printer card. Click **Test** at the bottom of the card.  
-   — or —  
+1. Find the printer card. Click **Test** at the bottom of the card.
+   — or —
    Click **Test All** (top-right of the page) to ping every printer that has an IP address at once.
 2. A successful test shows a toast such as `X1C Bay 1: Connected! (42ms)` and updates the printer's status to `idle`.
 3. If the test fails, use this table to diagnose:
