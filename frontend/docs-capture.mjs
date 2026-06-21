@@ -61,8 +61,14 @@ const SHOTS = [
   { name: 'accounting/08-invoice-detail', url: '/admin/invoices', actions: [{ clickFirstRow: true }, { wait: 1500 }], full: false },
   { name: 'accounting/09-payments-list', url: '/admin/payments', full: true },
 
-  // --- purchasing ---
+  // --- purchasing (tabs via ?tab=orders|vendors|import|low-stock|buy-list; modals are buttons) ---
   { name: 'purchasing/01-purchasing-overview', url: '/admin/purchasing', full: true },
+  { name: 'purchasing/02-vendor-modal', url: '/admin/purchasing?tab=vendors', actions: [{ clickBtn: 'New Vendor' }, { wait: 1000 }], full: false },
+  { name: 'purchasing/03-po-create-modal', url: '/admin/purchasing?tab=orders', actions: [{ clickBtn: 'New PO' }, { wait: 1200 }], full: false },
+  // first "Receive" button belongs to the first ordered PO (5 ordered POs in demo)
+  { name: 'purchasing/04-receive-modal', url: '/admin/purchasing?tab=orders', actions: [{ clickBtn: 'Receive' }, { wait: 1200 }], full: false },
+  { name: 'purchasing/05-low-stock-tab', url: '/admin/purchasing?tab=low-stock', full: true },
+  { name: 'purchasing/06-buy-list-tab', url: '/admin/purchasing?tab=buy-list', full: true },
 
   // --- printers / work centers ---
   { name: 'printers/01-printers-list-table', url: '/admin/printers', full: true },
