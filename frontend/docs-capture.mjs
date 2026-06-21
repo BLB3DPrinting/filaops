@@ -41,12 +41,17 @@ const SHOTS = [
   // --- reconciliation ---
   { name: 'reconciliation/01-transactions-page-collapsed', url: '/admin/inventory/transactions', full: true },
 
-  // --- accounting ---
+  // --- accounting (tabs are <button>; exact labels from AdminAccounting.jsx) ---
   { name: 'accounting/01-accounting-dashboard', url: '/admin/accounting', full: true },
-  { name: 'accounting/03-sales-journal', url: '/admin/accounting', actions: [{ click: 'Sales Journal' }], full: true },
-  { name: 'accounting/05-cogs-tab', url: '/admin/accounting', actions: [{ click: 'COGS' }], full: true },
-  { name: 'accounting/06-tax-center', url: '/admin/accounting', actions: [{ click: 'Tax' }], full: true },
+  { name: 'accounting/02-accounting-dashboard-cards', url: '/admin/accounting', full: false },
+  // widen the journal date range (default is last 30d; demo orders are dated earlier in 2026)
+  { name: 'accounting/03-sales-journal', url: '/admin/accounting', actions: [{ clickBtn: 'Sales Journal' }, { fill: { selector: 'input[type="date"]', value: '2026-01-01' } }], full: true },
+  { name: 'accounting/04-payments-journal', url: '/admin/accounting', actions: [{ clickBtn: 'Payments' }], full: true },
+  { name: 'accounting/05-cogs-tab', url: '/admin/accounting', actions: [{ clickBtn: 'COGS & Materials' }], full: true },
+  { name: 'accounting/06-tax-center', url: '/admin/accounting', actions: [{ clickBtn: 'Tax Center' }], full: true },
   { name: 'accounting/07-invoices-list', url: '/admin/invoices', full: true },
+  // invoice rows are <tr>; clicking opens a fetch-backed detail modal (no role=dialog) — wait after
+  { name: 'accounting/08-invoice-detail', url: '/admin/invoices', actions: [{ clickFirstRow: true }, { wait: 1500 }], full: false },
   { name: 'accounting/09-payments-list', url: '/admin/payments', full: true },
 
   // --- purchasing ---
@@ -104,6 +109,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         if (a.click) { await page.getByText(a.click, { exact: false }).first().click({ timeout: 8000 }).catch((e) => console.log('  click miss:', a.click, e.message.split('\n')[0])); await sleep(1200); }
         if (a.clickBtn) { await page.getByRole('button', { name: new RegExp(a.clickBtn + '\\s*$') }).first().click({ timeout: 8000 }).catch((e) => console.log('  btn miss:', a.clickBtn, e.message.split('\n')[0])); await sleep(1000); }
         if (a.clickFirstRow) { await page.locator('table tbody tr').first().click({ timeout: 8000 }).catch((e) => console.log('  row miss:', e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1500); }
+        if (a.fill) { await page.locator(a.fill.selector).first().fill(a.fill.value, { timeout: 8000 }).catch((e) => console.log('  fill miss:', a.fill.selector, e.message.split('\n')[0])); await page.waitForLoadState('networkidle').catch(() => {}); await sleep(1200); }
         if (a.waitModal) { await page.locator('[role="dialog"], .modal, [class*="modal"]').first().waitFor({ timeout: 6000 }).catch(() => console.log('  modal not detected')); await sleep(800); }
         if (a.wait) await sleep(a.wait);
       }
