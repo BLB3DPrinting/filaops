@@ -136,6 +136,8 @@ const SHOTS = [
   { name: 'troubleshooting/01-login-forgot-password', url: '/admin/login', actions: [{ wait: 800 }], full: false },
   { name: 'troubleshooting/02-settings-smtp-warning', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.rounded-xl:has-text("Email (SMTP) Not Configured")' },
   { name: 'troubleshooting/04-settings-version-updates', url: '/admin/settings', actions: [{ wait: 900 }], clip: '.bg-gray-800.rounded-lg:has-text("Check for Updates")' },
+  // tick "Show inactive locations" to reveal the staged inactive location + its Reactivate action
+  { name: 'troubleshooting/03-locations-reactivate', url: '/admin/locations', actions: [{ click: 'Show inactive locations' }, { wait: 1200 }], full: true },
 
   // --- users ---
   { name: 'users/01-team-members-overview', url: '/admin/users', full: true },
