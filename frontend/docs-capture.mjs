@@ -70,8 +70,13 @@ const SHOTS = [
   { name: 'purchasing/05-low-stock-tab', url: '/admin/purchasing?tab=low-stock', full: true },
   { name: 'purchasing/06-buy-list-tab', url: '/admin/purchasing?tab=buy-list', full: true },
 
-  // --- printers / work centers ---
+  // --- printers / work centers (Core list view renders a card grid; HUD/Cards view is PRO) ---
   { name: 'printers/01-printers-list-table', url: '/admin/printers', full: true },
+  // focus the single card that has a live Running active-work panel
+  { name: 'printers/02-printer-card-active-work', url: '/admin/printers', actions: [{ wait: 1200 }], clip: '.bg-gray-800.rounded-xl:has-text("Running")' },
+  { name: 'printers/03-network-discovery', url: '/admin/printers', actions: [{ click: 'Network Discovery' }, { wait: 1000 }], full: true },
+  { name: 'printers/04-csv-import', url: '/admin/printers', actions: [{ click: 'CSV Import' }, { wait: 1000 }], full: true },
+  { name: 'printers/05-maintenance-tab', url: '/admin/printers', actions: [{ click: 'Maintenance' }, { wait: 1200 }], full: true },
   { name: 'printers/06-work-centers-page', url: '/admin/manufacturing', full: true },
   { name: 'printers/07-routings-list', url: '/admin/manufacturing', actions: [{ click: 'Routings' }], full: true },
 
@@ -129,8 +134,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       }
       const file = path.join(OUT, s.name + '.png');
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      await page.screenshot({ path: file, fullPage: !!s.full });
-      console.log('OK  ', s.name, s.full ? '(full)' : '(viewport)');
+      if (s.clip) {
+        // element-scoped screenshot (focus a single card/section); falls back to viewport
+        await page.locator(s.clip).first().screenshot({ path: file }).catch(async (e) => { console.log('  clip miss:', e.message.split('\n')[0]); await page.screenshot({ path: file }); });
+      } else {
+        await page.screenshot({ path: file, fullPage: !!s.full });
+      }
+      console.log('OK  ', s.name, s.clip ? '(clip)' : s.full ? '(full)' : '(viewport)');
       ok++;
     } catch (e) {
       console.log('FAIL', s.name, '-', e.message.split('\n')[0]);
