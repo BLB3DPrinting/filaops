@@ -85,7 +85,7 @@ Check what orders are waiting to be produced or shipped this week.
 | `ready_to_ship` | Production complete; awaiting shipment |
 
 !!! note "Quote-based vs. line-item orders"
-    FilaOps supports two order types. **Quote-based** orders are tied to a single product from a quote. **Line-item** orders have multiple product lines. The Buy List and MRP engine handle both — BOMs are exploded for each product line automatically.
+    FilaOps supports two order types. **Quote-based** orders are created by converting an accepted quote and are single-product (the quote-to-order conversion produces one product line). **Line-item** orders — created with the multi-line order wizard or imported from CSV — can have multiple product lines. The Buy List and MRP engine handle both — BOMs are exploded for each product line automatically.
 
 **Details:** [Taking and Fulfilling Orders](../orders.md)
 

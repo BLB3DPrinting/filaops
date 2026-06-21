@@ -367,7 +367,7 @@ uploading: Manual / Generic, Squarespace, WooCommerce, Etsy, or TikTok Shop.
 Register a printer so FilaOps can track print jobs and material consumption.
 On Community edition, **Bambu Lab** and **Generic / Other** brands are
 available. Additional brands (Klipper, OctoPrint, Prusa, Creality) require a
-PRO license and can be added later from **Admin → Printers**.
+PRO license and can be added later from **Operations > Printers**.
 
 Fill in:
 
@@ -444,7 +444,7 @@ access FilaOps from another machine, set `VITE_API_URL` before starting the
 dev server (or rebuilding for production):
 
 ```bash
-VITE_API_URL=http://<server-ip>:8000 npm run dev
+VITE_API_URL="http://192.168.1.100:8000" npm run dev
 ```
 
 Also ensure the frontend's origin is listed in `ALLOWED_ORIGINS` in

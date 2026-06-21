@@ -86,8 +86,8 @@ and click **Record Payment** from the order detail.
 
 ## Step 3 — Receive Open Purchase Orders
 
-Material expenses are recorded when you receive a purchase order. Any PO not yet
-received will understate your inventory and overstate your cash position for the month.
+Materials received from purchase orders are capitalized into inventory at their cost. Any PO not yet
+received will understate your inventory and overstate your accounts payable balance for the month.
 
 **Where:** Sidebar → PURCHASING > **Purchasing** → Purchase Orders tab
 
@@ -95,7 +95,7 @@ received will understate your inventory and overstate your cash position for the
 2. For any deliveries received this month but not yet processed, open the PO and click
    **Receive**.
 3. Enter the quantities actually received and confirm.
-4. Receiving a PO updates on-hand quantities and records the material cost.
+4. Receiving a PO updates on-hand quantities and records the material cost into inventory, creating an accounts payable liability to the vendor.
 
 !!! note "Partial deliveries"
     If a vendor shipped only part of the order, receive what arrived. The remainder stays

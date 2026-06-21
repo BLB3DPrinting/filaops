@@ -295,13 +295,13 @@ The **AI Assistant** card configures the AI provider used for features like invo
 === "Anthropic (Claude)"
 
     1. Select **Anthropic** as the provider.
-    2. Paste your Anthropic API key (must start with `sk-`).
+    2. Paste your Anthropic API key (from [console.anthropic.com/account/keys](https://console.anthropic.com/account/keys)).
     3. Optionally choose a **Claude model** from the dropdown (defaults to `claude-sonnet-4-20250514`).
-    4. Click **Test Connection** to verify the key format.
+    4. Click **Test Connection** to verify the connection.
     5. Save.
 
     !!! note "Key display"
-        The UI only ever displays the first 3 and last 4 characters of a saved key (e.g., `sk-...XYZ`). The full key is never shown again after saving.
+        The UI only ever displays the first 3 and last 4 characters of a saved key. The full key is never shown again after saving.
 
     !!! warning "External AI Blocked"
         If the **Block external AI services** toggle is on, Anthropic cannot be selected. Disable the block first, or use Ollama instead.

@@ -194,7 +194,7 @@ Hover over any category in the sidebar to reveal **edit** (pencil) and **delete*
 Click any category name in the sidebar to show only items in that category and its sub-categories. Click the active category again to clear the filter.
 
 !!! tip "Scoped recosting"
-    The **Recost All** button respects the active category filter and only recalculates items in the selected category (and its children).
+    The **Recost All** button respects both the active category filter and the item-type filter, recalculating only items that match both criteria.
 
 ---
 

@@ -57,6 +57,7 @@ A healthy response looks like:
 {
   "status": "healthy",
   "version": "4.1.0",
+  "timestamp": "2024-01-15T10:30:45Z",
   "database_connected": true,
   "services": {
     "database": "connected",
@@ -66,7 +67,7 @@ A healthy response looks like:
 }
 ```
 
-If `status` is `"degraded"` or `"error"`, `database_connected` will be `false` — that is almost always a PostgreSQL connectivity problem. Check your `DATABASE_URL`, firewall rules, and that the PostgreSQL service is running.
+If `status` is `"degraded"`, the database connection failed — `database_connected` will be `false`. If `status` is `"error"`, an unhandled exception occurred during the health check; the `error` field contains details. In both cases, check your `DATABASE_URL`, firewall rules, and that the PostgreSQL service is running.
 
 ---
 

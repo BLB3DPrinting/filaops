@@ -38,7 +38,7 @@ A work center is a logical area of your shop — for example, "FDM Print Farm," 
     | **Code** | Short identifier used throughout the system (e.g., `FDM-POOL`) |
     | **Name** | Human-readable label (e.g., "FDM Print Farm") |
     | **Description** | What this work center handles |
-    | **Type** | `machine` (has individual resources), `station` (single workstation), or `production` (generic) |
+    | **Type** | `machine` (has individual resources), `station` (single workstation), or `labor` (generic) |
     | **Capacity (hours/day)** | Hours available per day for capacity planning |
     | **Machine Rate / Labor Rate / Overhead Rate** | Per-hour cost rates used to calculate job costing |
 

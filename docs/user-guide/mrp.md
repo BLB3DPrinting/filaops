@@ -207,7 +207,7 @@ When you run the full MRP engine, it generates **planned orders** — suggestion
 | Type | When Created | What It Becomes |
 |------|-------------|----------------|
 | **Planned Purchase Order** (`purchase`) | When a bought material (no BOM) has a net shortage | A real purchase order in **Purchasing** |
-| **Planned Production Order** (`production`) | When a manufactured sub-assembly (has its own BOM) has a net shortage | A real work order in **Production** |
+| **Planned Production Order** (`production`) | When a manufactured sub-assembly (has its own BOM) has a net shortage | A real production order in **Production** |
 
 FilaOps determines the type automatically: items with a BOM become production orders; items without a BOM become purchase orders.
 

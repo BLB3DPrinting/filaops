@@ -142,8 +142,7 @@ A double-entry bookkeeping record. Every financial event in FilaOps (order shipp
 ### Grand Total
 The total amount charged to a customer on a sales order: `total_price + tax_amount + shipping_cost`. Stored in the `grand_total` column.
 
-### Gross Margin
-Revenue minus COGS, expressed as a percentage of revenue. Visible in **Admin > Analytics**.
+
 
 ### Gross Profit
 Revenue minus COGS, expressed as a dollar amount.

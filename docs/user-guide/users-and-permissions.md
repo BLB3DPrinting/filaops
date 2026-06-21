@@ -112,7 +112,7 @@ Three controls sit above the user table:
 
 !!! warning "Role demotion rules"
     - You cannot demote **yourself** from Admin to Operator. Ask another Admin to make that change.
-    - FilaOps will refuse to demote the **last active Admin** account to Operator. Always keep at least two Admin accounts active.
+    - FilaOps will refuse to demote the **last active Admin** account to Operator. It is strongly recommended to keep at least two Admin accounts active for operational resilience.
 
 !!! warning "Status changes take effect immediately"
     Setting Status to **Inactive** or **Suspended** via the Edit form has the same effect as clicking Deactivate — the user is signed out of every session immediately (all refresh tokens are revoked).

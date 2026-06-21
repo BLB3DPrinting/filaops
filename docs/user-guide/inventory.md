@@ -346,7 +346,7 @@ After a successful post, the page shows a results summary panel:
 The results table shows only rows with a non-zero variance or a failure so you can quickly spot any problems. The inventory table refreshes with the new on-hand values.
 
 !!! note "Accounting impact"
-    Every cycle count variance creates a GL journal entry. Positive variances (found more than expected) debit Inventory and credit the Inventory Adjustment expense account. Negative variances reverse this. All adjustments are posted to GL account 5030 (Inventory Adjustment expense).
+    Non-zero cost variances create a GL journal entry. Positive variances (found more than expected) debit Inventory and credit the Inventory Adjustment expense account. Negative variances reverse this. All adjustments are posted to GL account 5030 (Inventory Adjustment expense). Items with zero cost (no cost method or cost not yet assigned) do not generate GL entries.
 
 ### Cycle Count Best Practices
 
