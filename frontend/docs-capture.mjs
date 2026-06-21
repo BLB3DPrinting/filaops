@@ -45,8 +45,13 @@ const SHOTS = [
   // pre-fill all rows to system qty, override one to create a variance, then open the review modal
   { name: 'inventory/08-variance-review-modal', url: '/admin/inventory/cycle-count', actions: [{ clickBtn: 'Fill Current Qty' }, { wait: 600 }, { fill: { selector: 'input[type="number"]', value: '200' } }, { clickBtn: 'Submit Count' }, { wait: 1200 }], full: false },
 
-  // --- reconciliation ---
-  { name: 'reconciliation/01-transactions-page-collapsed', url: '/admin/inventory/transactions', full: true },
+  // --- reconciliation (panels on the transactions page; viewport keeps focus off the long ledger) ---
+  { name: 'reconciliation/01-transactions-page-collapsed', url: '/admin/inventory/transactions', full: false },
+  { name: 'reconciliation/02-reconciliation-expanded', url: '/admin/inventory/transactions', actions: [{ click: 'items needing a count' }, { wait: 1200 }], full: false },
+  // expand the panel, then open the per-row Count dialog
+  { name: 'reconciliation/03-count-dialog', url: '/admin/inventory/transactions', actions: [{ click: 'items needing a count' }, { wait: 1000 }, { clickBtn: 'Count' }, { wait: 800 }], full: false },
+  // expand, open the dev/test fallback dialog, type the required confirmation to enable Run fallback
+  { name: 'reconciliation/04-baseline-to-stored-dialog', url: '/admin/inventory/transactions', actions: [{ click: 'items needing a count' }, { wait: 1000 }, { click: 'Baseline to stored' }, { wait: 800 }, { fill: { selector: 'input[placeholder="BASELINE_TO_STORED"]', value: 'BASELINE_TO_STORED' } }, { wait: 400 }], full: false },
 
   // --- accounting (tabs are <button>; exact labels from AdminAccounting.jsx) ---
   { name: 'accounting/01-accounting-dashboard', url: '/admin/accounting', full: true },
