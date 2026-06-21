@@ -15,7 +15,8 @@ const only = process.argv[2] || null; // optional section filter
 const SHOTS = [
   // --- production (pilot, already captured) ---
   { name: 'production/01-manufacturing-setup', url: '/admin/manufacturing', full: true },
-  { name: 'production/02-routings-list', url: '/admin/manufacturing', actions: [{ click: 'Routings' }], full: true },
+  // click the Routings TAB button (not the "Work Centers & Routings" page title, which "Routings" also matches)
+  { name: 'production/02-routings-list', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("Routings")' }, { wait: 800 }], full: true },
   { name: 'production/03-production-queue-view', url: '/admin/production', full: true },
   { name: 'production/04-scheduler-gantt', url: '/admin/production', actions: [{ click: 'Scheduler' }], full: false },
   { name: 'production/05-production-order-detail', url: '/admin/production', actions: [{ clickFirstRow: true }], full: true },
@@ -83,7 +84,7 @@ const SHOTS = [
   { name: 'printers/04-csv-import', url: '/admin/printers', actions: [{ click: 'CSV Import' }, { wait: 1000 }], full: true },
   { name: 'printers/05-maintenance-tab', url: '/admin/printers', actions: [{ click: 'Maintenance' }, { wait: 1200 }], full: true },
   { name: 'printers/06-work-centers-page', url: '/admin/manufacturing', full: true },
-  { name: 'printers/07-routings-list', url: '/admin/manufacturing', actions: [{ click: 'Routings' }], full: true },
+  { name: 'printers/07-routings-list', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("Routings")' }, { wait: 800 }], full: true },
 
   // --- catalog (items + bom) ---
   { name: 'catalog/01-items-page-table-view', url: '/admin/items', full: true },
@@ -121,6 +122,8 @@ const SHOTS = [
   { name: 'glossary/04-production-order-detail', url: '/admin/production', actions: [{ clickFirstRow: true }], full: true },
   { name: 'glossary/06-work-centers', url: '/admin/manufacturing', full: true },
   { name: 'glossary/01-bom-detail', url: '/admin/bom', actions: [{ clickBtn: 'View' }, { wait: 1200 }], full: false },
+  // routing editor: the Routings TAB (button:has-text avoids matching the "Work Centers & Routings" title) → Edit
+  { name: 'glossary/05-routing-editor', url: '/admin/manufacturing', actions: [{ clickSelector: 'button:has-text("Routings")' }, { wait: 800 }, { clickBtn: 'Edit' }, { wait: 1200 }], full: false },
 
   // --- system settings (settings/); price-levels is PRO and intentionally not captured ---
   { name: 'settings/03-locations', url: '/admin/locations', full: true },
