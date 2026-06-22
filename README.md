@@ -195,7 +195,7 @@ cd frontend && npm test
 
 ## Documentation
 
-- **[Full Documentation](https://blb3d.github.io/filaops/)** — Deployment, configuration, and API reference
+- **[Full Documentation](https://blb3dPrinting.github.io/filaops/)** — Deployment, configuration, and API reference
 - [User Guide](docs/user-guide/index.md) — Module-by-module usage
 - [Contributing](CONTRIBUTING.md) — Development setup and PR guidelines
 

@@ -65,7 +65,7 @@ When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
 
 No email is sent. The Forgot Password page displays the reset link directly with a "Reset My Password" button.
 
-> **Production warning:** If SMTP is not configured in production, auto-approval still works but a **SECURITY WARNING** is logged on every password reset. This bypasses admin approval, meaning anyone who knows a valid email address can reset that account's password without inbox verification. **Configure SMTP for production deployments** — see [Email Setup](https://blb3d.github.io/filaops/EMAIL_CONFIGURATION/).
+> **Production warning:** If SMTP is not configured in production, auto-approval still works but a **SECURITY WARNING** is logged on every password reset. This bypasses admin approval, meaning anyone who knows a valid email address can reset that account's password without inbox verification. **Configure SMTP for production deployments** — see [Email Setup](https://blb3dPrinting.github.io/filaops/EMAIL_CONFIGURATION/).
 
 ### Anti-Enumeration (Security Note)
 
