@@ -186,6 +186,10 @@ def update_po_status(db: Session, po: ProductionOrder, created_by: Optional[str]
             po.actual_end = datetime.now(timezone.utc)
             po.completed_at = datetime.now(timezone.utc)
 
+            # Route the finished order into the QC inspection queue
+            if po.qc_status in (None, 'not_required'):
+                po.qc_status = 'pending'
+
             # === AUTO-COMPLETE: Add finished goods to inventory ===
             # This triggers when all operations complete, not just when
             # the explicit /complete endpoint is called

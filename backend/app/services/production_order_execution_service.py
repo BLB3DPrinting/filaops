@@ -135,6 +135,10 @@ def complete_production_order(
         order.completed_at = datetime.now(timezone.utc)
         order.actual_end = datetime.now(timezone.utc)
 
+        # Route the finished order into the QC inspection queue
+        if order.qc_status in (None, "not_required"):
+            order.qc_status = "pending"
+
         # Complete all operations
         for op in order.operations:
             if op.status != "complete":
@@ -289,6 +293,10 @@ def accept_short_production_order(
     order.status = "complete"
     order.completed_at = datetime.now(timezone.utc)
     order.actual_end = datetime.now(timezone.utc)
+
+    # Route the finished order into the QC inspection queue
+    if order.qc_status in (None, "not_required"):
+        order.qc_status = "pending"
 
     # Complete any remaining operations
     for op in order.operations:
