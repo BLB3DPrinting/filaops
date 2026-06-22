@@ -104,11 +104,10 @@ export default function AdminIntakeStudio() {
   const [skuEdited, setSkuEdited] = useState(false);
   const [estimatedCost, setEstimatedCost] = useState(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [priceEdited, setPriceEdited] = useState(false);
 
-  // Guards against stale /preview responses overwriting newer state, and a
-  // ref mirror of priceEdited so the async runPreview closure reads the live
-  // value rather than a stale capture. (No useEffect — Core eslint forbids it.)
+  // Guards against stale /preview responses overwriting newer state. priceEditedRef
+  // lets the async runPreview closure read the live value without a stale capture.
+  // (No useEffect — Core eslint forbids it.)
   const previewRequestIdRef = useRef(0);
   const priceEditedRef = useRef(false);
 
@@ -456,7 +455,6 @@ export default function AdminIntakeStudio() {
     setSkuEdited(false);
     setEstimatedCost(null);
     setPreviewBusy(false);
-    setPriceEdited(false);
     priceEditedRef.current = false;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
@@ -1242,36 +1240,6 @@ export default function AdminIntakeStudio() {
                           estimated cost per unit
                         </span>
                       </div>
-                      {estimatedCost.suggested_price != null && (
-                        <div className="flex items-center gap-3 border-t border-gray-700 pt-3">
-                          <p className="text-blue-300 text-sm">
-                            Suggested price:{" "}
-                            <span className="font-semibold">
-                              ${Number(estimatedCost.suggested_price).toFixed(2)}
-                            </span>
-                            {estimatedCost.default_margin_percent != null && (
-                              <span className="text-gray-400 ml-1">
-                                ({estimatedCost.default_margin_percent}% margin)
-                              </span>
-                            )}
-                          </p>
-                          {priceEdited && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActualPrice(
-                                  String(estimatedCost.suggested_price)
-                                );
-                                setPriceEdited(false);
-                                priceEditedRef.current = false;
-                              }}
-                              className="text-xs text-blue-400 hover:text-blue-300 underline transition-colors"
-                            >
-                              Use suggested
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </>
                   )}
                 </div>
@@ -1299,7 +1267,6 @@ export default function AdminIntakeStudio() {
                       value={actualPrice}
                       onChange={(e) => {
                         setActualPrice(e.target.value);
-                        setPriceEdited(true);
                         priceEditedRef.current = true;
                       }}
                       placeholder="0.00"
@@ -1307,26 +1274,198 @@ export default function AdminIntakeStudio() {
                     />
                   </div>
                 </div>
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-sm text-blue-300 space-y-1">
-                  {context.default_margin_percent != null && (
-                    <p>
-                      Default margin: {context.default_margin_percent}%
-                      {context.margin_tiers && context.margin_tiers.length > 0 &&
-                        ` · Tiers: ${context.margin_tiers.join("% / ")}%`}
-                    </p>
-                  )}
-                  <p className="text-gray-400 text-xs">
-                    Tax (
-                    {context.tax?.enabled
-                      ? `${((context.tax.rate || 0) * 100).toFixed(1)}% ${context.tax.name || ""}`
-                      : "disabled"}
-                    ) and CC fee (
-                    {context.cc_fee_percent != null
-                      ? `${context.cc_fee_percent}%`
-                      : "—"}
-                    ) are configured in Company Settings.
-                  </p>
-                </div>
+                {/* Retail / Wholesale price box */}
+                {(() => {
+                  const cost = Number(estimatedCost?.per_unit_cost) || 0;
+                  const tiers = context.margin_tiers || [];
+                  const defaultMargin = context.default_margin_percent;
+                  const priceLevels = context.price_levels || [];
+                  const currentPrice = Number(actualPrice) || 0;
+
+                  // Retail price for a given margin %
+                  const retailFor = (m) =>
+                    cost > 0 && m < 100 ? cost / (1 - m / 100) : null;
+
+                  // Baseline for wholesale: use actualPrice if set, else fall back
+                  // to the default-tier retail, else 0
+                  const defaultRetail =
+                    defaultMargin != null ? (retailFor(defaultMargin) ?? 0) : 0;
+                  const wholesaleBase = currentPrice > 0 ? currentPrice : defaultRetail;
+
+                  const hasCost = cost > 0;
+                  const hasTiers = tiers.length > 0;
+                  const hasLevels = priceLevels.length > 0;
+
+                  if (!hasTiers && !hasLevels) {
+                    // Nothing to show — render the minimal tax/fee note only
+                    return (
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-sm text-blue-300">
+                        <p className="text-gray-400 text-xs">
+                          Tax (
+                          {context.tax?.enabled
+                            ? `${((context.tax.rate || 0) * 100).toFixed(1)}% ${context.tax.name || ""}`
+                            : "disabled"}
+                          ) and CC fee (
+                          {context.cc_fee_percent != null
+                            ? `${context.cc_fee_percent}%`
+                            : "—"}
+                          ) are configured in Company Settings.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="border border-gray-700 rounded-lg overflow-hidden text-sm">
+                      {/* Cost row */}
+                      <div className="flex justify-between items-center px-4 py-3 bg-gray-800/60">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                          Cost
+                        </span>
+                        {hasCost ? (
+                          <span className="font-semibold text-white">
+                            ${cost.toFixed(2)}
+                            <span className="text-gray-500 font-normal ml-1">/ unit</span>
+                          </span>
+                        ) : (
+                          <span className="text-gray-600 italic text-xs">
+                            enter work center to calculate
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Retail tiers */}
+                      {hasTiers && (
+                        <>
+                          <div className="px-4 py-2 bg-gray-800/30 border-t border-gray-700">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                              Retail
+                              <span className="font-normal normal-case ml-1 text-gray-600">
+                                (suggested by margin)
+                              </span>
+                            </span>
+                          </div>
+                          {tiers.map((m) => {
+                            const price = retailFor(m);
+                            const isDefault = m === defaultMargin;
+                            return (
+                              <div
+                                key={m}
+                                className={`flex items-center justify-between px-4 py-2 border-t border-gray-700/60 ${
+                                  isDefault
+                                    ? "bg-blue-500/10"
+                                    : "hover:bg-gray-800/30"
+                                } transition-colors`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={
+                                      isDefault ? "text-blue-300" : "text-gray-400"
+                                    }
+                                  >
+                                    {m}% margin
+                                  </span>
+                                  {isDefault && (
+                                    <span className="text-yellow-400 text-xs" title="default">
+                                      ★
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  {price != null ? (
+                                    <span
+                                      className={`font-semibold ${
+                                        isDefault ? "text-green-400" : "text-white"
+                                      }`}
+                                    >
+                                      ${price.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-600 italic text-xs">—</span>
+                                  )}
+                                  {price != null && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActualPrice(price.toFixed(2));
+                                        priceEditedRef.current = true;
+                                      }}
+                                      className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/40 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
+                                    >
+                                      Use
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {/* Wholesale price levels */}
+                      {hasLevels && (
+                        <>
+                          <div className="px-4 py-2 bg-gray-800/30 border-t border-gray-700">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                              Wholesale
+                              <span className="font-normal normal-case ml-1 text-gray-600">
+                                (price levels — live off selling price)
+                              </span>
+                            </span>
+                          </div>
+                          {priceLevels.map((level) => {
+                            const disc = Number(level.discount_percent) || 0;
+                            const wp =
+                              wholesaleBase > 0
+                                ? wholesaleBase * (1 - disc / 100)
+                                : null;
+                            return (
+                              <div
+                                key={level.id}
+                                className="flex items-center justify-between px-4 py-2 border-t border-gray-700/60 hover:bg-gray-800/30 transition-colors"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-gray-400">
+                                    {level.name || level.code}
+                                  </span>
+                                  {disc > 0 && (
+                                    <span className="text-gray-600 text-xs">
+                                      {disc}% off
+                                    </span>
+                                  )}
+                                </div>
+                                {wp != null ? (
+                                  <span className="font-semibold text-white">
+                                    ${wp.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-600 italic text-xs">
+                                    set a price above
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {/* Tax / fee footnote */}
+                      <div className="px-4 py-2 border-t border-gray-700 bg-gray-800/20">
+                        <p className="text-gray-600 text-xs">
+                          Tax (
+                          {context.tax?.enabled
+                            ? `${((context.tax.rate || 0) * 100).toFixed(1)}% ${context.tax.name || ""}`
+                            : "disabled"}
+                          ) and CC fee (
+                          {context.cc_fee_percent != null
+                            ? `${context.cc_fee_percent}%`
+                            : "—"}
+                          ) are configured in Company Settings.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex justify-between">
