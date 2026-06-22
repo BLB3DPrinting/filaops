@@ -4,6 +4,7 @@ import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { API_URL } from "../../config/api";
 import SearchableSelect from "../../components/SearchableSelect";
+import OperationMaterialModal from "../../components/OperationMaterialModal";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +80,7 @@ export default function AdminIntakeStudio() {
   const [contextBusy, setContextBusy] = useState(false);
   const [printWorkCenterId, setPrintWorkCenterId] = useState("");
   const [finishingOps, setFinishingOps] = useState([]);
+  const [matModalOpIdx, setMatModalOpIdx] = useState(null);
   const [actualPrice, setActualPrice] = useState("");
 
   // Step 4 — new UX state
@@ -139,7 +141,7 @@ export default function AdminIntakeStudio() {
             Intake Studio lets you drop a sliced .gcode.3mf file, automatically
             match filament spools from your inventory, configure print work
             centers and finishing operations, and instantly create a sellable SKU
-            with a full BOM and routing — all in one guided workflow.
+            with a fully costed routing — all in one guided workflow.
           </p>
           <a
             href="/pricing"
@@ -314,6 +316,13 @@ export default function AdminIntakeStudio() {
             operation_name: o.operation_name,
             run_time_minutes: Number(o.run_time_minutes) || 0,
             setup_time_minutes: Number(o.setup_time_minutes) || 0,
+            materials: (o.materials || []).map((m) => ({
+              component_product_id: m.component_id,
+              quantity: Number(m.quantity) || 0,
+              unit: m.unit || "EA",
+              quantity_per: m.quantity_per || "unit",
+              scrap_factor: Number(m.scrap_factor) || 0,
+            })),
           })),
         packaging: [],
         persist_color_map: true,
@@ -367,6 +376,13 @@ export default function AdminIntakeStudio() {
             operation_name: o.operation_name,
             run_time_minutes: Number(o.run_time_minutes) || 0,
             setup_time_minutes: Number(o.setup_time_minutes) || 0,
+            materials: (o.materials || []).map((m) => ({
+              component_product_id: m.component_id,
+              quantity: Number(m.quantity) || 0,
+              unit: m.unit || "EA",
+              quantity_per: m.quantity_per || "unit",
+              scrap_factor: Number(m.scrap_factor) || 0,
+            })),
           })),
         packaging: [],
       };
@@ -405,6 +421,7 @@ export default function AdminIntakeStudio() {
     setContextBusy(false);
     setPrintWorkCenterId("");
     setFinishingOps([]);
+    setMatModalOpIdx(null);
     setActualPrice("");
     setSkuResult(null);
     setSkuBusy(false);
@@ -442,6 +459,7 @@ export default function AdminIntakeStudio() {
         operation_name: "",
         run_time_minutes: "",
         setup_time_minutes: "",
+        materials: [],
       },
     ];
     setFinishingOps(next);
@@ -950,104 +968,164 @@ export default function AdminIntakeStudio() {
                     {finishingOps.map((op, idx) => (
                       <div
                         key={idx}
-                        className="bg-gray-800/50 rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end"
+                        className="bg-gray-800/50 rounded-lg p-4 space-y-3"
                       >
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">
-                            Work center
-                          </label>
-                          <SearchableSelect
-                            options={(context.work_centers || [])
-                              .filter((wc) => wc.is_active)
-                              .map((wc) => ({
-                                id: wc.id,
-                                name: `${wc.name} (${wc.code})`,
-                                sku: wc.code,
-                              }))}
-                            value={op.work_center_id ? String(op.work_center_id) : ""}
-                            onChange={(val) =>
-                              updateFinishingOp(idx, "work_center_id", val)
-                            }
-                            placeholder="Work center…"
-                            displayKey="name"
-                            valueKey="id"
-                            formatOption={(opt) => opt.name}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">
-                            Operation name
-                          </label>
-                          <input
-                            type="text"
-                            value={op.operation_name}
-                            onChange={(e) =>
-                              updateFinishingOp(
-                                idx,
-                                "operation_name",
-                                e.target.value
-                              )
-                            }
-                            placeholder="e.g. Support removal"
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">
-                            Run time (min)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={op.run_time_minutes}
-                            onChange={(e) =>
-                              updateFinishingOp(
-                                idx,
-                                "run_time_minutes",
-                                e.target.value
-                              )
-                            }
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1">
+                        {/* Op fields row */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                          <div>
                             <label className="block text-xs text-gray-400 mb-1">
-                              Setup (min)
+                              Work center
+                            </label>
+                            <SearchableSelect
+                              options={(context.work_centers || [])
+                                .filter((wc) => wc.is_active)
+                                .map((wc) => ({
+                                  id: wc.id,
+                                  name: `${wc.name} (${wc.code})`,
+                                  sku: wc.code,
+                                }))}
+                              value={op.work_center_id ? String(op.work_center_id) : ""}
+                              onChange={(val) =>
+                                updateFinishingOp(idx, "work_center_id", val)
+                              }
+                              placeholder="Work center…"
+                              displayKey="name"
+                              valueKey="id"
+                              formatOption={(opt) => opt.name}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">
+                              Operation name
+                            </label>
+                            <input
+                              type="text"
+                              value={op.operation_name}
+                              onChange={(e) =>
+                                updateFinishingOp(
+                                  idx,
+                                  "operation_name",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="e.g. Support removal"
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">
+                              Run time (min)
                             </label>
                             <input
                               type="number"
                               min="0"
-                              value={op.setup_time_minutes}
+                              value={op.run_time_minutes}
                               onChange={(e) =>
                                 updateFinishingOp(
                                   idx,
-                                  "setup_time_minutes",
+                                  "run_time_minutes",
                                   e.target.value
                                 )
                               }
                               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <button
-                            onClick={() => removeFinishingOp(idx)}
-                            className="text-gray-500 hover:text-red-400 p-2 transition-colors flex-shrink-0"
-                            title="Remove"
-                          >
-                            <svg
-                              className="w-4 h-4"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M6 18L18 6M6 6l12 12"
+                          <div className="flex gap-2 items-end">
+                            <div className="flex-1">
+                              <label className="block text-xs text-gray-400 mb-1">
+                                Setup (min)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={op.setup_time_minutes}
+                                onChange={(e) =>
+                                  updateFinishingOp(
+                                    idx,
+                                    "setup_time_minutes",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                               />
-                            </svg>
-                          </button>
+                            </div>
+                            <button
+                              onClick={() => removeFinishingOp(idx)}
+                              className="text-gray-500 hover:text-red-400 p-2 transition-colors flex-shrink-0"
+                              title="Remove"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Materials sub-section */}
+                        <div className="border-t border-gray-700 pt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-500">
+                              Materials
+                            </span>
+                            <button
+                              onClick={() => setMatModalOpIdx(idx)}
+                              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
+                            >
+                              <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 4v16m8-8H4"
+                                />
+                              </svg>
+                              + Add material
+                            </button>
+                          </div>
+                          {(op.materials || []).length > 0 && (
+                            <div className="space-y-1">
+                              {(op.materials || []).map((m, mIdx) => (
+                                <div
+                                  key={mIdx}
+                                  className="flex items-center justify-between text-xs text-gray-300 bg-gray-800 rounded px-2 py-1"
+                                >
+                                  <span>
+                                    {m.component_sku} — {m.component_name} · {m.quantity} {m.unit}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const next = finishingOps.map((o, i) =>
+                                        i === idx
+                                          ? { ...o, materials: o.materials.filter((_, mi) => mi !== mIdx) }
+                                          : o
+                                      );
+                                      setFinishingOps(next);
+                                      runPreview({ finishingOps: next });
+                                    }}
+                                    className="text-gray-500 hover:text-red-400 ml-2 transition-colors"
+                                    title="Remove material"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1080,20 +1158,6 @@ export default function AdminIntakeStudio() {
                         <span className="text-gray-400 text-sm">
                           estimated cost per unit
                         </span>
-                      </div>
-                      <div className="flex gap-6 text-sm mb-3">
-                        <div>
-                          <span className="text-gray-400">Material</span>
-                          <span className="text-gray-200 ml-2">
-                            ${Number(estimatedCost.bom_cost || 0).toFixed(2)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Labor</span>
-                          <span className="text-gray-200 ml-2">
-                            ${Number(estimatedCost.routing_cost || 0).toFixed(2)}
-                          </span>
-                        </div>
                       </div>
                       {estimatedCost.suggested_price != null && (
                         <div className="flex items-center gap-3 border-t border-gray-700 pt-3">
@@ -1209,6 +1273,25 @@ export default function AdminIntakeStudio() {
       )}
 
       {/* ------------------------------------------------------------------ */}
+      {/* Operation Material Modal (wizard / collect-into-state mode)        */}
+      {/* ------------------------------------------------------------------ */}
+      <OperationMaterialModal
+        isOpen={matModalOpIdx !== null}
+        operationId={null}
+        material={null}
+        defaultTypeFilter="all"
+        onClose={() => setMatModalOpIdx(null)}
+        onSave={(mat) => {
+          const next = finishingOps.map((op, i) =>
+            i === matModalOpIdx ? { ...op, materials: [...(op.materials || []), mat] } : op
+          );
+          setFinishingOps(next);
+          setMatModalOpIdx(null);
+          runPreview({ finishingOps: next });
+        }}
+      />
+
+      {/* ------------------------------------------------------------------ */}
       {/* STEP 5 — Result                                                     */}
       {/* ------------------------------------------------------------------ */}
       {step === 5 && skuResult && (
@@ -1260,13 +1343,7 @@ export default function AdminIntakeStudio() {
               {skuResult.cost && (
                 <>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">BOM cost</span>
-                    <span className="text-white">
-                      ${Number(skuResult.cost.bom_cost || 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Routing cost</span>
+                    <span className="text-gray-400">Routing cost (materials + labor)</span>
                     <span className="text-white">
                       ${Number(skuResult.cost.routing_cost || 0).toFixed(2)}
                     </span>
@@ -1294,21 +1371,7 @@ export default function AdminIntakeStudio() {
               </div>
             </div>
 
-            {/* BOM */}
-            <div className="bg-gray-800/50 rounded-lg p-4 space-y-1">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
-                BOM
-              </h3>
-              <p className="text-white font-mono">
-                {skuResult.bom?.code}
-              </p>
-              <p className="text-gray-400 text-sm">
-                {skuResult.bom?.line_count} line
-                {skuResult.bom?.line_count !== 1 ? "s" : ""}
-              </p>
-            </div>
-
-            {/* Routing */}
+            {/* Routing (materials live on the operations) */}
             <div className="bg-gray-800/50 rounded-lg p-4 space-y-1">
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
                 Routing
@@ -1319,6 +1382,9 @@ export default function AdminIntakeStudio() {
               <p className="text-gray-400 text-sm">
                 {skuResult.routing?.operation_count} operation
                 {skuResult.routing?.operation_count !== 1 ? "s" : ""}
+                {" · "}
+                {skuResult.routing?.material_count} material
+                {skuResult.routing?.material_count !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
@@ -1340,7 +1406,7 @@ export default function AdminIntakeStudio() {
             </button>
             {skuResult.product?.id && (
               <a
-                href={`/admin/products/${skuResult.product.id}`}
+                href="/admin/items"
                 className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
               >
                 View / edit product

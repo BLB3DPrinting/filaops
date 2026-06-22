@@ -4,14 +4,15 @@
 
 ## What You'll Learn
 
-- How to record inventory transactions (receipts, issues, transfers, adjustments)
-- How to track filament spools and material usage
+- How to record inventory transactions (receipts, issues, transfers, adjustments, and more)
+- How to track filament spools by individual spool weight
 - How to run cycle counts to reconcile physical stock with system records
-- How to read inventory status indicators
+- How to use the reconciliation report to detect ledger drift on a per-item basis
+- How to review and action held transactions that require approval
 
 ## Prerequisites
 
-- Admin access to FilaOps
+- Staff access to FilaOps
 - At least one product in your catalog (see [Managing Your Product Catalog](product-catalog.md))
 - At least one location set up (see [System Settings](system-settings.md))
 
@@ -19,317 +20,378 @@
 
 ## Understanding Transaction Types
 
-Every inventory movement in FilaOps is recorded as a transaction. There are six types:
+Every inventory movement in FilaOps is recorded as a transaction. The system supports these types, each appearing as a color-coded badge throughout the interface:
 
-| Type | Color | What It Records |
-|------|-------|----|
-| **Receipt** | Green | Stock coming in — supplier deliveries, returns from customers, production output |
-| **Issue** | Red | Stock going out — shipped to customers, consumed in production |
-| **Transfer** | Blue | Stock moving between locations — warehouse to shop floor, shelf to shelf |
-| **Adjustment** | Yellow | Corrections — fixing miscounts, reconciling system vs. physical quantity |
-| **Consumption** | Orange | Materials used up during production — filament, resin, adhesives |
-| **Scrap** | Gray | Damaged, defective, or expired stock being written off |
+| Type | Badge color | What it records |
+|------|-------------|-----------------|
+| **Receipt** | Green | Stock coming in — supplier deliveries, production output, returns |
+| **Issue** | Red | Stock going out — fulfilled shipments, manual issues |
+| **Transfer** | Blue | Stock moving between locations |
+| **Adjustment** | Yellow | Signed corrections — fixing miscounts, reconciling physical vs. system quantity |
+| **Consumption** | Orange | Materials consumed during production or shipping |
+| **Scrap** | Gray | Stock written off as damaged, defective, or expired |
 
-Each transaction type appears as a colored badge throughout the system, making it easy to scan your transaction history at a glance.
+The system also records internal types you will see in the transaction history but cannot manually create: `reservation` (materials allocated to a production order), `reservation_release` (allocation reversed), `shipment` (automatic issue when a sales order ships), and `reconciliation_baseline` (physical count posted through the reconciliation tool).
+
+!!! note "Quantities and units"
+    FilaOps stores the quantity for each transaction in the product's inventory unit (for example, grams for filament). Cost per unit is stored per inventory unit as well — this prevents calculation errors when your purchase unit (KG) differs from your storage unit (G).
 
 ---
 
 ## The Inventory Transactions Page
 
-Navigate to **Inventory > Transactions** in the sidebar. This is your main page for recording and reviewing all inventory movements.
+Navigate to **Inventory > Transactions** in the sidebar. This page is your main ledger for recording and reviewing all inventory movements.
 
-<!-- TODO: screenshot of inventory transactions page -->
+![Inventory Transactions page showing the transaction table with type badges and filter dropdowns](../assets/screenshots/inventory/01-transactions-page.png)
 
 ### Recording a Transaction
 
-**Step 1.** Click **+ New Transaction**.
+1. Click **+ New Transaction**.
 
-**Step 2.** Fill in the transaction details:
+2. Fill in the required fields:
 
-- **Product** — Select the item (required). Start typing to search by name or SKU.
-- **Transaction Type** — Choose from the six types above (defaults to Receipt)
-- **Location** — Where this transaction happens (defaults to your primary location)
-- **Quantity** — How many units (supports decimals for weight-based items like filament)
-- **Cost per Unit** — The unit cost for this transaction (optional — used for costing reports)
+    - **Product** — Select the item (required). Choose from the dropdown, which lists products by SKU and name.
+    - **Transaction Type** — Choose from Receipt, Issue, Transfer, Adjustment, Consumption, or Scrap. Defaults to Receipt.
+    - **Location** — Where this transaction occurs. If left blank, defaults to your primary warehouse (Main Warehouse).
+    - **Quantity** — The amount in the product's inventory unit (supports decimals).
+    - **Cost per Unit** — Optional. The unit cost for this transaction; used for COGS and costing reports.
 
-**Step 3.** Add optional details:
+3. Add optional details:
 
-- **Reference Type** — Link this transaction to a source document:
-    - Purchase Order
-    - Production Order
-    - Sales Order
-    - Adjustment (standalone correction)
-- **Reference ID** — The specific document number (e.g., PO-1234)
-- **Lot Number** — For traceability, if your materials use lot tracking
-- **Serial Number** — For serialized items
-- **Notes** — Free-text notes about why this transaction happened
+    - **Reference Type** — Link the transaction to a source document: Purchase Order, Production Order, Sales Order, or Adjustment.
+    - **Reference ID** — The numeric ID of the linked document.
+    - **Lot Number** — For lot-tracked materials; enables traceability back to a supplier batch.
+    - **Serial Number** — For serialized items.
+    - **Notes** — Free-text notes explaining why this transaction happened.
 
-**Step 4.** Click **Save**.
+4. Click **Create Transaction**.
 
-!!! info "Transfer transactions"
-    When you select **Transfer** as the transaction type, an additional **To Location** field appears. This is required — you must specify both where the stock is coming from (Location) and where it's going (To Location).
+!!! note "Transfer transactions"
+    When you select **Transfer** as the transaction type, a **To Location** field appears. This is required — you must specify both the source location and the destination location.
 
-!!! info "Adjustment transactions"
-    When you select **Adjustment**, an **Adjustment Reason** dropdown appears. Choose a reason that explains the correction — this feeds into your audit trail and accounting records.
+!!! note "Adjustment transactions"
+    When you select **Adjustment**, an **Adjustment Reason** dropdown appears below the Notes field. Selecting a reason is recommended for the accounting audit trail. The reason list is loaded from your configured adjustment reasons.
+
+![New Transaction form with Transfer type selected, showing the required To Location field](../assets/screenshots/inventory/02-new-transaction-form.png)
 
 ### Filtering Transactions
 
-Use the filters above the transaction table to find specific records:
+Use the three filter dropdowns above the transaction table to narrow the list:
 
-- **Product** — Show transactions for a specific item
+- **Product** — Show transactions for a specific item.
 - **Type** — Show only receipts, issues, transfers, etc.
-- **Location** — Show transactions at a specific warehouse or shop
+- **Location** — Show transactions at a specific location.
+
+The table reloads automatically when you change a filter.
 
 ### Reading the Transaction Table
 
-The transaction table shows these columns:
-
-| Column | What It Shows |
+| Column | What it shows |
 |--------|--------------|
-| **Date** | When the transaction was recorded |
-| **Product** | Item SKU and name |
-| **Type** | Color-coded badge (Receipt, Issue, Transfer, etc.) |
-| **Quantity** | Amount with unit of measure |
-| **Location** | Where the transaction occurred |
-| **Reference** | Linked document type and number (e.g., "Purchase Order #12") |
-| **Cost/Unit** | Unit cost at time of transaction |
-| **Total Cost** | Quantity multiplied by cost per unit |
-| **Notes** | Any notes attached to the transaction |
-| **Reason** | Adjustment reason (for adjustment transactions only) |
+| **Date** | When the transaction was recorded (`created_at`) |
+| **Product** | Item SKU (bold) and name |
+| **Type** | Color-coded badge; transfer rows also show the destination location below the badge |
+| **Quantity** | Amount with the stored unit alongside (e.g., `1250.5 G`) |
+| **Location** | Where the transaction was posted |
+| **Reference** | Linked document type and ID (e.g., `purchase_order #42`) |
+| **Cost/Unit** | Unit cost at time of transaction, denominated per inventory unit |
+| **Total Cost** | Pre-calculated total stored on the transaction row — not recalculated in the browser |
+| **Unit** | The inventory unit the quantity and cost are expressed in |
+| **Notes** | Free-text notes |
+| **Reason** | Adjustment reason code, if set |
+
+---
+
+## Pending Approvals
+
+When a transaction would drive available stock negative (on-hand minus already-allocated), FilaOps holds it for review rather than rejecting it outright. Held transactions are excluded from COGS calculations until a staff member resolves them.
+
+The **Pending Approvals** panel appears at the top of the Inventory Transactions page. It is collapsed by default — click the header to expand it and see the count of transactions waiting for action.
+
+![Pending Approvals panel expanded, showing a held transaction row with Approve and Reject action buttons](../assets/screenshots/inventory/03-pending-approvals.png)
+
+### Reviewing a Held Transaction
+
+Each held transaction row shows the product SKU and name, transaction type, quantity, linked reference, the user who created it, and any notes. You have two options:
+
+- **Approve** — A browser prompt asks for a reason. After you enter a reason, the transaction is applied to the on-hand quantity immediately.
+- **Reject** — A modal asks for a void reason. The transaction row is kept for audit purposes but on-hand is never changed. Rejected (voided) transactions are excluded from all future calculations.
+
+!!! warning "Approval is permanent"
+    Once you approve a held transaction, the on-hand quantity changes immediately. Confirm the product, quantity, and reason carefully before approving.
+
+---
+
+## Reconciliation — Items Needing a Count
+
+The **Reconciliation** panel (on the Inventory Transactions page, below Pending Approvals) compares each item's stored on-hand quantity against the running sum of its transaction ledger since the last physical baseline. Items where stored on-hand differs from the ledger sum are flagged as **drifted**. Items that have never had a physical count posted are flagged as **uncounted**.
+
+![Reconciliation panel showing items with drifted and uncounted status badges, with a Count button per row](../assets/screenshots/inventory/04-reconciliation-panel.png)
+
+### Reconciliation Table Columns
+
+| Column | What it shows |
+|--------|--------------|
+| **SKU** | Item part number |
+| **Name** | Item name |
+| **Location** | Inventory location |
+| **Stored** | The `on_hand_quantity` currently in the inventory record |
+| **Ledger Sum** | Sum of transaction quantities since the last baseline |
+| **Drift** | Stored minus ledger sum; yellow = positive, red = negative |
+| **Baseline** | Date of the last physical count; `—` means the item has never been counted |
+| **Status** | `clean` (no drift), `drifted` (mismatch found), or `uncounted` (no baseline yet) |
+
+Toggle **Show drifted items only** to hide clean rows. Click **Refresh** to reload the data.
+
+### Posting a Physical Count for One Item
+
+For drifted or uncounted items, click **Count** to open a count entry dialog:
+
+1. The dialog shows the item's SKU, name, and current stored quantity.
+2. Enter your **Counted quantity** — the number you physically found on the shelf.
+3. Optionally enter **Notes** (for example, `shelf count, bin A3`).
+4. Click **Post count**.
+
+FilaOps posts a `reconciliation_baseline` transaction, stamps the item's baseline timestamp and baseline on-hand, and refreshes the report. Future drift calculations start from this new baseline.
+
+!!! tip "Use the Reconciliation panel for spot-checks"
+    The Reconciliation panel is ideal for investigating a single SKU that looks wrong. For a full warehouse count across many items, use **Inventory > Cycle Count** (see below) instead.
 
 ---
 
 ## Material Spools
 
-If you work with filament or other spool-based materials, FilaOps tracks individual spools so you know exactly how much material is left on each one.
+If you work with filament or other spool-based materials, FilaOps tracks individual spools so you can see exactly how much material is left on each one and trace material usage back to specific production orders.
 
 Navigate to **Inventory > Spools** in the sidebar.
 
-<!-- TODO: screenshot of spools page -->
+![Material Spools page showing the spool table with weight values, progress bars, and status badges](../assets/screenshots/inventory/05-spools-page.png)
 
-### The Spools Page
+### The Spools Table
 
-Each spool in the list shows:
+Each row shows:
 
-- **Spool Number** — Your identifier for this physical spool
+- **Spool Number** — Your unique identifier for this physical spool
 - **Material** — The material name and SKU
-- **Weight** — A progress bar showing current weight vs. initial weight, with the exact values displayed
+- **Weight** — Current weight and initial weight in grams (e.g., `750.3g / 1000.0g`), with a color-coded progress bar
 - **Status** — Active, Empty, Expired, or Damaged
-- **Location** — Where the spool is stored or in use
-
-### Weight Progress Bar
-
-The weight progress bar is color-coded to give you a quick visual read on remaining material:
-
-| Color | Meaning |
-|-------|---------|
-| **Green** | More than 20% remaining — plenty of material left |
-| **Yellow** | Between 10% and 20% remaining — getting low, plan a replacement |
-| **Red** | 10% or less remaining — nearly empty, swap soon |
-
-### Adding a Spool
-
-**Step 1.** Click **+ Add Spool**.
-
-**Step 2.** Fill in the spool details:
-
-- **Spool Number** — A unique identifier (required). Use whatever system works for you — sequential numbers, label codes, etc.
-- **Material** — Which material product this spool contains (required). Select from your materials catalog.
-- **Initial Weight** — The starting weight in grams (required). For a standard 1kg spool, enter 1000.
-- **Current Weight** — How much material is currently on the spool in grams (required). For a brand new spool, this matches the initial weight.
-- **Status** — The spool's condition (Active, Empty, Expired, or Damaged)
 - **Location** — Where the spool is stored
-- **Supplier Lot Number** — The manufacturer's lot or batch number (useful for traceability)
-- **Expiry Date** — When the material expires (for hygroscopic materials like nylon)
-- **Notes** — Any additional details
 
-**Step 3.** Click **Save**.
+#### Weight Progress Bar Colors
 
-!!! tip "Spool Number, Material, and Initial Weight are locked after creation"
-    Once you save a spool, you can't change its number, material assignment, or initial weight. You can always update the current weight, status, location, and other fields. If you made a mistake, delete the spool and create a new one.
+| Color | Threshold | Meaning |
+|-------|-----------|---------|
+| Green | > 20% remaining | Plenty of material left |
+| Yellow | 10–20% remaining | Getting low — plan a replacement |
+| Red | < 10% remaining | Nearly empty — swap soon |
 
-### Updating Spool Weight
-
-As you use material, update the current weight to keep your progress bars accurate:
-
-**Step 1.** Click **Edit** on the spool you want to update.
-
-**Step 2.** Enter the new **Current Weight** in grams. Weigh the spool on a scale for accuracy.
-
-**Step 3.** Click **Save**.
+FilaOps automatically marks a spool as **Empty** when its weight drops below 50 g.
 
 ### Filtering Spools
 
-- **Search** — Find spools by spool number, SKU, or material name
-- **Status** — Show only active, empty, expired, or damaged spools
+- **Search field** — Find spools by spool number, material SKU, or material name
+- **Status dropdown** — Show only Active, Empty, Expired, or Damaged spools
+
+### Adding a Spool
+
+1. Click **+ Add Spool**.
+
+2. Fill in the spool details:
+
+    - **Spool Number** — A unique identifier (required). Cannot be changed after creation.
+    - **Material** — Which material product this spool contains (required). The dropdown shows material-type products from your catalog.
+    - **Initial Weight (g)** — The starting weight in grams (required). For a standard 1 kg spool, enter `1000`.
+    - **Current Weight (g)** — How much material is currently on the spool in grams. Defaults to the initial weight for a brand-new spool.
+    - **Location** — Where the spool is stored. Recommended — spools without a location cannot update the inventory record when weight changes.
+    - **Supplier Lot Number** — The manufacturer's lot or batch number; used for traceability.
+    - **Expiry Date** — When the material expires (useful for hygroscopic materials such as nylon or TPU).
+    - **Notes** — Any additional details about the spool's condition.
+
+3. Click **Add Spool** (or **Save** in the modal).
+
+!!! warning "Spool Number and Material cannot be changed after creation"
+    Once a spool is saved, its spool number and material assignment are fixed. If you made a mistake, delete the spool and create a new one.
+
+![Add Spool modal with fields for spool number, material, initial weight, current weight, and location](../assets/screenshots/inventory/06-add-spool-modal.png)
+
+### Editing a Spool
+
+Click **Edit** on the spool row to open the edit modal. From there you can update:
+
+- **Status** — Active, Empty, Expired, or Damaged
+- **Location** — Change or clear the storage location (sending an explicit empty value clears the location)
+- **Notes** — Update or clear condition notes
+
+!!! warning "Weight updates require a reason and use a separate flow"
+    The edit modal rejects weight changes because updating weight creates an inventory adjustment transaction that requires a reason for accounting compliance. To adjust spool weight, use the dedicated weight-adjustment patch (or record a manual adjustment transaction via **Inventory > Transactions**).
+
+### Spool Usage and Traceability
+
+Each spool maintains a complete history of the production orders that consumed material from it:
+
+- From a spool, you can see every production order that used it and the grams consumed per order.
+- From a production order, you can see which spool(s) supplied the material.
+
+This bidirectional traceability is useful for quality investigations — if a finished part is defective, you can trace back to the exact supplier lot number and identify all other production orders that used the same material.
 
 !!! tip "Weigh spools regularly"
-    The most common complaint about spool tracking is stale weight data. Make it a habit to weigh active spools at the start of each day or each print run. Accurate weights prevent mid-print runouts and improve your MRP material planning.
+    The most common complaint about spool tracking is stale weight data. Make it a habit to weigh active spools at the start of each print run. Accurate weights prevent mid-print runouts and improve MRP material planning accuracy.
 
 ---
 
 ## Cycle Counts
 
-A cycle count is a physical inventory audit — you count what's actually on the shelf, enter those numbers, and FilaOps calculates and records the variances. This keeps your system quantities aligned with reality.
+A cycle count is a physical inventory audit — you count what is actually on the shelf, enter those numbers, and FilaOps calculates the variances and posts adjustment transactions. This keeps your system quantities aligned with reality.
 
 Navigate to **Inventory > Cycle Count** in the sidebar.
 
-<!-- TODO: screenshot of cycle count page -->
+![Cycle Count page showing the count setup panel with Count Reference and Default Reason fields, and the inventory table with Counted Qty inputs](../assets/screenshots/inventory/07-cycle-count-page.png)
 
 ### How Cycle Counts Work
 
 ```mermaid
 graph LR
-    A[Filter items to count] --> B[Count physical stock]
+    A[Set count reference & default reason] --> B[Filter items to count]
     B --> C[Enter counted quantities]
-    C --> D[Review variances in table]
-    D --> E[Submit Count]
-    E --> F[Review variance summary]
-    F --> G{Correct?}
-    G -- Yes --> H[Confirm & Post]
-    G -- No --> D
-    H --> I[System records adjustments + GL entries]
+    C --> D[Click Submit Count]
+    D --> E[Review Variance modal opens]
+    E --> F{Adjustments correct?}
+    F -- Yes --> G[Confirm & Post]
+    F -- No --> C
+    G --> H[Adjustments and GL journal entries written]
 ```
 
-When you submit a cycle count, FilaOps automatically creates inventory adjustment transactions for every item where the counted quantity differs from the system quantity. These adjustments include the reason you selected and create corresponding accounting entries.
+### Step 1: Set Up the Count
 
-### Running a Cycle Count
+At the top of the page, configure your count session before entering any quantities:
 
-#### Step 1: Set Up the Count
+- **Count Reference** — Auto-generated as `Cycle Count YYYY-MM-DD`. Edit this to add specifics, for example `Cycle Count 2026-06-20 — Shelf A`.
 
-At the top of the page, configure your count session:
-
-- **Count Reference** — Auto-generated as "Cycle Count YYYY-MM-DD" (today's date). You can edit this to add specifics like "Cycle Count 2026-02-15 — Shelf A".
-- **Default Reason** — Select a reason that will apply to all variances in this count (required). You can override the reason on individual items later. Options include:
+- **Default Reason** — Required for accounting compliance. Applies to all variances unless you override it per item in the table. Options are:
     - Physical count variance
-    - Damaged/defective — scrapped
+    - Damaged/defective - scrapped
     - Found in alternate location
     - Data entry error correction
     - Theft/loss suspected
     - Received but not recorded
     - Shipped but not recorded
     - Sample/testing usage
-    - Other — see notes
+    - Other - see notes
 
-#### Step 2: Filter What to Count
+- **Fill Current Qty** — Prefills every Counted Qty field with the current system quantity. Click this first, then only change the items that differ. Located next to the Default Reason to prevent accidental fat-finger clicks near Submit Count.
 
-Narrow down which items to include in this count:
+### Step 2: Filter What to Count
 
-- **Location** — Select a specific location, or count across all locations
-- **Category** — Filter by product category (e.g., count only filament, or only finished goods)
-- **Search** — Find specific items by SKU or name
-- **Show zero quantity items** — Toggle this on to include items with zero system quantity (useful for finding unrecorded stock)
+Use the four filters to narrow which items appear in the table:
 
-#### Step 3: Enter Counted Quantities
+- **Location** — Count only items at a specific location, or leave blank to include all locations.
+- **Category** — Filter by product category (for example, count only filament, or only finished goods).
+- **Search** — Find specific items by SKU or name; press Enter or click **Search**.
+- **Show zero quantity items** — Toggle on to include items with zero system quantity; useful for finding stock that is physically present but not yet recorded.
 
-The inventory table shows every item matching your filters. For each item you physically counted:
+### Step 3: Enter Counted Quantities
 
-| Column | What It Shows |
+The inventory table shows every item matching your filters:
+
+| Column | What it shows |
 |--------|--------------|
-| **SKU** | The item's part number |
-| **Product Name** | Item name, with category and unit of measure shown below |
-| **System Qty** | What FilaOps thinks you have |
-| **Counted Qty** | Where you enter the number you actually counted |
-| **Variance** | The difference (counted minus system) — shown in green if positive, red if negative |
-| **Reason** | Per-item reason override — only appears when there's a variance |
+| **SKU** | Item part number |
+| **Product Name** | Item name; category and unit of measure shown below in smaller text |
+| **System Qty** | What FilaOps currently has recorded |
+| **Counted Qty** | The input field where you enter your physical count |
+| **Variance** | Counted minus system — green if positive, red if negative |
+| **Reason** | Per-item reason override dropdown; only appears when a variance exists for that row |
 
-Two shortcut buttons help speed up data entry:
+Rows with a variance get a yellow-tinted background. The Counted Qty input border turns yellow when the entered value differs from System Qty, making it easy to scan for in-progress entries.
 
-- **Fill Current Qty** — Pre-fills every Counted Qty field with the current System Qty. Then you only need to change the items that differ.
-- **Clear All** — Resets all Counted Qty fields to blank.
+!!! tip "Use Fill Current Qty to speed up large counts"
+    Click **Fill Current Qty** first, then walk the shelves and change only the items where your physical count differs. This is far faster than typing every quantity from scratch.
 
-!!! tip "The \"Fill Current Qty\" shortcut"
-    For most cycle counts, the majority of items will match. Click **Fill Current Qty** first, then walk the shelves and only change the items where your count differs. This is much faster than entering every number from scratch.
+### Step 4: Submit and Review
 
-#### Step 4: Review Variances
+When you finish entering quantities, click **Submit Count**. The button is disabled until at least one item has a non-zero variance. FilaOps opens the **Review Variance Before Posting** modal — nothing is written until you confirm.
 
-As you enter quantities, FilaOps highlights variances in real time:
+The modal shows:
 
-- Rows with variances get a **yellow background** so they stand out
-- The Counted Qty input gets a **yellow border** when it differs from System Qty
-- The Variance column shows the difference in **green** (found more than expected) or **red** (found less than expected)
+- A summary: number of adjustments, total variance value in dollars, and separate up/down dollar amounts.
+- Items counted at system quantity (zero variance) are collapsed to a single note — they require no adjustment.
+- A scrollable per-item table showing every adjustment that *will* be posted:
 
-For each item with a variance, you can optionally select a **per-item reason** from the dropdown. If you don't, the default reason from the top of the page is used.
-
-#### Step 5: Review the Variance Summary
-
-When you've finished entering all quantities, click **Submit Count**. FilaOps opens a
-**Variance Review** panel before writing anything. The review shows:
-
-- A summary line: **N adjustments, total variance value $X (▲ $Y up / ▼ $Z down)**
-- Items counted at system quantity (zero variance) are collapsed into a single note —
-  they require no adjustment and are not listed individually.
-- A per-item table for every item that *will* be adjusted:
-
-| Column | What It Shows |
+| Column | What it shows |
 |--------|--------------|
 | **SKU** | Item part number |
 | **Name** | Item name |
 | **System Qty** | Quantity the system had recorded |
 | **Counted Qty** | What you entered |
-| **Variance** | The difference (green = found more, red = found less) |
-| **Unit Cost** | Cost used to calculate the dollar impact |
-| **Variance Value** | `variance × unit cost` — the GL dollar amount |
-| **Reason** | The reason that will be recorded on the transaction |
+| **Variance** | The difference — green = found more, red = found less |
+| **Unit Cost** | The effective cost used to calculate dollar impact |
+| **Variance Value** | `variance × unit cost` |
+| **Reason** | The reason that will be recorded on the adjustment transaction |
 
-From this screen you have two options:
+From this modal you have two choices:
 
-- **Go Back** — dismiss the review and return to your entries (nothing is written;
-  all your counts are preserved so you can correct any mistakes).
-- **Confirm & Post** — post all adjustments immediately. Inventory quantities and
-  GL journal entries are written at this point.
+- **Go Back** — Dismiss the modal and return to your count entries. Nothing has been written; all entries are preserved.
+- **Confirm & Post** — Post all adjustments immediately. Inventory on-hand quantities and GL journal entries are written at this point.
 
-After a successful post, the page shows a results summary:
+![Variance Review modal showing the adjustment table with unit costs, variance values, and the Confirm & Post button](../assets/screenshots/inventory/08-variance-review-modal.png)
 
-- **Total Items** — How many items were included in the count
+### Step 5: Read the Results
+
+After a successful post, the page shows a results summary panel:
+
+- **Total Items** — Number of items submitted (only items with a non-zero variance are posted as adjustment transactions)
 - **Successful** (green) — Items processed without errors
-- **Failed** (red) — Items that couldn't be processed (rare, usually a system error)
+- **Failed** (red) — Items that could not be processed
 
-!!! info "Accounting impact"
-    Every cycle count variance creates a journal entry in your general ledger. Positive variances debit Inventory and credit the Inventory Adjustment expense account. Negative variances do the opposite. This keeps your books in sync with physical reality.
+The results table shows only rows with a non-zero variance or a failure so you can quickly spot any problems. The inventory table refreshes with the new on-hand values.
+
+!!! note "Accounting impact"
+    Non-zero cost variances create a GL journal entry. Positive variances (found more than expected) debit Inventory and credit the Inventory Adjustment expense account. Negative variances reverse this. All adjustments are posted to GL account 5030 (Inventory Adjustment expense). Items with zero cost (no cost method or cost not yet assigned) do not generate GL entries.
 
 ### Cycle Count Best Practices
 
-- **Count by area, not all at once** — Use the Location and Category filters to count one section at a time. This is faster and more accurate than trying to count your entire inventory in one session.
-- **Count high-value items more often** — Finished goods and expensive materials deserve weekly or monthly counts. Low-value supplies can be counted quarterly.
-- **Investigate large variances** — A variance of 1-2 units might be a normal counting error. A variance of 50 units suggests a process problem (unrecorded shipments, theft, data entry mistakes).
-- **Use specific reasons** — "Physical count variance" is a catch-all, but specific reasons like "Shipped but not recorded" help you find and fix process gaps.
-- **Count during quiet times** — Avoid counting while production is running or orders are being packed. Activity during the count leads to inaccurate results.
-
-!!! tip "Investigating a specific item?"
-    The Reconciliation report (Inventory > Transactions > Reconciliation section) lets
-    you count a single item and see exactly where its stored balance diverges from the
-    transaction ledger. Use it when a particular SKU looks wrong rather than running a
-    full cycle count. See [Inventory Reconciliation](inventory-reconciliation.md).
+- **Count by area, not all at once** — Use Location and Category filters to count one section at a time. This is faster and reduces the chance of double-counting or missing items.
+- **Count high-value items more often** — Finished goods and expensive materials deserve weekly or monthly counts. Low-value consumables can be counted quarterly.
+- **Investigate large variances** — A variance of 1–2 units is usually a counting error. A variance of 50 units points to a process problem such as unrecorded shipments, theft, or a systemic data entry gap.
+- **Use specific reasons** — "Physical count variance" is a catch-all. Reasons like "Shipped but not recorded" or "Received but not recorded" help you trace and fix the upstream process gap.
+- **Count during quiet times** — Avoid counting while production is running or orders are being picked and packed. Activity during the count leads to incorrect results.
 
 ---
 
 ## Tips & Best Practices
 
-- **Record transactions in real time** — Don't batch up a week's worth of receipts and enter them on Friday. Real-time recording keeps your available quantities accurate for MRP and order fulfillment.
+- **Record transactions in real time** — Do not batch a week's worth of receipts and enter them on Friday. Real-time recording keeps your available quantities accurate for MRP and order fulfillment.
 - **Always link to a reference** — When recording a receipt, link it to the purchase order. When recording an issue, link it to the sales order. This creates a complete audit trail.
-- **Use lot numbers for traceability** — If a customer reports a quality issue, lot numbers let you trace the problem back to a specific supplier batch.
-- **Monitor the Items page stock colors** — The [Items page](product-catalog.md) shows stock status colors (red/orange/yellow/green) at a glance. Check it daily for out-of-stock and low-stock alerts.
-- **Weigh spools, don't estimate** — A cheap kitchen scale is your best friend for spool tracking. Guessing leads to mid-print failures.
-- **Run cycle counts monthly** — At minimum, count your top 20% of items (by value) every month. This catches variances before they snowball.
+- **Use lot numbers for traceability** — If a customer reports a quality issue, lot numbers let you trace the problem back to a specific supplier batch and identify all other affected production orders.
+- **Assign locations to spools** — A spool without a location can be tracked for weight, but weight adjustments to a location-less spool do not update the inventory on-hand record. Assign a location to every spool for accurate totals.
+- **Weigh spools, do not estimate** — A kitchen scale is your best tool for spool tracking. Guessing leads to mid-print failures.
+- **Run cycle counts regularly** — At minimum, count your top 20% of items (by value) every month. This catches variances before they compound into bigger problems.
+- **Check the Reconciliation panel periodically** — After automated events (production completion, shipments), open the Reconciliation panel to verify there is no unexpected drift between stored on-hand and the transaction ledger.
+
+---
 
 ## What's Next?
 
 With inventory tracking in place, you can automate replenishment and plan ahead:
 
-- [Ordering Supplies](purchasing.md) — create purchase orders when stock runs low
-- [Material Planning (MRP)](mrp.md) — let FilaOps calculate material requirements automatically
-- [Running Production](production.md) — track material consumption during manufacturing
+- [Ordering Supplies](purchasing.md) — Create purchase orders when stock runs low
+- [Material Planning (MRP)](mrp.md) — Let FilaOps calculate material requirements automatically
+- [Running Production](production.md) — Track material consumption during manufacturing
+
+---
 
 ## Quick Reference
 
-| Task | Where to Find It |
-|------|------------------|
+| Task | Where to find it |
+|------|-----------------|
 | Record a receipt | **Inventory > Transactions** > **+ New Transaction** > Type: Receipt |
 | Record a transfer | **Inventory > Transactions** > **+ New Transaction** > Type: Transfer |
 | Record an adjustment | **Inventory > Transactions** > **+ New Transaction** > Type: Adjustment |
+| Approve or reject a held transaction | **Inventory > Transactions** > expand **Pending Approvals** |
+| Check for ledger drift on a specific item | **Inventory > Transactions** > expand **Reconciliation** |
+| Post a physical count for one item | Reconciliation panel > click **Count** on the item row |
 | Add a new spool | **Inventory > Spools** > **+ Add Spool** |
-| Update spool weight | **Inventory > Spools** > **Edit** on the spool row |
-| Run a cycle count | **Inventory > Cycle Count** > Fill quantities > **Submit Count** > review variances > **Confirm & Post** |
-| Filter by location | Use the Location dropdown on any inventory page |
-| Check stock levels | **Inventory > Items** > Look at stock status colors |
+| Edit spool status or location | **Inventory > Spools** > **Edit** on the spool row |
+| Run a cycle count | **Inventory > Cycle Count** > set reason > enter quantities > **Submit Count** > review > **Confirm & Post** |
+| Filter transactions by location | Use the Location dropdown on the Transactions page |
+| Check stock levels | **Inventory > Items** — look at stock status indicators |
