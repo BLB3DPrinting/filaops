@@ -69,7 +69,7 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
     - failed: Orders that failed QC
     - first_pass_yield: passed / (passed + failed) as a percentage
     - pending_inspections: Current queue depth
-    - scrap_rate: scrapped qty / total completed qty as a percentage
+    - scrap_rate: scrapped qty / (completed + scrapped) qty as a percentage
     - total_scrapped_cost: Sum of scrap costs in the period
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -94,9 +94,12 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
     waived = counts.get("waived", 0)
     total_inspections = passed + failed + waived
 
+    # First-pass yield = passed / (passed + failed). Waived parts are excluded
+    # from the yield (they neither cleanly passed nor failed inspection).
+    fpy_denom = passed + failed
     first_pass_yield = (
-        round((passed / total_inspections) * 100, 1)
-        if total_inspections > 0
+        round((passed / fpy_denom) * 100, 1)
+        if fpy_denom > 0
         else None
     )
 
@@ -123,9 +126,11 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
     completed_qty = float(qty_agg.completed) if qty_agg else 0
     scrapped_qty = float(qty_agg.scrapped) if qty_agg else 0
 
+    # Scrap rate = scrapped / (good + scrapped) so it stays bounded 0-100%.
+    scrap_denom = completed_qty + scrapped_qty
     scrap_rate = (
-        round((scrapped_qty / completed_qty) * 100, 1)
-        if completed_qty > 0
+        round((scrapped_qty / scrap_denom) * 100, 1)
+        if scrap_denom > 0
         else None
     )
 

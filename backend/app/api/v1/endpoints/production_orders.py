@@ -588,10 +588,12 @@ async def get_qc_statuses(
     return {
         "statuses": [s.value for s in QCStatus],
         "descriptions": {
+            QCStatus.NOT_REQUIRED.value: "No inspection required",
             QCStatus.PENDING.value: "Awaiting inspection",
+            QCStatus.IN_PROGRESS.value: "Inspection in progress",
             QCStatus.PASSED.value: "Passed quality check",
             QCStatus.FAILED.value: "Failed quality check",
-            QCStatus.CONDITIONAL.value: "Passed with conditions",
+            QCStatus.WAIVED.value: "Failed but accepted (waived)",
         }
     }
 
@@ -1262,27 +1264,28 @@ async def record_qc_inspection(
     current_user: User = Depends(get_current_user),
 ) -> QCInspectionResponse:
     """Record QC inspection results."""
-    result = production_order_service.record_qc_inspection(
+    production_order_service.record_qc_inspection(
         db,
         order_id,
-        inspector=request.inspector or current_user.email,
-        qc_status=request.qc_status.value,
-        quantity_passed=request.quantity_passed,
-        quantity_failed=request.quantity_failed or 0,
-        failure_reason=request.failure_reason,
+        inspector=current_user.email,
+        qc_status=request.result.value,
         notes=request.notes,
     )
 
     db.commit()
 
+    order = production_order_service.get_production_order(db, order_id)
+
     return QCInspectionResponse(
-        order_id=result["order_id"],
-        order_code=result["order_code"],
-        qc_status=result["qc_status"],
-        quantity_passed=result["quantity_passed"],
-        quantity_failed=result["quantity_failed"],
-        inspector=result["inspector"],
-        inspected_at=result["inspected_at"],
+        production_order_id=order.id,
+        production_order_code=order.code,
+        qc_status=order.qc_status,
+        qc_notes=order.qc_notes,
+        qc_inspected_by=order.qc_inspected_by,
+        qc_inspected_at=order.qc_inspected_at,
+        sales_order_updated=False,
+        sales_order_status=None,
+        message=f"QC {order.qc_status} recorded for {order.code}",
     )
 
 
@@ -1332,11 +1335,11 @@ async def record_scrap(
     result = production_order_service.record_scrap(
         db,
         order_id,
-        quantity_scrapped=request.quantity,
-        reason_code=request.reason_code,
-        operation_id=request.operation_id,
+        quantity_scrapped=request.quantity_scrapped,
+        reason_code=request.scrap_reason_code,
+        operation_id=None,
         notes=request.notes,
-        create_remake=request.create_remake or False,
+        create_remake=request.create_replacement,
         user_email=current_user.email,
     )
 
@@ -1348,7 +1351,7 @@ async def record_scrap(
         order_id=order.id,
         order_code=order.code,
         quantity_scrapped=order.quantity_scrapped or 0,
-        scrap_reason=request.reason_code,
+        scrap_reason=request.scrap_reason_code,
         remake_order_id=result["remake_order"]["id"] if result["remake_order"] else None,
         remake_order_code=result["remake_order"]["code"] if result["remake_order"] else None,
     )

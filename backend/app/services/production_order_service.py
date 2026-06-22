@@ -621,8 +621,8 @@ def record_qc_inspection(
     order_id: int,
     inspector: str,
     qc_status: str,
-    quantity_passed: int,
-    quantity_failed: int = 0,
+    quantity_passed: Optional[int] = None,
+    quantity_failed: Optional[int] = None,
     failure_reason: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> dict:
@@ -642,6 +642,16 @@ def record_qc_inspection(
         Dict with inspection results
     """
     order = get_production_order(db, order_id)
+
+    # Derive whole-order pass/fail quantities when the caller does not supply
+    # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
+    if quantity_passed is None or quantity_failed is None:
+        order_qty = int(order.quantity_completed or order.quantity_ordered or 0)
+        if qc_status == "failed":
+            quantity_passed, quantity_failed = 0, order_qty
+        else:
+            quantity_passed, quantity_failed = order_qty, 0
+    quantity_failed = quantity_failed or 0
 
     inspected_at = datetime.now(timezone.utc)
 
@@ -670,9 +680,12 @@ def record_qc_inspection(
     order.qc_inspected_at = inspected_at
     order.qc_notes = notes
 
-    # Update order based on QC result
-    if qc_status == "failed" and quantity_failed > 0:
-        order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_failed
+    # Update order based on QC result. A failed inspection holds the order so
+    # it cannot be closed/fulfilled until it is dispositioned.
+    if qc_status == "failed":
+        order.status = "qc_hold"
+        if quantity_failed > 0:
+            order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_failed
 
     db.flush()
 
@@ -830,14 +843,28 @@ def record_scrap(
     # Update order scrap quantity
     order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_scrapped
 
-    # Create scrap record
+    # Create scrap record with cost capture (mirrors scrap_service pattern,
+    # matching the real ScrapRecord columns and NOT-NULL cost fields).
+    from app.models.user import User
+    scrap_user = db.query(User).filter(User.email == user_email).first()
+    product = order.product
+    unit_cost = (
+        product.standard_cost
+        if product is not None and product.standard_cost is not None
+        else Decimal("0")
+    )
+    qty_dec = Decimal(str(quantity_scrapped))
     scrap_record = ScrapRecord(
         production_order_id=order_id,
-        operation_id=operation_id,
-        quantity=quantity_scrapped,
-        reason_code=reason_code,
+        production_operation_id=operation_id,
+        product_id=order.product_id,
+        quantity=qty_dec,
+        unit_cost=unit_cost,
+        total_cost=unit_cost * qty_dec,
+        scrap_reason_id=reason.id,
+        scrap_reason_code=reason_code,
         notes=notes,
-        recorded_by=user_email,
+        created_by_user_id=scrap_user.id if scrap_user else None,
     )
     db.add(scrap_record)
     db.flush()
