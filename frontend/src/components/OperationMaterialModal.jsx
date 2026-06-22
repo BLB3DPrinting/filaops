@@ -116,7 +116,6 @@ export default function OperationMaterialModal({
       return;
     }
 
-    setLoading(true);
     setError(null);
 
     try {
@@ -141,6 +140,8 @@ export default function OperationMaterialModal({
         return;
       }
 
+      // Network path only — wizard mode returns above without touching loading
+      setLoading(true);
       let res;
       if (isEditing) {
         // Update existing material

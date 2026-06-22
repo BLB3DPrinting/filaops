@@ -421,6 +421,7 @@ export default function AdminIntakeStudio() {
     setContextBusy(false);
     setPrintWorkCenterId("");
     setFinishingOps([]);
+    setMatModalOpIdx(null);
     setActualPrice("");
     setSkuResult(null);
     setSkuBusy(false);
