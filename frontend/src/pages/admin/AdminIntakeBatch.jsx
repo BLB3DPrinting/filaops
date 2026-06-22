@@ -367,6 +367,11 @@ export default function AdminIntakeBatch() {
   };
 
   const handleFiles = async (rawFiles) => {
+    if (processing) {
+      toast.error("A batch is already processing — wait for it to finish.");
+      return;
+    }
+
     const validFiles = rawFiles.filter((f) => {
       const n = f.name.toLowerCase();
       return n.endsWith(".3mf") || n.endsWith(".gcode.3mf");
@@ -467,6 +472,15 @@ export default function AdminIntakeBatch() {
         onDragLeave={handleDrag}
         onDrop={handleDrop}
         onClick={() => document.getElementById("batch-file-input").click()}
+        role="button"
+        tabIndex={0}
+        aria-label="Upload sliced .gcode.3mf files"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            document.getElementById("batch-file-input").click();
+          }
+        }}
       >
         <input
           id="batch-file-input"
@@ -504,7 +518,7 @@ export default function AdminIntakeBatch() {
             {processing && (
               <span className="flex items-center gap-2 text-blue-300 text-sm font-medium">
                 <Spinner small />
-                Processing {progress.done + 1} of {progress.total}…
+                Processing {Math.min(progress.done + 1, progress.total)} of {progress.total}…
               </span>
             )}
             {!processing && processingCount === 0 && (
