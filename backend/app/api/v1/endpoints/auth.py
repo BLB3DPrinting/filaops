@@ -693,7 +693,7 @@ async def request_password_reset(
                 "SECURITY WARNING: Password reset auto-approved in production because "
                 "SMTP is not configured. This bypasses admin approval. Configure SMTP "
                 "to enable secure password resets. "
-                "See: https://blb3d.github.io/filaops/EMAIL_CONFIGURATION/",
+                "See: https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/",
                 extra={"user_id": user.id, "email": user.email}
             )
         reset_request.status = 'approved'  # type: ignore[assignment]

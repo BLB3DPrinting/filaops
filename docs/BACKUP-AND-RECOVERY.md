@@ -326,7 +326,7 @@ Complete restore from scratch when the entire server is lost.
 # 1. Install Docker and Docker Compose on the new server
 
 # 2. Clone the repository (or copy docker-compose.yml and .env)
-git clone https://github.com/Blb3D/filaops.git
+git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 
 # 3. Copy your .env file with DB credentials

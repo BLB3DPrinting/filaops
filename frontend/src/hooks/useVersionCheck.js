@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getVersionInfo, isVersionLessThan, formatVersion } from "../utils/version";
 
-const GITHUB_API_URL = "https://api.github.com/repos/Blb3D/filaops/releases/latest";
+const GITHUB_API_URL = "https://api.github.com/repos/BLB3DPrinting/filaops/releases/latest";
 const SESSION_STORAGE_KEY = "filaops_version_check";
 const SESSION_STORAGE_TIMESTAMP = "filaops_version_check_timestamp";
 const CHECK_INTERVAL_MS = 1000 * 60 * 60; // 1 hour

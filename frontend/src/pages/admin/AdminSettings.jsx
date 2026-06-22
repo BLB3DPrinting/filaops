@@ -1019,7 +1019,7 @@ const AdminSettings = () => {
                   </button>
                   {latestVersion && updateAvailable && (
                     <a
-                      href={`https://github.com/Blb3D/filaops/releases/tag/v${formatVersion(
+                      href={`https://github.com/BLB3DPrinting/filaops/releases/tag/v${formatVersion(
                         latestVersion
                       )}`}
                       target="_blank"

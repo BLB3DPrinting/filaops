@@ -4,9 +4,9 @@
 
 The **only** official source for FilaOps is:
 
-**[github.com/Blb3D/filaops](https://github.com/Blb3D/filaops)**
+**[github.com/BLB3DPrinting/filaops](https://github.com/BLB3DPrinting/filaops)**
 
-Malicious forks and repackaged copies of FilaOps exist. We will **never** ask you to download zip files from `raw.githubusercontent.com` links. If you encounter this, it is malware. Always verify releases at: [github.com/Blb3D/filaops/releases](https://github.com/Blb3D/filaops/releases)
+Malicious forks and repackaged copies of FilaOps exist. We will **never** ask you to download zip files from `raw.githubusercontent.com` links. If you encounter this, it is malware. Always verify releases at: [github.com/BLB3DPrinting/filaops/releases](https://github.com/BLB3DPrinting/filaops/releases)
 
 ---
 
@@ -32,7 +32,7 @@ If you discover a security vulnerability in FilaOps, we appreciate your help in 
 
 1. **GitHub Private Vulnerability Reporting (Preferred)**
    Use GitHub's built-in private reporting at:
-   [github.com/Blb3D/filaops/security/advisories/new](https://github.com/Blb3D/filaops/security/advisories/new)
+   [github.com/BLB3DPrinting/filaops/security/advisories/new](https://github.com/BLB3DPrinting/filaops/security/advisories/new)
 
 2. **Email**
    Send details to: **security@blb3dprinting.com**

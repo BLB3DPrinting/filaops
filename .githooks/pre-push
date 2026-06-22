@@ -12,8 +12,8 @@ REMOTE_URL="$2"
 # Only block pushes to the public repo (upstream).
 # Pushes to origin (private repo) are allowed to contain PRO code.
 case "$REMOTE_URL" in
-    *Blb3D/filaops.git*|*Blb3D/filaops\ *)
-        ;; # public repo — check for PRO code
+    *BLB3DPrinting/filaops.git*|*BLB3DPrinting/filaops\ *|*Blb3D/filaops.git*|*Blb3D/filaops\ *)
+        ;; # public repo (new org or old redirect) — check for PRO code
     *)
         exit 0 ;; # private repo — allow everything
 esac

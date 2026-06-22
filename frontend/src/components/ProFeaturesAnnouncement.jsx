@@ -164,7 +164,7 @@ export default function ProFeaturesAnnouncement() {
               Want to be notified when Pro launches?
             </p>
             <a
-              href="https://github.com/Blb3D/filaops/discussions"
+              href="https://github.com/BLB3DPrinting/filaops/discussions"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 transition-all font-medium"
