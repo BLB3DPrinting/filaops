@@ -86,9 +86,9 @@ configuration.
 | Guide | What you will learn |
 |---|---|
 | [Managing Your Product Catalog](product-catalog.md) | Create finished goods, components, materials, and supplies; set reorder points; duplicate items; use the Variant Matrix to bulk-create color or material variants from a template |
-| [Bills of Materials](product-catalog.md#bill-of-materials) | Build multi-level BOMs, view the cost rollup, copy a BOM to another product, and launch a production order directly from a BOM |
+| [Bills of Materials](product-catalog.md#bills-of-materials-boms) | Build multi-level BOMs, view the cost rollup, copy a BOM to another product, and launch a production order directly from a BOM |
 | [Work Centers & Routings](production.md#work-centers) | Define work centers, assign printer resources, and create routings with per-operation materials |
-| [Material Spools](inventory.md#spools) | Track filament spools by weight, link to inventory items, and record consumption per print *(admin only)* |
+| [Material Spools](inventory.md#material-spools) | Track filament spools by weight, link to inventory items, and record consumption per print *(admin only)* |
 
 ---
 
@@ -96,7 +96,7 @@ configuration.
 
 | Guide | What you will learn |
 |---|---|
-| [Buy List & Material Shortages](purchasing.md#buy-list) | The Buy List in Purchasing consolidates demand across all open orders and shows what to buy, how much, and by when — with a one-click "Create PO" shortcut |
+| [Buy List & Material Shortages](purchasing.md#the-buy-list-tab) | The Buy List in Purchasing consolidates demand across all open orders and shows what to buy, how much, and by when — with a one-click "Create PO" shortcut |
 | [Invoices & Payments](accounting.md) | Generate invoices from sales orders, record customer payments, and track outstanding balances *(admin only)* |
 | [Accounting](accounting.md) | Sales journal, COGS & materials report, and tax center *(admin only)* |
 
@@ -107,7 +107,7 @@ configuration.
 | Guide | What you will learn |
 |---|---|
 | [Quality Dashboard](production.md#quality) | First-pass yield, pending inspections, scrap rate, and the inspection queue |
-| [Material Traceability](inventory.md#traceability) | Trace a filament spool from receipt through every production order it contributed to |
+| [Material Traceability](inventory.md#spool-usage-and-traceability) | Trace a filament spool from receipt through every production order it contributed to |
 
 ---
 
@@ -312,4 +312,4 @@ Key fields available in Settings:
 
 ---
 
-*FilaOps Core | open-source (BSL) | [changelog](../CHANGELOG.md)*
+*FilaOps Core | open-source (BSL) | [changelog](https://github.com/BLB3DPrinting/filaops/blob/main/CHANGELOG.md)*
