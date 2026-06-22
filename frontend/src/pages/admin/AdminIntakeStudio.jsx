@@ -110,10 +110,13 @@ export default function AdminIntakeStudio() {
   // (No useEffect — Core eslint forbids it.)
   const previewRequestIdRef = useRef(0);
   const priceEditedRef = useRef(false);
+  // Retains the dropped/selected File so it can be uploaded after /sku succeeds.
+  const sourceFileRef = useRef(null);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
   const [skuBusy, setSkuBusy] = useState(false);
+  const [sliceFileSaved, setSliceFileSaved] = useState(false);
 
   // ---------------------------------------------------------------------------
   // PRO gate
@@ -203,6 +206,7 @@ export default function AdminIntakeStudio() {
       toast.error("Please select a .3mf or .gcode.3mf file");
       return;
     }
+    sourceFileRef.current = f;
     setUploadBusy(true);
     try {
       const formData = new FormData();
@@ -352,6 +356,21 @@ export default function AdminIntakeStudio() {
         persist_color_map: true,
       };
       const data = await api.post("/api/v1/pro/intake/sku", body);
+      // Upload the slice file non-fatally — SKU is already created.
+      const createdId = data.product?.id;
+      if (createdId && sourceFileRef.current) {
+        try {
+          const fd = new FormData();
+          fd.append("file", sourceFileRef.current);
+          const res = await fetch(
+            `${API_URL}/api/v1/pro/intake/products/${createdId}/slice-file`,
+            { method: "POST", credentials: "include", body: fd }
+          );
+          setSliceFileSaved(res.ok);
+        } catch {
+          setSliceFileSaved(false);
+        }
+      }
       setSkuResult(data);
       setStep(5);
       toast.success(`SKU ${data.product?.sku} created`);
@@ -462,6 +481,9 @@ export default function AdminIntakeStudio() {
     setItemType("finished_good");
     setCategoryId(null);
     setCategories([]);
+    // slice file
+    sourceFileRef.current = null;
+    setSliceFileSaved(false);
   };
 
   // ---------------------------------------------------------------------------
@@ -1644,6 +1666,15 @@ export default function AdminIntakeStudio() {
                 className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
               >
                 View / edit product
+              </a>
+            )}
+            {sliceFileSaved && skuResult.product?.id && (
+              <a
+                href={`${API_URL}/api/v1/pro/intake/products/${skuResult.product.id}/slice-file`}
+                className="border border-gray-700 text-gray-300 hover:bg-gray-800 px-4 py-2 rounded-lg transition-colors"
+                download
+              >
+                Download slice file
               </a>
             )}
           </div>
