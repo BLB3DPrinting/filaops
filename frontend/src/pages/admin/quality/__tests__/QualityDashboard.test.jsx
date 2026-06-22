@@ -171,13 +171,14 @@ describe("QualityDashboard", () => {
     expect(screen.getByText("200/200")).toBeInTheDocument();
   });
 
-  it("renders inspection queue items as links to production order", async () => {
+  it("renders inspection queue items as buttons that open the QC modal", async () => {
     await renderDashboard();
     await waitFor(() => {
-      expect(screen.getByText("PO-001")).toBeInTheDocument();
+      expect(screen.getByText("PO-001").closest("button")).toBeInTheDocument();
     });
-    const link = screen.getByText("PO-001").closest("a");
-    expect(link).toHaveAttribute("href", "/admin/production/1");
+    // Queue rows are no longer navigation links; clicking one opens the QC
+    // inspection modal in place (the queue -> inspect -> resolve loop).
+    expect(screen.getByText("PO-001").closest("a")).toBeNull();
   });
 
   it('renders "2 pending" in queue header', async () => {
