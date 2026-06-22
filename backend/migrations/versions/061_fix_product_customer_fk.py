@@ -3,7 +3,7 @@
 The customer_id column on products is meant for B2B customer restriction,
 so it should reference the customers table (not users).
 
-Issue: https://github.com/Blb3D/filaops/issues/310
+Issue: https://github.com/BLB3DPrinting/filaops/issues/310
 """
 from alembic import op
 

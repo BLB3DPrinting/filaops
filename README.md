@@ -1,18 +1,18 @@
 # FilaOps
 
-[![CI](https://github.com/Blb3DPrinting/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/Blb3DPrinting/filaops/actions/workflows/filaops-ci.yml)
-[![CodeQL](https://github.com/Blb3DPrinting/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/Blb3DPrinting/filaops/actions/workflows/codeql.yml)
+[![CI](https://github.com/BLB3DPrinting/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/BLB3DPrinting/filaops/actions/workflows/filaops-ci.yml)
+[![CodeQL](https://github.com/BLB3DPrinting/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/BLB3DPrinting/filaops/actions/workflows/codeql.yml)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
-[![Latest Release](https://img.shields.io/github/v/release/Blb3DPrinting/filaops)](https://github.com/Blb3D/filaops/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/BLB3DPrinting/filaops)](https://github.com/BLB3DPrinting/filaops/releases/latest)
 
 Open-source ERP for 3D print farms. Manage inventory, production, sales, purchasing, MRP, and accounting in one system built specifically for additive manufacturing.
 
-**[Documentation](https://blb3d.github.io/filaops/)** | **[Release Notes](https://github.com/Blb3D/filaops/releases/latest)**
+**[Documentation](https://blb3dprinting.github.io/filaops/)** | **[Release Notes](https://github.com/BLB3DPrinting/filaops/releases/latest)**
 
 ## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/Blb3D/filaops.git
+git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 cp backend/.env.example .env
 # Generate secrets (required — production startup refuses to boot without these):
@@ -195,7 +195,7 @@ cd frontend && npm test
 
 ## Documentation
 
-- **[Full Documentation](https://blb3d.github.io/filaops/)** — Deployment, configuration, and API reference
+- **[Full Documentation](https://blb3dprinting.github.io/filaops/)** — Deployment, configuration, and API reference
 - [User Guide](docs/user-guide/index.md) — Module-by-module usage
 - [Contributing](CONTRIBUTING.md) — Development setup and PR guidelines
 

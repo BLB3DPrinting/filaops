@@ -25,14 +25,14 @@ against a Core PR with:
 
 ```powershell
 .\scripts\ci\run-external-ci.ps1 `
-  -Repository Blb3D/filaops `
+  -Repository BLB3DPrinting/filaops `
   -PrNumber <pr-number> `
   -Profile core
 ```
 
 ```bash
 scripts/ci/run-external-ci.sh \
-  --repository Blb3D/filaops \
+  --repository BLB3DPrinting/filaops \
   --pr-number <pr-number> \
   --profile core
 ```

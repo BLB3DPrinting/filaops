@@ -43,7 +43,7 @@ docker compose version
 ## 2. Quick Start
 
 ```bash
-git clone https://github.com/Blb3D/filaops.git
+git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 
 # Create environment file from the template

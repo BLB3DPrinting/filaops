@@ -160,7 +160,7 @@ Manage inventory, production, MRP, sales, purchasing, and accounting — built s
   <a href="user-guide/installation/" class="btn-primary">
     :material-rocket-launch: Get Started
   </a>
-  <a href="https://github.com/Blb3D/filaops" target="_blank" class="btn-secondary">
+  <a href="https://github.com/BLB3DPrinting/filaops" target="_blank" class="btn-secondary">
     :fontawesome-brands-github: View on GitHub
   </a>
 </div>
@@ -249,7 +249,7 @@ API endpoints, database schema, UI components, and conventions for contributors.
 === "Docker (recommended)"
 
     ```bash
-    git clone https://github.com/Blb3D/filaops.git
+    git clone https://github.com/BLB3DPrinting/filaops.git
     cd filaops
     cp backend/.env.example .env
     docker compose up -d
@@ -276,6 +276,6 @@ API endpoints, database schema, UI components, and conventions for contributors.
 
 <div style="text-align: center; padding: 2rem 0;" markdown>
 
-**Built by [BLB3D Labs](https://blb3dprinting.com)** · [GitHub](https://github.com/Blb3D/filaops) · [BSL 1.1 License](https://github.com/Blb3D/filaops/blob/main/LICENSE)
+**Built by [BLB3D Labs](https://blb3dprinting.com)** · [GitHub](https://github.com/BLB3DPrinting/filaops) · [BSL 1.1 License](https://github.com/BLB3DPrinting/filaops/blob/main/LICENSE)
 
 </div>

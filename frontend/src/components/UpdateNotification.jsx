@@ -19,7 +19,7 @@ const UpdateNotification = () => {
       setShowModal(true);
     } catch (err) {
       console.error("Failed to load instructions:", err);
-      window.open("https://github.com/Blb3D/filaops/blob/main/UPGRADE.md", "_blank");
+      window.open("https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md", "_blank");
     } finally {
       setLoading(false);
     }

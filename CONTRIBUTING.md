@@ -98,7 +98,7 @@ pytest tests/endpoints/        # Endpoint tests only
 
 ## Reporting Issues
 
-Use [GitHub Issues](https://github.com/Blb3D/filaops/issues) with:
+Use [GitHub Issues](https://github.com/BLB3DPrinting/filaops/issues) with:
 
 - Clear title describing the problem
 - Steps to reproduce
