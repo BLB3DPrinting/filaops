@@ -72,6 +72,9 @@ const AdminCatalogs = lazy(() => import("./pages/admin/AdminCatalogs"));
 const AdminIntakeStudio = lazy(
   () => import("./pages/admin/AdminIntakeStudio"),
 );
+const AdminIntakeBatch = lazy(
+  () => import("./pages/admin/AdminIntakeBatch"),
+);
 const AdminNotifications = lazy(
   () => import("./pages/admin/AdminNotifications"),
 );
@@ -434,6 +437,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminIntakeStudio />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="intake-batch"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <AdminIntakeBatch />
                         </Suspense>
                       }
                     />

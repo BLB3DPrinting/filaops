@@ -501,6 +501,12 @@ const navGroups = [
         icon: ProductionIcon,
         adminOnly: true,
       },
+      {
+        path: "/admin/intake-batch",
+        label: "Intake Batch",
+        icon: ProductionIcon,
+        adminOnly: true,
+      },
     ],
   },
   {
