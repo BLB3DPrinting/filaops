@@ -94,9 +94,6 @@ A physical count of items in a specific location, compared against the system's 
 
 ## D
 
-### Dashboard
-The main landing page after login (**Admin > Dashboard**). Displays key metrics — open orders, production pipeline, revenue trends (MTD/QTD/YTD), low-stock alerts, and pending purchase orders. The sales and production charts are interactive.
-
 ### Dispatch
 The act of assigning a specific production order operation to a specific printer or resource so it can start running. **Admin > Production > Dispatch** shows ranked suggestions for each idle printer, including a "why this job" explanation and a maintenance warning if a scheduled maintenance window falls before the job would finish. Dispatching sets the operation status to `queued` and links it to the assigned machine.
 
@@ -279,9 +276,6 @@ The number of days ahead that an MRP run looks when calculating material require
 An MRP-generated suggestion to purchase or manufacture materials. Planned orders are proposals only — they must be **Firmed** by an operator before they persist across MRP runs, then **Released** to become actual purchase orders or work orders.
 
 Planned order statuses: `planned → firmed → released → cancelled`.
-
-### Price Level
-A wholesale pricing tier that applies a flat discount percentage to products. For example, "Wholesale — 20% off." Price level definitions are managed in Core at **Admin > Price Levels**. Assigning price levels to specific customers requires the PRO module.
 
 ### Print Job
 A record that links a specific printer to a production order operation while it is running. Print jobs capture the Bambu task ID or slicer file path, the assigned printer, and start/end times for run-time tracking. Visible in the production order detail view.
