@@ -300,9 +300,10 @@ export default function AdminIntakeStudio() {
       // Fetch item categories (non-fatal — wizard works without them)
       try {
         const cats = await api.get("/api/v1/items/categories");
-        setCategories(cats || []);
+        setCategories(Array.isArray(cats) ? cats : []);
       } catch {
-        // leave categories empty
+        // Clear stale options so a later failure can't submit an outdated category_id
+        setCategories([]);
       }
       setStep(4);
       // Kick off preview now that we have the work center (if available)
@@ -984,6 +985,15 @@ export default function AdminIntakeStudio() {
                       <span className="text-gray-600 font-normal ml-1">
                         (optional)
                       </span>
+                      {categoryId && (
+                        <button
+                          type="button"
+                          onClick={() => setCategoryId(null)}
+                          className="ml-2 text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          Clear
+                        </button>
+                      )}
                     </label>
                     <SearchableSelect
                       options={categories.map((cat) => ({
