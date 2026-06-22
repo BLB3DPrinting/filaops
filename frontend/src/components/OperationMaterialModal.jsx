@@ -12,7 +12,7 @@ export default function OperationMaterialModal({
   isOpen,
   onClose,
   operationId,
-  operation = null,          // Operation context (for title/label)
+  operation: _operation = null, // Operation context (for title/label)
   defaultTypeFilter = 'all', // Smart default computed by parent from operation name
   material = null,           // If provided, editing existing material
   onSave,
@@ -42,6 +42,7 @@ export default function OperationMaterialModal({
   useEffect(() => {
     if (!isOpen) return;
     if (material) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData({
         component_id: material.component_id || '',
         quantity: material.quantity || 1,
@@ -130,6 +131,15 @@ export default function OperationMaterialModal({
         is_variable: formData.is_variable,
         notes: formData.notes || null,
       };
+
+      // Wizard/local mode: no operationId yet — return the material to the parent
+      // instead of POSTing. Include the picked product's sku/name for display.
+      if (!operationId) {
+        const sp = products.find((p) => p.id === parseInt(formData.component_id));
+        onSave?.({ ...payload, component_sku: sp?.sku, component_name: sp?.name });
+        onClose();
+        return;
+      }
 
       let res;
       if (isEditing) {
