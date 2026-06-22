@@ -50,6 +50,18 @@ function StepHeader({ step, total, label }) {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const INTAKE_ITEM_TYPES = [
+  { value: "finished_good", label: "Finished Good" },
+  { value: "component", label: "Component" },
+  { value: "packaging", label: "Packaging" },
+  { value: "supply", label: "Supply" },
+  { value: "service", label: "Service" },
+];
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -82,6 +94,9 @@ export default function AdminIntakeStudio() {
   const [finishingOps, setFinishingOps] = useState([]);
   const [matModalOpIdx, setMatModalOpIdx] = useState(null);
   const [actualPrice, setActualPrice] = useState("");
+  const [itemType, setItemType] = useState("finished_good");
+  const [categoryId, setCategoryId] = useState(null);
+  const [categories, setCategories] = useState([]);
 
   // Step 4 — new UX state
   const [partsOnPlate, setPartsOnPlate] = useState(1);
@@ -282,6 +297,14 @@ export default function AdminIntakeStudio() {
       if (!skuEdited && productName) {
         setSkuCode(buildSuggestedSku(productName));
       }
+      // Fetch item categories (non-fatal — wizard works without them)
+      try {
+        const cats = await api.get("/api/v1/items/categories");
+        setCategories(Array.isArray(cats) ? cats : []);
+      } catch {
+        // Clear stale options so a later failure can't submit an outdated category_id
+        setCategories([]);
+      }
       setStep(4);
       // Kick off preview now that we have the work center (if available)
       if (mappedWcId) {
@@ -308,6 +331,8 @@ export default function AdminIntakeStudio() {
         print_time_seconds: parseResult.print_time_seconds,
         parts_on_plate: partsOnPlate,
         sku: skuCode || undefined,
+        item_type: itemType,
+        category_id: categoryId ? Number(categoryId) : undefined,
         slots: buildSlotsPayload(),
         finishing_ops: finishingOps
           .filter((o) => o.work_center_id)
@@ -435,6 +460,10 @@ export default function AdminIntakeStudio() {
     priceEditedRef.current = false;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
+    // item type / category
+    setItemType("finished_good");
+    setCategoryId(null);
+    setCategories([]);
   };
 
   // ---------------------------------------------------------------------------
@@ -928,6 +957,60 @@ export default function AdminIntakeStudio() {
                 </div>
               </div>
 
+              {/* Product details */}
+              <div className="mb-6">
+                <h2 className="text-base font-semibold text-white mb-3">
+                  Product details
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Item type
+                    </label>
+                    <select
+                      value={itemType}
+                      onChange={(e) => setItemType(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                    >
+                      {INTAKE_ITEM_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Category
+                      <span className="text-gray-600 font-normal ml-1">
+                        (optional)
+                      </span>
+                      {categoryId && (
+                        <button
+                          type="button"
+                          onClick={() => setCategoryId(null)}
+                          className="ml-2 text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </label>
+                    <SearchableSelect
+                      options={categories.map((cat) => ({
+                        id: cat.id,
+                        name: cat.full_path || cat.name,
+                      }))}
+                      value={categoryId != null ? String(categoryId) : ""}
+                      onChange={(val) => setCategoryId(val || null)}
+                      placeholder="No category…"
+                      displayKey="name"
+                      valueKey="id"
+                      formatOption={(opt) => opt.name}
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Finishing ops */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
@@ -1333,6 +1416,18 @@ export default function AdminIntakeStudio() {
               <p className="text-green-400 font-semibold text-lg">
                 ${Number(skuResult.selling_price || 0).toFixed(2)}
               </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <span className="px-2 py-0.5 rounded-full bg-gray-700 border border-gray-600 text-xs text-gray-300">
+                  {INTAKE_ITEM_TYPES.find((t) => t.value === itemType)?.label ?? itemType}
+                </span>
+                {categoryId && categories.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-gray-700 border border-gray-600 text-xs text-gray-300">
+                    {categories.find((c) => String(c.id) === String(categoryId))?.full_path ||
+                      categories.find((c) => String(c.id) === String(categoryId))?.name ||
+                      `Category #${categoryId}`}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Cost breakdown */}
