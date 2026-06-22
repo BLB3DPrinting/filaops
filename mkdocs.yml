@@ -1,9 +1,9 @@
 site_name: FilaOps
-site_url: https://blb3d.github.io/filaops/
+site_url: https://blb3dprinting.github.io/filaops/
 site_description: Open-source ERP for 3D print farm operations — inventory, production, MRP, and more.
 site_author: BLB3D Labs
-repo_url: https://github.com/Blb3D/filaops
-repo_name: Blb3D/filaops
+repo_url: https://github.com/BLB3DPrinting/filaops
+repo_name: BLB3DPrinting/filaops
 edit_uri: edit/main/docs/
 
 theme:
@@ -97,7 +97,7 @@ extra:
     default: stable
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/Blb3D/filaops
+      link: https://github.com/BLB3DPrinting/filaops
       name: FilaOps on GitHub
     - icon: fontawesome/brands/discord
       link: https://discord.gg/blb3d
@@ -118,7 +118,7 @@ extra_css:
 
 copyright: >-
   Copyright &copy; 2025–2026 <a href="https://blb3dprinting.com" target="_blank">BLB3D Labs</a>
-  &nbsp;|&nbsp; Licensed under <a href="https://github.com/Blb3D/filaops/blob/main/LICENSE" target="_blank">BSL 1.1</a>
+  &nbsp;|&nbsp; Licensed under <a href="https://github.com/BLB3DPrinting/filaops/blob/main/LICENSE" target="_blank">BSL 1.1</a>
 
 nav:
   - Home: index.md
