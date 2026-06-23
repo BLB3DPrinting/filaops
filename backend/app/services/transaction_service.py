@@ -459,6 +459,104 @@ class TransactionService:
 
         return inv_txn, je, scrap
 
+    def scrap_finished_goods(
+        self,
+        production_order_id: int,
+        product_id: int,
+        quantity: Decimal,
+        unit_cost: Decimal,
+        reason_code: str,
+        reason_id: int = None,
+        notes: str = None,
+        user_id: int = None,
+    ) -> Tuple[InventoryTransaction, Optional[GLJournalEntry], ScrapRecord]:
+        """
+        Scrap finished goods that were already received into inventory.
+
+        Unlike scrap_materials (WIP-side audit row, on_hand already gone), the
+        units here are physically on hand, so the movement goes through the
+        canonical ledger (HARD-4a) and decrements on_hand.
+
+        Inventory: SCRAP (negative qty); on_hand decremented.
+        Accounting: DR Scrap Expense (5020), CR FG Inventory (1220).
+
+        Returns:
+            Tuple of (inventory transaction, journal entry, scrap record)
+        """
+        # Boundary validation: a non-positive quantity would bypass the
+        # on-hand guard (a zero/negative delta can't make stock go negative)
+        # and a negative unit_cost would post a backwards GL entry. Reject
+        # both at the service boundary.
+        if quantity <= 0:
+            raise ValueError(
+                f"Scrap quantity must be positive, got {quantity}"
+            )
+        if unit_cost < 0:
+            raise ValueError(
+                f"Scrap unit_cost must be non-negative, got {unit_cost}"
+            )
+
+        total_cost = quantity * unit_cost
+
+        # Policy gate: refuse to drive on_hand negative.  inventory_ledger.post
+        # is mechanism-only; stock-sufficiency checks live in callers.
+        # Acquiring FOR UPDATE here serializes with the identical lock in
+        # _post_inventory so there is no TOCTOU window.
+        from app.services.inventory_service import get_or_create_default_location
+        resolved_location_id = get_or_create_default_location(self.db).id
+        inv_row = inventory_ledger.get_or_create_inventory_row(
+            self.db, product_id, resolved_location_id
+        )
+        current_on_hand = Decimal(str(inv_row.on_hand_quantity or 0))
+        if quantity > current_on_hand:
+            raise ValueError(
+                f"Cannot scrap {quantity} units of product {product_id}: "
+                f"only {current_on_hand} on hand"
+            )
+
+        inv_txn = self._post_inventory(
+            product_id=product_id,
+            transaction_type="scrap",
+            quantity_delta=-quantity,  # Negative = removal from stock
+            unit_cost=unit_cost,
+            reference_type="production_order",
+            reference_id=production_order_id,
+            notes=f"Scrap (finished goods): {reason_code}",
+            location_id=resolved_location_id,
+        )
+        self.db.flush()  # Get inv_txn.id for the scrap record
+
+        je = None
+        if total_cost > 0:
+            je = self._create_journal_entry(
+                description=f"Scrap finished goods at PO#{production_order_id}: {reason_code}",
+                lines=[
+                    ("5020", total_cost, "DR"),  # Scrap Expense
+                    ("1220", total_cost, "CR"),  # Finished Goods Inventory
+                ],
+                source_type="production_order",
+                source_id=production_order_id,
+                user_id=user_id,
+            )
+            inv_txn.journal_entry_id = je.id
+
+        scrap = ScrapRecord(
+            production_order_id=production_order_id,
+            product_id=product_id,
+            quantity=quantity,
+            unit_cost=unit_cost,
+            total_cost=total_cost,
+            scrap_reason_id=reason_id,
+            scrap_reason_code=reason_code,
+            notes=notes,
+            inventory_transaction_id=inv_txn.id,
+            journal_entry_id=je.id if je else None,
+            created_by_user_id=user_id,
+        )
+        self.db.add(scrap)
+
+        return inv_txn, je, scrap
+
     # === SHIPPING TRANSACTIONS ===
 
     def ship_order(

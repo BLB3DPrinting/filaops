@@ -484,6 +484,108 @@ class TestScrapMaterials:
             db.rollback()
 
 
+class TestScrapFinishedGoods:
+    """Test scrap_finished_goods method (units already on hand)."""
+
+    def test_decrements_onhand_and_posts_fg_gl(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should decrement on_hand and post DR Scrap Expense / CR FG Inventory."""
+        ts = TransactionService(db)
+        try:
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("10"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            inv_txn, je, scrap = ts.scrap_finished_goods(
+                production_order_id=test_production_order.id,
+                product_id=test_finished_good.id,
+                quantity=Decimal("2"),
+                unit_cost=Decimal("10.00"),
+                reason_code="QC_FAIL",
+                notes="Failed final inspection",
+            )
+            db.flush()
+
+            # Inventory: SCRAP removal through the canonical ledger (on_hand 10 -> 8)
+            assert inv_txn.transaction_type == "scrap"
+            assert inv_txn.quantity == Decimal("-2")
+            db.refresh(inv)
+            assert inv.on_hand_quantity == Decimal("8")
+
+            # Accounting: balanced DR Scrap Expense (5020) / CR FG Inventory (1220)
+            assert je is not None and je.is_balanced
+            dr_line = next(l for l in je.lines if l.debit_amount > 0)
+            cr_line = next(l for l in je.lines if l.credit_amount > 0)
+            assert dr_line.account.account_code == "5020"
+            assert cr_line.account.account_code == "1220"
+
+            # ScrapRecord links both the inventory txn and the journal entry
+            assert scrap.total_cost == Decimal("20.00")
+            assert scrap.inventory_transaction_id == inv_txn.id
+            assert scrap.journal_entry_id == je.id
+        finally:
+            db.rollback()
+
+    def test_raises_when_quantity_exceeds_onhand(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should raise ValueError when scrap qty would drive on_hand negative."""
+        ts = TransactionService(db)
+        try:
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("1"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            with pytest.raises(ValueError, match="only 1"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("5"),
+                    unit_cost=Decimal("10.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
+    @pytest.mark.parametrize("bad_qty", [Decimal("0"), Decimal("-1")])
+    def test_rejects_non_positive_quantity(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product, bad_qty):
+        """Should raise ValueError for zero AND negative scrap quantity (boundary guard)."""
+        ts = TransactionService(db)
+        try:
+            with pytest.raises(ValueError, match="quantity must be positive"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=bad_qty,
+                    unit_cost=Decimal("10.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
+    def test_rejects_negative_unit_cost(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should raise ValueError for negative unit_cost (would post a backwards GL entry)."""
+        ts = TransactionService(db)
+        try:
+            with pytest.raises(ValueError, match="unit_cost must be non-negative"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("1"),
+                    unit_cost=Decimal("-5.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
+
 # ============================================================================
 # Ship Order Tests
 # ============================================================================
