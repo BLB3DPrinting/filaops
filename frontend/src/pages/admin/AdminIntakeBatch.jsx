@@ -25,6 +25,14 @@ function deriveName(filename) {
   return n;
 }
 
+function buildSuggestedSku(name) {
+  const slug = (name || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `INTAKE-${slug || "ITEM"}`;
+}
+
 function Spinner({ small = false }) {
   const cls = small
     ? "animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"
@@ -81,11 +89,100 @@ function StatusBadge({ status, unmatchedCount }) {
       </span>
     );
   }
+  if (status === "creating") {
+    return (
+      <span className="flex items-center gap-1 text-xs text-blue-300">
+        <Spinner small />
+        creating…
+      </span>
+    );
+  }
+  if (status === "created") {
+    return (
+      <span className="text-xs text-green-400 bg-green-500/10 border border-green-500/30 px-2 py-0.5 rounded-full">
+        ✓ created
+      </span>
+    );
+  }
+  if (status === "create-failed") {
+    return (
+      <span className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 px-2 py-0.5 rounded-full">
+        ✗ failed
+      </span>
+    );
+  }
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Inline slot-resolution panel for needs-attention rows
+// ---------------------------------------------------------------------------
+
+function SlotResolutionPanel({ item, onResolveSlot }) {
+  const { matchResults, matchChoices } = item;
+  if (!matchResults) return null;
+
+  const unmatched = matchResults.filter(
+    (r) => !matchChoices[r.slot_id]?.product_id
+  );
+  if (unmatched.length === 0) return null;
+
+  return (
+    <div className="mt-2 space-y-2 pl-2 border-l-2 border-yellow-500/30">
+      {unmatched.map((r) => {
+        const options = r.suggestions || [];
+        return (
+          <div key={r.slot_id} className="flex flex-wrap items-center gap-2">
+            <span
+              className="inline-block w-3 h-3 rounded-sm border border-gray-600 flex-shrink-0"
+              style={{ backgroundColor: r.color_hex || "#888" }}
+            />
+            <span className="text-xs text-gray-400 min-w-0">
+              {r.filament_type || `Slot ${r.slot_id}`}
+              {r.color_hex ? ` · ${r.color_hex}` : ""}
+            </span>
+            {options.length === 0 ? (
+              <span className="text-xs text-red-400">No suggestions</span>
+            ) : (
+              <select
+                className="flex-1 min-w-32 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                defaultValue=""
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  const s = options.find(
+                    (x) => String(x.product_id) === val
+                  );
+                  if (s) {
+                    onResolveSlot(item.id, r.slot_id, r.filament_type, r.color_hex, {
+                      product_id: s.product_id,
+                      sku: s.sku,
+                      name: s.name,
+                    });
+                  }
+                }}
+              >
+                <option value="">— pick spool —</option>
+                {options.map((s) => (
+                  <option key={s.product_id} value={String(s.product_id)}>
+                    {s.name} ({s.sku}){" "}
+                    {s.color_name ? `· ${s.color_name}` : ""}
+                    {s.color_distance != null
+                      ? ` · Δ${Math.round(s.color_distance)}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Render per-slot match column cell
-function MatchCell({ item }) {
+function MatchCell({ item, onResolveSlot }) {
   const { status, matchResults, matchChoices } = item;
 
   if (status === "queued" || status === "parsing" || status === "matching") {
@@ -121,19 +218,7 @@ function MatchCell({ item }) {
       <span className="text-yellow-400 text-sm">
         {matched}/{total} matched
       </span>
-      {unmatched.map((r) => (
-        <div key={r.slot_id} className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-3 h-3 rounded-sm border border-gray-600 flex-shrink-0"
-            style={{ backgroundColor: r.color_hex || "#888" }}
-          />
-          <span className="text-xs text-gray-400">
-            {r.filament_type || `Slot ${r.slot_id}`}
-            {r.color_hex ? ` · ${r.color_hex}` : ""}
-            {" — no match"}
-          </span>
-        </div>
-      ))}
+      <SlotResolutionPanel item={item} onResolveSlot={onResolveSlot} />
     </div>
   );
 }
@@ -152,6 +237,16 @@ export default function AdminIntakeBatch() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [dragActive, setDragActive] = useState(false);
+
+  // Batch-wide category state
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+  const [batchCategoryId, setBatchCategoryId] = useState(null);
+
+  // Bulk-create state
+  const [creating, setCreating] = useState(false);
+  const [createProgress, setCreateProgress] = useState({ done: 0, total: 0 });
+  const [createSummary, setCreateSummary] = useState(null); // {created, failed, skipped}
 
   // Ref so sequential processor reads current context without stale closure
   const contextRef = useRef(null);
@@ -218,6 +313,15 @@ export default function AdminIntakeBatch() {
     );
   };
 
+  // Re-evaluate status for an item given updated matchChoices
+  const recomputeStatus = (matchResults, matchChoices) => {
+    if (!matchResults) return "error";
+    const unmatchedCount = matchResults.filter(
+      (r) => !matchChoices[r.slot_id]?.product_id
+    ).length;
+    return unmatchedCount === 0 ? "ready" : "needs-attention";
+  };
+
   // ---------------------------------------------------------------------------
   // Context fetch (once per session)
   // ---------------------------------------------------------------------------
@@ -228,6 +332,21 @@ export default function AdminIntakeBatch() {
     contextRef.current = data;
     setContext(data);
     return data;
+  };
+
+  // ---------------------------------------------------------------------------
+  // Categories fetch (once, non-fatal)
+  // ---------------------------------------------------------------------------
+
+  const ensureCategories = async () => {
+    if (categoriesLoaded) return;
+    try {
+      const cats = await api.get("/api/v1/items/categories");
+      setCategories(Array.isArray(cats) ? cats : []);
+    } catch {
+      setCategories([]);
+    }
+    setCategoriesLoaded(true);
   };
 
   // ---------------------------------------------------------------------------
@@ -292,9 +411,6 @@ export default function AdminIntakeBatch() {
       const defaults = {};
       matchResults.forEach((r) => {
         if (r.suggestions && r.suggestions.length > 0) {
-          // result.sticky === true means a confirmed colour-map hit;
-          // the first suggestion IS that known spool — pick it confidently.
-          // Without sticky, suggestions[0] is the closest colour-distance match.
           const s = r.suggestions[0];
           if (s.product_id) {
             defaults[r.slot_id] = {
@@ -335,6 +451,56 @@ export default function AdminIntakeBatch() {
       matchResults,
       matchChoices,
       workCenterId,
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Slot resolution with cross-item propagation
+  // ---------------------------------------------------------------------------
+
+  // Called when the operator picks a spool from the inline dropdown.
+  // Propagates the choice to every item whose unmatched slot shares the same
+  // (filament_type, color_hex) pair — so resolving one recurring color clears
+  // it across all rows in a single pick.
+  const handleResolveSlot = (itemId, slotId, filamentType, colorHex, chosen) => {
+    setItems((prev) => {
+      return prev.map((it) => {
+        if (!it.matchResults) return it;
+
+        // Does this item have any unmatched slot with matching signature?
+        const hasMatchingUnmatched = it.matchResults.some(
+          (r) =>
+            !it.matchChoices[r.slot_id]?.product_id &&
+            r.filament_type === filamentType &&
+            (r.color_hex || "").toLowerCase() === (colorHex || "").toLowerCase()
+        );
+
+        // This item is either the source item OR a propagation target
+        const isSource = it.id === itemId;
+        if (!isSource && !hasMatchingUnmatched) return it;
+
+        // Build updated matchChoices for this item
+        const updatedChoices = { ...it.matchChoices };
+
+        if (isSource) {
+          // Always resolve the exact slot the operator picked
+          updatedChoices[slotId] = chosen;
+        }
+
+        // Propagate to every unmatched slot with the same filament_type+color_hex
+        it.matchResults.forEach((r) => {
+          if (
+            !updatedChoices[r.slot_id]?.product_id &&
+            r.filament_type === filamentType &&
+            (r.color_hex || "").toLowerCase() === (colorHex || "").toLowerCase()
+          ) {
+            updatedChoices[r.slot_id] = chosen;
+          }
+        });
+
+        const newStatus = recomputeStatus(it.matchResults, updatedChoices);
+        return { ...it, matchChoices: updatedChoices, status: newStatus };
+      });
     });
   };
 
@@ -396,6 +562,9 @@ export default function AdminIntakeBatch() {
       // Continue anyway — work center will just be null
     }
 
+    // Fetch categories once (non-blocking — fire and don't await the result)
+    ensureCategories();
+
     // Seed item rows
     const newItems = validFiles.map((f, i) => ({
       id: `${Date.now()}-${i}`,
@@ -408,6 +577,9 @@ export default function AdminIntakeBatch() {
       matchChoices: {},
       workCenterId: null,
       error: null,
+      // PR2 result fields
+      createResult: null,  // { product_id, sku } on success
+      createError: null,   // error string on failure
     }));
 
     setItems((prev) => [...prev, ...newItems]);
@@ -432,6 +604,168 @@ export default function AdminIntakeBatch() {
   };
 
   // ---------------------------------------------------------------------------
+  // Build the slots payload for /preview and /sku from a given item
+  // ---------------------------------------------------------------------------
+
+  const buildItemSlotsPayload = (item) =>
+    (item.parseResult?.slots || []).map((s) => ({
+      slot_id: s.slot_id,
+      filament_type: s.filament_type,
+      color_hex: s.color_hex,
+      used_g: s.used_g,
+      spool_product_id: item.matchChoices[s.slot_id]?.product_id,
+    }));
+
+  // ---------------------------------------------------------------------------
+  // Bulk SKU create
+  // ---------------------------------------------------------------------------
+
+  // A row is eligible to (re-)create if it is ready OR previously failed.
+  // "ready" alone used to exclude create-failed rows from every retry run.
+  const isCreatable = (status) =>
+    status === "ready" || status === "create-failed";
+
+  const handleCreateSkus = async () => {
+    if (creating) return;
+
+    // Snapshot current items so the loop works on a consistent set
+    const snapshot = items;
+    const readyItems = snapshot.filter((it) => isCreatable(it.status));
+    const skippedCount = snapshot.filter((it) => !isCreatable(it.status)).length;
+
+    if (readyItems.length === 0) {
+      toast.error("No ready items to create");
+      return;
+    }
+
+    setCreating(true);
+    setCreateSummary(null);
+    setCreateProgress({ done: 0, total: readyItems.length });
+
+    let createdCount = 0;
+    let failedCount = 0;
+
+    // Track SKUs generated in this run to avoid duplicate-SKU DB errors when
+    // multiple items share the same (or similarly normalized) name.
+    const usedSkusThisRun = new Set();
+
+    for (let i = 0; i < readyItems.length; i++) {
+      const item = readyItems[i];
+
+      // Mark as creating
+      updateItem(item.id, { status: "creating", createResult: null, createError: null });
+
+      try {
+        const slots = buildItemSlotsPayload(item);
+        const partsOnPlate = 1;
+        const finishingOps = [];
+        const printWorkCenterId = item.workCenterId
+          ? Number(item.workCenterId)
+          : null;
+        const printTimeSeconds = item.parseResult?.print_time_seconds ?? null;
+
+        // Step 1: /preview to get suggested_price
+        let suggestedPrice = null;
+        let perUnitCost = null;
+
+        if (printWorkCenterId && printTimeSeconds != null) {
+          try {
+            const previewBody = {
+              print_work_center_id: printWorkCenterId,
+              print_time_seconds: printTimeSeconds,
+              parts_on_plate: partsOnPlate,
+              slots,
+              finishing_ops: finishingOps,
+              packaging: [],
+            };
+            const previewData = await api.post(
+              "/api/v1/pro/intake/preview",
+              previewBody
+            );
+            suggestedPrice = previewData.suggested_price ?? null;
+            perUnitCost = previewData.per_unit_cost ?? null;
+          } catch {
+            // Non-fatal: fall back to 0 for actual_price
+          }
+        }
+
+        // Determine actual_price: suggested_price → per_unit_cost → 0
+        const actualPrice =
+          suggestedPrice != null
+            ? Number(suggestedPrice)
+            : perUnitCost != null
+            ? Number(perUnitCost)
+            : 0;
+
+        // Step 2: /sku — de-dupe SKU within this run by suffixing -2, -3, …
+        const baseSku = buildSuggestedSku(item.name);
+        let candidateSku = baseSku;
+        let suffix = 2;
+        while (usedSkusThisRun.has(candidateSku)) {
+          candidateSku = `${baseSku}-${suffix}`;
+          suffix++;
+        }
+        usedSkusThisRun.add(candidateSku);
+
+        const skuBody = {
+          name: item.name,
+          actual_price: actualPrice,
+          print_work_center_id: printWorkCenterId,
+          print_time_seconds: printTimeSeconds,
+          parts_on_plate: partsOnPlate,
+          sku: candidateSku,
+          item_type: "finished_good",
+          category_id: batchCategoryId ? Number(batchCategoryId) : undefined,
+          slots,
+          finishing_ops: [],
+          packaging: [],
+          persist_color_map: true,
+        };
+
+        const skuData = await api.post("/api/v1/pro/intake/sku", skuBody);
+
+        updateItem(item.id, {
+          status: "created",
+          createResult: {
+            product_id: skuData.product?.id,
+            sku: skuData.product?.sku,
+          },
+          createError: null,
+        });
+        createdCount++;
+      } catch (err) {
+        const errMsg = err.message || "SKU creation failed";
+        updateItem(item.id, {
+          status: "create-failed",
+          createError: errMsg,
+          createResult: null,
+        });
+        failedCount++;
+        // One failure does not stop the loop
+      }
+
+      setCreateProgress({ done: i + 1, total: readyItems.length });
+    }
+
+    setCreating(false);
+    setCreateSummary({
+      created: createdCount,
+      failed: failedCount,
+      skipped: skippedCount,
+    });
+
+    if (failedCount === 0) {
+      toast.success(
+        `Created ${createdCount} SKU${createdCount !== 1 ? "s" : ""}`
+      );
+    } else {
+      toast.warn(
+        `Created ${createdCount}, failed ${failedCount}, skipped ${skippedCount}`
+      );
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Summary stats
   // ---------------------------------------------------------------------------
 
@@ -441,9 +775,19 @@ export default function AdminIntakeBatch() {
     (it) => it.status === "needs-attention"
   ).length;
   const errorCount = items.filter((it) => it.status === "error").length;
+  const createdCount = items.filter((it) => it.status === "created").length;
+  const createFailedCount = items.filter(
+    (it) => it.status === "create-failed"
+  ).length;
   const processingCount = items.filter(
     (it) => it.status === "parsing" || it.status === "matching"
   ).length;
+
+  // "Create SKUs" is enabled when ≥1 row is ready (or retryable) and not
+  // currently processing files or creating SKUs
+  const creatableCount = items.filter((it) => isCreatable(it.status)).length;
+  const canCreate =
+    creatableCount > 0 && !processing && !creating;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -518,10 +862,18 @@ export default function AdminIntakeBatch() {
             {processing && (
               <span className="flex items-center gap-2 text-blue-300 text-sm font-medium">
                 <Spinner small />
-                Processing {Math.min(progress.done + 1, progress.total)} of {progress.total}…
+                Processing {Math.min(progress.done + 1, progress.total)} of{" "}
+                {progress.total}…
               </span>
             )}
-            {!processing && processingCount === 0 && (
+            {creating && (
+              <span className="flex items-center gap-2 text-blue-300 text-sm font-medium">
+                <Spinner small />
+                Creating SKU {createProgress.done + 1} of{" "}
+                {createProgress.total}…
+              </span>
+            )}
+            {!processing && !creating && processingCount === 0 && (
               <span className="text-gray-400 text-sm">
                 All files processed
               </span>
@@ -549,6 +901,18 @@ export default function AdminIntakeBatch() {
                   <span className="font-medium">{errorCount}</span>
                 </span>
               )}
+              {createdCount > 0 && (
+                <span className="text-green-400 text-sm">
+                  Created:{" "}
+                  <span className="font-medium">{createdCount}</span>
+                </span>
+              )}
+              {createFailedCount > 0 && (
+                <span className="text-red-400 text-sm">
+                  Failed:{" "}
+                  <span className="font-medium">{createFailedCount}</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -567,6 +931,126 @@ export default function AdminIntakeBatch() {
               />
             </div>
           )}
+
+          {/* Create progress bar */}
+          {creating && (
+            <div className="mt-3 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-green-500 rounded-full transition-all duration-300"
+                style={{
+                  width: `${
+                    createProgress.total > 0
+                      ? Math.round(
+                          (createProgress.done / createProgress.total) * 100
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create summary banner */}
+      {createSummary && (
+        <div
+          className={`border rounded-lg p-4 text-sm flex items-center gap-3 ${
+            createSummary.failed === 0
+              ? "bg-green-500/10 border-green-500/30 text-green-300"
+              : "bg-yellow-500/10 border-yellow-500/30 text-yellow-300"
+          }`}
+        >
+          <svg
+            className="w-5 h-5 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>
+            Batch complete — created{" "}
+            <strong>{createSummary.created}</strong>, failed{" "}
+            <strong>{createSummary.failed}</strong>, skipped{" "}
+            <strong>{createSummary.skipped}</strong> (not ready)
+          </span>
+          <button
+            onClick={() => setCreateSummary(null)}
+            className="ml-auto text-gray-500 hover:text-gray-300 transition-colors"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Batch controls — category picker + create button */}
+      {totalItems > 0 && !processing && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-wrap items-end gap-4">
+          {/* Category picker */}
+          <div className="flex-1 min-w-48">
+            <label className="block text-sm text-gray-400 mb-1">
+              Category{" "}
+              <span className="text-gray-600 font-normal">(applies to all)</span>
+              {batchCategoryId && (
+                <button
+                  type="button"
+                  onClick={() => setBatchCategoryId(null)}
+                  className="ml-2 text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <select
+              value={batchCategoryId ?? ""}
+              onChange={(e) =>
+                setBatchCategoryId(e.target.value || null)
+              }
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="">No category</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={String(cat.id)}>
+                  {cat.full_path || cat.name}
+                </option>
+              ))}
+            </select>
+            {!categoriesLoaded && (
+              <p className="text-gray-600 text-xs mt-1">
+                Loading categories…
+              </p>
+            )}
+          </div>
+
+          {/* Create SKUs button */}
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleCreateSkus}
+              disabled={!canCreate}
+              className="bg-green-600 hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              {creating && <Spinner small />}
+              Create SKUs
+              {creatableCount > 0 && (
+                <span className="bg-green-500/30 text-green-200 text-xs px-1.5 py-0.5 rounded-full ml-1">
+                  {creatableCount}
+                </span>
+              )}
+            </button>
+            {attentionCount > 0 && (
+              <p className="text-xs text-gray-500">
+                {attentionCount} row{attentionCount !== 1 ? "s" : ""} need
+                spool resolution before creating
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -598,6 +1082,9 @@ export default function AdminIntakeBatch() {
                   </th>
                   <th className="px-4 py-3 text-left font-medium">
                     Status
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium">
+                    Result
                   </th>
                 </tr>
               </thead>
@@ -662,9 +1149,12 @@ export default function AdminIntakeBatch() {
                         {slotCount != null ? slotCount : "—"}
                       </td>
 
-                      {/* Match summary */}
+                      {/* Match summary + inline resolution */}
                       <td className="px-4 py-3">
-                        <MatchCell item={item} />
+                        <MatchCell
+                          item={item}
+                          onResolveSlot={handleResolveSlot}
+                        />
                       </td>
 
                       {/* Editable name */}
@@ -691,6 +1181,37 @@ export default function AdminIntakeBatch() {
                           status={item.status}
                           unmatchedCount={unmatchedCount}
                         />
+                      </td>
+
+                      {/* Per-row create result */}
+                      <td className="px-4 py-3 text-sm">
+                        {item.status === "created" && item.createResult && (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-green-400 font-mono text-xs">
+                              {item.createResult.sku}
+                            </span>
+                            {item.createResult.product_id && (
+                              <a
+                                href="/admin/items"
+                                className="text-blue-400 hover:text-blue-300 text-xs underline"
+                              >
+                                View item →
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {item.status === "create-failed" && item.createError && (
+                          <span
+                            className="text-red-400 text-xs truncate block max-w-[160px]"
+                            title={item.createError}
+                          >
+                            {item.createError}
+                          </span>
+                        )}
+                        {item.status !== "created" &&
+                          item.status !== "create-failed" && (
+                            <span className="text-gray-600">—</span>
+                          )}
                       </td>
                     </tr>
                   );
