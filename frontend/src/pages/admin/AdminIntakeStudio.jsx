@@ -503,11 +503,18 @@ export default function AdminIntakeStudio() {
         } catch {
           setSliceFileSaved(false);
         }
-      } else if (createdId && !isServerSliced && src && !isBareMesh(src.name.toLowerCase())) {
+      } else if (
+        createdId &&
+        !isServerSliced &&
+        src &&
+        src.name.toLowerCase().endsWith(".gcode.3mf")
+      ) {
         // Pre-sliced .gcode.3mf upload: the uploaded file IS the printable
-        // slice file — persist it directly (unchanged path). Server-sliced
-        // inputs whose worker produced no .gcode.3mf are intentionally skipped
-        // here rather than saving the raw (non-printable) source.
+        // slice file — persist it directly (unchanged path). Requiring the
+        // .gcode.3mf extension here (not just "not a bare mesh") guarantees we
+        // never persist a raw .3mf source even under FE/backend version skew
+        // where the parse contract lacks the artifact ids. Server-sliced inputs
+        // whose worker produced no .gcode.3mf are intentionally skipped.
         try {
           const fd = new FormData();
           fd.append("file", src);
