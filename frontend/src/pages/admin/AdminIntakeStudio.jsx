@@ -239,6 +239,46 @@ export default function AdminIntakeStudio() {
     }
   };
 
+  // Clears every wizard-derived value so a newly selected file starts clean.
+  // Does NOT touch `step` — handleFile/staging manages navigation.
+  const resetDerivedStateForNewFile = () => {
+    // bare-mesh picker
+    setSliceMaterial("PLA Basic");
+    setSlicePrinter("X1C");
+    setSliceQuality("standard");
+    // Step 2 — Review
+    setParseResult(null);
+    setProductName("");
+    // Step 3 — Match
+    setMatchResults(null);
+    setMatchBusy(false);
+    setMatchChoices({});
+    // Step 4 — Configure
+    setContext(null);
+    setContextBusy(false);
+    setPrintWorkCenterId("");
+    setFinishingOps([]);
+    setMatModalOpIdx(null);
+    setActualPrice("");
+    setItemType("finished_good");
+    setCategoryId(null);
+    setCategories([]);
+    setPartsOnPlate(1);
+    setSkuCode("");
+    setSkuEdited(false);
+    setEstimatedCost(null);
+    setPreviewBusy(false);
+    // Step 5 — Result
+    setSkuResult(null);
+    setSkuBusy(false);
+    setSliceFileSaved(false);
+    // refs
+    priceEditedRef.current = false;
+    sourceFileRef.current = null;
+    // Invalidate any preview still in flight so its response is ignored.
+    previewRequestIdRef.current += 1;
+  };
+
   const handleFile = (f) => {
     const name = f.name.toLowerCase();
     if (
@@ -249,6 +289,8 @@ export default function AdminIntakeStudio() {
       toast.error("Please select a .stl, .obj, .3mf or .gcode.3mf file");
       return;
     }
+    // A new file invalidates everything downstream — start from a clean slate.
+    resetDerivedStateForNewFile();
     if (isBareMesh(name)) {
       // Stage the mesh and reveal the slicing-profile picker; don't POST yet —
       // the slice needs a material/printer/quality first.
@@ -432,11 +474,16 @@ export default function AdminIntakeStudio() {
       };
       const data = await api.post("/api/v1/pro/intake/sku", body);
       // Upload the slice file non-fatally — SKU is already created.
+      // Skip bare meshes: sourceFileRef holds the raw .stl/.obj, not the
+      // server-generated gcode, so persisting it would save the wrong artifact.
+      // Persisting the real slice output needs a /parse→slice-file backend
+      // contract that doesn't exist yet (future).
       const createdId = data.product?.id;
-      if (createdId && sourceFileRef.current) {
+      const src = sourceFileRef.current;
+      if (createdId && src && !isBareMesh(src.name.toLowerCase())) {
         try {
           const fd = new FormData();
-          fd.append("file", sourceFileRef.current);
+          fd.append("file", src);
           const res = await fetch(
             `${API_URL}/api/v1/pro/intake/products/${createdId}/slice-file`,
             { method: "POST", credentials: "include", body: fd }
@@ -676,10 +723,14 @@ export default function AdminIntakeStudio() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Material — most important */}
                 <div className="md:col-span-3">
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label
+                    htmlFor="slice-material"
+                    className="block text-sm font-medium text-gray-300 mb-1"
+                  >
                     Material
                   </label>
                   <select
+                    id="slice-material"
                     value={sliceMaterial}
                     onChange={(e) => setSliceMaterial(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
@@ -692,10 +743,14 @@ export default function AdminIntakeStudio() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">
+                  <label
+                    htmlFor="slice-printer"
+                    className="block text-sm text-gray-400 mb-1"
+                  >
                     Printer
                   </label>
                   <select
+                    id="slice-printer"
                     value={slicePrinter}
                     onChange={(e) => setSlicePrinter(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
@@ -708,10 +763,14 @@ export default function AdminIntakeStudio() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">
+                  <label
+                    htmlFor="slice-quality"
+                    className="block text-sm text-gray-400 mb-1"
+                  >
                     Quality
                   </label>
                   <select
+                    id="slice-quality"
                     value={sliceQuality}
                     onChange={(e) => setSliceQuality(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
