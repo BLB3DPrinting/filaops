@@ -76,6 +76,7 @@ export default function AdminIntakeStudio() {
   // Step 1 — Upload
   const [dragActive, setDragActive] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
+  const [busyMode, setBusyMode] = useState("parsing");
 
   // Step 2 — Review
   const [parseResult, setParseResult] = useState(null);
@@ -155,10 +156,11 @@ export default function AdminIntakeStudio() {
           </svg>
           <h3 className="text-lg font-semibold text-white mb-2">PRO Feature</h3>
           <p className="text-gray-400 mb-4">
-            Intake Studio lets you drop a sliced .gcode.3mf file, automatically
-            match filament spools from your inventory, configure print work
-            centers and finishing operations, and instantly create a sellable SKU
-            with a fully costed routing — all in one guided workflow.
+            Intake Studio lets you drop a 3D model (.3mf, sliced on the server)
+            or a pre-sliced .gcode.3mf, automatically match filament spools from
+            your inventory, configure print work centers and finishing operations,
+            and instantly create a sellable SKU with a fully costed routing — all
+            in one guided workflow.
           </p>
           <a
             href="/pricing"
@@ -207,6 +209,8 @@ export default function AdminIntakeStudio() {
       return;
     }
     sourceFileRef.current = f;
+    const isRaw = name.endsWith(".3mf") && !name.endsWith(".gcode.3mf");
+    setBusyMode(isRaw ? "slicing" : "parsing");
     setUploadBusy(true);
     try {
       const formData = new FormData();
@@ -455,6 +459,7 @@ export default function AdminIntakeStudio() {
     setStep(1);
     setDragActive(false);
     setUploadBusy(false);
+    setBusyMode("parsing");
     setParseResult(null);
     setProductName("");
     setMatchResults(null);
@@ -553,7 +558,16 @@ export default function AdminIntakeStudio() {
           {uploadBusy ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
               <Spinner />
-              <p className="text-gray-400">Parsing file…</p>
+              {busyMode === "slicing" ? (
+                <>
+                  <p className="text-gray-400">Slicing your model…</p>
+                  <p className="text-gray-600 text-sm">
+                    This can take a minute or two — Bambu Studio is slicing on the server.
+                  </p>
+                </>
+              ) : (
+                <p className="text-gray-400">Parsing file…</p>
+              )}
             </div>
           ) : (
             <div
@@ -581,7 +595,7 @@ export default function AdminIntakeStudio() {
                 />
               </svg>
               <p className="text-lg font-medium text-white mb-2">
-                Drag and drop your .gcode.3mf file here
+                Drag and drop a .3mf or .gcode.3mf file here
               </p>
               <p className="text-gray-400 text-sm mb-4">or</p>
               <label className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium cursor-pointer transition-colors">
@@ -594,7 +608,7 @@ export default function AdminIntakeStudio() {
                 />
               </label>
               <p className="text-gray-600 text-xs mt-4">
-                Accepts .3mf and .gcode.3mf (Bambu Studio / Orca Slicer)
+                Raw .3mf is sliced on upload (takes a minute or two); pre-sliced .gcode.3mf is instant
               </p>
             </div>
           )}
