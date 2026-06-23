@@ -645,12 +645,19 @@ def record_qc_inspection(
 
     # Derive whole-order pass/fail quantities when the caller does not supply
     # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
+    # Only the missing side is derived, so a caller that supplies one keeps it.
     if quantity_passed is None or quantity_failed is None:
         order_qty = int(order.quantity_completed or order.quantity_ordered or 0)
         if qc_status == "failed":
-            quantity_passed, quantity_failed = 0, order_qty
+            if quantity_passed is None:
+                quantity_passed = 0
+            if quantity_failed is None:
+                quantity_failed = order_qty
         else:
-            quantity_passed, quantity_failed = order_qty, 0
+            if quantity_passed is None:
+                quantity_passed = order_qty
+            if quantity_failed is None:
+                quantity_failed = 0
     quantity_failed = quantity_failed or 0
 
     inspected_at = datetime.now(timezone.utc)

@@ -110,7 +110,7 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
         .scalar()
     ) or 0
 
-    # Scrap rate: total scrapped qty / total completed qty (period)
+    # Aggregate good (completed) and scrapped quantities over the period.
     qty_agg = (
         db.query(
             func.coalesce(func.sum(ProductionOrder.quantity_completed), 0).label("completed"),
