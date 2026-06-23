@@ -484,6 +484,53 @@ class TestScrapMaterials:
             db.rollback()
 
 
+class TestScrapFinishedGoods:
+    """Test scrap_finished_goods method (units already on hand)."""
+
+    def test_decrements_onhand_and_posts_fg_gl(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should decrement on_hand and post DR Scrap Expense / CR FG Inventory."""
+        ts = TransactionService(db)
+        try:
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("10"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            inv_txn, je, scrap = ts.scrap_finished_goods(
+                production_order_id=test_production_order.id,
+                product_id=test_finished_good.id,
+                quantity=Decimal("2"),
+                unit_cost=Decimal("10.00"),
+                reason_code="QC_FAIL",
+                notes="Failed final inspection",
+            )
+            db.flush()
+
+            # Inventory: SCRAP removal through the canonical ledger (on_hand 10 -> 8)
+            assert inv_txn.transaction_type == "scrap"
+            assert inv_txn.quantity == Decimal("-2")
+            db.refresh(inv)
+            assert inv.on_hand_quantity == Decimal("8")
+
+            # Accounting: balanced DR Scrap Expense (5020) / CR FG Inventory (1220)
+            assert je is not None and je.is_balanced
+            dr_line = next(l for l in je.lines if l.debit_amount > 0)
+            cr_line = next(l for l in je.lines if l.credit_amount > 0)
+            assert dr_line.account.account_code == "5020"
+            assert cr_line.account.account_code == "1220"
+
+            # ScrapRecord links both the inventory txn and the journal entry
+            assert scrap.total_cost == Decimal("20.00")
+            assert scrap.inventory_transaction_id == inv_txn.id
+            assert scrap.journal_entry_id == je.id
+        finally:
+            db.rollback()
+
+
 # ============================================================================
 # Ship Order Tests
 # ============================================================================
