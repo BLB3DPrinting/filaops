@@ -70,14 +70,19 @@ describe("ProductionQueueList — Scrap affordance (#781)", () => {
     expect(onScrap).toHaveBeenCalledWith(order);
   });
 
-  it("renders a Scrap button for a QC-held order", async () => {
-    const onScrap = vi.fn();
-    renderList([makeOrder({ id: 2, code: "PO-002", status: "qc_hold" })], onScrap);
+  // `complete` is exercised by the click test above; cover the remaining
+  // scrappable statuses so the canScrap gate can't silently narrow.
+  it.each(["in_progress", "qc_hold", "short"])(
+    "renders a Scrap button for a %s order",
+    async (status) => {
+      const onScrap = vi.fn();
+      renderList([makeOrder({ id: 2, code: "PO-002", status })], onScrap);
 
-    expect(
-      await screen.findByRole("button", { name: /scrap/i }),
-    ).toBeInTheDocument();
-  });
+      expect(
+        await screen.findByRole("button", { name: /scrap/i }),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("does NOT render a Scrap button for a draft order (nothing produced yet)", async () => {
     const onScrap = vi.fn();
