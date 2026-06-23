@@ -61,6 +61,37 @@ const INTAKE_ITEM_TYPES = [
   { value: "service", label: "Service" },
 ];
 
+// Bare-mesh (.stl/.obj) slicing profile options. A mesh carries no embedded
+// slice profile, so the server needs a material/printer/quality reference
+// before it can slice. Values must match the worker's profile resolver.
+const SLICE_MATERIALS = [
+  { value: "PLA Basic", label: "PLA Basic (PLA)" },
+  { value: "PLA Matte", label: "PLA Matte" },
+  { value: "PETG Basic", label: "PETG Basic (PETG)" },
+  { value: "ABS", label: "ABS" },
+  { value: "ASA", label: "ASA" },
+  { value: "PC", label: "PC (Polycarbonate)" },
+  { value: "PA6-CF", label: "PA6-CF (Nylon-CF)" },
+  { value: "PAHT-CF", label: "PAHT-CF" },
+  { value: "PET-CF", label: "PET-CF" },
+  { value: "PLA-CF", label: "PLA-CF" },
+  { value: "TPU 95A", label: "TPU 95A" },
+];
+
+const SLICE_PRINTERS = [
+  { value: "X1C", label: "X1C (X1 Carbon)" },
+  { value: "A1", label: "A1" },
+];
+
+const SLICE_QUALITIES = [
+  { value: "standard", label: "Standard" },
+  { value: "fine", label: "Fine" },
+  { value: "draft", label: "Draft" },
+];
+
+const isBareMesh = (name) =>
+  name.endsWith(".stl") || name.endsWith(".obj");
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -77,6 +108,12 @@ export default function AdminIntakeStudio() {
   const [dragActive, setDragActive] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [busyMode, setBusyMode] = useState("parsing");
+  // Bare-mesh staging: a .stl/.obj is held here while the operator picks a
+  // slicing profile, since a slice needs a material BEFORE the upload POST.
+  const [pendingMesh, setPendingMesh] = useState(null);
+  const [sliceMaterial, setSliceMaterial] = useState("PLA Basic");
+  const [slicePrinter, setSlicePrinter] = useState("X1C");
+  const [sliceQuality, setSliceQuality] = useState("standard");
 
   // Step 2 — Review
   const [parseResult, setParseResult] = useState(null);
@@ -202,19 +239,43 @@ export default function AdminIntakeStudio() {
     }
   };
 
-  const handleFile = async (f) => {
+  const handleFile = (f) => {
     const name = f.name.toLowerCase();
-    if (!name.endsWith(".3mf") && !name.endsWith(".gcode.3mf")) {
-      toast.error("Please select a .3mf or .gcode.3mf file");
+    if (
+      !name.endsWith(".3mf") &&
+      !name.endsWith(".gcode.3mf") &&
+      !isBareMesh(name)
+    ) {
+      toast.error("Please select a .stl, .obj, .3mf or .gcode.3mf file");
       return;
     }
+    if (isBareMesh(name)) {
+      // Stage the mesh and reveal the slicing-profile picker; don't POST yet —
+      // the slice needs a material/printer/quality first.
+      setPendingMesh(f);
+      return;
+    }
+    // .3mf / .gcode.3mf keep the immediate behavior.
+    uploadIntakeFile(f);
+  };
+
+  // Shared upload → /parse. When a mesh profile is supplied, append the
+  // material/printer/quality form fields the server uses to slice the bare mesh.
+  const uploadIntakeFile = async (f, profile = null) => {
+    const name = f.name.toLowerCase();
     sourceFileRef.current = f;
-    const isRaw = name.endsWith(".3mf") && !name.endsWith(".gcode.3mf");
-    setBusyMode(isRaw ? "slicing" : "parsing");
+    // Bare meshes and raw .3mf are sliced on the server; .gcode.3mf is parsed.
+    const willSlice = profile != null || (name.endsWith(".3mf") && !name.endsWith(".gcode.3mf"));
+    setBusyMode(willSlice ? "slicing" : "parsing");
     setUploadBusy(true);
     try {
       const formData = new FormData();
       formData.append("file", f);
+      if (profile) {
+        formData.append("material", profile.material);
+        formData.append("printer", profile.printer);
+        formData.append("quality", profile.quality);
+      }
       const res = await fetch(`${API_URL}/api/v1/pro/intake/parse`, {
         method: "POST",
         credentials: "include",
@@ -230,6 +291,7 @@ export default function AdminIntakeStudio() {
         toast.error(data.detail || `Parse failed (${res.status})`);
         return;
       }
+      setPendingMesh(null);
       setParseResult(data);
       setProductName(data.model_name || "");
       setStep(2);
@@ -238,6 +300,15 @@ export default function AdminIntakeStudio() {
     } finally {
       setUploadBusy(false);
     }
+  };
+
+  const sliceAndContinue = () => {
+    if (!pendingMesh) return;
+    uploadIntakeFile(pendingMesh, {
+      material: sliceMaterial,
+      printer: slicePrinter,
+      quality: sliceQuality,
+    });
   };
 
   // ---------------------------------------------------------------------------
@@ -460,6 +531,11 @@ export default function AdminIntakeStudio() {
     setDragActive(false);
     setUploadBusy(false);
     setBusyMode("parsing");
+    // bare-mesh staging + picker
+    setPendingMesh(null);
+    setSliceMaterial("PLA Basic");
+    setSlicePrinter("X1C");
+    setSliceQuality("standard");
     setParseResult(null);
     setProductName("");
     setMatchResults(null);
@@ -569,6 +645,101 @@ export default function AdminIntakeStudio() {
                 <p className="text-gray-400">Parsing file…</p>
               )}
             </div>
+          ) : pendingMesh ? (
+            /* Slicing-profile picker for a staged bare mesh (.stl/.obj) */
+            <div className="space-y-5">
+              <div className="flex items-center gap-3 text-sm text-gray-300">
+                <svg
+                  className="w-5 h-5 text-blue-400 flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                  />
+                </svg>
+                <span className="font-medium text-white">{pendingMesh.name}</span>
+              </div>
+              <h2 className="text-base font-semibold text-white">
+                Slicing options
+              </h2>
+              <p className="text-gray-500 text-sm">
+                A bare model has no embedded profile, so it&apos;s sliced on the
+                server using a reference profile. Pick the material, printer and
+                quality to slice against.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Material — most important */}
+                <div className="md:col-span-3">
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Material
+                  </label>
+                  <select
+                    value={sliceMaterial}
+                    onChange={(e) => setSliceMaterial(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {SLICE_MATERIALS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Printer
+                  </label>
+                  <select
+                    value={slicePrinter}
+                    onChange={(e) => setSlicePrinter(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {SLICE_PRINTERS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Quality
+                  </label>
+                  <select
+                    value={sliceQuality}
+                    onChange={(e) => setSliceQuality(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {SLICE_QUALITIES.map((q) => (
+                      <option key={q.value} value={q.value}>
+                        {q.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={sliceAndContinue}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Slice &amp; continue
+                </button>
+                <button
+                  onClick={() => setPendingMesh(null)}
+                  className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+                >
+                  Choose a different file
+                </button>
+              </div>
+            </div>
           ) : (
             <div
               onDragEnter={handleDrag}
@@ -595,20 +766,22 @@ export default function AdminIntakeStudio() {
                 />
               </svg>
               <p className="text-lg font-medium text-white mb-2">
-                Drag and drop a .3mf or .gcode.3mf file here
+                Drop a 3D model (.stl/.obj) or a Bambu .3mf here
               </p>
               <p className="text-gray-400 text-sm mb-4">or</p>
               <label className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium cursor-pointer transition-colors">
                 Browse Files
                 <input
                   type="file"
-                  accept=".3mf"
+                  accept=".3mf,.gcode.3mf,.stl,.obj"
                   onChange={handleFileInput}
                   className="hidden"
                 />
               </label>
               <p className="text-gray-600 text-xs mt-4">
-                Raw .3mf is sliced on upload (takes a minute or two); pre-sliced .gcode.3mf is instant
+                Bare .stl/.obj meshes are sliced on a reference profile (you pick
+                material/printer/quality next); raw .3mf is sliced on upload; pre-sliced
+                .gcode.3mf is instant.
               </p>
             </div>
           )}
