@@ -865,9 +865,13 @@ def record_scrap(
     # Finished goods are received into inventory at completion, so scrapping a
     # completed order must write the units off the FG ledger (decrementing
     # on_hand) and post the GL entry DR Scrap Expense (5020) / CR FG Inventory
-    # (1220). For orders not yet completed the FG is not in inventory, so we
-    # only record the scrap event + its cost.
-    if order.status == "complete":
+    # (1220). A failed QC moves the order to "qc_hold", but the FG was already
+    # received at completion and is still physically on hand — so that case
+    # must write off too, otherwise a held order scrapped after a QC failure
+    # leaves the received FG on the books forever. For orders not yet completed
+    # (in_progress/released/short) the FG is not in inventory, so we only record
+    # the scrap event + its cost.
+    if order.status in ("complete", "qc_hold"):
         from app.services.transaction_service import TransactionService
         _, _, scrap_record = TransactionService(db).scrap_finished_goods(
             production_order_id=order_id,
