@@ -26,10 +26,11 @@ function deriveName(filename) {
 }
 
 function buildSuggestedSku(name) {
-  return `INTAKE-${(name || "")
+  const slug = (name || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")}`;
+    .replace(/^-+|-+$/g, "");
+  return `INTAKE-${slug || "ITEM"}`;
 }
 
 function Spinner({ small = false }) {
@@ -619,13 +620,18 @@ export default function AdminIntakeBatch() {
   // Bulk SKU create
   // ---------------------------------------------------------------------------
 
+  // A row is eligible to (re-)create if it is ready OR previously failed.
+  // "ready" alone used to exclude create-failed rows from every retry run.
+  const isCreatable = (status) =>
+    status === "ready" || status === "create-failed";
+
   const handleCreateSkus = async () => {
     if (creating) return;
 
     // Snapshot current items so the loop works on a consistent set
     const snapshot = items;
-    const readyItems = snapshot.filter((it) => it.status === "ready");
-    const skippedCount = snapshot.filter((it) => it.status !== "ready").length;
+    const readyItems = snapshot.filter((it) => isCreatable(it.status));
+    const skippedCount = snapshot.filter((it) => !isCreatable(it.status)).length;
 
     if (readyItems.length === 0) {
       toast.error("No ready items to create");
@@ -638,6 +644,10 @@ export default function AdminIntakeBatch() {
 
     let createdCount = 0;
     let failedCount = 0;
+
+    // Track SKUs generated in this run to avoid duplicate-SKU DB errors when
+    // multiple items share the same (or similarly normalized) name.
+    const usedSkusThisRun = new Set();
 
     for (let i = 0; i < readyItems.length; i++) {
       const item = readyItems[i];
@@ -687,14 +697,23 @@ export default function AdminIntakeBatch() {
             ? Number(perUnitCost)
             : 0;
 
-        // Step 2: /sku
+        // Step 2: /sku — de-dupe SKU within this run by suffixing -2, -3, …
+        const baseSku = buildSuggestedSku(item.name);
+        let candidateSku = baseSku;
+        let suffix = 2;
+        while (usedSkusThisRun.has(candidateSku)) {
+          candidateSku = `${baseSku}-${suffix}`;
+          suffix++;
+        }
+        usedSkusThisRun.add(candidateSku);
+
         const skuBody = {
           name: item.name,
           actual_price: actualPrice,
           print_work_center_id: printWorkCenterId,
           print_time_seconds: printTimeSeconds,
           parts_on_plate: partsOnPlate,
-          sku: buildSuggestedSku(item.name),
+          sku: candidateSku,
           item_type: "finished_good",
           category_id: batchCategoryId ? Number(batchCategoryId) : undefined,
           slots,
@@ -764,10 +783,11 @@ export default function AdminIntakeBatch() {
     (it) => it.status === "parsing" || it.status === "matching"
   ).length;
 
-  // "Create SKUs" is enabled when ≥1 row is ready and not currently
-  // processing files or creating SKUs
+  // "Create SKUs" is enabled when ≥1 row is ready (or retryable) and not
+  // currently processing files or creating SKUs
+  const creatableCount = items.filter((it) => isCreatable(it.status)).length;
   const canCreate =
-    readyCount > 0 && !processing && !creating;
+    creatableCount > 0 && !processing && !creating;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1018,9 +1038,9 @@ export default function AdminIntakeBatch() {
             >
               {creating && <Spinner small />}
               Create SKUs
-              {readyCount > 0 && (
+              {creatableCount > 0 && (
                 <span className="bg-green-500/30 text-green-200 text-xs px-1.5 py-0.5 rounded-full ml-1">
-                  {readyCount}
+                  {creatableCount}
                 </span>
               )}
             </button>
