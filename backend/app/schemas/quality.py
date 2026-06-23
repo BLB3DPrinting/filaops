@@ -44,7 +44,8 @@ class QualityMetricsResponse(BaseModel):
     )
     pending_inspections: int
     scrap_rate: Optional[float] = Field(
-        None, description="Scrapped qty as percentage of total completed"
+        None,
+        description="Scrapped qty as a percentage of total handled (good + scrapped)",
     )
     total_scrapped_cost: float = 0
 

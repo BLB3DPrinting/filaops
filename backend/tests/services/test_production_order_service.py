@@ -2360,11 +2360,39 @@ class TestRecordScrap:
     order.  It imports reserve_production_materials from inventory_service
     for the remake path; we mock that to avoid deep dependency chains.
 
-    NOTE: The service code's ScrapRecord construction uses field names
-    that do not match the model columns and omits required NOT-NULL columns.
-    We mock ScrapRecord to test the service logic without hitting the
-    schema mismatch.
+    The ScrapRecord construction now matches the model columns and populates
+    the NOT-NULL cost fields; test_record_scrap_creates_real_scrap_record
+    exercises the real persistence path. The remaining tests still mock
+    ScrapRecord to isolate the surrounding control flow.
     """
+
+    def test_record_scrap_creates_real_scrap_record(self, db, finished_good):
+        """Real path (no mock): persists a ScrapRecord with the correct
+        columns and NOT-NULL cost fields."""
+        from app.models.production_order import ScrapRecord as _ScrapRecord
+        reason = _make_scrap_reason(db, code="real-scrap", name="Real Scrap")
+        order = _make_production_order(
+            db, finished_good, status="in_progress", quantity=10
+        )
+        result = svc.record_scrap(
+            db, order.id,
+            quantity_scrapped=3,
+            reason_code="real-scrap",
+            user_email="test@filaops.dev",
+            create_remake=False,
+        )
+        rec = (
+            db.query(_ScrapRecord)
+            .filter(_ScrapRecord.id == result["scrap_record_id"])
+            .first()
+        )
+        assert rec is not None
+        assert rec.product_id == finished_good.id
+        assert int(rec.quantity) == 3
+        assert rec.scrap_reason_code == "real-scrap"
+        assert rec.scrap_reason_id == reason.id
+        assert rec.unit_cost is not None
+        assert rec.total_cost == rec.unit_cost * 3
 
     def test_record_scrap_invalid_reason_rejected(self, db, finished_good):
         """Should reject scrap with a nonexistent reason code."""
@@ -2620,9 +2648,12 @@ class TestRecordQCInspection:
         assert reloaded.qc_notes == "All checks passed"
         assert reloaded.qc_inspected_at is not None
 
-    def test_record_failed_inspection_updates_scrap(self, db, finished_good):
-        """Should update scrap quantity on failed inspection."""
+    def test_record_failed_inspection_holds_order_without_autoscrap(self, db, finished_good):
+        """A failed inspection holds the order for disposition but does NOT
+        auto-increment quantity_scrapped — scrap is recorded separately via
+        record_scrap, so counting it here too would double-count."""
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        original_scrapped = int(order.quantity_scrapped or 0)
         svc.record_qc_inspection(
             db, order.id,
             inspector="Inspector Smith",
@@ -2631,9 +2662,9 @@ class TestRecordQCInspection:
             quantity_failed=3,
             failure_reason="Surface defects",
         )
-        # Service persists order-level QC fields and failed scrap quantity.
-        assert int(order.quantity_scrapped) == 3
         assert order.qc_status == "failed"
+        assert order.status == "qc_hold"
+        assert int(order.quantity_scrapped or 0) == original_scrapped
         assert order.qc_inspected_by == "Inspector Smith"
         assert order.qc_inspected_at is not None
 

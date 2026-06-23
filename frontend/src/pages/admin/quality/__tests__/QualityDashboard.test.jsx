@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -114,11 +114,17 @@ function mockFetch(overrides = {}) {
 
 async function renderDashboard(fetchOverrides) {
   mockFetch(fetchOverrides);
-  // Dynamic import after fetch mock is set, so the shared apiClient picks it up
+  // Dynamic import after fetch mock is set, so the shared apiClient picks it up.
+  // ToastProvider is imported dynamically too so it shares the same post-reset
+  // Toast module instance (and thus context) as the modal's useToast — a static
+  // import would resolve to a different ToastContext after vi.resetModules().
   const { default: QualityDashboard } = await import("../QualityDashboard");
+  const { ToastProvider } = await import("../../../../components/Toast");
   return render(
     <MemoryRouter>
-      <QualityDashboard />
+      <ToastProvider>
+        <QualityDashboard />
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
@@ -171,13 +177,17 @@ describe("QualityDashboard", () => {
     expect(screen.getByText("200/200")).toBeInTheDocument();
   });
 
-  it("renders inspection queue items as links to production order", async () => {
+  it("renders inspection queue items as buttons that open the QC modal", async () => {
     await renderDashboard();
     await waitFor(() => {
-      expect(screen.getByText("PO-001")).toBeInTheDocument();
+      expect(screen.getByText("PO-001").closest("button")).toBeInTheDocument();
     });
-    const link = screen.getByText("PO-001").closest("a");
-    expect(link).toHaveAttribute("href", "/admin/production/1");
+    // Queue rows are no longer navigation links; clicking one opens the QC
+    // inspection modal in place (the queue -> inspect -> resolve loop).
+    expect(screen.getByText("PO-001").closest("a")).toBeNull();
+
+    fireEvent.click(screen.getByText("PO-001").closest("button"));
+    expect(await screen.findByText("Inspection Result *")).toBeInTheDocument();
   });
 
   it('renders "2 pending" in queue header', async () => {

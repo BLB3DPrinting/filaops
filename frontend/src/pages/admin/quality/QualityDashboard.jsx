@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { useApi } from "../../../hooks/useApi";
 import StatCard from "../../../components/StatCard";
+import QCInspectionModal from "../../../components/QCInspectionModal";
 
 /**
  * QualityDashboard — Overview of quality management metrics.
@@ -20,6 +20,7 @@ export default function QualityDashboard() {
   const [scrapSummary, setScrapSummary] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [qcOrder, setQcOrder] = useState(null);
 
   useEffect(() => {
     fetchAll();
@@ -188,10 +189,11 @@ export default function QualityDashboard() {
           ) : (
             <div className="divide-y divide-[var(--border-subtle)]">
               {queue.items.map((item) => (
-                <Link
+                <button
                   key={item.id}
-                  to={`/admin/production/${item.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors"
+                  type="button"
+                  onClick={() => setQcOrder(item)}
+                  className="w-full text-left flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-secondary)] transition-colors"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-[var(--text-primary)] truncate">
@@ -207,7 +209,7 @@ export default function QualityDashboard() {
                     </span>
                     {qcBadge(item.qc_status)}
                   </div>
-                </Link>
+                </button>
               ))}
             </div>
           )}
@@ -300,6 +302,17 @@ export default function QualityDashboard() {
             </table>
           </div>
         </div>
+      )}
+
+      {qcOrder && (
+        <QCInspectionModal
+          productionOrder={qcOrder}
+          onClose={() => setQcOrder(null)}
+          onComplete={() => {
+            setQcOrder(null);
+            fetchAll();
+          }}
+        />
       )}
     </div>
   );
