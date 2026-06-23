@@ -483,6 +483,19 @@ class TransactionService:
         Returns:
             Tuple of (inventory transaction, journal entry, scrap record)
         """
+        # Boundary validation: a non-positive quantity would bypass the
+        # on-hand guard (a zero/negative delta can't make stock go negative)
+        # and a negative unit_cost would post a backwards GL entry. Reject
+        # both at the service boundary.
+        if quantity <= 0:
+            raise ValueError(
+                f"Scrap quantity must be positive, got {quantity}"
+            )
+        if unit_cost < 0:
+            raise ValueError(
+                f"Scrap unit_cost must be non-negative, got {unit_cost}"
+            )
+
         total_cost = quantity * unit_cost
 
         # Policy gate: refuse to drive on_hand negative.  inventory_ledger.post

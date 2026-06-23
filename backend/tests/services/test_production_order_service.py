@@ -2399,8 +2399,20 @@ class TestRecordScrap:
         so the ScrapRecord is linked to an inventory transaction (on-hand
         decrement) rather than being a cost-only row."""
         from app.models.production_order import ScrapRecord as _ScrapRecord
+        from app.services.inventory_service import get_or_create_default_location
         _make_scrap_reason(db, code="fg-scrap", name="FG Scrap")
         order = _make_production_order(db, finished_good, status="complete", quantity=10)
+        # FG is received into inventory at completion; seed on-hand at the
+        # default location so the write-off has stock to decrement (matches the
+        # location scrap_finished_goods resolves).
+        location = get_or_create_default_location(db)
+        db.add(Inventory(
+            product_id=finished_good.id,
+            location_id=location.id,
+            on_hand_quantity=Decimal("10"),
+            allocated_quantity=Decimal("0"),
+        ))
+        db.flush()
         result = svc.record_scrap(
             db, order.id,
             quantity_scrapped=2,

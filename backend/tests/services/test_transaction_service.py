@@ -554,6 +554,36 @@ class TestScrapFinishedGoods:
         finally:
             db.rollback()
 
+    def test_rejects_non_positive_quantity(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should raise ValueError for zero/negative scrap quantity (boundary guard)."""
+        ts = TransactionService(db)
+        try:
+            with pytest.raises(ValueError, match="quantity must be positive"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("0"),
+                    unit_cost=Decimal("10.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
+    def test_rejects_negative_unit_cost(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should raise ValueError for negative unit_cost (would post a backwards GL entry)."""
+        ts = TransactionService(db)
+        try:
+            with pytest.raises(ValueError, match="unit_cost must be non-negative"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("1"),
+                    unit_cost=Decimal("-5.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
 
 # ============================================================================
 # Ship Order Tests
