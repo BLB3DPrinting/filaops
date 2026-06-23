@@ -1,6 +1,5 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { ToastProvider } from "../../../../components/Toast";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Reset the shared apiClient singleton between tests so each test
@@ -115,8 +114,12 @@ function mockFetch(overrides = {}) {
 
 async function renderDashboard(fetchOverrides) {
   mockFetch(fetchOverrides);
-  // Dynamic import after fetch mock is set, so the shared apiClient picks it up
+  // Dynamic import after fetch mock is set, so the shared apiClient picks it up.
+  // ToastProvider is imported dynamically too so it shares the same post-reset
+  // Toast module instance (and thus context) as the modal's useToast — a static
+  // import would resolve to a different ToastContext after vi.resetModules().
   const { default: QualityDashboard } = await import("../QualityDashboard");
+  const { ToastProvider } = await import("../../../../components/Toast");
   return render(
     <MemoryRouter>
       <ToastProvider>
