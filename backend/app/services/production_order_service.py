@@ -681,11 +681,12 @@ def record_qc_inspection(
     order.qc_notes = notes
 
     # Update order based on QC result. A failed inspection holds the order so
-    # it cannot be closed/fulfilled until it is dispositioned.
+    # it cannot be closed/fulfilled until it is dispositioned. The scrap count
+    # is recorded separately via record_scrap (the QC modal prompts the user to
+    # scrap + optionally remake); incrementing quantity_scrapped here as well
+    # would double-count the failed units.
     if qc_status == "failed":
         order.status = "qc_hold"
-        if quantity_failed > 0:
-            order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_failed
 
     db.flush()
 

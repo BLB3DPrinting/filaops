@@ -2648,9 +2648,12 @@ class TestRecordQCInspection:
         assert reloaded.qc_notes == "All checks passed"
         assert reloaded.qc_inspected_at is not None
 
-    def test_record_failed_inspection_updates_scrap(self, db, finished_good):
-        """Should update scrap quantity on failed inspection."""
+    def test_record_failed_inspection_holds_order_without_autoscrap(self, db, finished_good):
+        """A failed inspection holds the order for disposition but does NOT
+        auto-increment quantity_scrapped — scrap is recorded separately via
+        record_scrap, so counting it here too would double-count."""
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        original_scrapped = int(order.quantity_scrapped or 0)
         svc.record_qc_inspection(
             db, order.id,
             inspector="Inspector Smith",
@@ -2659,9 +2662,9 @@ class TestRecordQCInspection:
             quantity_failed=3,
             failure_reason="Surface defects",
         )
-        # Service persists order-level QC fields and failed scrap quantity.
-        assert int(order.quantity_scrapped) == 3
         assert order.qc_status == "failed"
+        assert order.status == "qc_hold"
+        assert int(order.quantity_scrapped or 0) == original_scrapped
         assert order.qc_inspected_by == "Inspector Smith"
         assert order.qc_inspected_at is not None
 

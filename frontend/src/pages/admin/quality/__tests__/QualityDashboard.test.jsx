@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "../../../../components/Toast";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Reset the shared apiClient singleton between tests so each test
@@ -118,7 +119,9 @@ async function renderDashboard(fetchOverrides) {
   const { default: QualityDashboard } = await import("../QualityDashboard");
   return render(
     <MemoryRouter>
-      <QualityDashboard />
+      <ToastProvider>
+        <QualityDashboard />
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
@@ -179,6 +182,9 @@ describe("QualityDashboard", () => {
     // Queue rows are no longer navigation links; clicking one opens the QC
     // inspection modal in place (the queue -> inspect -> resolve loop).
     expect(screen.getByText("PO-001").closest("a")).toBeNull();
+
+    fireEvent.click(screen.getByText("PO-001").closest("button"));
+    expect(await screen.findByText("Inspection Result *")).toBeInTheDocument();
   });
 
   it('renders "2 pending" in queue header', async () => {
