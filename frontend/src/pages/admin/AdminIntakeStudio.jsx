@@ -243,6 +243,7 @@ export default function AdminIntakeStudio() {
   // Does NOT touch `step` — handleFile/staging manages navigation.
   const resetDerivedStateForNewFile = () => {
     // bare-mesh picker
+    setPendingMesh(null);
     setSliceMaterial("PLA Basic");
     setSlicePrinter("X1C");
     setSliceQuality("standard");
