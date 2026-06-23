@@ -485,6 +485,22 @@ class TransactionService:
         """
         total_cost = quantity * unit_cost
 
+        # Policy gate: refuse to drive on_hand negative.  inventory_ledger.post
+        # is mechanism-only; stock-sufficiency checks live in callers.
+        # Acquiring FOR UPDATE here serializes with the identical lock in
+        # _post_inventory so there is no TOCTOU window.
+        from app.services.inventory_service import get_or_create_default_location
+        resolved_location_id = get_or_create_default_location(self.db).id
+        inv_row = inventory_ledger.get_or_create_inventory_row(
+            self.db, product_id, resolved_location_id
+        )
+        current_on_hand = Decimal(str(inv_row.on_hand_quantity or 0))
+        if quantity > current_on_hand:
+            raise ValueError(
+                f"Cannot scrap {quantity} units of product {product_id}: "
+                f"only {current_on_hand} on hand"
+            )
+
         inv_txn = self._post_inventory(
             product_id=product_id,
             transaction_type="scrap",
@@ -493,6 +509,7 @@ class TransactionService:
             reference_type="production_order",
             reference_id=production_order_id,
             notes=f"Scrap (finished goods): {reason_code}",
+            location_id=resolved_location_id,
         )
         self.db.flush()  # Get inv_txn.id for the scrap record
 

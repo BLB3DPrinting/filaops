@@ -530,6 +530,30 @@ class TestScrapFinishedGoods:
         finally:
             db.rollback()
 
+    def test_raises_when_quantity_exceeds_onhand(self, db: Session, test_production_order: ProductionOrder, test_finished_good: Product):
+        """Should raise ValueError when scrap qty would drive on_hand negative."""
+        ts = TransactionService(db)
+        try:
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("1"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            with pytest.raises(ValueError, match="only 1"):
+                ts.scrap_finished_goods(
+                    production_order_id=test_production_order.id,
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("5"),
+                    unit_cost=Decimal("10.00"),
+                    reason_code="QC_FAIL",
+                )
+        finally:
+            db.rollback()
+
 
 # ============================================================================
 # Ship Order Tests
