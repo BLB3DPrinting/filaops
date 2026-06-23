@@ -473,14 +473,48 @@ export default function AdminIntakeStudio() {
         persist_color_map: true,
       };
       const data = await api.post("/api/v1/pro/intake/sku", body);
-      // Upload the slice file non-fatally — SKU is already created.
-      // Skip bare meshes: sourceFileRef holds the raw .stl/.obj, not the
-      // server-generated gcode, so persisting it would save the wrong artifact.
-      // Persisting the real slice output needs a /parse→slice-file backend
-      // contract that doesn't exist yet (future).
+      // Persist the printable slice file non-fatally — the SKU is already created.
       const createdId = data.product?.id;
+      // SERVER-SLICED inputs (a raw .3mf, or a bare .stl/.obj) carry the worker
+      // artifact ids in the parse contract: gcode_3mf_artifact_id is the
+      // exported printable .gcode.3mf, gcode_artifact_id is the raw per-plate
+      // G-code (its presence flags "this was sliced server-side"). For those,
+      // the source upload is NOT the slice file, so we fetch + persist the
+      // worker's .gcode.3mf by id instead. A pre-sliced .gcode.3mf upload has
+      // neither id (it's parsed, not sliced) and IS the slice file itself.
+      const sliceArtifactId = parseResult?.gcode_3mf_artifact_id;
+      const isServerSliced = Boolean(parseResult?.gcode_artifact_id);
       const src = sourceFileRef.current;
-      if (createdId && src && !isBareMesh(src.name.toLowerCase())) {
+      if (createdId && sliceArtifactId) {
+        try {
+          const res = await fetch(
+            `${API_URL}/api/v1/pro/intake/products/${createdId}/slice-file-from-artifact`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gcode_artifact_id: sliceArtifactId,
+                filename: `${productName || data.product?.sku || "model"}.gcode.3mf`,
+              }),
+            }
+          );
+          setSliceFileSaved(res.ok);
+        } catch {
+          setSliceFileSaved(false);
+        }
+      } else if (
+        createdId &&
+        !isServerSliced &&
+        src &&
+        src.name.toLowerCase().endsWith(".gcode.3mf")
+      ) {
+        // Pre-sliced .gcode.3mf upload: the uploaded file IS the printable
+        // slice file — persist it directly (unchanged path). Requiring the
+        // .gcode.3mf extension here (not just "not a bare mesh") guarantees we
+        // never persist a raw .3mf source even under FE/backend version skew
+        // where the parse contract lacks the artifact ids. Server-sliced inputs
+        // whose worker produced no .gcode.3mf are intentionally skipped.
         try {
           const fd = new FormData();
           fd.append("file", src);
