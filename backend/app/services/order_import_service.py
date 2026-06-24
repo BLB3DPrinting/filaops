@@ -116,9 +116,16 @@ def find_or_create_customer(
 # ============================================================================
 
 ORDER_ID_COLS = ["order id", "Order ID", "order_id", "Order_ID", "Order Number", "order_number", "Order #", "Order#"]
+# Shopify's order export uses the bare "Name" column for the order number (e.g.
+# "#1001"). It is added to the order-id candidates ONLY when source == shopify,
+# because other platforms use "Name" for the customer — see import_orders_from_csv.
+SHOPIFY_ORDER_ID_COLS = ["Name", "name"]
 ORDER_DATE_COLS = ["order date", "Order Date", "order_date", "Date", "date", "Order Date/Time"]
 CUSTOMER_EMAIL_COLS = ["customer email", "Customer Email", "customer_email", "Email", "email", "Buyer Email", "buyer_email"]
-CUSTOMER_NAME_COLS = ["customer name", "Customer Name", "customer_name", "Name", "name", "Buyer Name", "buyer_name", "Shipping Name", "shipping name"]
+# Bare "Name"/"name" intentionally excluded: Shopify uses it for the order
+# number, so consuming it as the customer name corrupted order-id grouping and
+# source_order_id dedup (#786). Specific name headers are kept.
+CUSTOMER_NAME_COLS = ["customer name", "Customer Name", "customer_name", "Buyer Name", "buyer_name", "Shipping Name", "shipping name"]
 PRODUCT_SKU_COLS = ["product sku", "Product SKU", "product_sku", "SKU", "sku", "Variant SKU", "variant_sku", "Item SKU", "item_sku"]
 QUANTITY_COLS = ["quantity", "Quantity", "Qty", "qty", "QTY"]
 UNIT_PRICE_COLS = ["unit price", "Unit Price", "unit_price", "Price", "price", "Item Price", "item_price"]
@@ -181,6 +188,12 @@ def import_orders_from_csv(
     skipped = 0
     errors: List[dict] = []
 
+    # The source selection now affects column mapping (not just the stored
+    # label): Shopify exports the order number in the "Name" column.
+    order_id_cols = list(ORDER_ID_COLS)
+    if (source or "").strip().lower() == "shopify":
+        order_id_cols = order_id_cols + SHOPIFY_ORDER_ID_COLS
+
     # Group rows by Order ID for multi-line orders
     orders_dict: Dict[str, Dict[str, Any]] = {}
 
@@ -193,7 +206,7 @@ def import_orders_from_csv(
             # per-run grouping/display key when the CSV has no order id. Synthetic
             # keys must NOT be persisted as source_order_id — different files
             # would collide on IMPORT-2 etc. under the partial unique index.
-            external_order_id = _find_col(row, ORDER_ID_COLS) or None
+            external_order_id = _find_col(row, order_id_cols) or None
             order_id = external_order_id or f"IMPORT-{row_num}"
             customer_email = _find_col(row, CUSTOMER_EMAIL_COLS).lower()
             if not customer_email or "@" not in customer_email:
@@ -377,7 +390,9 @@ def import_orders_from_csv(
                 quantity=total_quantity,
                 material_type="PLA",
                 finish="standard",
-                unit_price=total_price / total_quantity if total_quantity > 0 else Decimal("0.00"),
+                # NULL for line_item orders — the per-line prices live on the
+                # SalesOrderLines; a blended header average was misleading.
+                unit_price=None,
                 total_price=total_price,
                 tax_amount=tax_amount,
                 shipping_cost=shipping_cost,
