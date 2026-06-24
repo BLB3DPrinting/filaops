@@ -122,6 +122,127 @@ function PreParsePanel({ preparse }) {
 }
 
 /**
+ * Multi-plate selection panel (unified flow). Rendered when a dropped file's
+ * pre-parse reports more than one plate (preparse.plate_count > 1). Lists every
+ * plate and lets the operator pick exactly one to intake; nothing is selected by
+ * default, so the operator must choose before continuing. The chosen plate's
+ * `plate_index` (read verbatim — value-matched server-side) is sent to /parse.
+ *
+ * Renders what each kind of file can offer:
+ *   - SLICED (.gcode.3mf): the plate already carries slice data, so each row
+ *     shows weight (total_weight_g), print time (print_time_seconds), a swatch
+ *     row of the plate's slot colors, and a multi-material badge.
+ *   - RAW (.3mf): not sliced yet, so each row shows only the plate name and its
+ *     object_count. Picking one triggers the actual slice of just that plate.
+ * @param {object} props
+ * @param {Array<object>} props.plates - preparse.plates[] (sliced or raw shape).
+ * @param {boolean} props.isRaw - true for a raw .3mf (no weight/time per plate).
+ * @param {number|null} props.selectedPlateIndex - the chosen plate_index, or null.
+ * @param {(plateIndex: number) => void} props.onSelect - called with a plate_index.
+ * @returns {JSX.Element|null}
+ */
+function PlatePicker({ plates, isRaw, selectedPlateIndex, onSelect }) {
+  if (!Array.isArray(plates) || plates.length === 0) return null;
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-5">
+      <h2 className="text-base font-semibold text-white mb-1">
+        Choose a plate
+      </h2>
+      <p className="text-gray-500 text-sm mb-4">
+        {isRaw
+          ? `This file has ${plates.length} plates. Pick the one to intake — it will be sliced on the server.`
+          : `This file has ${plates.length} plates. Pick the one to intake.`}
+      </p>
+      <div className="space-y-2">
+        {plates.map((p) => {
+          if (p.plate_index == null) return null;
+          const idx = p.plate_index;
+          const selected = selectedPlateIndex != null && idx === selectedPlateIndex;
+          const slots = Array.isArray(p.slots) ? p.slots : [];
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onSelect(idx)}
+              aria-pressed={selected}
+              className={`w-full text-left rounded-lg border px-4 py-3 transition-colors flex items-center gap-3 ${
+                selected
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-gray-700 bg-gray-800 hover:border-gray-600"
+              }`}
+            >
+              <span
+                className={`inline-block w-4 h-4 rounded-full border flex-shrink-0 ${
+                  selected
+                    ? "border-blue-400 bg-blue-500"
+                    : "border-gray-500"
+                }`}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-white font-medium">
+                    Plate {idx}
+                  </span>
+                  {isRaw ? (
+                    <>
+                      {p.name && (
+                        <span className="text-gray-300 text-sm truncate">
+                          {p.name}
+                        </span>
+                      )}
+                      {p.object_count != null && (
+                        <span className="text-gray-500 text-sm">
+                          ({p.object_count} object
+                          {p.object_count === 1 ? "" : "s"})
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {p.total_weight_g != null && (
+                        <span className="text-gray-300 text-sm">
+                          {Number(p.total_weight_g).toFixed(1)} g
+                        </span>
+                      )}
+                      {p.print_time_seconds != null && (
+                        <>
+                          <span className="text-gray-600">·</span>
+                          <span className="text-gray-300 text-sm">
+                            {secondsToHms(p.print_time_seconds)}
+                          </span>
+                        </>
+                      )}
+                      {p.is_multi_material && (
+                        <span className="px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/40 text-xs text-blue-300">
+                          Multi-material
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                {/* Sliced plates: a swatch row of the plate's slot colors. */}
+                {!isRaw && slots.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {slots.map((s, si) => (
+                      <span
+                        key={s.slot_id ?? si}
+                        title={s.color_hex || s.filament_type || ""}
+                        className="inline-block w-4 h-4 rounded border border-gray-600"
+                        style={{ backgroundColor: s.color_hex || "#888" }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Per-slot catalog material selector (unified flow). Renders a material-type
  * select then a color select, both sourced from /materials/for-bom. The chosen
  * (type, color) resolves to a single purchasable catalog item, surfaced via
@@ -595,6 +716,11 @@ export default function AdminIntakeStudio() {
   // Unified flow (gated by `unifiedFlow`) — pre-parse + catalog material
   // selection. All inert when the gate is off (never set, rendered, or read).
   const [preparseResult, setPreparseResult] = useState(null);
+  // Multi-plate (unified flow) — the operator's chosen plate. Holds the chosen
+  // plate's `plate_index` (read verbatim from preparseResult.plates[]), or null
+  // when no plate is selected yet / the file is single-plate. Sent to /parse as
+  // the `plate_index` form field. Inert when the gate is off or plate_count<=1.
+  const [selectedPlateIndex, setSelectedPlateIndex] = useState(null);
   const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
   // Drop-time catalog fetch state for the bare-mesh staging picker. Distinguishes
   // in-flight ("loading") from a resolved-but-unusable catalog ("empty"/"failed")
@@ -665,6 +791,12 @@ export default function AdminIntakeStudio() {
   // reset bumps it; any in-flight runMaterialSelect whose token no longer
   // matches is stale and must not advance the wizard (setMatchResults/setStep).
   const materialSelectRequestIdRef = useRef(0);
+  // Multi-plate (unified flow): retains the dropped .3mf/.gcode.3mf File while
+  // its pre-parse is in flight. On a single-plate result the pre-parse handler
+  // auto-continues to /parse with this file; on a multi-plate result it's held
+  // so the PlatePicker can drive the /parse once the operator chooses a plate.
+  // Cleared by reset and once the parse is dispatched.
+  const pendingPlateFileRef = useRef(null);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -774,6 +906,10 @@ export default function AdminIntakeStudio() {
     // Unified flow
     setPreparseResult(null);
     preparseResultRef.current = null;
+    // Multi-plate: clear the chosen plate and drop any file held for the picker
+    // so a stale pre-parse/plate-pick can't dispatch a parse for the old file.
+    setSelectedPlateIndex(null);
+    pendingPlateFileRef.current = null;
     // Invalidate any pre-parse still in flight so its response is ignored.
     preparseRequestIdRef.current += 1;
     // Invalidate any catalog fetch still in flight so a stale /for-bom response
@@ -829,24 +965,35 @@ export default function AdminIntakeStudio() {
     }
     // A new file invalidates everything downstream — start from a clean slate.
     resetDerivedStateForNewFile();
+    const bare = isBareMesh(name);
     // Unified flow: pre-parse every dropped file to show the detected kind +
     // per-slot color swatches BEFORE any slice. Non-blocking — the panel is
     // additive and never gates the existing parse/stage path.
     if (unifiedFlow) {
+      // For a non-bare file (.3mf/.gcode.3mf), defer the immediate /parse: the
+      // pre-parse response decides whether to auto-continue (single plate) or
+      // surface the PlatePicker (multi-plate). Hold the file so that decision
+      // (or the operator's plate pick) can drive the parse. Bare meshes stage
+      // for a slice profile instead and are always single-plate.
+      if (!bare) pendingPlateFileRef.current = f;
       // Tag this pre-parse with the post-reset token so a slower response from a
       // prior file (whose token was bumped by resetDerivedStateForNewFile) is
       // ignored rather than clobbering this file's pre-parse state.
       preparseIntakeFile(f, preparseRequestIdRef.current);
       loadBomMaterials();
     }
-    if (isBareMesh(name)) {
+    if (bare) {
       // Stage the mesh and reveal the slicing-profile picker; don't POST yet —
       // the slice needs a material/printer/quality first.
       setPendingMesh(f);
       return;
     }
-    // .3mf / .gcode.3mf keep the immediate behavior.
-    uploadIntakeFile(f);
+    // Gate off: .3mf / .gcode.3mf keep the immediate behavior. Under the unified
+    // flow the parse is dispatched by the pre-parse handler / PlatePicker once
+    // the plate count (and chosen plate) is known.
+    if (!unifiedFlow) {
+      uploadIntakeFile(f);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -864,6 +1011,7 @@ export default function AdminIntakeStudio() {
    * @returns {Promise<void>}
    */
   const preparseIntakeFile = async (f, requestId) => {
+    let ok = false;
     try {
       const formData = new FormData();
       formData.append("file", f);
@@ -881,8 +1029,34 @@ export default function AdminIntakeStudio() {
       // for the PreParsePanel render.
       preparseResultRef.current = data;
       setPreparseResult(data);
+      ok = true;
+      // Multi-plate gating (non-bare files only — bare meshes stage separately
+      // and are single-plate). A held file whose pre-parse reports >1 plate
+      // waits for the PlatePicker to choose a plate before /parse; a single-plate
+      // (or plate-count-absent) file auto-continues to the unchanged parse path.
+      const pending = pendingPlateFileRef.current;
+      if (pending && (data.plate_count ?? 1) <= 1) {
+        pendingPlateFileRef.current = null;
+        uploadIntakeFile(pending);
+      }
+      // A multi-plate file is intentionally left in pendingPlateFileRef so the
+      // PlatePicker (rendered from preparseResult.plate_count > 1) can drive the
+      // parse with the chosen plate_index.
     } catch {
       // Non-fatal — the pre-parse panel is purely informational.
+    } finally {
+      // If the pre-parse failed (or was superseded by a newer/stale token) but a
+      // non-bare file is still held, fall back to the unchanged immediate parse
+      // so the operator is never stranded with no parse and no picker. The stale
+      // guard above already returned without setting `ok`, so this only fires for
+      // a genuine failure of the CURRENT file's pre-parse.
+      if (!ok && requestId === preparseRequestIdRef.current) {
+        const pending = pendingPlateFileRef.current;
+        if (pending) {
+          pendingPlateFileRef.current = null;
+          uploadIntakeFile(pending);
+        }
+      }
     }
   };
 
@@ -927,7 +1101,17 @@ export default function AdminIntakeStudio() {
   // chosen at staging; when present, every resulting slot is pre-seeded with it
   // so the one staging pick === the slice profile source === the slot's
   // matchChoices, and Step 3 shows it pre-confirmed with cost.
-  const uploadIntakeFile = async (f, profile = null, seedCatalogItem = null) => {
+  // `plateIndex` (unified flow, multi-plate): the chosen plate's `plate_index`
+  // (read verbatim from the /preparse plates[] — value-matched server-side, so it
+  // round-trips with no off-by-one). When set it's sent as the `plate_index` form
+  // field; the backend returns that plate's data as the top-level parse contract
+  // (sliced: that plate; raw: slices ONLY that plate). null = unchanged behavior.
+  const uploadIntakeFile = async (
+    f,
+    profile = null,
+    seedCatalogItem = null,
+    plateIndex = null
+  ) => {
     // Token this upload; a new file or a reset bumps uploadRequestIdRef, marking
     // any in-flight slice/parse stale so a slow response can't re-apply an old
     // parseResult/matchChoices/staged-material seed or advance to Step 2.
@@ -946,6 +1130,14 @@ export default function AdminIntakeStudio() {
         formData.append("material", profile.material);
         formData.append("printer", profile.printer);
         formData.append("quality", profile.quality);
+      }
+      // Multi-plate: select a single plate. Sent verbatim (the backend matches
+      // plates by value, p.plate_index == plate_index, so this round-trips with
+      // no off-by-one). Sliced → returns that plate's data as the top-level
+      // contract; raw → slices ONLY that plate (--slice n). Omitted when null so
+      // single-plate / gate-off behavior is byte-identical.
+      if (plateIndex != null) {
+        formData.append("plate_index", String(plateIndex));
       }
       const res = await fetch(`${API_URL}/api/v1/pro/intake/parse`, {
         method: "POST",
@@ -1008,7 +1200,19 @@ export default function AdminIntakeStudio() {
       // Read the pre-parse slot count from the ref (not the state) so the raw
       // .3mf path — where preparseIntakeFile resolves after this closure was
       // created — compares against the just-computed value, not a stale null.
-      const preparseSlotCount = preparseResultRef.current?.slot_count;
+      // For a multi-plate pick, compare against the CHOSEN plate's slot count
+      // (the pre-parse top-level slot_count describes the default plate, not the
+      // one selected), falling back to the top-level count when unavailable.
+      let preparseSlotCount = preparseResultRef.current?.slot_count;
+      if (plateIndex != null) {
+        const chosenPlate = (preparseResultRef.current?.plates || []).find(
+          (p) => p.plate_index === plateIndex
+        );
+        const chosenSlotCount = Array.isArray(chosenPlate?.slots)
+          ? chosenPlate.slots.length
+          : null;
+        if (chosenSlotCount != null) preparseSlotCount = chosenSlotCount;
+      }
       if (unifiedFlow && willSlice && preparseSlotCount != null) {
         const slicedCount = Array.isArray(data.slots)
           ? data.slots.length
@@ -1027,6 +1231,15 @@ export default function AdminIntakeStudio() {
           );
         }
       }
+      // Multi-plate: the parse succeeded — now it's safe to clear the held file
+      // and picker state. Clearing before uploadIntakeFile (as it was) left an
+      // enabled but no-op Continue after a parse failure or Step-2 Back.
+      if (plateIndex != null) {
+        pendingPlateFileRef.current = null;
+        setPreparseResult(null);
+        preparseResultRef.current = null;
+        setSelectedPlateIndex(null);
+      }
       setStep(2);
     } catch (err) {
       // Suppress a stale upload's error toast (its file was already superseded).
@@ -1039,6 +1252,21 @@ export default function AdminIntakeStudio() {
         setUploadBusy(false);
       }
     }
+  };
+
+  // Multi-plate (unified flow): the operator picked a plate in the PlatePicker
+  // and clicked continue. Dispatch /parse for the held file with the chosen
+  // plate_index — sliced returns that plate's data as the top-level contract,
+  // raw slices ONLY that plate (busyMode "slicing"). The chosen plate's data
+  // then flows into parseResult exactly like the single-plate path. No-op if
+  // there's no held file or no selection (the button is disabled in that case).
+  const continueWithSelectedPlate = () => {
+    const pending = pendingPlateFileRef.current;
+    if (!pending || selectedPlateIndex == null) return;
+    // Do NOT clear pendingPlateFileRef here — keep the held file available for
+    // retry (parse failure) or Step-2 Back. It is cleared in uploadIntakeFile's
+    // success path once the parse returns ok (plateIndex != null branch above).
+    uploadIntakeFile(pending, null, null, selectedPlateIndex);
   };
 
   const sliceAndContinue = () => {
@@ -1504,8 +1732,15 @@ export default function AdminIntakeStudio() {
     setMatchResults(null);
     setMatchBusy(false);
     setMatchChoices({});
+    // Invalidate any in-flight /preparse before clearing its result state —
+    // a slow response from the old file can't repopulate preparseResult and
+    // reopen the stale picker. Mirror the drop-zone new-file reset path.
+    preparseRequestIdRef.current += 1;
     setPreparseResult(null);
     preparseResultRef.current = null;
+    // Multi-plate: clear the chosen plate and any file held for the picker.
+    setSelectedPlateIndex(null);
+    pendingPlateFileRef.current = null;
     setMaterialsError(null);
     setBomMaterialsLoading(false);
     setBomMaterialsError(null);
@@ -1557,6 +1792,15 @@ export default function AdminIntakeStudio() {
     matchResults.every(
       (r) => matchChoices[r.slot_id]?.product_id != null
     );
+
+  // Multi-plate (unified flow): a dropped .3mf/.gcode.3mf whose pre-parse found
+  // more than one plate is held (pendingPlateFileRef) and the PlatePicker is
+  // shown instead of auto-parsing. `isRawPreparse` distinguishes a raw .3mf
+  // (plates carry name/object_count, picking slices that plate) from a sliced
+  // .gcode.3mf (plates carry weight/time/slots). Inert when the gate is off.
+  const isMultiPlatePending =
+    unifiedFlow && (preparseResult?.plate_count ?? 1) > 1;
+  const isRawPreparse = preparseResult?.kind === "raw3mf";
 
   // ---------------------------------------------------------------------------
   // Finishing ops helpers
@@ -1864,6 +2108,37 @@ export default function AdminIntakeStudio() {
                 )}
                 <button
                   onClick={() => setPendingMesh(null)}
+                  className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+                >
+                  Choose a different file
+                </button>
+              </div>
+            </div>
+          ) : isMultiPlatePending ? (
+            /* Multi-plate file: pick a single plate before parsing/slicing. */
+            <div className="space-y-5">
+              <PreParsePanel preparse={preparseResult} />
+              <PlatePicker
+                plates={preparseResult?.plates || []}
+                isRaw={isRawPreparse}
+                selectedPlateIndex={selectedPlateIndex}
+                onSelect={setSelectedPlateIndex}
+              />
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={continueWithSelectedPlate}
+                  disabled={selectedPlateIndex == null}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                >
+                  {isRawPreparse ? "Slice & continue" : "Continue"}
+                </button>
+                {selectedPlateIndex == null && (
+                  <span className="text-gray-500 text-sm">
+                    Pick a plate to continue
+                  </span>
+                )}
+                <button
+                  onClick={handleReset}
                   className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
                 >
                   Choose a different file
