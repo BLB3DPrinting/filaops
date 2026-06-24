@@ -277,21 +277,27 @@ const colorDistance = (a, b) => {
 };
 
 // Best purchasable catalog item (from /materials/for-bom) for a slot's
-// material_type + color_hex. Prefers items whose material_code matches the
-// slot's filament type, then picks the nearest color; falls back to nearest
-// color across the whole catalog. Returns the chosen item or null.
+// material_type + color_hex. Prefers items whose material_code EXACTLY matches
+// the slot's filament type, then (only if there is no exact match) items whose
+// code merely contains it, then picks the nearest color; falls back to nearest
+// color across the whole catalog. The exact-first ordering avoids cross-family
+// mis-prefill (e.g. a plain "PLA" slot seeding a "PLA-CF" purchasable). Returns
+// the chosen item or null.
+const normalizeCode = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const nearestCatalogMatch = (items, filamentType, colorHex) => {
   if (!Array.isArray(items) || items.length === 0) return null;
-  const typeNorm = (filamentType || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const typed = typeNorm
-    ? items.filter(
-        (it) =>
-          (it.material_code || "")
-            .toUpperCase()
-            .replace(/[^A-Z0-9]/g, "")
-            .includes(typeNorm)
-      )
-    : [];
+  const typeNorm = normalizeCode(filamentType);
+  let typed = [];
+  if (typeNorm) {
+    // Exact normalized-code match first.
+    typed = items.filter((it) => normalizeCode(it.material_code) === typeNorm);
+    // Fall back to substring/contains only when there is no exact-code match.
+    if (typed.length === 0) {
+      typed = items.filter((it) =>
+        normalizeCode(it.material_code).includes(typeNorm)
+      );
+    }
+  }
   const pool = typed.length > 0 ? typed : items;
   let best = null;
   let bestDist = Infinity;
@@ -344,6 +350,11 @@ export default function AdminIntakeStudio() {
   const [preparseResult, setPreparseResult] = useState(null);
   const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
   const [reconcileNotice, setReconcileNotice] = useState(null);
+  // Distinguishes a failed catalog fetch ("failed") from a genuinely empty
+  // catalog ("empty") vs. a healthy one (null) so Step 3 can surface an
+  // explicit, recoverable message instead of trapping the operator behind
+  // empty material selectors. Set by runMaterialSelect.
+  const [materialsError, setMaterialsError] = useState(null);
 
   // Step 4 — Configure
   const [context, setContext] = useState(null);
@@ -370,6 +381,12 @@ export default function AdminIntakeStudio() {
   const priceEditedRef = useRef(false);
   // Retains the dropped/selected File so it can be uploaded after /sku succeeds.
   const sourceFileRef = useRef(null);
+  // Mirror of preparseResult readable by the async uploadIntakeFile closure.
+  // On the raw-.3mf path the pre-parse POST resolves AFTER uploadIntakeFile's
+  // closure was created, so reading the preparseResult state there would see a
+  // stale (null) value and the slice-vs-preparse reconcile notice would never
+  // fire. The ref always holds the freshest pre-parse payload.
+  const preparseResultRef = useRef(null);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -476,6 +493,8 @@ export default function AdminIntakeStudio() {
     setMatchChoices({});
     // Unified flow
     setPreparseResult(null);
+    preparseResultRef.current = null;
+    setMaterialsError(null);
     setReconcileNotice(null);
     // Step 4 — Configure
     setContext(null);
@@ -549,6 +568,10 @@ export default function AdminIntakeStudio() {
       });
       if (!res.ok) return;
       const data = await res.json();
+      // Write the ref first so any in-flight uploadIntakeFile closure (raw .3mf
+      // path) reads the fresh value for the reconcile check; then update state
+      // for the PreParsePanel render.
+      preparseResultRef.current = data;
       setPreparseResult(data);
     } catch {
       // Non-fatal — the pre-parse panel is purely informational.
@@ -607,14 +630,18 @@ export default function AdminIntakeStudio() {
       // slot count diverges from the pre-parse estimate, surface a notice so
       // the operator knows the material rows below were re-keyed to the slice.
       // Any selections made earlier are carried by slot position downstream.
-      if (INTAKE_UNIFIED_FLOW && willSlice && preparseResult?.slot_count != null) {
+      // Read the pre-parse slot count from the ref (not the state) so the raw
+      // .3mf path — where preparseIntakeFile resolves after this closure was
+      // created — compares against the just-computed value, not a stale null.
+      const preparseSlotCount = preparseResultRef.current?.slot_count;
+      if (INTAKE_UNIFIED_FLOW && willSlice && preparseSlotCount != null) {
         const slicedCount = Array.isArray(data.slots)
           ? data.slots.length
           : data.slot_count;
-        if (slicedCount != null && slicedCount !== preparseResult.slot_count) {
+        if (slicedCount != null && slicedCount !== preparseSlotCount) {
           setReconcileNotice(
             `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
-              `but the pre-parse estimated ${preparseResult.slot_count}. ` +
+              `but the pre-parse estimated ${preparseSlotCount}. ` +
               `Using the slice result — please confirm the material for each slot below.`
           );
         }
@@ -691,9 +718,13 @@ export default function AdminIntakeStudio() {
   // effort) to honor sticky operator memory, but never blocks.
   const runMaterialSelect = async () => {
     setMatchBusy(true);
+    setMaterialsError(null);
     try {
       // Ensure the catalog is loaded (drop-time fetch may still be in flight).
+      // Track a hard fetch failure separately from an empty result so the
+      // operator gets "couldn't load" vs "catalog is empty".
       let items = bomMaterials;
+      let fetchFailed = false;
       if (items.length === 0) {
         try {
           const data = await api.get("/api/v1/materials/for-bom");
@@ -701,7 +732,30 @@ export default function AdminIntakeStudio() {
           setBomMaterials(items);
         } catch {
           items = [];
+          fetchFailed = true;
         }
+      }
+      // No purchasable materials → the per-slot selectors would render empty
+      // with no dropdown options, and allSlotsMatched could never become true.
+      // Surface an explicit, recoverable state instead of advancing into that
+      // dead-end. (This is the failure mode the unified flow was meant to kill.)
+      if (items.length === 0) {
+        const mode = fetchFailed ? "failed" : "empty";
+        setMaterialsError(mode);
+        if (fetchFailed) {
+          toast.error(
+            "Couldn't load the purchasable materials catalog. Check your connection and try again."
+          );
+        } else {
+          toast.error(
+            "No purchasable materials found. Add materials to your catalog, then retry."
+          );
+        }
+        // Render Step 3 in its error/empty state rather than a trap.
+        setMatchResults(parseResult.slots.map((s) => ({ slot_id: s.slot_id })));
+        setMatchChoices({});
+        setStep(3);
+        return;
       }
       // Optional sticky seed from /match (non-blocking, never a hard gate).
       let stickyBySlot = {};
@@ -988,6 +1042,8 @@ export default function AdminIntakeStudio() {
     setMatchBusy(false);
     setMatchChoices({});
     setPreparseResult(null);
+    preparseResultRef.current = null;
+    setMaterialsError(null);
     setReconcileNotice(null);
     setContext(null);
     setContextBusy(false);
@@ -1449,6 +1505,31 @@ export default function AdminIntakeStudio() {
                   {reconcileNotice}
                 </div>
               )}
+              {INTAKE_UNIFIED_FLOW && materialsError ? (
+                <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-5 text-center">
+                  <p className="text-yellow-300 font-medium mb-1">
+                    {materialsError === "failed"
+                      ? "Couldn't load the materials catalog"
+                      : "No purchasable materials found"}
+                  </p>
+                  <p className="text-gray-400 text-sm mb-4">
+                    {materialsError === "failed"
+                      ? "The purchasable materials catalog failed to load. Check your connection, then retry."
+                      : "Add purchasable materials to your catalog, then retry to continue selecting a material for each slot."}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setBomMaterials([]);
+                      setMaterialsError(null);
+                      runMaterialSelect();
+                    }}
+                    disabled={matchBusy}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
               <div className="space-y-4 mb-6">
                 {matchResults.map((result) => {
                   const slot = parseResult.slots.find(
@@ -1546,6 +1627,7 @@ export default function AdminIntakeStudio() {
                   );
                 })}
               </div>
+              )}
 
               <div className="flex justify-between">
                 <button
