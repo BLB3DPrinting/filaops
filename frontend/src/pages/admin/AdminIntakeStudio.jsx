@@ -230,6 +230,92 @@ function MaterialSelectRow({ slot, slotId, items, chosen, onPick }) {
   );
 }
 
+/**
+ * Bare-mesh staging catalog material picker (unified flow). A material-type
+ * select then a color select, both sourced from /materials/for-bom — the same
+ * type→color approach as MaterialSelectRow, but standalone (no parsed slot
+ * yet, since the mesh hasn't been sliced). The single chosen purchasable item
+ * drives BOTH the derived slice profile and the downstream cost, so there's no
+ * separate slice-profile pick.
+ * @param {object} props
+ * @param {Array<object>} props.items - the purchasable catalog (/materials/for-bom).
+ * @param {object|null} props.chosen - the currently-chosen catalog item, or null.
+ * @param {(item: object) => void} props.onPick - called with the picked catalog item.
+ * @returns {JSX.Element}
+ */
+function BareMeshMaterialPicker({ items, chosen, onPick }) {
+  // Distinct material types present in the catalog.
+  const typeOptions = [];
+  const seenTypes = new Set();
+  for (const it of items) {
+    if (it.material_code && !seenTypes.has(it.material_code)) {
+      seenTypes.add(it.material_code);
+      typeOptions.push({ id: it.material_code, name: it.material_code });
+    }
+  }
+
+  const selectedType = chosen?.material_code || "";
+
+  // Colors available for the selected type.
+  const colorOptions = items
+    .filter((it) => it.material_code === selectedType)
+    .map((it) => ({
+      id: it.id,
+      name: `${it.color_code || it.name} — $${Number(it.standard_cost || 0).toFixed(2)}/kg`,
+      sku: it.sku,
+      color_hex: it.color_hex,
+    }));
+
+  const pickFirstColorForType = (typeCode) => {
+    const first = items.find((it) => it.material_code === typeCode);
+    if (first) onPick(first);
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-1">
+          Material
+        </label>
+        <SearchableSelect
+          options={typeOptions}
+          value={selectedType}
+          onChange={(val) => pickFirstColorForType(val)}
+          placeholder="Select material…"
+          displayKey="name"
+          valueKey="id"
+          formatOption={(opt) => opt.name}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-1">
+          Color
+        </label>
+        <SearchableSelect
+          options={colorOptions}
+          value={chosen?.id != null ? String(chosen.id) : ""}
+          onChange={(val) => {
+            const it = items.find((x) => String(x.id) === val);
+            if (it) onPick(it);
+          }}
+          placeholder={selectedType ? "Select color…" : "Pick a material first"}
+          displayKey="name"
+          valueKey="id"
+          formatOption={(opt) => (
+            <span className="flex items-center gap-2">
+              <span
+                className="inline-block w-3 h-3 rounded border border-gray-600 flex-shrink-0"
+                style={{ backgroundColor: opt.color_hex || "#888" }}
+              />
+              {opt.name}
+            </span>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -377,6 +463,77 @@ const nearestCatalogMatch = (items, filamentType, colorHex) => {
   return best || pool[0] || null;
 };
 
+// Safe fallback slice profile — a generic PLA profile the worker always
+// supports. Used when a chosen catalog material can't be mapped to any
+// SLICE_MATERIALS entry, so the slice POST never carries an invalid material.
+const DEFAULT_SLICE_PROFILE = "PLA Basic";
+
+/**
+ * Derive a coarse base-material family ("PLA"/"PETG"/"ABS"/"ASA"/"PC"/"TPU"/
+ * "NYLON") from a catalog material_code by matching a known family prefix
+ * (mirrors the backend's base-material extraction). Returns "" when nothing
+ * recognizable is found. Normalized (uppercase, non-alphanumeric stripped) so
+ * "PLA_BASIC", "pla-cf" and "PLA Basic" all reduce the same way.
+ * @param {string} materialCode - the catalog item's material_code.
+ * @returns {string} the base family ("" when unrecognized).
+ */
+const baseFamilyFromCode = (materialCode) => {
+  const norm = normalizeCode(materialCode);
+  if (!norm) return "";
+  // PETG before PET so "PETG_BASIC" isn't truncated to the PET-CF family, and
+  // longer-prefix families first so the most specific known base wins.
+  for (const fam of ["PETG", "PET", "PAHT", "PA6", "PLA", "ABS", "ASA", "PC", "TPU", "NYLON"]) {
+    if (norm.startsWith(fam)) return fam;
+  }
+  return "";
+};
+
+/**
+ * Map a chosen purchasable catalog item to a valid SLICE_MATERIALS profile
+ * string (the worker's A.4c profile resolver only accepts these exact strings).
+ * Resolution order, never producing an invalid string and never blocking:
+ *   1. Exact normalized match of material_code against a SLICE_MATERIALS value
+ *      (e.g. "PLA_BASIC" → "PLA Basic", "PLA_CF" → "PLA-CF").
+ *   2. Base-family match — the first SLICE_MATERIALS entry sharing the catalog
+ *      item's base family, preferring a generic/"Basic" profile over a
+ *      specialty (CF/Matte) one (e.g. "PLA_SILK" → "PLA Basic").
+ *   3. The safe DEFAULT_SLICE_PROFILE.
+ * Returns { profile, exact } so the caller can surface a non-blocking notice
+ * when the mapping wasn't an exact hit.
+ * @param {object|null} item - the chosen catalog item ({ material_code, ... }).
+ * @returns {{ profile: string, exact: boolean }} the resolved profile + whether
+ *   it was an exact material_code match.
+ */
+const catalogMaterialToSliceProfile = (item) => {
+  const code = item?.material_code;
+  const codeNorm = normalizeCode(code);
+  // 1. Exact normalized material_code → SLICE_MATERIALS value.
+  if (codeNorm) {
+    const exact = SLICE_MATERIALS.find(
+      (m) => normalizeCode(m.value) === codeNorm
+    );
+    if (exact) return { profile: exact.value, exact: true };
+  }
+  // 2. Base-family match, preferring a generic "Basic"/plain profile.
+  const fam = baseFamilyFromCode(code);
+  if (fam) {
+    const sameFamily = SLICE_MATERIALS.filter(
+      (m) => baseFamilyFromCode(m.value) === fam
+    );
+    if (sameFamily.length > 0) {
+      const generic =
+        sameFamily.find((m) => /BASIC/.test(normalizeCode(m.value))) ||
+        sameFamily.find(
+          (m) => !/(CF|MATTE|SILK)/.test(normalizeCode(m.value))
+        ) ||
+        sameFamily[0];
+      return { profile: generic.value, exact: false };
+    }
+  }
+  // 3. Safe default — always a valid worker profile.
+  return { profile: DEFAULT_SLICE_PROFILE, exact: false };
+};
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -407,6 +564,14 @@ export default function AdminIntakeStudio() {
   const [sliceMaterial, setSliceMaterial] = useState("PLA Basic");
   const [slicePrinter, setSlicePrinter] = useState("X1C");
   const [sliceQuality, setSliceQuality] = useState("standard");
+  // Unified flow only: the purchasable catalog material chosen at staging for a
+  // bare mesh. This single pick is the one source of truth — it drives the
+  // derived slice profile AND seeds the Step-3 slot so cost/BOM reuse it. Inert
+  // when the gate is off (the legacy SLICE_MATERIALS picker is used instead).
+  const [stagedMaterial, setStagedMaterial] = useState(null);
+  // Optional advanced override: when set, forces the slice profile instead of
+  // the one derived from stagedMaterial (for the rare wrong-mapping case).
+  const [sliceProfileOverride, setSliceProfileOverride] = useState("");
 
   // Step 2 — Review
   const [parseResult, setParseResult] = useState(null);
@@ -562,6 +727,8 @@ export default function AdminIntakeStudio() {
     setSliceMaterial("PLA Basic");
     setSlicePrinter("X1C");
     setSliceQuality("standard");
+    setStagedMaterial(null);
+    setSliceProfileOverride("");
     // Step 2 — Review
     setParseResult(null);
     setProductName("");
@@ -691,7 +858,11 @@ export default function AdminIntakeStudio() {
 
   // Shared upload → /parse. When a mesh profile is supplied, append the
   // material/printer/quality form fields the server uses to slice the bare mesh.
-  const uploadIntakeFile = async (f, profile = null) => {
+  // `seedCatalogItem` (unified flow, bare mesh): the purchasable catalog material
+  // chosen at staging; when present, every resulting slot is pre-seeded with it
+  // so the one staging pick === the slice profile source === the slot's
+  // matchChoices, and Step 3 shows it pre-confirmed with cost.
+  const uploadIntakeFile = async (f, profile = null, seedCatalogItem = null) => {
     const name = f.name.toLowerCase();
     sourceFileRef.current = f;
     // Bare meshes and raw .3mf are sliced on the server; .gcode.3mf is parsed.
@@ -724,6 +895,20 @@ export default function AdminIntakeStudio() {
       setPendingMesh(null);
       setParseResult(data);
       setProductName(data.model_name || "");
+      // Unified flow, bare mesh: pre-seed every sliced slot with the catalog
+      // material chosen at staging so Step 3 opens pre-confirmed and /preview
+      // + /sku cost it from that purchasable product (one pick, no re-pick).
+      if (unifiedFlow && seedCatalogItem && Array.isArray(data.slots)) {
+        const seeded = {};
+        data.slots.forEach((s) => {
+          seeded[s.slot_id] = {
+            product_id: seedCatalogItem.id,
+            sku: seedCatalogItem.sku,
+            name: seedCatalogItem.name,
+          };
+        });
+        setMatchChoices(seeded);
+      }
       // Unified flow: when a slice ran, the slice result is canonical. If its
       // slot count diverges from the pre-parse estimate, surface a notice so
       // the operator knows the material rows below were re-keyed to the slice.
@@ -754,6 +939,21 @@ export default function AdminIntakeStudio() {
 
   const sliceAndContinue = () => {
     if (!pendingMesh) return;
+    if (unifiedFlow) {
+      // Unified flow: the single catalog pick drives BOTH the slice profile and
+      // the cost. Derive a valid SLICE_MATERIALS profile from the chosen catalog
+      // material (an explicit advanced override wins), then seed the resulting
+      // slot(s) with that catalog product so Step 3 is pre-confirmed and cost
+      // uses it — one source of truth.
+      const derived = catalogMaterialToSliceProfile(stagedMaterial);
+      const profile = sliceProfileOverride || derived.profile;
+      uploadIntakeFile(
+        pendingMesh,
+        { material: profile, printer: slicePrinter, quality: sliceQuality },
+        stagedMaterial
+      );
+      return;
+    }
     uploadIntakeFile(pendingMesh, {
       material: sliceMaterial,
       printer: slicePrinter,
@@ -887,6 +1087,18 @@ export default function AdminIntakeStudio() {
       const results = parseResult.slots.map((s) => ({ slot_id: s.slot_id }));
       const defaults = {};
       parseResult.slots.forEach((s) => {
+        // Honor an already-chosen material for this slot if it's still in the
+        // catalog — e.g. a bare mesh whose staging catalog pick was pre-seeded
+        // into matchChoices. That explicit operator choice is the source of
+        // truth and must not be clobbered by an auto nearest-match.
+        const preChosen = matchChoices[s.slot_id];
+        if (
+          preChosen?.product_id != null &&
+          items.some((it) => String(it.id) === String(preChosen.product_id))
+        ) {
+          defaults[s.slot_id] = preChosen;
+          return;
+        }
         // A sticky /match suggestion only seeds the slot if the remembered
         // product is still in the purchasable catalog — otherwise the selector
         // can't display it and allSlotsMatched would pass on an item /preview
@@ -1150,6 +1362,8 @@ export default function AdminIntakeStudio() {
     setSliceMaterial("PLA Basic");
     setSlicePrinter("X1C");
     setSliceQuality("standard");
+    setStagedMaterial(null);
+    setSliceProfileOverride("");
     setParseResult(null);
     setProductName("");
     setMatchResults(null);
@@ -1267,13 +1481,6 @@ export default function AdminIntakeStudio() {
             /* Slicing-profile picker for a staged bare mesh (.stl/.obj) */
             <div className="space-y-5">
               {unifiedFlow && <PreParsePanel preparse={preparseResult} />}
-              {unifiedFlow && (
-                <p className="text-gray-500 text-xs -mt-2">
-                  The reference profile below drives slicing. You&apos;ll pick the
-                  purchasable material (for cost &amp; inventory) per slot after
-                  slicing.
-                </p>
-              )}
               <div className="flex items-center gap-3 text-sm text-gray-300">
                 <svg
                   className="w-5 h-5 text-blue-400 flex-shrink-0"
@@ -1293,14 +1500,99 @@ export default function AdminIntakeStudio() {
               <h2 className="text-base font-semibold text-white">
                 Slicing options
               </h2>
-              <p className="text-gray-500 text-sm">
-                A bare model has no embedded profile, so it&apos;s sliced on the
-                server using a reference profile. Pick the material, printer and
-                quality to slice against.
-              </p>
+              {unifiedFlow ? (
+                <p className="text-gray-500 text-sm">
+                  A bare model has no embedded profile. Pick the purchasable
+                  material you&apos;ll print it in — that one choice drives both
+                  how it&apos;s sliced and its cost. Choose a printer and quality
+                  to slice against.
+                </p>
+              ) : (
+                <p className="text-gray-500 text-sm">
+                  A bare model has no embedded profile, so it&apos;s sliced on the
+                  server using a reference profile. Pick the material, printer and
+                  quality to slice against.
+                </p>
+              )}
+
+              {unifiedFlow && bomMaterials.length === 0 ? (
+                <div className="text-yellow-400/90 text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-center gap-3">
+                  <span>
+                    Loading your purchasable materials… If this persists, add
+                    materials to your catalog, then retry.
+                  </span>
+                  <button
+                    onClick={() => {
+                      setBomMaterials([]);
+                      loadBomMaterials();
+                    }}
+                    className="ml-auto border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10 px-3 py-1 rounded-lg text-xs transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                unifiedFlow && (
+                  <BareMeshMaterialPicker
+                    items={bomMaterials}
+                    chosen={stagedMaterial}
+                    onPick={(item) => setStagedMaterial(item)}
+                  />
+                )
+              )}
+              {unifiedFlow && stagedMaterial && (
+                (() => {
+                  const derived = catalogMaterialToSliceProfile(stagedMaterial);
+                  const effective = sliceProfileOverride || derived.profile;
+                  return (
+                    <div className="space-y-2">
+                      <p className="text-gray-400 text-xs">
+                        Slice profile:{" "}
+                        <span className="text-gray-200 font-medium">
+                          {effective}
+                        </span>
+                        {!sliceProfileOverride && derived.exact && (
+                          <span className="text-gray-600"> (matched)</span>
+                        )}
+                      </p>
+                      {!sliceProfileOverride && !derived.exact && (
+                        <p className="text-yellow-400/90 text-xs bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-2">
+                          No exact slice profile for{" "}
+                          {stagedMaterial.material_code || "this material"}; using{" "}
+                          {derived.profile} — adjust in advanced if needed.
+                        </p>
+                      )}
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-gray-500 hover:text-gray-400">
+                          Advanced: override slice profile
+                        </summary>
+                        <div className="mt-2">
+                          <select
+                            value={sliceProfileOverride}
+                            onChange={(e) =>
+                              setSliceProfileOverride(e.target.value)
+                            }
+                            className="w-full md:w-72 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="">
+                              Auto (from material) — {derived.profile}
+                            </option>
+                            {SLICE_MATERIALS.map((m) => (
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })()
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Material — most important */}
+                {/* Material — most important (legacy SLICE_MATERIALS picker) */}
+                {!unifiedFlow && (
                 <div className="md:col-span-3">
                   <label
                     htmlFor="slice-material"
@@ -1321,6 +1613,7 @@ export default function AdminIntakeStudio() {
                     ))}
                   </select>
                 </div>
+                )}
                 <div>
                   <label
                     htmlFor="slice-printer"
@@ -1366,10 +1659,16 @@ export default function AdminIntakeStudio() {
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={sliceAndContinue}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                  disabled={unifiedFlow && !stagedMaterial}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition-colors"
                 >
                   Slice &amp; continue
                 </button>
+                {unifiedFlow && !stagedMaterial && (
+                  <span className="text-gray-500 text-sm">
+                    Pick a material to continue
+                  </span>
+                )}
                 <button
                   onClick={() => setPendingMesh(null)}
                   className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
