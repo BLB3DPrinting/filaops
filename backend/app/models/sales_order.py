@@ -3,7 +3,7 @@ Sales Order Model
 
 Represents customer orders converted from approved quotes
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, Boolean, CheckConstraint, JSON
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, Boolean, CheckConstraint, JSON, Index, text
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -13,6 +13,18 @@ from app.db.base import Base
 class SalesOrder(Base):
     """Sales Order - Customer order created from accepted quote"""
     __tablename__ = "sales_orders"
+    __table_args__ = (
+        # Partial UNIQUE index (#785): a marketplace order id can only map to one
+        # sales order, so concurrent imports of the same file can't create
+        # duplicates (the old plain index allowed check-then-act races). NULLs
+        # are excluded so portal/manual orders without a source id are unaffected.
+        Index(
+            "uq_sales_orders_source_order_id",
+            "source_order_id",
+            unique=True,
+            postgresql_where=text("source_order_id IS NOT NULL"),
+        ),
+    )
 
     # Primary Key
     id = Column(Integer, primary_key=True, index=True)
@@ -34,7 +46,7 @@ class SalesOrder(Base):
     source = Column(String(50), nullable=False, default='portal', index=True)
     # 'portal' | 'squarespace' | 'woocommerce' | 'manual'
 
-    source_order_id = Column(String(255), nullable=True, index=True)
+    source_order_id = Column(String(255), nullable=True)  # unique partial index in __table_args__
     # External order ID from marketplace (e.g., Squarespace order number)
 
     # Product Information (copied from quote)
