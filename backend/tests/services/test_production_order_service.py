@@ -2849,6 +2849,29 @@ class TestRecordQCInspection:
 class TestQCInspectionRecords:
     """#783: append-only qc_inspections history behind the qc_* cache."""
 
+    def test_records_partial_fail_quantities_on_pass(self, db, finished_good):
+        """#784: a passed order with some failed units records both counts +
+        the failure reason on the immutable inspection row (partial-batch)."""
+        from app.models.production_order import QCInspection
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        result = svc.record_qc_inspection(
+            db, order.id,
+            inspector="qc@filaops.dev",
+            qc_status="passed",
+            quantity_passed=9,
+            quantity_failed=1,
+            failure_reason="one unit warped on the corner",
+        )
+        rec = (
+            db.query(QCInspection)
+            .filter(QCInspection.id == result["inspection_id"])
+            .one()
+        )
+        assert rec.result == "passed"
+        assert rec.quantity_passed == 9
+        assert rec.quantity_failed == 1
+        assert rec.failure_reason == "one unit warped on the corner"
+
     def test_record_inspection_appends_immutable_record(self, db, finished_good):
         """A recorded inspection appends one qc_inspections row mirroring the result."""
         from app.models.production_order import QCInspection

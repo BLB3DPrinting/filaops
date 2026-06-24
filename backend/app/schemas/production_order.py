@@ -568,6 +568,21 @@ class QCInspectionRequest(BaseModel):
         ...,
         description="QC result: 'passed' or 'failed'"
     )
+    quantity_passed: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Units that passed. Omit for a whole-order pass/fail (derived).",
+    )
+    quantity_failed: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Units that failed (partial-batch). Recorded on the inspection row.",
+    )
+    failure_reason: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Reason the failed units were rejected",
+    )
     notes: Optional[str] = Field(
         None,
         max_length=2000,
@@ -578,6 +593,9 @@ class QCInspectionRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "result": "passed",
+                "quantity_passed": 9,
+                "quantity_failed": 1,
+                "failure_reason": "1 unit warped on the corner",
                 "notes": "All units inspected. Surface finish acceptable."
             }
         }
@@ -587,6 +605,7 @@ class QCInspectionResponse(BaseModel):
     """Response from QC inspection"""
     production_order_id: int
     production_order_code: str
+    inspection_id: Optional[int] = None
     qc_status: str
     qc_notes: Optional[str] = None
     qc_inspected_by: Optional[str] = None
