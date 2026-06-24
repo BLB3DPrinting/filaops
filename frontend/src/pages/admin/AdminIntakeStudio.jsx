@@ -635,6 +635,17 @@ export default function AdminIntakeStudio() {
   const priceEditedRef = useRef(false);
   // Retains the dropped/selected File so it can be uploaded after /sku succeeds.
   const sourceFileRef = useRef(null);
+  // Monotonic token for the active upload → /parse (slice/parse) request. A new
+  // file or a reset bumps it; an upload whose token no longer matches is stale
+  // (a slower slice that finished after Reset or a new file drop) and must not
+  // re-apply its parseResult/matchChoices/staged-material seed or advance to
+  // Step 2. Mirrors previewRequestIdRef. (CodeRabbit #802 — flagged race.)
+  const uploadRequestIdRef = useRef(0);
+  // Monotonic token for the legacy /match call (runMatch, gate-off path). The
+  // Step-2 "Start over" button (handleReset) is clickable while /match is in
+  // flight, so without this a slow response could re-apply stale matchResults
+  // and jump to Step 3 after the reset. Bumped in both reset paths.
+  const matchRequestIdRef = useRef(0);
   // Mirror of preparseResult readable by the async uploadIntakeFile closure.
   // On the raw-.3mf path the pre-parse POST resolves AFTER uploadIntakeFile's
   // closure was created, so reading the preparseResult state there would see a
@@ -799,6 +810,11 @@ export default function AdminIntakeStudio() {
     sourceFileRef.current = null;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
+    // Invalidate any upload (slice/parse) still in flight so a slow response
+    // can't re-apply this prior file's parseResult/matchChoices or jump to Step 2.
+    uploadRequestIdRef.current += 1;
+    // Invalidate any legacy /match still in flight (gate-off path).
+    matchRequestIdRef.current += 1;
   };
 
   const handleFile = (f) => {
@@ -912,6 +928,11 @@ export default function AdminIntakeStudio() {
   // so the one staging pick === the slice profile source === the slot's
   // matchChoices, and Step 3 shows it pre-confirmed with cost.
   const uploadIntakeFile = async (f, profile = null, seedCatalogItem = null) => {
+    // Token this upload; a new file or a reset bumps uploadRequestIdRef, marking
+    // any in-flight slice/parse stale so a slow response can't re-apply an old
+    // parseResult/matchChoices/staged-material seed or advance to Step 2.
+    const requestId = ++uploadRequestIdRef.current;
+    const isStaleUpload = () => requestId !== uploadRequestIdRef.current;
     const name = f.name.toLowerCase();
     sourceFileRef.current = f;
     // Bare meshes and raw .3mf are sliced on the server; .gcode.3mf is parsed.
@@ -937,6 +958,9 @@ export default function AdminIntakeStudio() {
       } catch {
         data = {};
       }
+      // A new file or a reset superseded this upload while it was in flight —
+      // drop the response so it can't re-apply stale parse/seed state or toast.
+      if (isStaleUpload()) return;
       if (!res.ok) {
         toast.error(data.detail || `Parse failed (${res.status})`);
         return;
@@ -1005,9 +1029,15 @@ export default function AdminIntakeStudio() {
       }
       setStep(2);
     } catch (err) {
+      // Suppress a stale upload's error toast (its file was already superseded).
+      if (isStaleUpload()) return;
       toast.error(err.message || "Upload failed");
     } finally {
-      setUploadBusy(false);
+      // Only the live upload owns the busy spinner; a stale one clearing it
+      // would prematurely hide the spinner for the upload that replaced it.
+      if (!isStaleUpload()) {
+        setUploadBusy(false);
+      }
     }
   };
 
@@ -1043,6 +1073,11 @@ export default function AdminIntakeStudio() {
     if (unifiedFlow) {
       return runMaterialSelect();
     }
+    // Token this /match; a reset (Step-2 "Start over") or a new-file drop bumps
+    // matchRequestIdRef, marking an in-flight call stale so a slow response can't
+    // re-apply old matchResults/matchChoices or jump to Step 3 after the reset.
+    const requestId = ++matchRequestIdRef.current;
+    const isStale = () => requestId !== matchRequestIdRef.current;
     setMatchBusy(true);
     try {
       const body = {
@@ -1055,6 +1090,8 @@ export default function AdminIntakeStudio() {
         top_n: 5,
       };
       const data = await api.post("/api/v1/pro/intake/match", body);
+      // A reset/new file superseded this match — drop the stale response.
+      if (isStale()) return;
       setMatchResults(data.results || []);
       // Seed default choices
       const defaults = {};
@@ -1071,9 +1108,12 @@ export default function AdminIntakeStudio() {
       setMatchChoices(defaults);
       setStep(3);
     } catch (err) {
+      if (isStale()) return;
       toast.error(err.message || "Spool match failed");
     } finally {
-      setMatchBusy(false);
+      if (!isStale()) {
+        setMatchBusy(false);
+      }
     }
   };
 
@@ -1493,6 +1533,12 @@ export default function AdminIntakeStudio() {
     // Invalidate any runMaterialSelect still in flight so a stale call cannot
     // call setMatchResults/setStep(3) after the reset clears parseResult.
     materialSelectRequestIdRef.current += 1;
+    // Invalidate any upload (slice/parse) still in flight so a slow response
+    // can't re-apply stale parseResult/matchChoices or jump to Step 2 post-reset.
+    uploadRequestIdRef.current += 1;
+    // Invalidate any legacy /match still in flight (gate-off path) so it can't
+    // re-apply stale matchResults / jump to Step 3 after this reset.
+    matchRequestIdRef.current += 1;
     // item type / category
     setItemType("finished_good");
     setCategoryId(null);
