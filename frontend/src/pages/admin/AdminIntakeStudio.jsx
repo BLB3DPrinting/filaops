@@ -143,6 +143,13 @@ function PreParsePanel({ preparse }) {
  */
 function PlatePicker({ plates, isRaw, selectedPlateIndex, onSelect }) {
   if (!Array.isArray(plates) || plates.length === 0) return null;
+  // Only plates with a usable plate_index are selectable; derive the header
+  // count from these so it always matches the number of rendered rows (a plate
+  // missing plate_index is dropped below — counting plates.length would show a
+  // header total one higher than the selectable rows).
+  const renderablePlates = plates.filter((p) => p.plate_index != null);
+  if (renderablePlates.length === 0) return null;
+  const plateCount = renderablePlates.length;
   return (
     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-5">
       <h2 className="text-base font-semibold text-white mb-1">
@@ -150,12 +157,11 @@ function PlatePicker({ plates, isRaw, selectedPlateIndex, onSelect }) {
       </h2>
       <p className="text-gray-500 text-sm mb-4">
         {isRaw
-          ? `This file has ${plates.length} plates. Pick the one to intake — it will be sliced on the server.`
-          : `This file has ${plates.length} plates. Pick the one to intake.`}
+          ? `This file has ${plateCount} plates. Pick the one to intake — it will be sliced on the server.`
+          : `This file has ${plateCount} plates. Pick the one to intake.`}
       </p>
       <div className="space-y-2">
-        {plates.map((p) => {
-          if (p.plate_index == null) return null;
+        {renderablePlates.map((p) => {
           const idx = p.plate_index;
           const selected = selectedPlateIndex != null && idx === selectedPlateIndex;
           const slots = Array.isArray(p.slots) ? p.slots : [];
@@ -1200,9 +1206,14 @@ export default function AdminIntakeStudio() {
       // Read the pre-parse slot count from the ref (not the state) so the raw
       // .3mf path — where preparseIntakeFile resolves after this closure was
       // created — compares against the just-computed value, not a stale null.
-      // For a multi-plate pick, compare against the CHOSEN plate's slot count
-      // (the pre-parse top-level slot_count describes the default plate, not the
-      // one selected), falling back to the top-level count when unavailable.
+      // For a multi-plate pick the baseline MUST be the CHOSEN plate's slot
+      // count, never the top-level slot_count: the top-level value describes the
+      // default plate (sliced .3mf) or the whole-project material count (raw
+      // .3mf), and neither is a valid baseline for the single plate being
+      // sliced. Raw plates carry no per-plate slots, so when there is no real
+      // chosen-plate count we leave preparseSlotCount null and skip the reconcile
+      // notice rather than comparing against the wrong whole-project fallback
+      // (which fired a spurious notice on normal multi-plate raw intake).
       let preparseSlotCount = preparseResultRef.current?.slot_count;
       if (plateIndex != null) {
         const chosenPlate = (preparseResultRef.current?.plates || []).find(
@@ -1211,7 +1222,8 @@ export default function AdminIntakeStudio() {
         const chosenSlotCount = Array.isArray(chosenPlate?.slots)
           ? chosenPlate.slots.length
           : null;
-        if (chosenSlotCount != null) preparseSlotCount = chosenSlotCount;
+        // Use the chosen plate's count when known; otherwise null → no notice.
+        preparseSlotCount = chosenSlotCount;
       }
       if (unifiedFlow && willSlice && preparseSlotCount != null) {
         const slicedCount = Array.isArray(data.slots)
@@ -1232,8 +1244,12 @@ export default function AdminIntakeStudio() {
         }
       }
       // Multi-plate: the parse succeeded — now it's safe to clear the held file
-      // and picker state. Clearing before uploadIntakeFile (as it was) left an
-      // enabled but no-op Continue after a parse failure or Step-2 Back.
+      // and picker state. Deferring the clear to here (rather than before
+      // uploadIntakeFile, as it was) keeps the picker intact on a PARSE FAILURE:
+      // a !res.ok / thrown error returns above, leaving pendingPlateFileRef +
+      // preparseResult + selectedPlateIndex live so the operator can retry from
+      // the still-rendered picker. (Step-2 Back is NOT preserved — it clears to
+      // the drop zone like the single-plate path, matching legacy behavior.)
       if (plateIndex != null) {
         pendingPlateFileRef.current = null;
         setPreparseResult(null);
@@ -1263,9 +1279,10 @@ export default function AdminIntakeStudio() {
   const continueWithSelectedPlate = () => {
     const pending = pendingPlateFileRef.current;
     if (!pending || selectedPlateIndex == null) return;
-    // Do NOT clear pendingPlateFileRef here — keep the held file available for
-    // retry (parse failure) or Step-2 Back. It is cleared in uploadIntakeFile's
-    // success path once the parse returns ok (plateIndex != null branch above).
+    // Do NOT clear pendingPlateFileRef here — keep the held file available so a
+    // parse failure leaves the picker intact for retry. It is cleared in
+    // uploadIntakeFile's success path once the parse returns ok (the
+    // plateIndex != null branch above).
     uploadIntakeFile(pending, null, null, selectedPlateIndex);
   };
 
@@ -2115,9 +2132,13 @@ export default function AdminIntakeStudio() {
               </div>
             </div>
           ) : isMultiPlatePending ? (
-            /* Multi-plate file: pick a single plate before parsing/slicing. */
+            /* Multi-plate file: pick a single plate before parsing/slicing.
+               No PreParsePanel here — its top-level slot_count/multi-material
+               badge/swatches describe only the DEFAULT plate (the contract's
+               top level is plate 1 when no plate_index was sent), so showing it
+               above the chooser would misrepresent the default plate's slots as
+               file-wide. The PlatePicker shows the correct per-plate detail. */
             <div className="space-y-5">
-              <PreParsePanel preparse={preparseResult} />
               <PlatePicker
                 plates={preparseResult?.plates || []}
                 isRaw={isRawPreparse}
