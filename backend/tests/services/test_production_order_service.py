@@ -2934,6 +2934,36 @@ class TestQCInspectionRecords:
             svc.get_qc_inspections(db, 999999)
         assert exc_info.value.status_code == 404
 
+    def test_rejects_non_terminal_status_without_side_effects(self, db, finished_good):
+        """A transient (non-result) qc_status is rejected before any mutation:
+        no qc_* cache write, no QC-op completion, no history row."""
+        from app.models.production_order import QCInspection
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=5)
+        before = order.qc_status
+        with pytest.raises(HTTPException) as exc_info:
+            svc.record_qc_inspection(
+                db, order.id, inspector="qc@filaops.dev",
+                qc_status="in_progress", quantity_passed=5,
+            )
+        assert exc_info.value.status_code == 400
+        assert order.qc_status == before  # cache untouched
+        assert (
+            db.query(QCInspection)
+            .filter(QCInspection.production_order_id == order.id)
+            .count()
+            == 0
+        )
+
+    def test_rejects_negative_quantity(self, db, finished_good):
+        """Negative QC quantities are rejected before persisting history."""
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=5)
+        with pytest.raises(HTTPException) as exc_info:
+            svc.record_qc_inspection(
+                db, order.id, inspector="qc@filaops.dev",
+                qc_status="failed", quantity_passed=3, quantity_failed=-2,
+            )
+        assert exc_info.value.status_code == 400
+
 
 # =============================================================================
 # Work Center Queues

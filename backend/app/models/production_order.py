@@ -488,14 +488,21 @@ class QCInspection(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # What was inspected
+    # What was inspected. ondelete mirrors migration 093 so create_all
+    # (tests/self-host) and Alembic (deploy) produce identical FK semantics.
     production_order_id = Column(
-        Integer, ForeignKey("production_orders.id"), nullable=False, index=True
+        Integer,
+        ForeignKey("production_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     # Optional link to the QC operation (and through it the printer/resource);
     # nullable because order-level QC need not map to a specific operation.
     production_operation_id = Column(
-        Integer, ForeignKey("production_order_operations.id"), nullable=True, index=True
+        Integer,
+        ForeignKey("production_order_operations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # Result of THIS inspection. CHECK-constrained at the DB (see migration 093)
@@ -507,7 +514,9 @@ class QCInspection(Base):
 
     # Inspector: resolved user FK when known (cf. ScrapRecord.created_by_user_id),
     # plus the verbatim name for display / when no user record matches.
-    inspector_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    inspector_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     inspector_name = Column(String(100), nullable=True)
 
     failure_reason = Column(Text, nullable=True)

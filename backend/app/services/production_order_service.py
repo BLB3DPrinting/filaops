@@ -643,6 +643,25 @@ def record_qc_inspection(
     """
     order = get_production_order(db, order_id)
 
+    # Guard before ANY side effect (QC op completion, qc_* cache, history row).
+    # record_qc_inspection records an inspection *result*; a transient
+    # pending/in_progress/not_required is not a result and must not stamp the
+    # order as inspected or complete the QC operation.
+    _QC_RESULTS = ("passed", "failed", "waived", "conditional")
+    if qc_status not in _QC_RESULTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"qc_status must be an inspection result {_QC_RESULTS}, got '{qc_status}'",
+        )
+    # Reject negative quantities before they are written to the immutable
+    # history row, where they would permanently skew audit / FPY figures.
+    for _name, _val in (("quantity_passed", quantity_passed), ("quantity_failed", quantity_failed)):
+        if _val is not None and _val < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{_name} cannot be negative (got {_val})",
+            )
+
     # Derive whole-order pass/fail quantities when the caller does not supply
     # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
     # Only the missing side is derived, so a caller that supplies one keeps it.
@@ -697,34 +716,30 @@ def record_qc_inspection(
 
     # #783: append an immutable inspection record so re-inspections keep a
     # history and true first-pass yield is derivable. The order.qc_* fields
-    # above remain the denormalized latest-result cache. Only real inspection
-    # outcomes are recorded (a transient pending/in_progress is not an
-    # inspection and must not pollute the audit trail / FPY).
-    inspection_id = None
-    if qc_status in ("passed", "failed", "waived", "conditional"):
-        from app.models.user import User
-        inspector_user = (
-            db.query(User).filter(User.email == inspector).first()
-            if inspector
-            else None
-        )
-        inspection = QCInspection(
-            production_order_id=order_id,
-            production_operation_id=qc_op.id if qc_op else None,
-            result=qc_status,
-            quantity_passed=quantity_passed,
-            quantity_failed=quantity_failed,
-            inspector_user_id=inspector_user.id if inspector_user else None,
-            inspector_name=inspector,
-            failure_reason=failure_reason,
-            notes=notes,
-            inspected_at=inspected_at,
-        )
-        db.add(inspection)
+    # above remain the denormalized latest-result cache. qc_status is already
+    # validated to be a real inspection result above, so this is unconditional.
+    from app.models.user import User
+    inspector_user = (
+        db.query(User).filter(User.email == inspector).first()
+        if inspector
+        else None
+    )
+    inspection = QCInspection(
+        production_order_id=order_id,
+        production_operation_id=qc_op.id if qc_op else None,
+        result=qc_status,
+        quantity_passed=quantity_passed,
+        quantity_failed=quantity_failed,
+        inspector_user_id=inspector_user.id if inspector_user else None,
+        inspector_name=inspector,
+        failure_reason=failure_reason,
+        notes=notes,
+        inspected_at=inspected_at,
+    )
+    db.add(inspection)
 
     db.flush()
-    if qc_status in ("passed", "failed", "waived", "conditional"):
-        inspection_id = inspection.id
+    inspection_id = inspection.id
 
     inspection_result = {
         "order_id": order_id,
