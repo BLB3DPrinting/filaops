@@ -151,3 +151,51 @@ class TestImportOrdersCorrectness:
         assert (
             db.query(SalesOrder).filter(SalesOrder.source_order_id == src_id).count() == 1
         )
+
+    def test_header_unit_price_null_for_imported_order(self, db, make_product):
+        """Imported (line_item) orders store NULL header unit_price, not a blend."""
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+        src_id = _uniq("SRC")
+        res = import_orders_from_csv(
+            db, self._csv(src_id=src_id, sku=sku, qty="3", price="7.50"), current_user_id=1
+        )
+        assert res["created"] == 1, res
+        so = db.query(SalesOrder).filter(SalesOrder.source_order_id == src_id).first()
+        assert so is not None
+        assert so.unit_price is None
+
+    def test_shopify_source_maps_name_to_order_id(self, db, make_product):
+        """With source=shopify, the 'Name' column is the order id (source_order_id)."""
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+        name_val = f"#{_uniq('SHOP')}"
+        csv_text = (
+            "Name,Email,SKU,Quantity,Unit Price\n"
+            f"{name_val},{_uniq('buyer')}@example.com,{sku},1,10.00\n"
+        )
+        res = import_orders_from_csv(db, csv_text, source="shopify", current_user_id=1)
+        assert res["created"] == 1, res
+        so = db.query(SalesOrder).filter(SalesOrder.source_order_id == name_val).first()
+        assert so is not None
+        assert so.source_order_id == name_val
+
+    def test_non_shopify_name_not_used_as_order_id(self, db, make_product):
+        """Without source=shopify, a 'Name' column is NOT consumed as the order
+        id (so it can't corrupt grouping/dedup); source_order_id stays NULL."""
+        from app.models.user import User
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+        name_val = f"#{_uniq('NOTSHOP')}"
+        email = f"{_uniq('buyer')}@example.com"
+        csv_text = (
+            "Name,Email,SKU,Quantity,Unit Price\n"
+            f"{name_val},{email},{sku},1,10.00\n"
+        )
+        res = import_orders_from_csv(db, csv_text, source="manual", current_user_id=1)
+        assert res["created"] == 1, res
+        # No order persisted under the Name value as source id.
+        assert db.query(SalesOrder).filter(SalesOrder.source_order_id == name_val).first() is None
+        cust = db.query(User).filter(User.email.ilike(email)).first()
+        so = db.query(SalesOrder).filter(SalesOrder.user_id == cust.id).first()
+        assert so is not None and so.source_order_id is None
