@@ -480,9 +480,18 @@ const DEFAULT_SLICE_PROFILE = "PLA Basic";
 const baseFamilyFromCode = (materialCode) => {
   const norm = normalizeCode(materialCode);
   if (!norm) return "";
+  // PCTG (a copolyester / PETG variant) would otherwise match the "PC" prefix
+  // below and resolve to the polycarbonate profile, which prints far hotter.
+  // Steer it to the PETG family before the generic prefix scan.
+  if (norm.startsWith("PCTG")) return "PETG";
   // PETG before PET so "PETG_BASIC" isn't truncated to the PET-CF family, and
   // longer-prefix families first so the most specific known base wins.
-  for (const fam of ["PETG", "PET", "PAHT", "PA6", "PLA", "ABS", "ASA", "PC", "TPU", "NYLON"]) {
+  // No "NYLON" entry: SLICE_MATERIALS has no NYLON-family profile (the nylon
+  // worker profiles are PA6-CF/PAHT-CF, families "PA6"/"PAHT"), so listing
+  // "NYLON" only mis-signals a match before falling through to the PLA default.
+  // A bare "NYLON"/"NYLON_CF" code therefore resolves via the safe default with
+  // the non-exact notice shown, rather than a phantom family hit.
+  for (const fam of ["PETG", "PET", "PAHT", "PA6", "PLA", "ABS", "ASA", "PC", "TPU"]) {
     if (norm.startsWith(fam)) return fam;
   }
   return "";
@@ -587,6 +596,13 @@ export default function AdminIntakeStudio() {
   // selection. All inert when the gate is off (never set, rendered, or read).
   const [preparseResult, setPreparseResult] = useState(null);
   const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
+  // Drop-time catalog fetch state for the bare-mesh staging picker. Distinguishes
+  // in-flight ("loading") from a resolved-but-unusable catalog ("empty"/"failed")
+  // so the staging step shows the right recoverable message instead of a single
+  // permanent "Loading…" banner that traps every bare mesh. Mirrors how
+  // runMaterialSelect (Step 3) already separates these states via materialsError.
+  const [bomMaterialsLoading, setBomMaterialsLoading] = useState(false);
+  const [bomMaterialsError, setBomMaterialsError] = useState(null); // "empty" | "failed" | null
   const [reconcileNotice, setReconcileNotice] = useState(null);
   // Distinguishes a failed catalog fetch ("failed") from a genuinely empty
   // catalog ("empty") vs. a healthy one (null) so Step 3 can surface an
@@ -742,6 +758,8 @@ export default function AdminIntakeStudio() {
     // Invalidate any pre-parse still in flight so its response is ignored.
     preparseRequestIdRef.current += 1;
     setMaterialsError(null);
+    setBomMaterialsLoading(false);
+    setBomMaterialsError(null);
     setReconcileNotice(null);
     // Step 4 — Configure
     setContext(null);
@@ -848,11 +866,21 @@ export default function AdminIntakeStudio() {
    */
   const loadBomMaterials = async () => {
     if (bomMaterials.length > 0) return;
+    setBomMaterialsLoading(true);
+    setBomMaterialsError(null);
     try {
       const data = await api.get("/api/v1/materials/for-bom");
-      setBomMaterials(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setBomMaterials(items);
+      // Resolved but unusable: an empty catalog is a recoverable state, not a
+      // dead-end. The staging picker reads this to show "add materials, then
+      // retry" instead of a perpetual loading banner.
+      setBomMaterialsError(items.length === 0 ? "empty" : null);
     } catch {
       setBomMaterials([]);
+      setBomMaterialsError("failed");
+    } finally {
+      setBomMaterialsLoading(false);
     }
   };
 
@@ -908,6 +936,17 @@ export default function AdminIntakeStudio() {
           };
         });
         setMatchChoices(seeded);
+        // A bare mesh normally slices to one slot, but if it produced several,
+        // the single staging pick was fanned out to all of them. Surface a
+        // non-blocking notice so the operator reviews each slot in Step 3 rather
+        // than shipping a multi-material item costed as one material.
+        if (data.slots.length > 1) {
+          setReconcileNotice(
+            `Slicing produced ${data.slots.length} material slots; all were ` +
+              `pre-filled with ${seedCatalogItem.name || "the selected material"} ` +
+              `— confirm the material for each slot below.`
+          );
+        }
       }
       // Unified flow: when a slice ran, the slice result is canonical. If its
       // slot count diverges from the pre-parse estimate, surface a notice so
@@ -1372,6 +1411,8 @@ export default function AdminIntakeStudio() {
     setPreparseResult(null);
     preparseResultRef.current = null;
     setMaterialsError(null);
+    setBomMaterialsLoading(false);
+    setBomMaterialsError(null);
     setReconcileNotice(null);
     setContext(null);
     setContextBusy(false);
@@ -1516,27 +1557,52 @@ export default function AdminIntakeStudio() {
               )}
 
               {unifiedFlow && bomMaterials.length === 0 ? (
-                <div className="text-yellow-400/90 text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-center gap-3">
-                  <span>
-                    Loading your purchasable materials… If this persists, add
-                    materials to your catalog, then retry.
-                  </span>
-                  <button
-                    onClick={() => {
-                      setBomMaterials([]);
-                      loadBomMaterials();
-                    }}
-                    className="ml-auto border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10 px-3 py-1 rounded-lg text-xs transition-colors"
-                  >
-                    Retry
-                  </button>
-                </div>
+                // Three distinct states — never a silent permanent banner.
+                // Loading: fetch in flight. Empty: catalog resolved with no
+                // purchasable materials. Failed: fetch errored. Both empty and
+                // failed are recoverable via Retry, mirroring runMaterialSelect.
+                bomMaterialsLoading ? (
+                  <div className="text-gray-400 text-sm bg-gray-800/50 border border-gray-700 rounded-lg p-3 flex items-center gap-3">
+                    <span className="inline-block w-3 h-3 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
+                    <span>Loading your purchasable materials…</span>
+                  </div>
+                ) : (
+                  <div className="text-yellow-400/90 text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-center gap-3">
+                    <span>
+                      {bomMaterialsError === "failed"
+                        ? "Couldn't load your purchasable materials catalog. Check your connection and retry."
+                        : "No purchasable materials in your catalog. Add materials, then retry."}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setBomMaterials([]);
+                        loadBomMaterials();
+                      }}
+                      className="ml-auto border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10 px-3 py-1 rounded-lg text-xs transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )
               ) : (
                 unifiedFlow && (
                   <BareMeshMaterialPicker
                     items={bomMaterials}
                     chosen={stagedMaterial}
-                    onPick={(item) => setStagedMaterial(item)}
+                    onPick={(item) => {
+                      // The staged pick is the single source of truth. If the
+                      // operator changes to a different material TYPE, drop any
+                      // advanced slice-profile override so it can't silently keep
+                      // driving the slice for the now-discarded material. A
+                      // same-type color change preserves a deliberate override.
+                      if (
+                        sliceProfileOverride &&
+                        item?.material_code !== stagedMaterial?.material_code
+                      ) {
+                        setSliceProfileOverride("");
+                      }
+                      setStagedMaterial(item);
+                    }}
                   />
                 )
               )}
@@ -1551,8 +1617,24 @@ export default function AdminIntakeStudio() {
                         <span className="text-gray-200 font-medium">
                           {effective}
                         </span>
-                        {!sliceProfileOverride && derived.exact && (
+                        {sliceProfileOverride ? (
+                          <>
+                            <span className="text-yellow-500/90">
+                              {" "}
+                              (overridden)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setSliceProfileOverride("")}
+                              className="ml-2 text-blue-400 hover:text-blue-300 underline"
+                            >
+                              Reset to auto
+                            </button>
+                          </>
+                        ) : derived.exact ? (
                           <span className="text-gray-600"> (matched)</span>
+                        ) : (
+                          <span className="text-gray-600"> (auto)</span>
                         )}
                       </p>
                       {!sliceProfileOverride && !derived.exact && (
