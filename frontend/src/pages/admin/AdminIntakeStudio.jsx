@@ -230,6 +230,92 @@ function MaterialSelectRow({ slot, slotId, items, chosen, onPick }) {
   );
 }
 
+/**
+ * Bare-mesh staging catalog material picker (unified flow). A material-type
+ * select then a color select, both sourced from /materials/for-bom — the same
+ * type→color approach as MaterialSelectRow, but standalone (no parsed slot
+ * yet, since the mesh hasn't been sliced). The single chosen purchasable item
+ * drives BOTH the derived slice profile and the downstream cost, so there's no
+ * separate slice-profile pick.
+ * @param {object} props
+ * @param {Array<object>} props.items - the purchasable catalog (/materials/for-bom).
+ * @param {object|null} props.chosen - the currently-chosen catalog item, or null.
+ * @param {(item: object) => void} props.onPick - called with the picked catalog item.
+ * @returns {JSX.Element}
+ */
+function BareMeshMaterialPicker({ items, chosen, onPick }) {
+  // Distinct material types present in the catalog.
+  const typeOptions = [];
+  const seenTypes = new Set();
+  for (const it of items) {
+    if (it.material_code && !seenTypes.has(it.material_code)) {
+      seenTypes.add(it.material_code);
+      typeOptions.push({ id: it.material_code, name: it.material_code });
+    }
+  }
+
+  const selectedType = chosen?.material_code || "";
+
+  // Colors available for the selected type.
+  const colorOptions = items
+    .filter((it) => it.material_code === selectedType)
+    .map((it) => ({
+      id: it.id,
+      name: `${it.color_code || it.name} — $${Number(it.standard_cost || 0).toFixed(2)}/kg`,
+      sku: it.sku,
+      color_hex: it.color_hex,
+    }));
+
+  const pickFirstColorForType = (typeCode) => {
+    const first = items.find((it) => it.material_code === typeCode);
+    if (first) onPick(first);
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-1">
+          Material
+        </label>
+        <SearchableSelect
+          options={typeOptions}
+          value={selectedType}
+          onChange={(val) => pickFirstColorForType(val)}
+          placeholder="Select material…"
+          displayKey="name"
+          valueKey="id"
+          formatOption={(opt) => opt.name}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-1">
+          Color
+        </label>
+        <SearchableSelect
+          options={colorOptions}
+          value={chosen?.id != null ? String(chosen.id) : ""}
+          onChange={(val) => {
+            const it = items.find((x) => String(x.id) === val);
+            if (it) onPick(it);
+          }}
+          placeholder={selectedType ? "Select color…" : "Pick a material first"}
+          displayKey="name"
+          valueKey="id"
+          formatOption={(opt) => (
+            <span className="flex items-center gap-2">
+              <span
+                className="inline-block w-3 h-3 rounded border border-gray-600 flex-shrink-0"
+                style={{ backgroundColor: opt.color_hex || "#888" }}
+              />
+              {opt.name}
+            </span>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -377,6 +463,86 @@ const nearestCatalogMatch = (items, filamentType, colorHex) => {
   return best || pool[0] || null;
 };
 
+// Safe fallback slice profile — a generic PLA profile the worker always
+// supports. Used when a chosen catalog material can't be mapped to any
+// SLICE_MATERIALS entry, so the slice POST never carries an invalid material.
+const DEFAULT_SLICE_PROFILE = "PLA Basic";
+
+/**
+ * Derive a coarse base-material family ("PLA"/"PETG"/"ABS"/"ASA"/"PC"/"TPU"/
+ * "NYLON") from a catalog material_code by matching a known family prefix
+ * (mirrors the backend's base-material extraction). Returns "" when nothing
+ * recognizable is found. Normalized (uppercase, non-alphanumeric stripped) so
+ * "PLA_BASIC", "pla-cf" and "PLA Basic" all reduce the same way.
+ * @param {string} materialCode - the catalog item's material_code.
+ * @returns {string} the base family ("" when unrecognized).
+ */
+const baseFamilyFromCode = (materialCode) => {
+  const norm = normalizeCode(materialCode);
+  if (!norm) return "";
+  // PCTG (a copolyester / PETG variant) would otherwise match the "PC" prefix
+  // below and resolve to the polycarbonate profile, which prints far hotter.
+  // Steer it to the PETG family before the generic prefix scan.
+  if (norm.startsWith("PCTG")) return "PETG";
+  // PETG before PET so "PETG_BASIC" isn't truncated to the PET-CF family, and
+  // longer-prefix families first so the most specific known base wins.
+  // No "NYLON" entry: SLICE_MATERIALS has no NYLON-family profile (the nylon
+  // worker profiles are PA6-CF/PAHT-CF, families "PA6"/"PAHT"), so listing
+  // "NYLON" only mis-signals a match before falling through to the PLA default.
+  // A bare "NYLON"/"NYLON_CF" code therefore resolves via the safe default with
+  // the non-exact notice shown, rather than a phantom family hit.
+  for (const fam of ["PETG", "PET", "PAHT", "PA6", "PLA", "ABS", "ASA", "PC", "TPU"]) {
+    if (norm.startsWith(fam)) return fam;
+  }
+  return "";
+};
+
+/**
+ * Map a chosen purchasable catalog item to a valid SLICE_MATERIALS profile
+ * string (the worker's A.4c profile resolver only accepts these exact strings).
+ * Resolution order, never producing an invalid string and never blocking:
+ *   1. Exact normalized match of material_code against a SLICE_MATERIALS value
+ *      (e.g. "PLA_BASIC" → "PLA Basic", "PLA_CF" → "PLA-CF").
+ *   2. Base-family match — the first SLICE_MATERIALS entry sharing the catalog
+ *      item's base family, preferring a generic/"Basic" profile over a
+ *      specialty (CF/Matte) one (e.g. "PLA_SILK" → "PLA Basic").
+ *   3. The safe DEFAULT_SLICE_PROFILE.
+ * Returns { profile, exact } so the caller can surface a non-blocking notice
+ * when the mapping wasn't an exact hit.
+ * @param {object|null} item - the chosen catalog item ({ material_code, ... }).
+ * @returns {{ profile: string, exact: boolean }} the resolved profile + whether
+ *   it was an exact material_code match.
+ */
+const catalogMaterialToSliceProfile = (item) => {
+  const code = item?.material_code;
+  const codeNorm = normalizeCode(code);
+  // 1. Exact normalized material_code → SLICE_MATERIALS value.
+  if (codeNorm) {
+    const exact = SLICE_MATERIALS.find(
+      (m) => normalizeCode(m.value) === codeNorm
+    );
+    if (exact) return { profile: exact.value, exact: true };
+  }
+  // 2. Base-family match, preferring a generic "Basic"/plain profile.
+  const fam = baseFamilyFromCode(code);
+  if (fam) {
+    const sameFamily = SLICE_MATERIALS.filter(
+      (m) => baseFamilyFromCode(m.value) === fam
+    );
+    if (sameFamily.length > 0) {
+      const generic =
+        sameFamily.find((m) => /BASIC/.test(normalizeCode(m.value))) ||
+        sameFamily.find(
+          (m) => !/(CF|MATTE|SILK)/.test(normalizeCode(m.value))
+        ) ||
+        sameFamily[0];
+      return { profile: generic.value, exact: false };
+    }
+  }
+  // 3. Safe default — always a valid worker profile.
+  return { profile: DEFAULT_SLICE_PROFILE, exact: false };
+};
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -407,6 +573,14 @@ export default function AdminIntakeStudio() {
   const [sliceMaterial, setSliceMaterial] = useState("PLA Basic");
   const [slicePrinter, setSlicePrinter] = useState("X1C");
   const [sliceQuality, setSliceQuality] = useState("standard");
+  // Unified flow only: the purchasable catalog material chosen at staging for a
+  // bare mesh. This single pick is the one source of truth — it drives the
+  // derived slice profile AND seeds the Step-3 slot so cost/BOM reuse it. Inert
+  // when the gate is off (the legacy SLICE_MATERIALS picker is used instead).
+  const [stagedMaterial, setStagedMaterial] = useState(null);
+  // Optional advanced override: when set, forces the slice profile instead of
+  // the one derived from stagedMaterial (for the rare wrong-mapping case).
+  const [sliceProfileOverride, setSliceProfileOverride] = useState("");
 
   // Step 2 — Review
   const [parseResult, setParseResult] = useState(null);
@@ -422,6 +596,13 @@ export default function AdminIntakeStudio() {
   // selection. All inert when the gate is off (never set, rendered, or read).
   const [preparseResult, setPreparseResult] = useState(null);
   const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
+  // Drop-time catalog fetch state for the bare-mesh staging picker. Distinguishes
+  // in-flight ("loading") from a resolved-but-unusable catalog ("empty"/"failed")
+  // so the staging step shows the right recoverable message instead of a single
+  // permanent "Loading…" banner that traps every bare mesh. Mirrors how
+  // runMaterialSelect (Step 3) already separates these states via materialsError.
+  const [bomMaterialsLoading, setBomMaterialsLoading] = useState(false);
+  const [bomMaterialsError, setBomMaterialsError] = useState(null); // "empty" | "failed" | null
   const [reconcileNotice, setReconcileNotice] = useState(null);
   // Distinguishes a failed catalog fetch ("failed") from a genuinely empty
   // catalog ("empty") vs. a healthy one (null) so Step 3 can surface an
@@ -454,6 +635,17 @@ export default function AdminIntakeStudio() {
   const priceEditedRef = useRef(false);
   // Retains the dropped/selected File so it can be uploaded after /sku succeeds.
   const sourceFileRef = useRef(null);
+  // Monotonic token for the active upload → /parse (slice/parse) request. A new
+  // file or a reset bumps it; an upload whose token no longer matches is stale
+  // (a slower slice that finished after Reset or a new file drop) and must not
+  // re-apply its parseResult/matchChoices/staged-material seed or advance to
+  // Step 2. Mirrors previewRequestIdRef. (CodeRabbit #802 — flagged race.)
+  const uploadRequestIdRef = useRef(0);
+  // Monotonic token for the legacy /match call (runMatch, gate-off path). The
+  // Step-2 "Start over" button (handleReset) is clickable while /match is in
+  // flight, so without this a slow response could re-apply stale matchResults
+  // and jump to Step 3 after the reset. Bumped in both reset paths.
+  const matchRequestIdRef = useRef(0);
   // Mirror of preparseResult readable by the async uploadIntakeFile closure.
   // On the raw-.3mf path the pre-parse POST resolves AFTER uploadIntakeFile's
   // closure was created, so reading the preparseResult state there would see a
@@ -465,6 +657,14 @@ export default function AdminIntakeStudio() {
   // belongs to a prior file) and is dropped, so a slow response can't overwrite
   // the current file's pre-parse panel or slot count. Mirrors previewRequestIdRef.
   const preparseRequestIdRef = useRef(0);
+  // Monotonic token for the active /materials/for-bom request. A new file, a
+  // reset, or a manual retry bumps it; a response whose token no longer matches
+  // is stale and is dropped so a slow fetch can't clobber a newer result.
+  const bomMaterialsRequestIdRef = useRef(0);
+  // Monotonic token for the active runMaterialSelect call. A new file or a
+  // reset bumps it; any in-flight runMaterialSelect whose token no longer
+  // matches is stale and must not advance the wizard (setMatchResults/setStep).
+  const materialSelectRequestIdRef = useRef(0);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -562,6 +762,8 @@ export default function AdminIntakeStudio() {
     setSliceMaterial("PLA Basic");
     setSlicePrinter("X1C");
     setSliceQuality("standard");
+    setStagedMaterial(null);
+    setSliceProfileOverride("");
     // Step 2 — Review
     setParseResult(null);
     setProductName("");
@@ -574,7 +776,15 @@ export default function AdminIntakeStudio() {
     preparseResultRef.current = null;
     // Invalidate any pre-parse still in flight so its response is ignored.
     preparseRequestIdRef.current += 1;
+    // Invalidate any catalog fetch still in flight so a stale /for-bom response
+    // from a prior file cannot overwrite the fresh load for this file.
+    bomMaterialsRequestIdRef.current += 1;
+    // Invalidate any runMaterialSelect still in flight so a stale call cannot
+    // call setMatchResults/setStep(3) with the old parseResult.
+    materialSelectRequestIdRef.current += 1;
     setMaterialsError(null);
+    setBomMaterialsLoading(false);
+    setBomMaterialsError(null);
     setReconcileNotice(null);
     // Step 4 — Configure
     setContext(null);
@@ -600,6 +810,11 @@ export default function AdminIntakeStudio() {
     sourceFileRef.current = null;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
+    // Invalidate any upload (slice/parse) still in flight so a slow response
+    // can't re-apply this prior file's parseResult/matchChoices or jump to Step 2.
+    uploadRequestIdRef.current += 1;
+    // Invalidate any legacy /match still in flight (gate-off path).
+    matchRequestIdRef.current += 1;
   };
 
   const handleFile = (f) => {
@@ -681,17 +896,43 @@ export default function AdminIntakeStudio() {
    */
   const loadBomMaterials = async () => {
     if (bomMaterials.length > 0) return;
+    const requestId = ++bomMaterialsRequestIdRef.current;
+    setBomMaterialsLoading(true);
+    setBomMaterialsError(null);
     try {
       const data = await api.get("/api/v1/materials/for-bom");
-      setBomMaterials(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      // Drop the response if a newer request has superseded this one (e.g. the
+      // user dropped a new file or hit Reset while this fetch was in flight).
+      if (requestId !== bomMaterialsRequestIdRef.current) return;
+      setBomMaterials(items);
+      // Resolved but unusable: an empty catalog is a recoverable state, not a
+      // dead-end. The staging picker reads this to show "add materials, then
+      // retry" instead of a perpetual loading banner.
+      setBomMaterialsError(items.length === 0 ? "empty" : null);
     } catch {
+      if (requestId !== bomMaterialsRequestIdRef.current) return;
       setBomMaterials([]);
+      setBomMaterialsError("failed");
+    } finally {
+      if (requestId === bomMaterialsRequestIdRef.current) {
+        setBomMaterialsLoading(false);
+      }
     }
   };
 
   // Shared upload → /parse. When a mesh profile is supplied, append the
   // material/printer/quality form fields the server uses to slice the bare mesh.
-  const uploadIntakeFile = async (f, profile = null) => {
+  // `seedCatalogItem` (unified flow, bare mesh): the purchasable catalog material
+  // chosen at staging; when present, every resulting slot is pre-seeded with it
+  // so the one staging pick === the slice profile source === the slot's
+  // matchChoices, and Step 3 shows it pre-confirmed with cost.
+  const uploadIntakeFile = async (f, profile = null, seedCatalogItem = null) => {
+    // Token this upload; a new file or a reset bumps uploadRequestIdRef, marking
+    // any in-flight slice/parse stale so a slow response can't re-apply an old
+    // parseResult/matchChoices/staged-material seed or advance to Step 2.
+    const requestId = ++uploadRequestIdRef.current;
+    const isStaleUpload = () => requestId !== uploadRequestIdRef.current;
     const name = f.name.toLowerCase();
     sourceFileRef.current = f;
     // Bare meshes and raw .3mf are sliced on the server; .gcode.3mf is parsed.
@@ -717,6 +958,9 @@ export default function AdminIntakeStudio() {
       } catch {
         data = {};
       }
+      // A new file or a reset superseded this upload while it was in flight —
+      // drop the response so it can't re-apply stale parse/seed state or toast.
+      if (isStaleUpload()) return;
       if (!res.ok) {
         toast.error(data.detail || `Parse failed (${res.status})`);
         return;
@@ -724,6 +968,39 @@ export default function AdminIntakeStudio() {
       setPendingMesh(null);
       setParseResult(data);
       setProductName(data.model_name || "");
+      // Unified flow, bare mesh: pre-seed every sliced slot with the catalog
+      // material chosen at staging so Step 3 opens pre-confirmed and /preview
+      // + /sku cost it from that purchasable product (one pick, no re-pick).
+      if (unifiedFlow && seedCatalogItem && Array.isArray(data.slots)) {
+        const seeded = {};
+        data.slots.forEach((s) => {
+          seeded[s.slot_id] = {
+            product_id: seedCatalogItem.id,
+            sku: seedCatalogItem.sku,
+            name: seedCatalogItem.name,
+          };
+        });
+        setMatchChoices(seeded);
+        // A bare mesh normally slices to one slot, but if it produced several,
+        // the single staging pick was fanned out to all of them. Surface a
+        // non-blocking notice so the operator reviews each slot in Step 3 rather
+        // than shipping a multi-material item costed as one material.
+        if (data.slots.length > 1) {
+          // Append rather than replace: the slot-count-mismatch notice set below
+          // may fire for the same slice run — both warnings must survive so the
+          // operator sees the full picture.
+          setReconcileNotice((prev) =>
+            [
+              prev,
+              `Slicing produced ${data.slots.length} material slots; all were ` +
+                `pre-filled with ${seedCatalogItem.name || "the selected material"} ` +
+                `— confirm the material for each slot below.`,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          );
+        }
+      }
       // Unified flow: when a slice ran, the slice result is canonical. If its
       // slot count diverges from the pre-parse estimate, surface a notice so
       // the operator knows the material rows below were re-keyed to the slice.
@@ -737,23 +1014,50 @@ export default function AdminIntakeStudio() {
           ? data.slots.length
           : data.slot_count;
         if (slicedCount != null && slicedCount !== preparseSlotCount) {
-          setReconcileNotice(
-            `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
-              `but the pre-parse estimated ${preparseSlotCount}. ` +
-              `Using the slice result — please confirm the material for each slot below.`
+          // Append to preserve any fan-out pre-fill notice set just above.
+          setReconcileNotice((prev) =>
+            [
+              prev,
+              `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
+                `but the pre-parse estimated ${preparseSlotCount}. ` +
+                `Using the slice result — please confirm the material for each slot below.`,
+            ]
+              .filter(Boolean)
+              .join(" ")
           );
         }
       }
       setStep(2);
     } catch (err) {
+      // Suppress a stale upload's error toast (its file was already superseded).
+      if (isStaleUpload()) return;
       toast.error(err.message || "Upload failed");
     } finally {
-      setUploadBusy(false);
+      // Only the live upload owns the busy spinner; a stale one clearing it
+      // would prematurely hide the spinner for the upload that replaced it.
+      if (!isStaleUpload()) {
+        setUploadBusy(false);
+      }
     }
   };
 
   const sliceAndContinue = () => {
     if (!pendingMesh) return;
+    if (unifiedFlow) {
+      // Unified flow: the single catalog pick drives BOTH the slice profile and
+      // the cost. Derive a valid SLICE_MATERIALS profile from the chosen catalog
+      // material (an explicit advanced override wins), then seed the resulting
+      // slot(s) with that catalog product so Step 3 is pre-confirmed and cost
+      // uses it — one source of truth.
+      const derived = catalogMaterialToSliceProfile(stagedMaterial);
+      const profile = sliceProfileOverride || derived.profile;
+      uploadIntakeFile(
+        pendingMesh,
+        { material: profile, printer: slicePrinter, quality: sliceQuality },
+        stagedMaterial
+      );
+      return;
+    }
     uploadIntakeFile(pendingMesh, {
       material: sliceMaterial,
       printer: slicePrinter,
@@ -769,6 +1073,11 @@ export default function AdminIntakeStudio() {
     if (unifiedFlow) {
       return runMaterialSelect();
     }
+    // Token this /match; a reset (Step-2 "Start over") or a new-file drop bumps
+    // matchRequestIdRef, marking an in-flight call stale so a slow response can't
+    // re-apply old matchResults/matchChoices or jump to Step 3 after the reset.
+    const requestId = ++matchRequestIdRef.current;
+    const isStale = () => requestId !== matchRequestIdRef.current;
     setMatchBusy(true);
     try {
       const body = {
@@ -781,6 +1090,8 @@ export default function AdminIntakeStudio() {
         top_n: 5,
       };
       const data = await api.post("/api/v1/pro/intake/match", body);
+      // A reset/new file superseded this match — drop the stale response.
+      if (isStale()) return;
       setMatchResults(data.results || []);
       // Seed default choices
       const defaults = {};
@@ -797,9 +1108,12 @@ export default function AdminIntakeStudio() {
       setMatchChoices(defaults);
       setStep(3);
     } catch (err) {
+      if (isStale()) return;
       toast.error(err.message || "Spool match failed");
     } finally {
-      setMatchBusy(false);
+      if (!isStale()) {
+        setMatchBusy(false);
+      }
     }
   };
 
@@ -821,6 +1135,10 @@ export default function AdminIntakeStudio() {
    * @returns {Promise<void>}
    */
   const runMaterialSelect = async () => {
+    // Capture a monotonic token so any state updates from a stale invocation
+    // (one that started before a Reset or new-file drop) are suppressed.
+    const requestId = ++materialSelectRequestIdRef.current;
+    const isStale = () => requestId !== materialSelectRequestIdRef.current;
     setMatchBusy(true);
     setMaterialsError(null);
     try {
@@ -830,11 +1148,21 @@ export default function AdminIntakeStudio() {
       let items = bomMaterials;
       let fetchFailed = false;
       if (items.length === 0) {
+        // Bump the catalog-fetch token so any in-flight loadBomMaterials request
+        // (from the drop-time call) is treated as stale and won't overwrite the
+        // result we're about to set here.
+        const catalogRequestId = ++bomMaterialsRequestIdRef.current;
         try {
           const data = await api.get("/api/v1/materials/for-bom");
+          if (isStale()) return;
           items = Array.isArray(data?.items) ? data.items : [];
-          setBomMaterials(items);
+          // Only write if still the current request (avoids a race with a
+          // concurrent retry from the Step 1 UI).
+          if (catalogRequestId === bomMaterialsRequestIdRef.current) {
+            setBomMaterials(items);
+          }
         } catch {
+          if (isStale()) return;
           items = [];
           fetchFailed = true;
         }
@@ -844,6 +1172,7 @@ export default function AdminIntakeStudio() {
       // Surface an explicit, recoverable state instead of advancing into that
       // dead-end. (This is the failure mode the unified flow was meant to kill.)
       if (items.length === 0) {
+        if (isStale()) return;
         const mode = fetchFailed ? "failed" : "empty";
         setMaterialsError(mode);
         if (fetchFailed) {
@@ -874,12 +1203,14 @@ export default function AdminIntakeStudio() {
           top_n: 5,
         };
         const data = await api.post("/api/v1/pro/intake/match", body);
+        if (isStale()) return;
         (data.results || []).forEach((r) => {
           if (r.sticky && r.suggestions && r.suggestions.length > 0) {
             stickyBySlot[r.slot_id] = r.suggestions[0];
           }
         });
       } catch {
+        if (isStale()) return;
         // ignore — pre-fill falls back to nearest catalog match
       }
       // One synthetic "result" per slot so the render + allSlotsMatched gate
@@ -887,6 +1218,18 @@ export default function AdminIntakeStudio() {
       const results = parseResult.slots.map((s) => ({ slot_id: s.slot_id }));
       const defaults = {};
       parseResult.slots.forEach((s) => {
+        // Honor an already-chosen material for this slot if it's still in the
+        // catalog — e.g. a bare mesh whose staging catalog pick was pre-seeded
+        // into matchChoices. That explicit operator choice is the source of
+        // truth and must not be clobbered by an auto nearest-match.
+        const preChosen = matchChoices[s.slot_id];
+        if (
+          preChosen?.product_id != null &&
+          items.some((it) => String(it.id) === String(preChosen.product_id))
+        ) {
+          defaults[s.slot_id] = preChosen;
+          return;
+        }
         // A sticky /match suggestion only seeds the slot if the remembered
         // product is still in the purchasable catalog — otherwise the selector
         // can't display it and allSlotsMatched would pass on an item /preview
@@ -915,13 +1258,17 @@ export default function AdminIntakeStudio() {
           };
         }
       });
+      if (isStale()) return;
       setMatchResults(results);
       setMatchChoices(defaults);
       setStep(3);
     } catch (err) {
+      if (isStale()) return;
       toast.error(err.message || "Failed to load materials");
     } finally {
-      setMatchBusy(false);
+      if (!isStale()) {
+        setMatchBusy(false);
+      }
     }
   };
 
@@ -1150,6 +1497,8 @@ export default function AdminIntakeStudio() {
     setSliceMaterial("PLA Basic");
     setSlicePrinter("X1C");
     setSliceQuality("standard");
+    setStagedMaterial(null);
+    setSliceProfileOverride("");
     setParseResult(null);
     setProductName("");
     setMatchResults(null);
@@ -1158,6 +1507,8 @@ export default function AdminIntakeStudio() {
     setPreparseResult(null);
     preparseResultRef.current = null;
     setMaterialsError(null);
+    setBomMaterialsLoading(false);
+    setBomMaterialsError(null);
     setReconcileNotice(null);
     setContext(null);
     setContextBusy(false);
@@ -1176,6 +1527,18 @@ export default function AdminIntakeStudio() {
     priceEditedRef.current = false;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
+    // Invalidate any catalog fetch still in flight (same pattern as
+    // resetDerivedStateForNewFile).
+    bomMaterialsRequestIdRef.current += 1;
+    // Invalidate any runMaterialSelect still in flight so a stale call cannot
+    // call setMatchResults/setStep(3) after the reset clears parseResult.
+    materialSelectRequestIdRef.current += 1;
+    // Invalidate any upload (slice/parse) still in flight so a slow response
+    // can't re-apply stale parseResult/matchChoices or jump to Step 2 post-reset.
+    uploadRequestIdRef.current += 1;
+    // Invalidate any legacy /match still in flight (gate-off path) so it can't
+    // re-apply stale matchResults / jump to Step 3 after this reset.
+    matchRequestIdRef.current += 1;
     // item type / category
     setItemType("finished_good");
     setCategoryId(null);
@@ -1267,13 +1630,6 @@ export default function AdminIntakeStudio() {
             /* Slicing-profile picker for a staged bare mesh (.stl/.obj) */
             <div className="space-y-5">
               {unifiedFlow && <PreParsePanel preparse={preparseResult} />}
-              {unifiedFlow && (
-                <p className="text-gray-500 text-xs -mt-2">
-                  The reference profile below drives slicing. You&apos;ll pick the
-                  purchasable material (for cost &amp; inventory) per slot after
-                  slicing.
-                </p>
-              )}
               <div className="flex items-center gap-3 text-sm text-gray-300">
                 <svg
                   className="w-5 h-5 text-blue-400 flex-shrink-0"
@@ -1293,14 +1649,143 @@ export default function AdminIntakeStudio() {
               <h2 className="text-base font-semibold text-white">
                 Slicing options
               </h2>
-              <p className="text-gray-500 text-sm">
-                A bare model has no embedded profile, so it&apos;s sliced on the
-                server using a reference profile. Pick the material, printer and
-                quality to slice against.
-              </p>
+              {unifiedFlow ? (
+                <p className="text-gray-500 text-sm">
+                  A bare model has no embedded profile. Pick the purchasable
+                  material you&apos;ll print it in — that one choice drives both
+                  how it&apos;s sliced and its cost. Choose a printer and quality
+                  to slice against.
+                </p>
+              ) : (
+                <p className="text-gray-500 text-sm">
+                  A bare model has no embedded profile, so it&apos;s sliced on the
+                  server using a reference profile. Pick the material, printer and
+                  quality to slice against.
+                </p>
+              )}
+
+              {unifiedFlow && bomMaterials.length === 0 ? (
+                // Three distinct states — never a silent permanent banner.
+                // Loading: fetch in flight. Empty: catalog resolved with no
+                // purchasable materials. Failed: fetch errored. Both empty and
+                // failed are recoverable via Retry, mirroring runMaterialSelect.
+                bomMaterialsLoading ? (
+                  <div className="text-gray-400 text-sm bg-gray-800/50 border border-gray-700 rounded-lg p-3 flex items-center gap-3">
+                    <span className="inline-block w-3 h-3 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
+                    <span>Loading your purchasable materials…</span>
+                  </div>
+                ) : (
+                  <div className="text-yellow-400/90 text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-center gap-3">
+                    <span>
+                      {bomMaterialsError === "failed"
+                        ? "Couldn't load your purchasable materials catalog. Check your connection and retry."
+                        : "No purchasable materials in your catalog. Add materials, then retry."}
+                    </span>
+                    <button
+                      onClick={() => {
+                        // Bump the token so the outgoing stale request (if any)
+                        // is ignored once the retry's response arrives.
+                        bomMaterialsRequestIdRef.current += 1;
+                        setBomMaterials([]);
+                        loadBomMaterials();
+                      }}
+                      className="ml-auto border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10 px-3 py-1 rounded-lg text-xs transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )
+              ) : (
+                unifiedFlow && (
+                  <BareMeshMaterialPicker
+                    items={bomMaterials}
+                    chosen={stagedMaterial}
+                    onPick={(item) => {
+                      // The staged pick is the single source of truth. If the
+                      // operator changes to a different material TYPE, drop any
+                      // advanced slice-profile override so it can't silently keep
+                      // driving the slice for the now-discarded material. A
+                      // same-type color change preserves a deliberate override.
+                      if (
+                        sliceProfileOverride &&
+                        item?.material_code !== stagedMaterial?.material_code
+                      ) {
+                        setSliceProfileOverride("");
+                      }
+                      setStagedMaterial(item);
+                    }}
+                  />
+                )
+              )}
+              {unifiedFlow && stagedMaterial && (
+                (() => {
+                  const derived = catalogMaterialToSliceProfile(stagedMaterial);
+                  const effective = sliceProfileOverride || derived.profile;
+                  return (
+                    <div className="space-y-2">
+                      <p className="text-gray-400 text-xs">
+                        Slice profile:{" "}
+                        <span className="text-gray-200 font-medium">
+                          {effective}
+                        </span>
+                        {sliceProfileOverride ? (
+                          <>
+                            <span className="text-yellow-500/90">
+                              {" "}
+                              (overridden)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setSliceProfileOverride("")}
+                              className="ml-2 text-blue-400 hover:text-blue-300 underline"
+                            >
+                              Reset to auto
+                            </button>
+                          </>
+                        ) : derived.exact ? (
+                          <span className="text-gray-600"> (matched)</span>
+                        ) : (
+                          <span className="text-gray-600"> (auto)</span>
+                        )}
+                      </p>
+                      {!sliceProfileOverride && !derived.exact && (
+                        <p className="text-yellow-400/90 text-xs bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-2">
+                          No exact slice profile for{" "}
+                          {stagedMaterial.material_code || "this material"}; using{" "}
+                          {derived.profile} — adjust in advanced if needed.
+                        </p>
+                      )}
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-gray-500 hover:text-gray-400">
+                          Advanced: override slice profile
+                        </summary>
+                        <div className="mt-2">
+                          <select
+                            value={sliceProfileOverride}
+                            onChange={(e) =>
+                              setSliceProfileOverride(e.target.value)
+                            }
+                            className="w-full md:w-72 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="">
+                              Auto (from material) — {derived.profile}
+                            </option>
+                            {SLICE_MATERIALS.map((m) => (
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })()
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Material — most important */}
+                {/* Material — most important (legacy SLICE_MATERIALS picker) */}
+                {!unifiedFlow && (
                 <div className="md:col-span-3">
                   <label
                     htmlFor="slice-material"
@@ -1321,6 +1806,7 @@ export default function AdminIntakeStudio() {
                     ))}
                   </select>
                 </div>
+                )}
                 <div>
                   <label
                     htmlFor="slice-printer"
@@ -1366,10 +1852,16 @@ export default function AdminIntakeStudio() {
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={sliceAndContinue}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                  disabled={unifiedFlow && !stagedMaterial}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition-colors"
                 >
                   Slice &amp; continue
                 </button>
+                {unifiedFlow && !stagedMaterial && (
+                  <span className="text-gray-500 text-sm">
+                    Pick a material to continue
+                  </span>
+                )}
                 <button
                   onClick={() => setPendingMesh(null)}
                   className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
