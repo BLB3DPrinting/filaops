@@ -650,6 +650,10 @@ export default function AdminIntakeStudio() {
   // reset, or a manual retry bumps it; a response whose token no longer matches
   // is stale and is dropped so a slow fetch can't clobber a newer result.
   const bomMaterialsRequestIdRef = useRef(0);
+  // Monotonic token for the active runMaterialSelect call. A new file or a
+  // reset bumps it; any in-flight runMaterialSelect whose token no longer
+  // matches is stale and must not advance the wizard (setMatchResults/setStep).
+  const materialSelectRequestIdRef = useRef(0);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -764,6 +768,9 @@ export default function AdminIntakeStudio() {
     // Invalidate any catalog fetch still in flight so a stale /for-bom response
     // from a prior file cannot overwrite the fresh load for this file.
     bomMaterialsRequestIdRef.current += 1;
+    // Invalidate any runMaterialSelect still in flight so a stale call cannot
+    // call setMatchResults/setStep(3) with the old parseResult.
+    materialSelectRequestIdRef.current += 1;
     setMaterialsError(null);
     setBomMaterialsLoading(false);
     setBomMaterialsError(null);
@@ -1088,6 +1095,10 @@ export default function AdminIntakeStudio() {
    * @returns {Promise<void>}
    */
   const runMaterialSelect = async () => {
+    // Capture a monotonic token so any state updates from a stale invocation
+    // (one that started before a Reset or new-file drop) are suppressed.
+    const requestId = ++materialSelectRequestIdRef.current;
+    const isStale = () => requestId !== materialSelectRequestIdRef.current;
     setMatchBusy(true);
     setMaterialsError(null);
     try {
@@ -1103,6 +1114,7 @@ export default function AdminIntakeStudio() {
         const catalogRequestId = ++bomMaterialsRequestIdRef.current;
         try {
           const data = await api.get("/api/v1/materials/for-bom");
+          if (isStale()) return;
           items = Array.isArray(data?.items) ? data.items : [];
           // Only write if still the current request (avoids a race with a
           // concurrent retry from the Step 1 UI).
@@ -1110,6 +1122,7 @@ export default function AdminIntakeStudio() {
             setBomMaterials(items);
           }
         } catch {
+          if (isStale()) return;
           items = [];
           fetchFailed = true;
         }
@@ -1119,6 +1132,7 @@ export default function AdminIntakeStudio() {
       // Surface an explicit, recoverable state instead of advancing into that
       // dead-end. (This is the failure mode the unified flow was meant to kill.)
       if (items.length === 0) {
+        if (isStale()) return;
         const mode = fetchFailed ? "failed" : "empty";
         setMaterialsError(mode);
         if (fetchFailed) {
@@ -1149,12 +1163,14 @@ export default function AdminIntakeStudio() {
           top_n: 5,
         };
         const data = await api.post("/api/v1/pro/intake/match", body);
+        if (isStale()) return;
         (data.results || []).forEach((r) => {
           if (r.sticky && r.suggestions && r.suggestions.length > 0) {
             stickyBySlot[r.slot_id] = r.suggestions[0];
           }
         });
       } catch {
+        if (isStale()) return;
         // ignore — pre-fill falls back to nearest catalog match
       }
       // One synthetic "result" per slot so the render + allSlotsMatched gate
@@ -1202,13 +1218,17 @@ export default function AdminIntakeStudio() {
           };
         }
       });
+      if (isStale()) return;
       setMatchResults(results);
       setMatchChoices(defaults);
       setStep(3);
     } catch (err) {
+      if (isStale()) return;
       toast.error(err.message || "Failed to load materials");
     } finally {
-      setMatchBusy(false);
+      if (!isStale()) {
+        setMatchBusy(false);
+      }
     }
   };
 
@@ -1470,6 +1490,9 @@ export default function AdminIntakeStudio() {
     // Invalidate any catalog fetch still in flight (same pattern as
     // resetDerivedStateForNewFile).
     bomMaterialsRequestIdRef.current += 1;
+    // Invalidate any runMaterialSelect still in flight so a stale call cannot
+    // call setMatchResults/setStep(3) after the reset clears parseResult.
+    materialSelectRequestIdRef.current += 1;
     // item type / category
     setItemType("finished_good");
     setCategoryId(null);
