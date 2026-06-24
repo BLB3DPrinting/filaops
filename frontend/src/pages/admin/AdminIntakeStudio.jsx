@@ -646,6 +646,10 @@ export default function AdminIntakeStudio() {
   // belongs to a prior file) and is dropped, so a slow response can't overwrite
   // the current file's pre-parse panel or slot count. Mirrors previewRequestIdRef.
   const preparseRequestIdRef = useRef(0);
+  // Monotonic token for the active /materials/for-bom request. A new file, a
+  // reset, or a manual retry bumps it; a response whose token no longer matches
+  // is stale and is dropped so a slow fetch can't clobber a newer result.
+  const bomMaterialsRequestIdRef = useRef(0);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -757,6 +761,9 @@ export default function AdminIntakeStudio() {
     preparseResultRef.current = null;
     // Invalidate any pre-parse still in flight so its response is ignored.
     preparseRequestIdRef.current += 1;
+    // Invalidate any catalog fetch still in flight so a stale /for-bom response
+    // from a prior file cannot overwrite the fresh load for this file.
+    bomMaterialsRequestIdRef.current += 1;
     setMaterialsError(null);
     setBomMaterialsLoading(false);
     setBomMaterialsError(null);
@@ -866,21 +873,28 @@ export default function AdminIntakeStudio() {
    */
   const loadBomMaterials = async () => {
     if (bomMaterials.length > 0) return;
+    const requestId = ++bomMaterialsRequestIdRef.current;
     setBomMaterialsLoading(true);
     setBomMaterialsError(null);
     try {
       const data = await api.get("/api/v1/materials/for-bom");
       const items = Array.isArray(data?.items) ? data.items : [];
+      // Drop the response if a newer request has superseded this one (e.g. the
+      // user dropped a new file or hit Reset while this fetch was in flight).
+      if (requestId !== bomMaterialsRequestIdRef.current) return;
       setBomMaterials(items);
       // Resolved but unusable: an empty catalog is a recoverable state, not a
       // dead-end. The staging picker reads this to show "add materials, then
       // retry" instead of a perpetual loading banner.
       setBomMaterialsError(items.length === 0 ? "empty" : null);
     } catch {
+      if (requestId !== bomMaterialsRequestIdRef.current) return;
       setBomMaterials([]);
       setBomMaterialsError("failed");
     } finally {
-      setBomMaterialsLoading(false);
+      if (requestId === bomMaterialsRequestIdRef.current) {
+        setBomMaterialsLoading(false);
+      }
     }
   };
 
@@ -941,10 +955,18 @@ export default function AdminIntakeStudio() {
         // non-blocking notice so the operator reviews each slot in Step 3 rather
         // than shipping a multi-material item costed as one material.
         if (data.slots.length > 1) {
-          setReconcileNotice(
-            `Slicing produced ${data.slots.length} material slots; all were ` +
-              `pre-filled with ${seedCatalogItem.name || "the selected material"} ` +
-              `— confirm the material for each slot below.`
+          // Append rather than replace: the slot-count-mismatch notice set below
+          // may fire for the same slice run — both warnings must survive so the
+          // operator sees the full picture.
+          setReconcileNotice((prev) =>
+            [
+              prev,
+              `Slicing produced ${data.slots.length} material slots; all were ` +
+                `pre-filled with ${seedCatalogItem.name || "the selected material"} ` +
+                `— confirm the material for each slot below.`,
+            ]
+              .filter(Boolean)
+              .join(" ")
           );
         }
       }
@@ -961,10 +983,16 @@ export default function AdminIntakeStudio() {
           ? data.slots.length
           : data.slot_count;
         if (slicedCount != null && slicedCount !== preparseSlotCount) {
-          setReconcileNotice(
-            `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
-              `but the pre-parse estimated ${preparseSlotCount}. ` +
-              `Using the slice result — please confirm the material for each slot below.`
+          // Append to preserve any fan-out pre-fill notice set just above.
+          setReconcileNotice((prev) =>
+            [
+              prev,
+              `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
+                `but the pre-parse estimated ${preparseSlotCount}. ` +
+                `Using the slice result — please confirm the material for each slot below.`,
+            ]
+              .filter(Boolean)
+              .join(" ")
           );
         }
       }
@@ -1069,10 +1097,18 @@ export default function AdminIntakeStudio() {
       let items = bomMaterials;
       let fetchFailed = false;
       if (items.length === 0) {
+        // Bump the catalog-fetch token so any in-flight loadBomMaterials request
+        // (from the drop-time call) is treated as stale and won't overwrite the
+        // result we're about to set here.
+        const catalogRequestId = ++bomMaterialsRequestIdRef.current;
         try {
           const data = await api.get("/api/v1/materials/for-bom");
           items = Array.isArray(data?.items) ? data.items : [];
-          setBomMaterials(items);
+          // Only write if still the current request (avoids a race with a
+          // concurrent retry from the Step 1 UI).
+          if (catalogRequestId === bomMaterialsRequestIdRef.current) {
+            setBomMaterials(items);
+          }
         } catch {
           items = [];
           fetchFailed = true;
@@ -1431,6 +1467,9 @@ export default function AdminIntakeStudio() {
     priceEditedRef.current = false;
     // Invalidate any preview still in flight so its response is ignored.
     previewRequestIdRef.current += 1;
+    // Invalidate any catalog fetch still in flight (same pattern as
+    // resetDerivedStateForNewFile).
+    bomMaterialsRequestIdRef.current += 1;
     // item type / category
     setItemType("finished_good");
     setCategoryId(null);
@@ -1575,6 +1614,9 @@ export default function AdminIntakeStudio() {
                     </span>
                     <button
                       onClick={() => {
+                        // Bump the token so the outgoing stale request (if any)
+                        // is ignored once the retry's response arrives.
+                        bomMaterialsRequestIdRef.current += 1;
                         setBomMaterials([]);
                         loadBomMaterials();
                       }}
