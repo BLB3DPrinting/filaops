@@ -60,6 +60,11 @@ def find_or_create_customer(
     if customer:
         return customer
 
+    # Normalize so the address .get() calls below are safe even when no
+    # shipping_address was supplied (the signature defaults it to None, and a
+    # couple of the country fields below dereference it unguarded).
+    shipping_address = shipping_address or {}
+
     first_name = ""
     last_name = ""
     if name:
