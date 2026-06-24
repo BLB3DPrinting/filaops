@@ -154,8 +154,9 @@ function PlatePicker({ plates, isRaw, selectedPlateIndex, onSelect }) {
           : `This file has ${plates.length} plates. Pick the one to intake.`}
       </p>
       <div className="space-y-2">
-        {plates.map((p, i) => {
-          const idx = p.plate_index ?? i;
+        {plates.map((p) => {
+          if (p.plate_index == null) return null;
+          const idx = p.plate_index;
           const selected = selectedPlateIndex != null && idx === selectedPlateIndex;
           const slots = Array.isArray(p.slots) ? p.slots : [];
           return (
@@ -1230,6 +1231,15 @@ export default function AdminIntakeStudio() {
           );
         }
       }
+      // Multi-plate: the parse succeeded — now it's safe to clear the held file
+      // and picker state. Clearing before uploadIntakeFile (as it was) left an
+      // enabled but no-op Continue after a parse failure or Step-2 Back.
+      if (plateIndex != null) {
+        pendingPlateFileRef.current = null;
+        setPreparseResult(null);
+        preparseResultRef.current = null;
+        setSelectedPlateIndex(null);
+      }
       setStep(2);
     } catch (err) {
       // Suppress a stale upload's error toast (its file was already superseded).
@@ -1253,7 +1263,9 @@ export default function AdminIntakeStudio() {
   const continueWithSelectedPlate = () => {
     const pending = pendingPlateFileRef.current;
     if (!pending || selectedPlateIndex == null) return;
-    pendingPlateFileRef.current = null;
+    // Do NOT clear pendingPlateFileRef here — keep the held file available for
+    // retry (parse failure) or Step-2 Back. It is cleared in uploadIntakeFile's
+    // success path once the parse returns ok (plateIndex != null branch above).
     uploadIntakeFile(pending, null, null, selectedPlateIndex);
   };
 
@@ -1720,6 +1732,10 @@ export default function AdminIntakeStudio() {
     setMatchResults(null);
     setMatchBusy(false);
     setMatchChoices({});
+    // Invalidate any in-flight /preparse before clearing its result state —
+    // a slow response from the old file can't repopulate preparseResult and
+    // reopen the stale picker. Mirror the drop-zone new-file reset path.
+    preparseRequestIdRef.current += 1;
     setPreparseResult(null);
     preparseResultRef.current = null;
     // Multi-plate: clear the chosen plate and any file held for the picker.
