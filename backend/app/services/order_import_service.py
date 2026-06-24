@@ -67,19 +67,12 @@ def find_or_create_customer(
         first_name = name_parts[0] if name_parts else ""
         last_name = name_parts[1] if len(name_parts) > 1 else ""
 
-    year = datetime.now(timezone.utc).year
-    last_customer = db.query(User).filter(
-        User.customer_number.like(f"CUST-{year}-%")
-    ).order_by(User.customer_number.desc()).first()
-
-    if last_customer:
-        try:
-            last_num = int(last_customer.customer_number.split("-")[2])
-            customer_number = f"CUST-{year}-{last_num + 1:06d}"
-        except (ValueError, IndexError):
-            customer_number = f"CUST-{year}-000001"
-    else:
-        customer_number = f"CUST-{year}-000001"
+    # Use the canonical, regex-filtered generator. The old LIKE-based query
+    # mis-detected the max (CUST-001 sorts above CUST-099 lexically) and minted
+    # a CUST-YYYY-NNNNNN format inconsistent with the rest of the app; the
+    # canonical generator filters ^CUST-\d+$ and emits CUST-NNN.
+    from app.services.customer_service import generate_customer_number
+    customer_number = generate_customer_number(db)
 
     now = datetime.now(timezone.utc)
     customer = User(
@@ -192,16 +185,21 @@ def import_orders_from_csv(
                 errors.append({"row": row_num, "error": "Product SKU missing - line item skipped", "order_id": order_id})
                 continue
 
-            # Parse quantity
+            # Parse quantity. A missing column defaults to 1, but a value that
+            # IS present and unparseable, non-positive, or fractional is a row
+            # error — not silently coerced to 1 or truncated (e.g. 2.7 -> 2).
             quantity = 1
             qty_str = _find_col(row, QUANTITY_COLS)
             if qty_str:
                 try:
-                    quantity = int(float(qty_str.replace(",", "")))
-                    if quantity <= 0:
-                        quantity = 1
+                    qty_val = float(qty_str.replace(",", ""))
                 except (ValueError, TypeError):
-                    pass
+                    errors.append({"row": row_num, "error": f"Invalid quantity '{qty_str}' - line item skipped", "order_id": order_id})
+                    continue
+                if qty_val <= 0 or qty_val != int(qty_val):
+                    errors.append({"row": row_num, "error": f"Quantity must be a positive whole number, got '{qty_str}' - line item skipped", "order_id": order_id})
+                    continue
+                quantity = int(qty_val)
 
             unit_price = None
             up_str = _find_col(row, UNIT_PRICE_COLS)
@@ -315,20 +313,12 @@ def import_orders_from_csv(
                 skipped += 1
                 continue
 
-            # Generate order number
-            year = datetime.now(timezone.utc).year
-            last_order = db.query(SalesOrder).filter(
-                SalesOrder.order_number.like(f"SO-{year}-%")
-            ).order_by(SalesOrder.order_number.desc()).first()
-
-            if last_order:
-                try:
-                    last_num = int(last_order.order_number.split("-")[2])
-                    order_number = f"SO-{year}-{last_num + 1:06d}"
-                except (ValueError, IndexError):
-                    order_number = f"SO-{year}-000001"
-            else:
-                order_number = f"SO-{year}-000001"
+            # Use the canonical row-locked generator (FOR UPDATE + consistent
+            # :03d format) instead of an ad-hoc :06d LIKE-max query that
+            # mis-sorts (SO-2026-001 > SO-2026-000999 lexically) and races
+            # concurrent imports.
+            from app.services.sales_order_service import generate_order_number
+            order_number = generate_order_number(db)
 
             shipping_cost = order_data["shipping_cost"]
             tax_amount = order_data["tax_amount"]
