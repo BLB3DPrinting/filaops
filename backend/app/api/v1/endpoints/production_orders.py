@@ -44,6 +44,8 @@ from app.schemas.production_order import (
     ScrapReasonsResponse,
     QCInspectionRequest,
     QCInspectionResponse,
+    QCInspectionRecord,
+    QCInspectionHistoryResponse,
     OperationMaterialResponse,
     SwapMaterialVariantRequest,
     OperationScrapRequest,
@@ -1286,6 +1288,24 @@ async def record_qc_inspection(
         sales_order_updated=False,
         sales_order_status=None,
         message=f"QC {order.qc_status} recorded for {order.code}",
+    )
+
+
+@router.get("/{order_id}/qc-inspections", response_model=QCInspectionHistoryResponse)
+async def get_qc_inspections(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> QCInspectionHistoryResponse:
+    """Return the append-only QC inspection history for an order (#783).
+
+    Oldest-first, so the first entry is the first-pass inspection.
+    """
+    inspections = production_order_service.get_qc_inspections(db, order_id)
+    return QCInspectionHistoryResponse(
+        production_order_id=order_id,
+        total=len(inspections),
+        inspections=[QCInspectionRecord.model_validate(i) for i in inspections],
     )
 
 

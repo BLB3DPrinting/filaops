@@ -1,7 +1,7 @@
 """Database models - FilaOps Open Source Core"""
 from app.models.item_category import ItemCategory
 from app.models.product import Product
-from app.models.production_order import ProductionOrder, ProductionOrderOperation, ProductionOrderOperationMaterial, ScrapRecord
+from app.models.production_order import ProductionOrder, ProductionOrderOperation, ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.print_job import PrintJob
 from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
 from app.models.sales_order import SalesOrder, SalesOrderLine
@@ -103,6 +103,7 @@ __all__ = [
     "RoutingOperationMaterial",
     "ProductionOrderOperationMaterial",
     "ScrapRecord",
+    "QCInspection",
     # MRP
     "MRPRun",
     "PlannedOrder",

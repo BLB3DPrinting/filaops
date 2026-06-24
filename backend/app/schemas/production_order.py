@@ -596,6 +596,31 @@ class QCInspectionResponse(BaseModel):
     message: str
 
 
+class QCInspectionRecord(BaseModel):
+    """One append-only QC inspection row (#783) — an entry in the audit trail."""
+    id: int
+    production_order_id: int
+    production_operation_id: Optional[int] = None
+    result: str
+    quantity_passed: Optional[int] = None
+    quantity_failed: Optional[int] = None
+    inspector_user_id: Optional[int] = None
+    inspector_name: Optional[str] = None
+    failure_reason: Optional[str] = None
+    notes: Optional[str] = None
+    inspected_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class QCInspectionHistoryResponse(BaseModel):
+    """Full QC inspection history for a production order, oldest-first."""
+    production_order_id: int
+    total: int
+    inspections: List[QCInspectionRecord]
+
+
 # ============================================================================
 # Spool Consumption Schemas
 # ============================================================================
