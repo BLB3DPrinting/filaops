@@ -141,6 +141,15 @@ def _find_col(row: dict, candidates: list) -> str:
     return ""
 
 
+def _col_present(row: dict, candidates: list) -> bool:
+    """True if any candidate column key exists in the row, even if blank.
+
+    Lets callers distinguish "column absent" (use a default) from
+    "column present but value blank" (a data error).
+    """
+    return any(col in row for col in candidates)
+
+
 # ============================================================================
 # MAIN IMPORT FUNCTION
 # ============================================================================
@@ -180,7 +189,12 @@ def import_orders_from_csv(
         order_id = ""
 
         try:
-            order_id = _find_col(row, ORDER_ID_COLS) or f"IMPORT-{row_num}"
+            # The real external id (persisted as source_order_id) vs a synthetic
+            # per-run grouping/display key when the CSV has no order id. Synthetic
+            # keys must NOT be persisted as source_order_id — different files
+            # would collide on IMPORT-2 etc. under the partial unique index.
+            external_order_id = _find_col(row, ORDER_ID_COLS) or None
+            order_id = external_order_id or f"IMPORT-{row_num}"
             customer_email = _find_col(row, CUSTOMER_EMAIL_COLS).lower()
             if not customer_email or "@" not in customer_email:
                 customer_email = f"import-{order_id.lower().replace(' ', '-')}@placeholder.local"
@@ -190,21 +204,25 @@ def import_orders_from_csv(
                 errors.append({"row": row_num, "error": "Product SKU missing - line item skipped", "order_id": order_id})
                 continue
 
-            # Parse quantity. A missing column defaults to 1, but a value that
-            # IS present and unparseable, non-positive, or fractional is a row
-            # error — not silently coerced to 1 or truncated (e.g. 2.7 -> 2).
+            # Parse quantity. A missing column defaults to 1, but a present
+            # value that is blank, unparseable, non-positive, or fractional is a
+            # row error — not silently coerced to 1 or truncated (e.g. 2.7 -> 2).
+            # Decimal (not float) so precision can't mask a fractional value.
             quantity = 1
             qty_str = _find_col(row, QUANTITY_COLS)
             if qty_str:
                 try:
-                    qty_val = float(qty_str.replace(",", ""))
-                except (ValueError, TypeError):
+                    qty_val = Decimal(qty_str.replace(",", ""))
+                except (InvalidOperation, ValueError, TypeError):
                     errors.append({"row": row_num, "error": f"Invalid quantity '{qty_str}' - line item skipped", "order_id": order_id})
                     continue
-                if qty_val <= 0 or qty_val != int(qty_val):
+                if qty_val <= 0 or qty_val != qty_val.to_integral_value():
                     errors.append({"row": row_num, "error": f"Quantity must be a positive whole number, got '{qty_str}' - line item skipped", "order_id": order_id})
                     continue
                 quantity = int(qty_val)
+            elif _col_present(row, QUANTITY_COLS):
+                errors.append({"row": row_num, "error": "Quantity is blank - line item skipped", "order_id": order_id})
+                continue
 
             unit_price = None
             up_str = _find_col(row, UNIT_PRICE_COLS)
@@ -239,6 +257,7 @@ def import_orders_from_csv(
 
             if order_id not in orders_dict:
                 orders_dict[order_id] = {
+                    "external_order_id": external_order_id,
                     "customer_email": customer_email,
                     "customer_name": customer_name,
                     "shipping_address": shipping_address,
@@ -311,12 +330,18 @@ def import_orders_from_csv(
                 skipped += 1
                 continue
 
-            # Check duplicate
-            existing = db.query(SalesOrder).filter(SalesOrder.source_order_id == order_id).first()
-            if existing:
-                errors.append({"order_id": order_id, "error": f"Order already exists: {existing.order_number}"})
-                skipped += 1
-                continue
+            # Dedup only on a real external order id. Synthetic IMPORT-N keys are
+            # per-run and must not match across files, and they persist as NULL
+            # (exempt from the partial unique index).
+            external_order_id = order_data["external_order_id"]
+            if external_order_id:
+                existing = db.query(SalesOrder).filter(
+                    SalesOrder.source_order_id == external_order_id
+                ).first()
+                if existing:
+                    errors.append({"order_id": order_id, "error": f"Order already exists: {existing.order_number}"})
+                    skipped += 1
+                    continue
 
             # Use the canonical row-locked generator (FOR UPDATE + consistent
             # :03d format) instead of an ad-hoc :06d LIKE-max query that
@@ -341,7 +366,7 @@ def import_orders_from_csv(
                 order_number=order_number,
                 order_type="line_item",
                 source=source,
-                source_order_id=order_id,
+                source_order_id=external_order_id,
                 product_name=line_products[0]["product"].name if line_products else "Imported Order",
                 quantity=total_quantity,
                 material_type="PLA",

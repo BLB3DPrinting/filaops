@@ -10,8 +10,6 @@ robust to the shared test DB accumulating data across runs.
 import re
 import uuid
 
-import pytest
-
 from app.models.sales_order import SalesOrder
 from app.services.order_import_service import (
     find_or_create_customer,
@@ -77,6 +75,47 @@ class TestImportOrdersCorrectness:
         res = import_orders_from_csv(
             db, self._csv(src_id=src_id, sku=sku, qty="0"), current_user_id=1
         )
+        assert res["created"] == 0, res
+        assert any("quantity" in (e.get("error", "").lower()) for e in res["errors"]), res["errors"]
+
+    def test_missing_order_id_persists_null_source(self, db, make_product):
+        """No Order ID column -> source_order_id is NULL (not a synthetic
+        IMPORT-N value), and two such files don't collide on the unique index."""
+        from app.models.user import User
+
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+
+        def _import_no_order_id():
+            email = f"{_uniq('buyer')}@example.com"
+            csv_text = (
+                "Email,SKU,Quantity,Unit Price\n"
+                f"{email},{sku},1,10.00\n"
+            )
+            res = import_orders_from_csv(db, csv_text, current_user_id=1)
+            return res, email
+
+        res1, email1 = _import_no_order_id()
+        assert res1["created"] == 1, res1
+        cust1 = db.query(User).filter(User.email.ilike(email1)).first()
+        so1 = db.query(SalesOrder).filter(SalesOrder.user_id == cust1.id).first()
+        assert so1 is not None
+        assert so1.source_order_id is None
+
+        # A second order-id-less file must not collide (both persist NULL).
+        res2, _ = _import_no_order_id()
+        assert res2["created"] == 1, res2
+
+    def test_blank_quantity_is_row_error(self, db, make_product):
+        """A present-but-blank Quantity cell is a row error, not a default of 1."""
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+        src_id = _uniq("SRC")
+        csv_text = (
+            "Order ID,Email,SKU,Quantity,Unit Price\n"
+            f"{src_id},{_uniq('buyer')}@example.com,{sku},,10.00\n"
+        )
+        res = import_orders_from_csv(db, csv_text, current_user_id=1)
         assert res["created"] == 0, res
         assert any("quantity" in (e.get("error", "").lower()) for e in res["errors"]), res["errors"]
 
