@@ -216,6 +216,12 @@ def import_orders_from_csv(
                 except (InvalidOperation, ValueError, TypeError):
                     errors.append({"row": row_num, "error": f"Invalid quantity '{qty_str}' - line item skipped", "order_id": order_id})
                     continue
+                # Decimal accepts NaN/Infinity; reject them before the
+                # comparisons (NaN <= 0 signals InvalidOperation, int(Infinity)
+                # overflows) so they take the clean invalid-quantity path.
+                if not qty_val.is_finite():
+                    errors.append({"row": row_num, "error": f"Invalid quantity '{qty_str}' - line item skipped", "order_id": order_id})
+                    continue
                 if qty_val <= 0 or qty_val != qty_val.to_integral_value():
                     errors.append({"row": row_num, "error": f"Quantity must be a positive whole number, got '{qty_str}' - line item skipped", "order_id": order_id})
                     continue

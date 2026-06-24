@@ -106,6 +106,21 @@ class TestImportOrdersCorrectness:
         res2, _ = _import_no_order_id()
         assert res2["created"] == 1, res2
 
+    def test_rejects_non_finite_quantity(self, db, make_product):
+        """NaN/Infinity are valid Decimal literals but invalid quantities -> row error."""
+        sku = _uniq("IMP")
+        make_product(sku=sku, name="Imported Widget")
+        for bad in ("NaN", "Infinity", "-Infinity"):
+            src_id = _uniq("SRC")
+            csv_text = (
+                "Order ID,Email,SKU,Quantity,Unit Price\n"
+                f"{src_id},{_uniq('buyer')}@example.com,{sku},{bad},10.00\n"
+            )
+            res = import_orders_from_csv(db, csv_text, current_user_id=1)
+            assert res["created"] == 0, (bad, res)
+            assert db.query(SalesOrder).filter(SalesOrder.source_order_id == src_id).first() is None, bad
+            assert any("quantity" in (e.get("error", "").lower()) for e in res["errors"]), (bad, res["errors"])
+
     def test_blank_quantity_is_row_error(self, db, make_product):
         """A present-but-blank Quantity cell is a row error, not a default of 1."""
         sku = _uniq("IMP")
