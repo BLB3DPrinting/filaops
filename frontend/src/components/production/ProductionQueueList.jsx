@@ -102,8 +102,12 @@ function calculateTotalTime(operations) {
  * SCHED-3: When order.status === 'released', shows a light "Dispatch" affordance
  * button at the end of the row.  Clicking it calls onDispatch(order, firstPendingOp)
  * so the parent can open the OperationSchedulerModal prefilled.
+ *
+ * #781: orders that have produced something to scrap (in progress, completed, or
+ * held for QC) show a "Scrap" affordance that calls onScrap(order) so the parent
+ * can open the ScrapOrderModal — previously the modal was mounted but unreachable.
  */
-function ProductionQueueRow({ order, operations, onRowClick, onDispatch }) {
+function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap }) {
   const totalMinutes = calculateTotalTime(operations);
 
   // Gather all materials from all operations
@@ -114,6 +118,11 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch }) {
 
   // SCHED-3: first pending op for dispatch affordance
   const firstPendingOp = operations?.find(op => op.status === 'pending') ?? null;
+
+  // #781: scrap is meaningful once production has yielded units — WIP in
+  // progress, finished goods received at completion, or goods held after a QC
+  // failure.  draft/released have nothing made yet; scrapped/cancelled are done.
+  const canScrap = ['in_progress', 'complete', 'qc_hold', 'short'].includes(order.status);
 
   return (
     <tr
@@ -181,7 +190,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch }) {
         )}
       </td>
 
-      {/* SCHED-3: Light dispatch affordance on released orders */}
+      {/* SCHED-3: dispatch affordance on released orders; #781: scrap affordance once units exist */}
       <td className="px-4 py-3 text-right">
         {order.status === 'released' && firstPendingOp && onDispatch ? (
           <button
@@ -194,6 +203,18 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch }) {
             title="Open scheduler for this order's next pending operation"
           >
             Dispatch →
+          </button>
+        ) : canScrap && onScrap ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onScrap(order);
+            }}
+            className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded px-2 py-1 transition-colors"
+            title="Record scrap for this order"
+          >
+            Scrap
           </button>
         ) : null}
       </td>
@@ -212,6 +233,7 @@ export default function ProductionQueueList({
   onFiltersChange,
   onCreateOrder,
   onDispatch,
+  onScrap,
 }) {
   const [operationsMap, setOperationsMap] = useState({});
   const [loadingOps, setLoadingOps] = useState(false);
@@ -425,6 +447,7 @@ export default function ProductionQueueList({
                   operations={operationsMap[order.id] || []}
                   onRowClick={onOrderClick}
                   onDispatch={onDispatch}
+                  onScrap={onScrap}
                 />
               ))
             )}

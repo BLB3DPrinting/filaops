@@ -577,6 +577,10 @@ export default function AdminProduction() {
             productionOrder: { id: order.id, code: order.code },
           });
         }}
+        onScrap={(order) => {
+          setSelectedOrderForScrap(order);
+          setShowScrapModal(true);
+        }}
       />
         </>
       )}

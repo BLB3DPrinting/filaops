@@ -2428,6 +2428,39 @@ class TestRecordScrap:
         assert rec is not None
         assert rec.inventory_transaction_id is not None
 
+    def test_record_scrap_qc_hold_order_writes_off_inventory(self, db, finished_good):
+        """A QC failure moves a completed order to qc_hold, but the FG was
+        received at completion and is still on hand. Scrapping the held order
+        must therefore route through the FG ledger write-off (linked inventory
+        transaction), not the cost-only path — otherwise the received FG would
+        never leave the books."""
+        from app.models.production_order import ScrapRecord as _ScrapRecord
+        from app.services.inventory_service import get_or_create_default_location
+        _make_scrap_reason(db, code="qc-hold-scrap", name="QC Hold Scrap")
+        order = _make_production_order(db, finished_good, status="qc_hold", quantity=10)
+        location = get_or_create_default_location(db)
+        db.add(Inventory(
+            product_id=finished_good.id,
+            location_id=location.id,
+            on_hand_quantity=Decimal("10"),
+            allocated_quantity=Decimal("0"),
+        ))
+        db.flush()
+        result = svc.record_scrap(
+            db, order.id,
+            quantity_scrapped=2,
+            reason_code="qc-hold-scrap",
+            user_email="test@filaops.dev",
+            create_remake=False,
+        )
+        rec = (
+            db.query(_ScrapRecord)
+            .filter(_ScrapRecord.id == result["scrap_record_id"])
+            .first()
+        )
+        assert rec is not None
+        assert rec.inventory_transaction_id is not None
+
     def test_record_scrap_invalid_reason_rejected(self, db, finished_good):
         """Should reject scrap with a nonexistent reason code."""
         order = _make_production_order(db, finished_good, status="in_progress")
