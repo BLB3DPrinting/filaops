@@ -2846,6 +2846,95 @@ class TestRecordQCInspection:
         assert exc_info.value.status_code == 404
 
 
+class TestQCInspectionRecords:
+    """#783: append-only qc_inspections history behind the qc_* cache."""
+
+    def test_record_inspection_appends_immutable_record(self, db, finished_good):
+        """A recorded inspection appends one qc_inspections row mirroring the result."""
+        from app.models.production_order import QCInspection
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        result = svc.record_qc_inspection(
+            db, order.id,
+            inspector="inspector@filaops.dev",
+            qc_status="passed",
+            quantity_passed=10,
+            quantity_failed=0,
+            notes="ok",
+        )
+        rows = (
+            db.query(QCInspection)
+            .filter(QCInspection.production_order_id == order.id)
+            .all()
+        )
+        assert len(rows) == 1
+        rec = rows[0]
+        assert rec.result == "passed"
+        assert rec.quantity_passed == 10
+        assert rec.quantity_failed == 0
+        assert rec.inspector_name == "inspector@filaops.dev"
+        assert rec.inspected_at is not None
+        assert result["inspection_id"] == rec.id
+
+    def test_reinspection_appends_to_history_oldest_first(self, db, finished_good):
+        """Re-inspecting appends a second row; history reads oldest-first."""
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        svc.record_qc_inspection(
+            db, order.id, inspector="qc1@filaops.dev",
+            qc_status="failed", quantity_passed=8, quantity_failed=2,
+            failure_reason="warp",
+        )
+        svc.record_qc_inspection(
+            db, order.id, inspector="qc2@filaops.dev",
+            qc_status="passed", quantity_passed=10, quantity_failed=0,
+        )
+        history = svc.get_qc_inspections(db, order.id)
+        assert [h.result for h in history] == ["failed", "passed"]
+        # First-pass (first row) is the failed inspection — the basis for FPY.
+        assert history[0].failure_reason == "warp"
+
+    def test_inspector_resolved_to_user_fk_when_email_matches(self, db, finished_good):
+        """When the inspector string matches a user email, link the user FK."""
+        from app.models.user import User
+        from app.models.production_order import QCInspection
+        user = User(email="real.inspector@filaops.dev", password_hash="x")
+        db.add(user)
+        db.flush()
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=4)
+        svc.record_qc_inspection(
+            db, order.id, inspector="real.inspector@filaops.dev",
+            qc_status="passed", quantity_passed=4,
+        )
+        rec = (
+            db.query(QCInspection)
+            .filter(QCInspection.production_order_id == order.id)
+            .one()
+        )
+        assert rec.inspector_user_id == user.id
+        assert rec.inspector_name == "real.inspector@filaops.dev"
+
+    def test_inspector_user_none_when_no_match(self, db, finished_good):
+        """A free-text inspector with no matching user leaves the FK null."""
+        from app.models.production_order import QCInspection
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=4)
+        svc.record_qc_inspection(
+            db, order.id, inspector="Walk-in Inspector",
+            qc_status="passed", quantity_passed=4,
+        )
+        rec = (
+            db.query(QCInspection)
+            .filter(QCInspection.production_order_id == order.id)
+            .one()
+        )
+        assert rec.inspector_user_id is None
+        assert rec.inspector_name == "Walk-in Inspector"
+
+    def test_get_qc_inspections_404_for_missing_order(self, db):
+        """History lookup 404s for a nonexistent order."""
+        with pytest.raises(HTTPException) as exc_info:
+            svc.get_qc_inspections(db, 999999)
+        assert exc_info.value.status_code == 404
+
+
 # =============================================================================
 # Work Center Queues
 # =============================================================================

@@ -7,7 +7,7 @@ Integrates with:
 - Routings (process steps to follow)
 - Work Centers & Resources (where/how work happens)
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, CheckConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -463,3 +463,67 @@ class ScrapRecord(Base):
 
     def __repr__(self):
         return f"<ScrapRecord {self.id}: {self.quantity} x product {self.product_id} @ ${self.total_cost}>"
+
+
+class QCInspection(Base):
+    """Append-only record of a single QC inspection of a production order.
+
+    The four ``ProductionOrder.qc_*`` scalar columns are last-write-wins and
+    cannot represent re-inspections, an audit trail, or true first-pass yield.
+    This table fixes that (#783): every inspection — including re-inspections —
+    appends a new row, so history and FPY (first row per order) are derivable.
+    ``ProductionOrder.qc_*`` remains as a denormalized latest-result cache.
+
+    Append-only by convention: rows are inserted, never updated or deleted.
+    """
+    __tablename__ = "qc_inspections"
+    __table_args__ = (
+        # Mirror migration 093 so create_all (tests/self-host) enforces the
+        # same domain the migration does on a real deployment.
+        CheckConstraint(
+            "result IN ('passed', 'failed', 'waived', 'conditional')",
+            name="ck_qc_inspections_result",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # What was inspected
+    production_order_id = Column(
+        Integer, ForeignKey("production_orders.id"), nullable=False, index=True
+    )
+    # Optional link to the QC operation (and through it the printer/resource);
+    # nullable because order-level QC need not map to a specific operation.
+    production_operation_id = Column(
+        Integer, ForeignKey("production_order_operations.id"), nullable=True, index=True
+    )
+
+    # Result of THIS inspection. CHECK-constrained at the DB (see migration 093)
+    # so values cannot drift out of the domain the way the unconstrained
+    # ProductionOrder.qc_status VARCHAR can.
+    result = Column(String(20), nullable=False)  # passed | failed | waived | conditional
+    quantity_passed = Column(Integer, nullable=True)
+    quantity_failed = Column(Integer, nullable=True)
+
+    # Inspector: resolved user FK when known (cf. ScrapRecord.created_by_user_id),
+    # plus the verbatim name for display / when no user record matches.
+    inspector_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    inspector_name = Column(String(100), nullable=True)
+
+    failure_reason = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    inspected_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # Relationships
+    production_order = relationship("ProductionOrder", backref="qc_inspections")
+    production_operation = relationship("ProductionOrderOperation")
+    inspector = relationship("User", foreign_keys=[inspector_user_id])
+
+    def __repr__(self):
+        return f"<QCInspection {self.id}: PO {self.production_order_id} -> {self.result}>"

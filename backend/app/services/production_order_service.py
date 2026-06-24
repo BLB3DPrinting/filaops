@@ -23,7 +23,7 @@ from app.models import (
 from app.models.bom import BOMLine
 from app.models.inventory import Inventory
 from app.models.manufacturing import Routing, RoutingOperation, Resource
-from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord
+from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
 from app.services.supply_netting import get_projected_available
@@ -695,7 +695,36 @@ def record_qc_inspection(
     if qc_status == "failed":
         order.status = "qc_hold"
 
+    # #783: append an immutable inspection record so re-inspections keep a
+    # history and true first-pass yield is derivable. The order.qc_* fields
+    # above remain the denormalized latest-result cache. Only real inspection
+    # outcomes are recorded (a transient pending/in_progress is not an
+    # inspection and must not pollute the audit trail / FPY).
+    inspection_id = None
+    if qc_status in ("passed", "failed", "waived", "conditional"):
+        from app.models.user import User
+        inspector_user = (
+            db.query(User).filter(User.email == inspector).first()
+            if inspector
+            else None
+        )
+        inspection = QCInspection(
+            production_order_id=order_id,
+            production_operation_id=qc_op.id if qc_op else None,
+            result=qc_status,
+            quantity_passed=quantity_passed,
+            quantity_failed=quantity_failed,
+            inspector_user_id=inspector_user.id if inspector_user else None,
+            inspector_name=inspector,
+            failure_reason=failure_reason,
+            notes=notes,
+            inspected_at=inspected_at,
+        )
+        db.add(inspection)
+
     db.flush()
+    if qc_status in ("passed", "failed", "waived", "conditional"):
+        inspection_id = inspection.id
 
     inspection_result = {
         "order_id": order_id,
@@ -707,11 +736,28 @@ def record_qc_inspection(
         "failure_reason": failure_reason,
         "notes": notes,
         "inspected_at": inspected_at.isoformat(),
+        "inspection_id": inspection_id,
     }
 
     logger.info(f"QC inspection recorded for {order.code}: {qc_status}")
 
     return inspection_result
+
+
+def get_qc_inspections(db: Session, order_id: int) -> list[QCInspection]:
+    """Return the append-only QC inspection history for an order (#783).
+
+    Ordered oldest-first so the first row is the first-pass inspection (the
+    basis for true first-pass yield) and the list reads as an audit trail.
+    Raises 404 if the order does not exist.
+    """
+    get_production_order(db, order_id)  # 404s if missing
+    return (
+        db.query(QCInspection)
+        .filter(QCInspection.production_order_id == order_id)
+        .order_by(QCInspection.inspected_at.asc(), QCInspection.id.asc())
+        .all()
+    )
 
 
 # =============================================================================
