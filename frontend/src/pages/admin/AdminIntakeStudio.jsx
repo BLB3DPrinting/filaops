@@ -3,6 +3,10 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import { API_URL } from "../../config/api";
+import {
+  INTAKE_UNIFIED_FLOW,
+  INTAKE_UNIFIED_FLOW_FEATURE,
+} from "../../config/intakeFlags";
 import SearchableSelect from "../../components/SearchableSelect";
 import OperationMaterialModal from "../../components/OperationMaterialModal";
 
@@ -44,6 +48,183 @@ function StepHeader({ step, total, label }) {
             }`}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// Human labels for the pre-parse detected file kind.
+const PREPARSE_KIND_LABELS = {
+  bare: "Bare mesh (will be sliced)",
+  raw3mf: "Bambu .3mf (will be sliced)",
+  sliced: "Pre-sliced (.gcode.3mf)",
+};
+
+/**
+ * Pre-parse summary panel (unified flow). Shows the detected file kind, slot
+ * count, multi-material badge, and a color swatch per detected slot — rendered
+ * on drop, before any slice. Purely informational; renders nothing without a
+ * pre-parse payload.
+ * @param {object} props
+ * @param {object|null} props.preparse - the /preparse response (kind, slots,
+ *   slot_count, is_multi_material, model_name), or null.
+ * @returns {JSX.Element|null}
+ */
+function PreParsePanel({ preparse }) {
+  if (!preparse) return null;
+  const slots = Array.isArray(preparse.slots) ? preparse.slots : [];
+  const kindLabel = PREPARSE_KIND_LABELS[preparse.kind] || preparse.kind || "Detected";
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-5">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <span className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-sm text-blue-300">
+          {kindLabel}
+        </span>
+        {preparse.slot_count != null && (
+          <span className="px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-sm text-gray-300">
+            {preparse.slot_count} slot{preparse.slot_count === 1 ? "" : "s"}
+          </span>
+        )}
+        {preparse.is_multi_material && (
+          <span className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-sm text-blue-300">
+            Multi-material
+          </span>
+        )}
+        {preparse.model_name && (
+          <span className="text-gray-400 text-sm ml-1 truncate">
+            {preparse.model_name}
+          </span>
+        )}
+      </div>
+      {slots.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {slots.map((s, i) => (
+            <div
+              key={s.slot_index ?? i}
+              className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1"
+            >
+              <span
+                className="inline-block w-4 h-4 rounded border border-gray-600"
+                style={{ backgroundColor: s.color_hex || "#888" }}
+              />
+              <span className="text-gray-300 text-xs">
+                {s.material_type || "—"}
+              </span>
+              <span className="text-gray-500 font-mono text-[10px]">
+                {s.color_hex || ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Per-slot catalog material selector (unified flow). Renders a material-type
+ * select then a color select, both sourced from /materials/for-bom. The chosen
+ * (type, color) resolves to a single purchasable catalog item, surfaced via
+ * `onPick`. Pre-filled from `chosen` (the existing matchChoices entry).
+ * @param {object} props
+ * @param {object} props.slot - the parsed slot (filament_type, color_hex, used_g).
+ * @param {(string|number)} props.slotId - the slot identifier.
+ * @param {Array<object>} props.items - the purchasable catalog (/materials/for-bom).
+ * @param {object|undefined} props.chosen - the current matchChoices entry
+ *   ({ product_id, sku, name }) for this slot.
+ * @param {(item: object) => void} props.onPick - called with the picked catalog item.
+ * @returns {JSX.Element}
+ */
+function MaterialSelectRow({ slot, slotId, items, chosen, onPick }) {
+  // Distinct material types present in the catalog.
+  const typeOptions = [];
+  const seenTypes = new Set();
+  for (const it of items) {
+    if (it.material_code && !seenTypes.has(it.material_code)) {
+      seenTypes.add(it.material_code);
+      typeOptions.push({ id: it.material_code, name: it.material_code });
+    }
+  }
+
+  // Derive the currently-selected material type from the chosen catalog item.
+  // Compare ids as strings so a sticky default whose product_id arrives as a
+  // string still resolves against the numeric catalog item ids (and vice versa).
+  const chosenItem = chosen
+    ? items.find((it) => String(it.id) === String(chosen.product_id))
+    : null;
+  const selectedType = chosenItem?.material_code || "";
+
+  // Colors available for the selected type.
+  const colorOptions = items
+    .filter((it) => it.material_code === selectedType)
+    .map((it) => ({
+      id: it.id,
+      name: `${it.color_code || it.name} — $${Number(it.standard_cost || 0).toFixed(2)}/kg`,
+      sku: it.sku,
+      color_hex: it.color_hex,
+    }));
+
+  const pickFirstColorForType = (typeCode) => {
+    const first = items.find((it) => it.material_code === typeCode);
+    if (first) onPick(first);
+  };
+
+  return (
+    <div className="bg-gray-800/50 rounded-lg p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          className="inline-block w-5 h-5 rounded border border-gray-600 flex-shrink-0"
+          style={{ backgroundColor: slot?.color_hex || "#888" }}
+        />
+        <span className="text-white font-medium">
+          {slot?.filament_type || `Slot ${slotId}`}
+        </span>
+        <span className="text-gray-400 text-sm">
+          {slot?.used_g != null ? `${slot.used_g.toFixed(1)} g` : ""}
+        </span>
+        {slot?.color_hex && (
+          <span className="ml-auto text-gray-500 font-mono text-xs">
+            {slot.color_hex}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Material</label>
+          <SearchableSelect
+            options={typeOptions}
+            value={selectedType}
+            onChange={(val) => pickFirstColorForType(val)}
+            placeholder="Select material…"
+            displayKey="name"
+            valueKey="id"
+            formatOption={(opt) => opt.name}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Color</label>
+          <SearchableSelect
+            options={colorOptions}
+            value={chosen?.product_id != null ? String(chosen.product_id) : ""}
+            onChange={(val) => {
+              const it = items.find((x) => String(x.id) === val);
+              if (it) onPick(it);
+            }}
+            placeholder={selectedType ? "Select color…" : "Pick a material first"}
+            displayKey="name"
+            valueKey="id"
+            formatOption={(opt) => (
+              <span className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 rounded border border-gray-600 flex-shrink-0"
+                  style={{ backgroundColor: opt.color_hex || "#888" }}
+                />
+                {opt.name}
+              </span>
+            )}
+          />
+        </div>
       </div>
     </div>
   );
@@ -93,13 +274,125 @@ const isBareMesh = (name) =>
   name.endsWith(".stl") || name.endsWith(".obj");
 
 // ---------------------------------------------------------------------------
+// Unified-flow helpers (only used when the unified flow is enabled)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a #RRGGBB (or RRGGBB) hex string into an [r, g, b] tuple.
+ * @param {string} hex - the color string.
+ * @returns {[number, number, number]|null} the RGB tuple, or null if unparseable.
+ */
+const hexToRgb = (hex) => {
+  if (!hex) return null;
+  const m = String(hex).trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(m)) return null;
+  return [
+    parseInt(m.slice(0, 2), 16),
+    parseInt(m.slice(2, 4), 16),
+    parseInt(m.slice(4, 6), 16),
+  ];
+};
+
+/**
+ * Squared Euclidean RGB distance between two hex colors.
+ * @param {string} a - first #RRGGBB color.
+ * @param {string} b - second #RRGGBB color.
+ * @returns {number} the squared distance, or Infinity if either is unparseable.
+ */
+const colorDistance = (a, b) => {
+  const ra = hexToRgb(a);
+  const rb = hexToRgb(b);
+  if (!ra || !rb) return Infinity;
+  return (
+    (ra[0] - rb[0]) ** 2 + (ra[1] - rb[1]) ** 2 + (ra[2] - rb[2]) ** 2
+  );
+};
+
+/**
+ * Normalize a material code/type for comparison: uppercase, then drop every
+ * non-alphanumeric char (so spaces, underscores and hyphens collapse). Lets
+ * "PLA Basic", "PLA_BASIC" and "pla-basic" all reduce to "PLABASIC".
+ * @param {string} s - the raw code or type string.
+ * @returns {string} the normalized code ("" for nullish input).
+ */
+const normalizeCode = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * Loose, symmetric containment test between a catalog material_code and a
+ * normalized slot type. Matches in BOTH directions so a slicer profile like
+ * "PLA Basic" (→ "PLABASIC") matches a catalog code "PLA", and a catalog code
+ * "PLA Basic" matches a "PLA" slot.
+ * @param {string} materialCode - the catalog item's material_code.
+ * @param {string} typeNorm - the already-normalized slot filament type.
+ * @returns {boolean} true when either normalized string contains the other.
+ */
+const looselyMatchesCode = (materialCode, typeNorm) => {
+  const codeNorm = normalizeCode(materialCode);
+  return (
+    !!codeNorm &&
+    !!typeNorm &&
+    (codeNorm.includes(typeNorm) || typeNorm.includes(codeNorm))
+  );
+};
+
+/**
+ * Best purchasable catalog item (from /materials/for-bom) for a slot's
+ * material_type + color_hex. Prefers items whose material_code EXACTLY matches
+ * (normalized) the slot's filament type, then items that loosely match either
+ * direction, then picks the nearest color; falls back to nearest color across
+ * the whole catalog. The exact-first ordering avoids cross-family mis-prefill
+ * (e.g. a plain "PLA" slot seeding a "PLA-CF" purchasable).
+ * @param {Array<object>} items - the purchasable catalog (each has id,
+ *   material_code, color_hex, sku, name).
+ * @param {string} filamentType - the slot's slicer material/type string.
+ * @param {string} colorHex - the slot's #RRGGBB color.
+ * @returns {object|null} the chosen catalog item, or null when none.
+ */
+const nearestCatalogMatch = (items, filamentType, colorHex) => {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const typeNorm = normalizeCode(filamentType);
+  let typed = [];
+  if (typeNorm) {
+    // Exact normalized-code match first.
+    typed = items.filter((it) => normalizeCode(it.material_code) === typeNorm);
+    // Fall back to symmetric substring/contains only when there is no
+    // exact-code match (so "PLA Basic" still matches catalog "PLA").
+    if (typed.length === 0) {
+      typed = items.filter((it) =>
+        looselyMatchesCode(it.material_code, typeNorm)
+      );
+    }
+  }
+  const pool = typed.length > 0 ? typed : items;
+  let best = null;
+  let bestDist = Infinity;
+  for (const it of pool) {
+    const d = colorDistance(colorHex, it.color_hex);
+    if (d < bestDist) {
+      bestDist = d;
+      best = it;
+    }
+  }
+  // If no color was parseable in the preferred pool, just take the first item.
+  return best || pool[0] || null;
+};
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export default function AdminIntakeStudio() {
   const toast = useToast();
   const api = useApi();
-  const { isPro, loading: flagsLoading } = useFeatureFlags();
+  const { isPro, hasFeature, loading: flagsLoading } = useFeatureFlags();
+
+  // Unified-flow gate (RUNTIME, OFF by default). Enabled when EITHER the backend
+  // advertises the feature (per-tenant, no rebuild) OR the build sets
+  // VITE_INTAKE_UNIFIED_FLOW=true. Both default OFF, so the gate is never
+  // statically false and the OFF path is byte-identical to the legacy flow.
+  // See frontend/src/config/intakeFlags.js for the two flip mechanisms.
+  const unifiedFlow =
+    INTAKE_UNIFIED_FLOW || hasFeature(INTAKE_UNIFIED_FLOW_FEATURE);
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -124,6 +417,17 @@ export default function AdminIntakeStudio() {
   const [matchBusy, setMatchBusy] = useState(false);
   // map slot_id -> { product_id, sku, name }
   const [matchChoices, setMatchChoices] = useState({});
+
+  // Unified flow (gated by `unifiedFlow`) — pre-parse + catalog material
+  // selection. All inert when the gate is off (never set, rendered, or read).
+  const [preparseResult, setPreparseResult] = useState(null);
+  const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
+  const [reconcileNotice, setReconcileNotice] = useState(null);
+  // Distinguishes a failed catalog fetch ("failed") from a genuinely empty
+  // catalog ("empty") vs. a healthy one (null) so Step 3 can surface an
+  // explicit, recoverable message instead of trapping the operator behind
+  // empty material selectors. Set by runMaterialSelect.
+  const [materialsError, setMaterialsError] = useState(null);
 
   // Step 4 — Configure
   const [context, setContext] = useState(null);
@@ -150,6 +454,17 @@ export default function AdminIntakeStudio() {
   const priceEditedRef = useRef(false);
   // Retains the dropped/selected File so it can be uploaded after /sku succeeds.
   const sourceFileRef = useRef(null);
+  // Mirror of preparseResult readable by the async uploadIntakeFile closure.
+  // On the raw-.3mf path the pre-parse POST resolves AFTER uploadIntakeFile's
+  // closure was created, so reading the preparseResult state there would see a
+  // stale (null) value and the slice-vs-preparse reconcile notice would never
+  // fire. The ref always holds the freshest pre-parse payload.
+  const preparseResultRef = useRef(null);
+  // Monotonic token for the active pre-parse request. A new file or a reset
+  // bumps it; a pre-parse response whose token no longer matches is stale (it
+  // belongs to a prior file) and is dropped, so a slow response can't overwrite
+  // the current file's pre-parse panel or slot count. Mirrors previewRequestIdRef.
+  const preparseRequestIdRef = useRef(0);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -254,6 +569,13 @@ export default function AdminIntakeStudio() {
     setMatchResults(null);
     setMatchBusy(false);
     setMatchChoices({});
+    // Unified flow
+    setPreparseResult(null);
+    preparseResultRef.current = null;
+    // Invalidate any pre-parse still in flight so its response is ignored.
+    preparseRequestIdRef.current += 1;
+    setMaterialsError(null);
+    setReconcileNotice(null);
     // Step 4 — Configure
     setContext(null);
     setContextBusy(false);
@@ -292,6 +614,16 @@ export default function AdminIntakeStudio() {
     }
     // A new file invalidates everything downstream — start from a clean slate.
     resetDerivedStateForNewFile();
+    // Unified flow: pre-parse every dropped file to show the detected kind +
+    // per-slot color swatches BEFORE any slice. Non-blocking — the panel is
+    // additive and never gates the existing parse/stage path.
+    if (unifiedFlow) {
+      // Tag this pre-parse with the post-reset token so a slower response from a
+      // prior file (whose token was bumped by resetDerivedStateForNewFile) is
+      // ignored rather than clobbering this file's pre-parse state.
+      preparseIntakeFile(f, preparseRequestIdRef.current);
+      loadBomMaterials();
+    }
     if (isBareMesh(name)) {
       // Stage the mesh and reveal the slicing-profile picker; don't POST yet —
       // the slice needs a material/printer/quality first.
@@ -300,6 +632,61 @@ export default function AdminIntakeStudio() {
     }
     // .3mf / .gcode.3mf keep the immediate behavior.
     uploadIntakeFile(f);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Unified flow — pre-parse + catalog loading (gated; no-op when off)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * POST /preparse — detect file kind + slots before slicing, for the pre-parse
+   * panel. Best-effort: a failure just leaves the panel hidden and the normal
+   * flow continues. Stale-guarded by `requestId`: if a newer file (or a reset)
+   * has bumped `preparseRequestIdRef` since this request started, the response
+   * is dropped so it can't overwrite the current file's pre-parse state.
+   * @param {File} f - the dropped/selected file to pre-parse.
+   * @param {number} requestId - the pre-parse token captured at request time.
+   * @returns {Promise<void>}
+   */
+  const preparseIntakeFile = async (f, requestId) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", f);
+      const res = await fetch(`${API_URL}/api/v1/pro/intake/preparse`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      // Drop a stale response: a newer file or a reset has superseded this one.
+      if (requestId !== preparseRequestIdRef.current) return;
+      // Write the ref first so any in-flight uploadIntakeFile closure (raw .3mf
+      // path) reads the fresh value for the reconcile check; then update state
+      // for the PreParsePanel render.
+      preparseResultRef.current = data;
+      setPreparseResult(data);
+    } catch {
+      // Non-fatal — the pre-parse panel is purely informational.
+    }
+  };
+
+  /**
+   * GET /materials/for-bom — load the purchasable catalog backing the material
+   * selector (each item.id is the spool_product_id the slot payload needs).
+   * Cached for the session: returns early if already loaded, refetches only when
+   * empty, and on failure leaves the list empty (runMaterialSelect surfaces the
+   * recoverable error state).
+   * @returns {Promise<void>}
+   */
+  const loadBomMaterials = async () => {
+    if (bomMaterials.length > 0) return;
+    try {
+      const data = await api.get("/api/v1/materials/for-bom");
+      setBomMaterials(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      setBomMaterials([]);
+    }
   };
 
   // Shared upload → /parse. When a mesh profile is supplied, append the
@@ -337,6 +724,26 @@ export default function AdminIntakeStudio() {
       setPendingMesh(null);
       setParseResult(data);
       setProductName(data.model_name || "");
+      // Unified flow: when a slice ran, the slice result is canonical. If its
+      // slot count diverges from the pre-parse estimate, surface a notice so
+      // the operator knows the material rows below were re-keyed to the slice.
+      // Any selections made earlier are carried by slot position downstream.
+      // Read the pre-parse slot count from the ref (not the state) so the raw
+      // .3mf path — where preparseIntakeFile resolves after this closure was
+      // created — compares against the just-computed value, not a stale null.
+      const preparseSlotCount = preparseResultRef.current?.slot_count;
+      if (unifiedFlow && willSlice && preparseSlotCount != null) {
+        const slicedCount = Array.isArray(data.slots)
+          ? data.slots.length
+          : data.slot_count;
+        if (slicedCount != null && slicedCount !== preparseSlotCount) {
+          setReconcileNotice(
+            `Slicing detected ${slicedCount} material slot${slicedCount === 1 ? "" : "s"}, ` +
+              `but the pre-parse estimated ${preparseSlotCount}. ` +
+              `Using the slice result — please confirm the material for each slot below.`
+          );
+        }
+      }
       setStep(2);
     } catch (err) {
       toast.error(err.message || "Upload failed");
@@ -359,6 +766,9 @@ export default function AdminIntakeStudio() {
   // ---------------------------------------------------------------------------
 
   const runMatch = async () => {
+    if (unifiedFlow) {
+      return runMaterialSelect();
+    }
     setMatchBusy(true);
     try {
       const body = {
@@ -388,6 +798,128 @@ export default function AdminIntakeStudio() {
       setStep(3);
     } catch (err) {
       toast.error(err.message || "Spool match failed");
+    } finally {
+      setMatchBusy(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Unified flow — Step 2 → 3: catalog material selection (replaces /match)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Unified-flow replacement for /match: build one selector row per parsed slot,
+   * pre-filled from the nearest purchasable catalog item for that slot's
+   * material_type + color_hex. The operator can override via the full catalog
+   * dropdown, so there is no zero-suggestions dead end. The chosen product is
+   * written into the SAME matchChoices[slot_id] = { product_id, sku, name } shape
+   * so buildSlotsPayload and the allSlotsMatched gate are unchanged. /match is
+   * still consulted (best effort) to honor sticky operator memory, but never
+   * blocks, and sticky ids are validated against the catalog before use. When the
+   * catalog is empty or fails to load, advances Step 3 into an explicit,
+   * recoverable error state (materialsError) rather than an empty-selector trap.
+   * @returns {Promise<void>}
+   */
+  const runMaterialSelect = async () => {
+    setMatchBusy(true);
+    setMaterialsError(null);
+    try {
+      // Ensure the catalog is loaded (drop-time fetch may still be in flight).
+      // Track a hard fetch failure separately from an empty result so the
+      // operator gets "couldn't load" vs "catalog is empty".
+      let items = bomMaterials;
+      let fetchFailed = false;
+      if (items.length === 0) {
+        try {
+          const data = await api.get("/api/v1/materials/for-bom");
+          items = Array.isArray(data?.items) ? data.items : [];
+          setBomMaterials(items);
+        } catch {
+          items = [];
+          fetchFailed = true;
+        }
+      }
+      // No purchasable materials → the per-slot selectors would render empty
+      // with no dropdown options, and allSlotsMatched could never become true.
+      // Surface an explicit, recoverable state instead of advancing into that
+      // dead-end. (This is the failure mode the unified flow was meant to kill.)
+      if (items.length === 0) {
+        const mode = fetchFailed ? "failed" : "empty";
+        setMaterialsError(mode);
+        if (fetchFailed) {
+          toast.error(
+            "Couldn't load the purchasable materials catalog. Check your connection and try again."
+          );
+        } else {
+          toast.error(
+            "No purchasable materials found. Add materials to your catalog, then retry."
+          );
+        }
+        // Render Step 3 in its error/empty state rather than a trap.
+        setMatchResults(parseResult.slots.map((s) => ({ slot_id: s.slot_id })));
+        setMatchChoices({});
+        setStep(3);
+        return;
+      }
+      // Optional sticky seed from /match (non-blocking, never a hard gate).
+      let stickyBySlot = {};
+      try {
+        const body = {
+          slots: parseResult.slots.map((s) => ({
+            slot_id: s.slot_id,
+            filament_type: s.filament_type,
+            color_hex: s.color_hex,
+            used_g: s.used_g,
+          })),
+          top_n: 5,
+        };
+        const data = await api.post("/api/v1/pro/intake/match", body);
+        (data.results || []).forEach((r) => {
+          if (r.sticky && r.suggestions && r.suggestions.length > 0) {
+            stickyBySlot[r.slot_id] = r.suggestions[0];
+          }
+        });
+      } catch {
+        // ignore — pre-fill falls back to nearest catalog match
+      }
+      // One synthetic "result" per slot so the render + allSlotsMatched gate
+      // iterate slots uniformly.
+      const results = parseResult.slots.map((s) => ({ slot_id: s.slot_id }));
+      const defaults = {};
+      parseResult.slots.forEach((s) => {
+        // A sticky /match suggestion only seeds the slot if the remembered
+        // product is still in the purchasable catalog — otherwise the selector
+        // can't display it and allSlotsMatched would pass on an item /preview
+        // and /sku can't validate. Resolve it against `items` first; if it's
+        // gone, fall through to the nearest catalog match.
+        const sticky = stickyBySlot[s.slot_id];
+        const stickyItem = sticky
+          ? items.find(
+              (it) => String(it.id) === String(sticky.product_id)
+            )
+          : null;
+        if (stickyItem) {
+          defaults[s.slot_id] = {
+            product_id: stickyItem.id,
+            sku: stickyItem.sku,
+            name: stickyItem.name,
+          };
+          return;
+        }
+        const match = nearestCatalogMatch(items, s.filament_type, s.color_hex);
+        if (match) {
+          defaults[s.slot_id] = {
+            product_id: match.id,
+            sku: match.sku,
+            name: match.name,
+          };
+        }
+      });
+      setMatchResults(results);
+      setMatchChoices(defaults);
+      setStep(3);
+    } catch (err) {
+      toast.error(err.message || "Failed to load materials");
     } finally {
       setMatchBusy(false);
     }
@@ -623,6 +1155,10 @@ export default function AdminIntakeStudio() {
     setMatchResults(null);
     setMatchBusy(false);
     setMatchChoices({});
+    setPreparseResult(null);
+    preparseResultRef.current = null;
+    setMaterialsError(null);
+    setReconcileNotice(null);
     setContext(null);
     setContextBusy(false);
     setPrintWorkCenterId("");
@@ -730,6 +1266,14 @@ export default function AdminIntakeStudio() {
           ) : pendingMesh ? (
             /* Slicing-profile picker for a staged bare mesh (.stl/.obj) */
             <div className="space-y-5">
+              {unifiedFlow && <PreParsePanel preparse={preparseResult} />}
+              {unifiedFlow && (
+                <p className="text-gray-500 text-xs -mt-2">
+                  The reference profile below drives slicing. You&apos;ll pick the
+                  purchasable material (for cost &amp; inventory) per slot after
+                  slicing.
+                </p>
+              )}
               <div className="flex items-center gap-3 text-sm text-gray-300">
                 <svg
                   className="w-5 h-5 text-blue-400 flex-shrink-0"
@@ -1047,7 +1591,7 @@ export default function AdminIntakeStudio() {
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
             >
               {matchBusy && <Spinner />}
-              Next: match spools
+              {unifiedFlow ? "Next: select material" : "Next: match spools"}
             </button>
           </div>
         </div>
@@ -1058,7 +1602,11 @@ export default function AdminIntakeStudio() {
       {/* ------------------------------------------------------------------ */}
       {step === 3 && (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-          <StepHeader step={3} total={5} label="Match spools" />
+          <StepHeader
+            step={3}
+            total={5}
+            label={unifiedFlow ? "Select material" : "Match spools"}
+          />
 
           {matchBusy || matchResults == null ? (
             <div className="flex items-center justify-center py-12">
@@ -1066,17 +1614,72 @@ export default function AdminIntakeStudio() {
             </div>
           ) : (
             <>
+              {unifiedFlow && reconcileNotice && (
+                <div className="mb-4 text-yellow-400 text-sm bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                  {reconcileNotice}
+                </div>
+              )}
+              {unifiedFlow && materialsError ? (
+                <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-5 text-center">
+                  <p className="text-yellow-300 font-medium mb-1">
+                    {materialsError === "failed"
+                      ? "Couldn't load the materials catalog"
+                      : "No purchasable materials found"}
+                  </p>
+                  <p className="text-gray-400 text-sm mb-4">
+                    {materialsError === "failed"
+                      ? "The purchasable materials catalog failed to load. Check your connection, then retry."
+                      : "Add purchasable materials to your catalog, then retry to continue selecting a material for each slot."}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setBomMaterials([]);
+                      setMaterialsError(null);
+                      runMaterialSelect();
+                    }}
+                    disabled={matchBusy}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
               <div className="space-y-4 mb-6">
                 {matchResults.map((result) => {
                   const slot = parseResult.slots.find(
                     (s) => s.slot_id === result.slot_id
                   );
+                  const chosen = matchChoices[result.slot_id];
+
+                  // Unified flow: catalog-driven type → color selectors. Always
+                  // has the full purchasable catalog, so no dead-end.
+                  if (unifiedFlow) {
+                    return (
+                      <MaterialSelectRow
+                        key={result.slot_id}
+                        slot={slot}
+                        slotId={result.slot_id}
+                        items={bomMaterials}
+                        chosen={chosen}
+                        onPick={(item) =>
+                          setMatchChoices((prev) => ({
+                            ...prev,
+                            [result.slot_id]: {
+                              product_id: item.id,
+                              sku: item.sku,
+                              name: item.name,
+                            },
+                          }))
+                        }
+                      />
+                    );
+                  }
+
                   const options = result.suggestions.map((s) => ({
                     id: s.product_id,
                     name: `${s.name} (${s.sku}) — ${s.color_name} · Δ${Math.round(s.color_distance)}`,
                     sku: s.sku,
                   }));
-                  const chosen = matchChoices[result.slot_id];
 
                   return (
                     <div
@@ -1138,6 +1741,7 @@ export default function AdminIntakeStudio() {
                   );
                 })}
               </div>
+              )}
 
               <div className="flex justify-between">
                 <button
@@ -1150,7 +1754,9 @@ export default function AdminIntakeStudio() {
                   onClick={() => {
                     if (!allSlotsMatched) {
                       toast.error(
-                        "Every slot must have a spool selected before continuing"
+                        unifiedFlow
+                          ? "Every slot must have a material selected before continuing"
+                          : "Every slot must have a spool selected before continuing"
                       );
                       return;
                     }
