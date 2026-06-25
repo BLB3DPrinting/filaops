@@ -423,7 +423,7 @@ async def get_status_transitions(
     }
 
 
-@router.get("/{order_id}", response_model=ProductionOrderResponse)
+@router.get("/{order_id:int}", response_model=ProductionOrderResponse)
 async def get_production_order(
     order_id: int,
     db: Session = Depends(get_db),
@@ -434,7 +434,7 @@ async def get_production_order(
     return build_production_order_response(order, db)
 
 
-@router.put("/{order_id}", response_model=ProductionOrderResponse)
+@router.put("/{order_id:int}", response_model=ProductionOrderResponse)
 async def update_production_order(
     order_id: int,
     request: ProductionOrderUpdate,
@@ -458,7 +458,7 @@ async def update_production_order(
     return build_production_order_response(order, db)
 
 
-@router.delete("/{order_id}", response_model=MessageResponse)
+@router.delete("/{order_id:int}", response_model=MessageResponse)
 async def delete_production_order(
     order_id: int,
     db: Session = Depends(get_db),
