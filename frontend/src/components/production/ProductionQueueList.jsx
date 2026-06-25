@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { API_URL } from '../../config/api';
 import { formatDuration } from '../../utils/formatting';
 import { PRODUCTION_ORDER_BADGE_CONFIGS } from '../../lib/statusColors.js';
+import { normalizeList } from '../../lib/normalizeList';
 import ElapsedTimer from './ElapsedTimer';
 import EmptyState from '../EmptyState';
 
@@ -248,7 +249,7 @@ export default function ProductionQueueList({
         });
         if (res.ok) {
           const data = await res.json();
-          setWorkCenters(data.items || data || []);
+          setWorkCenters(normalizeList(data, ["work_centers", "workCenters"]).items);
         }
       } catch { // err unused
         // Non-critical

@@ -6,6 +6,7 @@ import WorkCenterCard from "../../components/manufacturing/WorkCenterCard";
 import WorkCenterModal from "../../components/manufacturing/WorkCenterModal";
 import ResourceModal from "../../components/manufacturing/ResourceModal";
 import PrinterSetupModal from "../../components/manufacturing/PrinterSetupModal";
+import { normalizeList } from "../../lib/normalizeList";
 
 export default function AdminManufacturing() {
   const api = useApi();
@@ -39,7 +40,7 @@ export default function AdminManufacturing() {
     setLoading(true);
     try {
       const data = await api.get(`/api/v1/work-centers/?active_only=false`);
-      setWorkCenters(data);
+      setWorkCenters(normalizeList(data, ["work_centers", "workCenters"]).items);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -51,7 +52,7 @@ export default function AdminManufacturing() {
     setLoading(true);
     try {
       const data = await api.get(`/api/v1/routings/`);
-      setRoutings(data);
+      setRoutings(normalizeList(data, ["routings"]).items);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -62,8 +63,7 @@ export default function AdminManufacturing() {
   const fetchProducts = async () => {
     try {
       const data = await api.get(`/api/v1/products?limit=500`);
-      // Handle both array and {items: [...]} responses
-      setProducts(Array.isArray(data) ? data : (data.items || data.products || []));
+      setProducts(normalizeList(data, ["products"]).items);
     } catch {
       // Products fetch failure is non-critical - product selector will just be empty
       setProducts([]);

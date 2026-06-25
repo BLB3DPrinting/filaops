@@ -12,6 +12,7 @@ import PurchaseOrdersTab from "../../components/purchasing/PurchaseOrdersTab";
 import VendorsTab from "../../components/purchasing/VendorsTab";
 import LowStockTab from "../../components/purchasing/LowStockTab";
 import BuyListTab from "../../components/purchasing/BuyListTab";
+import { normalizeList } from "../../lib/normalizeList";
 
 export default function AdminPurchasing() {
   const api = useApi();
@@ -260,8 +261,7 @@ export default function AdminPurchasing() {
       params.set("limit", "100");
 
       const data = await api.get(`/api/v1/purchase-orders?${params}`);
-      // Handle both array and {items: [...]} responses, and error objects
-      setOrders(Array.isArray(data) ? data : (data.items || []));
+      setOrders(normalizeList(data).items);
     } catch (err) {
       setError(err.message);
       setOrders([]);
@@ -274,8 +274,7 @@ export default function AdminPurchasing() {
     if (showLoading) setLoading(true);
     try {
       const data = await api.get(`/api/v1/vendors?active_only=false`);
-      // Handle both array and {items: [...]} responses, and error objects
-      setVendors(Array.isArray(data) ? data : (data.items || []));
+      setVendors(normalizeList(data, ["vendors"]).items);
     } catch (err) {
       if (showLoading) setError(err.message);
       setVendors([]);
@@ -287,7 +286,7 @@ export default function AdminPurchasing() {
   const fetchProducts = async () => {
     try {
       const data = await api.get(`/api/v1/items?limit=2000`);
-      setProducts(data.items || []);
+      setProducts(normalizeList(data, ["products"]).items);
     } catch (err) {
       // Products fetch failure is non-critical - product selector will just be empty
       console.error("[AdminPurchasing] Error fetching products:", err);
@@ -298,7 +297,7 @@ export default function AdminPurchasing() {
     setLowStockLoading(true);
     try {
       const data = await api.get(`/api/v1/items/low-stock`);
-      setLowStockItems(data.items || []);
+      setLowStockItems(normalizeList(data).items);
       setLowStockSummary(data.summary || null);
     } catch {
       setError("Failed to load low stock items. Please refresh the page.");
