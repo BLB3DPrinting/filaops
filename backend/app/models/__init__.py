@@ -1,7 +1,7 @@
 """Database models - FilaOps Open Source Core"""
 from app.models.item_category import ItemCategory
 from app.models.product import Product
-from app.models.production_order import ProductionOrder, ProductionOrderOperation, ProductionOrderOperationMaterial, ScrapRecord, QCInspection
+from app.models.production_order import ProductionOrder, ProductionOrderOperation, ProductionOrderOperationMaterial, ScrapRecord, QCInspection, QCInspectionMeasurement, QCInspectionPhoto
 from app.models.print_job import PrintJob
 from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
 from app.models.sales_order import SalesOrder, SalesOrderLine
@@ -24,6 +24,7 @@ from app.models.company_settings import CompanySettings
 from app.models.uom import UnitOfMeasure
 from app.models.uom import UnitOfMeasure as UOM
 from app.models.scrap_reason import ScrapReason
+from app.models.defect_reason import DefectReason
 from app.models.adjustment_reason import AdjustmentReason
 from app.models.order_event import OrderEvent
 from app.models.purchasing_event import PurchasingEvent
@@ -104,6 +105,8 @@ __all__ = [
     "ProductionOrderOperationMaterial",
     "ScrapRecord",
     "QCInspection",
+    "QCInspectionMeasurement",
+    "QCInspectionPhoto",
     # MRP
     "MRPRun",
     "PlannedOrder",
@@ -119,6 +122,8 @@ __all__ = [
     "UOM",
     # Scrap Reasons
     "ScrapReason",
+    # Defect Reasons (QC taxonomy)
+    "DefectReason",
     # Adjustment Reasons
     "AdjustmentReason",
     # Order Events (Activity Timeline)
