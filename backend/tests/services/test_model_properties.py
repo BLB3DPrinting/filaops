@@ -137,7 +137,7 @@ class TestProductionOrderProperties:
     def test_is_ready_for_qc_true(self, db, make_product, make_production_order):
         product = make_product()
         po = make_production_order(
-            product_id=product.id, status="completed", qc_status="pending",
+            product_id=product.id, status="complete", qc_status="pending",
         )
         assert po.is_ready_for_qc is True
 
@@ -151,7 +151,7 @@ class TestProductionOrderProperties:
     def test_is_ready_for_qc_false_wrong_qc_status(self, db, make_product, make_production_order):
         product = make_product()
         po = make_production_order(
-            product_id=product.id, status="completed", qc_status="passed",
+            product_id=product.id, status="complete", qc_status="passed",
         )
         assert po.is_ready_for_qc is False
 
@@ -159,7 +159,7 @@ class TestProductionOrderProperties:
         product = make_product()
         po = make_production_order(
             product_id=product.id,
-            status="completed",
+            status="complete",
             qc_status="passed",
             quantity=5,
             quantity_completed=Decimal("5"),
@@ -170,7 +170,7 @@ class TestProductionOrderProperties:
         product = make_product()
         po = make_production_order(
             product_id=product.id,
-            status="completed",
+            status="complete",
             qc_status="not_required",
             quantity=5,
             quantity_completed=Decimal("5"),
@@ -181,7 +181,7 @@ class TestProductionOrderProperties:
         product = make_product()
         po = make_production_order(
             product_id=product.id,
-            status="completed",
+            status="complete",
             qc_status="waived",
             quantity=5,
             quantity_completed=Decimal("5"),
@@ -203,7 +203,7 @@ class TestProductionOrderProperties:
         product = make_product()
         po = make_production_order(
             product_id=product.id,
-            status="completed",
+            status="complete",
             qc_status="failed",
             quantity=5,
             quantity_completed=Decimal("5"),
@@ -214,7 +214,7 @@ class TestProductionOrderProperties:
         product = make_product()
         po = make_production_order(
             product_id=product.id,
-            status="completed",
+            status="complete",
             qc_status="passed",
             quantity=10,
             quantity_completed=Decimal("5"),
