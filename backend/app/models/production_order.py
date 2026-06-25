@@ -577,7 +577,7 @@ class QCInspectionMeasurement(Base):
 
     __tablename__ = "qc_inspection_measurements"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)  # PK auto-indexed; no redundant ix_*_id
     qc_inspection_id = Column(
         Integer,
         ForeignKey("qc_inspections.id", ondelete="CASCADE"),
@@ -613,7 +613,7 @@ class QCInspectionPhoto(Base):
 
     __tablename__ = "qc_inspection_photos"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)  # PK auto-indexed; no redundant ix_*_id
     qc_inspection_id = Column(
         Integer,
         ForeignKey("qc_inspections.id", ondelete="CASCADE"),

@@ -37,7 +37,7 @@ class DefectReason(Base):
         ),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)  # PK is auto-indexed; no redundant ix_*_id
     code = Column(String(50), unique=True, nullable=False, index=True)  # e.g. "layer_shift"
     name = Column(String(100), nullable=False)  # Display name
     description = Column(Text, nullable=True)
