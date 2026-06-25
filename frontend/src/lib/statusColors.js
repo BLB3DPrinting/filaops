@@ -1,5 +1,11 @@
 // Shared status-to-badge-class mappings (static for Tailwind purge safety)
 //
+// DEPRECATED (UX epic #808): prefer the per-axis descriptor registry +
+// <StatusBadge model field value /> in src/lib/statusDescriptors.js. These flat
+// maps can't express multi-axis status (a sales order has 4 status axes) and
+// drift per screen. Kept for the Tailwind-purge-safe class strings still used
+// by un-migrated callers; migrate opportunistically per workbench.
+//
 // Each domain (sales orders, production, purchasing, etc.) has its own
 // status vocabulary, but the visual palette is consistent: bg-X-500/20
 // with text-X-400.  Domain-specific maps re-export or extend these base

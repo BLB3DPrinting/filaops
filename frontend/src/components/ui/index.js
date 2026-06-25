@@ -1,4 +1,5 @@
 export { default as Badge } from "./Badge.jsx";
+export { default as StatusBadge } from "./StatusBadge.jsx";
 export { default as Button } from "./Button.jsx";
 export { default as Input } from "./Input.jsx";
 export { default as Select } from "./Select.jsx";
