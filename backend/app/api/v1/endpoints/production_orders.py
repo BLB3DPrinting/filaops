@@ -423,7 +423,7 @@ async def get_status_transitions(
     }
 
 
-@router.get("/{order_id}", response_model=ProductionOrderResponse)
+@router.get("/{order_id:int}", response_model=ProductionOrderResponse)
 async def get_production_order(
     order_id: int,
     db: Session = Depends(get_db),
@@ -434,7 +434,7 @@ async def get_production_order(
     return build_production_order_response(order, db)
 
 
-@router.put("/{order_id}", response_model=ProductionOrderResponse)
+@router.put("/{order_id:int}", response_model=ProductionOrderResponse)
 async def update_production_order(
     order_id: int,
     request: ProductionOrderUpdate,
@@ -458,7 +458,7 @@ async def update_production_order(
     return build_production_order_response(order, db)
 
 
-@router.delete("/{order_id}", response_model=MessageResponse)
+@router.delete("/{order_id:int}", response_model=MessageResponse)
 async def delete_production_order(
     order_id: int,
     db: Session = Depends(get_db),
@@ -494,7 +494,8 @@ async def get_scrap_reasons(
                 active=r.active,
             )
             for r in reasons
-        ]
+        ],
+        descriptions={r.code: (r.description or r.name or "") for r in reasons},
     )
 
 
@@ -589,6 +590,32 @@ async def delete_scrap_reason(
     return {"message": "Scrap reason deleted"}
 
 
+# Human-readable descriptions for the status enums, keyed by enum VALUE. Kept at
+# module scope (not inline) so test_production_route_shadow can assert they cover
+# every enum member — a new/renamed value then fails loudly at CI instead of
+# silently returning a blank description. The endpoints still `.get(..., "")` so
+# a drift slip degrades gracefully at runtime rather than 500-ing (#818).
+#
+# NOTE: these endpoints import QCStatus/OperationStatus from app.core.status_config
+# (NOT the schemas enums of the same name), so the keys mirror that enum's members
+# — status_config.QCStatus has no `in_progress`. (Discrepancy logged separately.)
+QC_STATUS_DESCRIPTIONS = {
+    "not_required": "No inspection required",
+    "pending": "Awaiting inspection",
+    "passed": "Passed quality check",
+    "failed": "Failed quality check",
+    "waived": "Failed but accepted (waived)",
+}
+
+OPERATION_STATUS_DESCRIPTIONS = {
+    "pending": "Not started",
+    "queued": "Waiting in queue",
+    "running": "Currently running",
+    "complete": "Finished",
+    "skipped": "Skipped",
+}
+
+
 @router.get("/qc-statuses", response_model=QCStatusesResponse)
 async def get_qc_statuses(
     current_user: User = Depends(get_current_user),
@@ -596,14 +623,7 @@ async def get_qc_statuses(
     """Get valid QC status values."""
     return {
         "statuses": [s.value for s in QCStatus],
-        "descriptions": {
-            QCStatus.NOT_REQUIRED.value: "No inspection required",
-            QCStatus.PENDING.value: "Awaiting inspection",
-            QCStatus.IN_PROGRESS.value: "Inspection in progress",
-            QCStatus.PASSED.value: "Passed quality check",
-            QCStatus.FAILED.value: "Failed quality check",
-            QCStatus.WAIVED.value: "Failed but accepted (waived)",
-        }
+        "descriptions": {s.value: QC_STATUS_DESCRIPTIONS.get(s.value, "") for s in QCStatus},
     }
 
 
@@ -615,13 +635,8 @@ async def get_operation_statuses(
     return {
         "statuses": [s.value for s in OperationStatus],
         "descriptions": {
-            OperationStatus.PENDING.value: "Not started",
-            OperationStatus.QUEUED.value: "Waiting in queue",
-            OperationStatus.RUNNING.value: "Currently running",
-            OperationStatus.PAUSED.value: "Temporarily paused",
-            OperationStatus.COMPLETE.value: "Finished",
-            OperationStatus.SKIPPED.value: "Skipped",
-        }
+            s.value: OPERATION_STATUS_DESCRIPTIONS.get(s.value, "") for s in OperationStatus
+        },
     }
 
 
