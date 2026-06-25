@@ -78,6 +78,13 @@ from app.schemas.resource_scheduling import (
 )
 from app.services.blocking_issues import get_production_order_blocking_issues
 from app.services import production_order_service
+from app.services import defect_reason_service
+from app.schemas.defect_reason import (
+    DefectReasonCreate,
+    DefectReasonUpdate,
+    DefectReasonDetail,
+    DefectReasonsResponse,
+)
 from app.services.resource_scheduling import (
     find_conflicts,
     find_next_available_slot,
@@ -587,6 +594,77 @@ async def delete_scrap_reason(
     production_order_service.delete_scrap_reason(db, reason_id)
     db.commit()
     return {"message": "Scrap reason deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Defect reasons (#784) — configurable QC defect taxonomy. Static routes; must
+# precede the dynamic /{order_id} routes below.
+# ---------------------------------------------------------------------------
+@router.get("/defect-reasons", response_model=DefectReasonsResponse)
+async def get_defect_reasons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonsResponse:
+    """List active defect reasons (codes + details) for QC dropdowns."""
+    reasons = defect_reason_service.get_defect_reasons(db)
+    return DefectReasonsResponse(
+        reasons=[r.code for r in reasons],
+        details=[DefectReasonDetail.model_validate(r) for r in reasons],
+    )
+
+
+@router.get("/defect-reasons/all", response_model=List[DefectReasonDetail])
+async def get_all_defect_reasons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[DefectReasonDetail]:
+    """List all defect reasons, including inactive."""
+    reasons = defect_reason_service.get_defect_reasons(db, include_inactive=True)
+    return [DefectReasonDetail.model_validate(r) for r in reasons]
+
+
+@router.post("/defect-reasons", response_model=DefectReasonDetail)
+async def create_defect_reason(
+    request: DefectReasonCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonDetail:
+    """Create a defect reason."""
+    reason = defect_reason_service.create_defect_reason(
+        db,
+        code=request.code,
+        name=request.name,
+        description=request.description,
+        category=request.category,
+        severity=request.severity,
+        sequence=request.sequence or 0,
+    )
+    db.commit()
+    db.refresh(reason)
+    return DefectReasonDetail.model_validate(reason)
+
+
+@router.patch("/defect-reasons/{reason_id}", response_model=DefectReasonDetail)
+async def update_defect_reason(
+    reason_id: int,
+    request: DefectReasonUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonDetail:
+    """Update a defect reason; pass active=false to deactivate."""
+    reason = defect_reason_service.update_defect_reason(
+        db,
+        reason_id,
+        name=request.name,
+        description=request.description,
+        category=request.category,
+        severity=request.severity,
+        sequence=request.sequence,
+        active=request.active,
+    )
+    db.commit()
+    db.refresh(reason)
+    return DefectReasonDetail.model_validate(reason)
 
 
 @router.get("/qc-statuses", response_model=QCStatusesResponse)
@@ -1282,6 +1360,9 @@ async def record_qc_inspection(
         quantity_failed=request.quantity_failed,
         failure_reason=request.failure_reason,
         notes=request.notes,
+        defect_reason_id=request.defect_reason_id,
+        # A waive is attributed to the operator performing it.
+        waiver_user_id=current_user.id if request.result.value == "waived" else None,
     )
 
     db.commit()
@@ -1296,6 +1377,7 @@ async def record_qc_inspection(
         qc_notes=order.qc_notes,
         qc_inspected_by=order.qc_inspected_by,
         qc_inspected_at=order.qc_inspected_at,
+        defect_reason_id=inspection.get("defect_reason_id"),
         sales_order_updated=False,
         sales_order_status=None,
         message=f"QC {order.qc_status} recorded for {order.code}",

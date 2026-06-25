@@ -625,6 +625,8 @@ def record_qc_inspection(
     quantity_failed: Optional[int] = None,
     failure_reason: Optional[str] = None,
     notes: Optional[str] = None,
+    defect_reason_id: Optional[int] = None,
+    waiver_user_id: Optional[int] = None,
 ) -> dict:
     """
     Record QC inspection results for a production order.
@@ -660,6 +662,16 @@ def record_qc_inspection(
             raise HTTPException(
                 status_code=400,
                 detail=f"{_name} cannot be negative (got {_val})",
+            )
+
+    # Validate the defect reason exists before writing the immutable row. The FK
+    # would also reject it, but an explicit 400 beats a 500 IntegrityError (#784).
+    if defect_reason_id is not None:
+        from app.models.defect_reason import DefectReason
+        if not db.query(DefectReason.id).filter(DefectReason.id == defect_reason_id).first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"defect_reason_id {defect_reason_id} does not exist",
             )
 
     # Derive whole-order pass/fail quantities when the caller does not supply
@@ -737,6 +749,8 @@ def record_qc_inspection(
         inspector_name=inspector,
         failure_reason=failure_reason,
         notes=notes,
+        defect_reason_id=defect_reason_id,
+        waiver_user_id=waiver_user_id,
         inspected_at=inspected_at,
     )
     db.add(inspection)
@@ -753,6 +767,7 @@ def record_qc_inspection(
         "quantity_failed": quantity_failed,
         "failure_reason": failure_reason,
         "notes": notes,
+        "defect_reason_id": defect_reason_id,
         "inspected_at": inspected_at.isoformat(),
         "inspection_id": inspection_id,
     }
