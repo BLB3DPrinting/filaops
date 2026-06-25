@@ -430,6 +430,78 @@ async def get_status_transitions(
     }
 
 
+# ---------------------------------------------------------------------------
+# Defect reasons (#784) — configurable QC defect taxonomy. These are STATIC
+# routes and MUST be declared before the dynamic GET /{order_id} below, or
+# Starlette matches "defect-reasons" as an order_id and returns 422.
+# ---------------------------------------------------------------------------
+@router.get("/defect-reasons", response_model=DefectReasonsResponse)
+async def get_defect_reasons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonsResponse:
+    """List active defect reasons (codes + details) for QC dropdowns."""
+    reasons = defect_reason_service.get_defect_reasons(db)
+    return DefectReasonsResponse(
+        reasons=[r.code for r in reasons],
+        details=[DefectReasonDetail.model_validate(r) for r in reasons],
+    )
+
+
+@router.get("/defect-reasons/all", response_model=List[DefectReasonDetail])
+async def get_all_defect_reasons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> List[DefectReasonDetail]:
+    """List all defect reasons, including inactive."""
+    reasons = defect_reason_service.get_defect_reasons(db, include_inactive=True)
+    return [DefectReasonDetail.model_validate(r) for r in reasons]
+
+
+@router.post("/defect-reasons", response_model=DefectReasonDetail)
+async def create_defect_reason(
+    request: DefectReasonCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonDetail:
+    """Create a defect reason."""
+    reason = defect_reason_service.create_defect_reason(
+        db,
+        code=request.code,
+        name=request.name,
+        description=request.description,
+        category=request.category,
+        severity=request.severity,
+        sequence=request.sequence or 0,
+    )
+    db.commit()
+    db.refresh(reason)
+    return DefectReasonDetail.model_validate(reason)
+
+
+@router.patch("/defect-reasons/{reason_id}", response_model=DefectReasonDetail)
+async def update_defect_reason(
+    reason_id: int,
+    request: DefectReasonUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DefectReasonDetail:
+    """Update a defect reason; pass active=false to deactivate."""
+    reason = defect_reason_service.update_defect_reason(
+        db,
+        reason_id,
+        name=request.name,
+        description=request.description,
+        category=request.category,
+        severity=request.severity,
+        sequence=request.sequence,
+        active=request.active,
+    )
+    db.commit()
+    db.refresh(reason)
+    return DefectReasonDetail.model_validate(reason)
+
+
 @router.get("/{order_id}", response_model=ProductionOrderResponse)
 async def get_production_order(
     order_id: int,
@@ -594,77 +666,6 @@ async def delete_scrap_reason(
     production_order_service.delete_scrap_reason(db, reason_id)
     db.commit()
     return {"message": "Scrap reason deleted"}
-
-
-# ---------------------------------------------------------------------------
-# Defect reasons (#784) — configurable QC defect taxonomy. Static routes; must
-# precede the dynamic /{order_id} routes below.
-# ---------------------------------------------------------------------------
-@router.get("/defect-reasons", response_model=DefectReasonsResponse)
-async def get_defect_reasons(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> DefectReasonsResponse:
-    """List active defect reasons (codes + details) for QC dropdowns."""
-    reasons = defect_reason_service.get_defect_reasons(db)
-    return DefectReasonsResponse(
-        reasons=[r.code for r in reasons],
-        details=[DefectReasonDetail.model_validate(r) for r in reasons],
-    )
-
-
-@router.get("/defect-reasons/all", response_model=List[DefectReasonDetail])
-async def get_all_defect_reasons(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> List[DefectReasonDetail]:
-    """List all defect reasons, including inactive."""
-    reasons = defect_reason_service.get_defect_reasons(db, include_inactive=True)
-    return [DefectReasonDetail.model_validate(r) for r in reasons]
-
-
-@router.post("/defect-reasons", response_model=DefectReasonDetail)
-async def create_defect_reason(
-    request: DefectReasonCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> DefectReasonDetail:
-    """Create a defect reason."""
-    reason = defect_reason_service.create_defect_reason(
-        db,
-        code=request.code,
-        name=request.name,
-        description=request.description,
-        category=request.category,
-        severity=request.severity,
-        sequence=request.sequence or 0,
-    )
-    db.commit()
-    db.refresh(reason)
-    return DefectReasonDetail.model_validate(reason)
-
-
-@router.patch("/defect-reasons/{reason_id}", response_model=DefectReasonDetail)
-async def update_defect_reason(
-    reason_id: int,
-    request: DefectReasonUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> DefectReasonDetail:
-    """Update a defect reason; pass active=false to deactivate."""
-    reason = defect_reason_service.update_defect_reason(
-        db,
-        reason_id,
-        name=request.name,
-        description=request.description,
-        category=request.category,
-        severity=request.severity,
-        sequence=request.sequence,
-        active=request.active,
-    )
-    db.commit()
-    db.refresh(reason)
-    return DefectReasonDetail.model_validate(reason)
 
 
 @router.get("/qc-statuses", response_model=QCStatusesResponse)

@@ -664,14 +664,30 @@ def record_qc_inspection(
                 detail=f"{_name} cannot be negative (got {_val})",
             )
 
-    # Validate the defect reason exists before writing the immutable row. The FK
-    # would also reject it, but an explicit 400 beats a 500 IntegrityError (#784).
+    # Validate the defect reason before writing the immutable row. Explicit 400s
+    # beat a 500 IntegrityError and keep QC history clean (#784):
+    #  - must exist; must be active (deactivated reasons are historical-only);
+    #  - a clean 'passed' carries no defect. failed/conditional/waived may — a
+    #    waive records the very defect being accepted.
     if defect_reason_id is not None:
         from app.models.defect_reason import DefectReason
-        if not db.query(DefectReason.id).filter(DefectReason.id == defect_reason_id).first():
+        reason = (
+            db.query(DefectReason).filter(DefectReason.id == defect_reason_id).first()
+        )
+        if reason is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"defect_reason_id {defect_reason_id} does not exist",
+            )
+        if not reason.active:
+            raise HTTPException(
+                status_code=400,
+                detail=f"defect_reason_id {defect_reason_id} is inactive; pick an active reason",
+            )
+        if qc_status == "passed":
+            raise HTTPException(
+                status_code=400,
+                detail="a defect_reason cannot be attached to a 'passed' inspection",
             )
 
     # Derive whole-order pass/fail quantities when the caller does not supply

@@ -10,8 +10,9 @@ BASE = "/api/v1/production-orders/defect-reasons"
 
 def _make_po(make_product, make_production_order):
     product = make_product()
+    # 'complete' is the canonical runtime ProductionOrder status (not 'completed').
     return make_production_order(
-        product_id=product.id, status="completed",
+        product_id=product.id, status="complete",
         quantity=Decimal("5"), quantity_completed=Decimal("5"),
     )
 
@@ -80,6 +81,30 @@ class TestQCInspectionDefectAndWaive:
         po = _make_po(make_product, make_production_order)
         r = client.post(self.QC.format(id=po.id), json={"result": "failed", "defect_reason_id": 999999})
         assert r.status_code == 400
+
+    def test_inactive_defect_reason_rejected(self, client, db, make_product, make_production_order):
+        reason = client.post(BASE, json={"code": "retired", "name": "Retired"}).json()
+        client.patch(f"{BASE}/{reason['id']}", json={"active": False})
+        po = _make_po(make_product, make_production_order)
+        r = client.post(self.QC.format(id=po.id), json={"result": "failed", "defect_reason_id": reason["id"]})
+        assert r.status_code == 400
+
+    def test_defect_reason_on_passed_rejected(self, client, db, make_product, make_production_order):
+        reason = client.post(BASE, json={"code": "p_def", "name": "P Defect"}).json()
+        po = _make_po(make_product, make_production_order)
+        # a clean pass carries no defect
+        r = client.post(self.QC.format(id=po.id), json={"result": "passed", "defect_reason_id": reason["id"]})
+        assert r.status_code == 400
+
+    def test_defect_reason_allowed_on_waive(self, client, db, make_product, make_production_order):
+        reason = client.post(BASE, json={"code": "w_def", "name": "Waived Defect", "severity": "minor"}).json()
+        po = _make_po(make_product, make_production_order)
+        # a waive records the defect being accepted
+        r = client.post(self.QC.format(id=po.id), json={"result": "waived", "defect_reason_id": reason["id"]})
+        assert r.status_code == 200, r.text
+        rec = client.get(self.HIST.format(id=po.id)).json()["inspections"][0]
+        assert rec["defect_reason"]["code"] == "w_def"
+        assert rec["waiver_user_id"] is not None
 
     def test_waive_attributes_to_current_user(self, client, db, make_product, make_production_order):
         po = _make_po(make_product, make_production_order)

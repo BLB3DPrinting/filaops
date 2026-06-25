@@ -29,9 +29,11 @@ class DefectReasonCreate(BaseModel):
 
 
 class DefectReasonUpdate(BaseModel):
-    name: Optional[str] = None
+    # max_length mirrors the ORM columns (100/50) so an over-long value is a
+    # 422 at the boundary, not a 500 IntegrityError at commit.
+    name: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
-    category: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=50)
     severity: Optional[str] = None
     sequence: Optional[int] = None
     active: Optional[bool] = None
