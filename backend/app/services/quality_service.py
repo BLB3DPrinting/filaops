@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.production_order import (
     ProductionOrder,
     ProductionOrderOperation,
+    QCInspection,
     ScrapRecord,
 )
 from app.models.scrap_reason import ScrapReason
@@ -63,10 +64,15 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
     """
     Calculate quality metrics for the given period.
 
+    Counts are sourced from each order's FIRST qc_inspections row (#784), not
+    the ProductionOrder.qc_status cache. The cache is last-write-wins, so an
+    order that failed initial inspection but was re-inspected or waived to
+    "passed" would otherwise count as a first-pass success and inflate FPY.
+
     Returns:
-    - total_inspections: Count of orders with a QC result in the period
-    - passed: Orders that passed QC
-    - failed: Orders that failed QC
+    - total_inspections: Orders whose first QC inspection landed in the period
+    - passed: Orders that passed their FIRST inspection
+    - failed: Orders that failed their FIRST inspection
     - first_pass_yield: passed / (passed + failed) as a percentage
     - pending_inspections: Current queue depth
     - scrap_rate: scrapped qty / (completed + scrapped) qty as a percentage
@@ -74,28 +80,37 @@ def get_quality_metrics(db: Session, days: int = 30) -> dict:
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Count inspections by result (orders inspected within the period)
+    # First-pass yield must come from each order's FIRST inspection row, not the
+    # qc_status cache. The earliest qc_inspections row per order = min(id):
+    # ids are monotonic so this is tie-free, unlike inspected_at timestamps.
+    first_inspection_ids = (
+        db.query(func.min(QCInspection.id))
+        .group_by(QCInspection.production_order_id)
+        .scalar_subquery()
+    )
     result_counts = (
         db.query(
-            ProductionOrder.qc_status,
-            func.count(ProductionOrder.id).label("cnt"),
+            QCInspection.result,
+            func.count(QCInspection.id).label("cnt"),
         )
         .filter(
-            ProductionOrder.qc_inspected_at >= cutoff,
-            ProductionOrder.qc_status.in_(["passed", "failed", "waived"]),
+            QCInspection.id.in_(first_inspection_ids),
+            QCInspection.inspected_at >= cutoff,
         )
-        .group_by(ProductionOrder.qc_status)
+        .group_by(QCInspection.result)
         .all()
     )
 
-    counts = {row.qc_status: row.cnt for row in result_counts}
+    counts = {row.result: row.cnt for row in result_counts}
     passed = counts.get("passed", 0)
     failed = counts.get("failed", 0)
     waived = counts.get("waived", 0)
-    total_inspections = passed + failed + waived
+    conditional = counts.get("conditional", 0)
+    total_inspections = passed + failed + waived + conditional
 
-    # First-pass yield = passed / (passed + failed). Waived parts are excluded
-    # from the yield (they neither cleanly passed nor failed inspection).
+    # First-pass yield = passed / (passed + failed). Waived and conditional
+    # first inspections are excluded from the ratio — they neither cleanly
+    # passed nor failed inspection.
     fpy_denom = passed + failed
     first_pass_yield = (
         round((passed / fpy_denom) * 100, 1)
