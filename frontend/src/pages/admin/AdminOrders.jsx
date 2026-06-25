@@ -6,6 +6,7 @@ import { useToast } from "../../components/Toast";
 import EmptyState from "../../components/EmptyState";
 import { SalesOrderCard } from "../../components/orders";
 import OrderFilters from "../../components/orders/OrderFilters";
+import { normalizeList } from "../../lib/normalizeList";
 
 export default function AdminOrders() {
   const navigate = useNavigate();
@@ -64,7 +65,7 @@ export default function AdminOrders() {
       if (sortOrder) params.set("sort_order", sortOrder);
 
       const data = await api.get(`/api/v1/sales-orders/?${params}`);
-      setOrders(data.items || data);
+      setOrders(normalizeList(data).items);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -3,6 +3,7 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import EmptyState from "../../components/EmptyState";
 import { SPOOL_COLORS as statusColors } from "../../lib/statusColors.js";
+import { normalizeList } from "../../lib/normalizeList";
 
 export default function AdminSpools() {
   const toast = useToast();
@@ -34,7 +35,7 @@ export default function AdminSpools() {
       if (filters.search) params.set("search", filters.search);
 
       const data = await api.get(`/api/v1/spools?${params}`);
-      setSpools(data.items || data || []);
+      setSpools(normalizeList(data, ["spools"]).items);
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
@@ -46,7 +47,7 @@ export default function AdminSpools() {
   const fetchProducts = async () => {
     try {
       const data = await api.get("/api/v1/products?type=material&limit=200");
-      setProducts(data.items || data || []);
+      setProducts(normalizeList(data, ["products"]).items);
     } catch (err) {
       console.error("Failed to fetch products:", err);
     }
@@ -55,7 +56,7 @@ export default function AdminSpools() {
   const fetchLocations = async () => {
     try {
       const data = await api.get("/api/v1/admin/locations/");
-      setLocations(data.items || data || []);
+      setLocations(normalizeList(data, ["locations"]).items);
     } catch (err) {
       console.error("Failed to fetch locations:", err);
     }
