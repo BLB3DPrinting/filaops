@@ -2,9 +2,10 @@
 shadowed by the dynamic detail route.
 
 The bare detail routes are constrained to ``/{order_id:int}``, so a non-integer
-single segment (``/scrap-reasons``, ``/qc-statuses``, ``/defect-reasons``) falls
-through to its static handler instead of being parsed as an order_id → 422.
-(cortex observation #193.)
+single segment (``/scrap-reasons``, ``/qc-statuses``, ``/operation-statuses``)
+falls through to its static handler instead of being parsed as an order_id → 422.
+(``/defect-reasons`` is added in #817 and covered by its own suite.) Also guards
+the status-description maps against enum drift. (cortex observation #193.)
 """
 PREFIX = "/api/v1/production-orders"
 
@@ -36,3 +37,19 @@ class TestStaticRoutesNotShadowed:
     def test_detail_route_404_for_missing_int(self, client):
         r = client.get(f"{PREFIX}/999999")
         assert r.status_code == 404
+
+
+class TestStatusDescriptionCoverage:
+    """Drift guard: every status enum member must have an explicit description,
+    so a new/renamed value fails HERE (at CI) rather than silently serving a
+    blank description in the API."""
+
+    def test_qc_status_descriptions_cover_all_members(self):
+        from app.api.v1.endpoints.production_orders import QC_STATUS_DESCRIPTIONS
+        from app.schemas.production_order import QCStatus
+        assert set(QC_STATUS_DESCRIPTIONS) == {m.value for m in QCStatus}
+
+    def test_operation_status_descriptions_cover_all_members(self):
+        from app.api.v1.endpoints.production_orders import OPERATION_STATUS_DESCRIPTIONS
+        from app.schemas.production_order import OperationStatus
+        assert set(OPERATION_STATUS_DESCRIPTIONS) == {m.value for m in OperationStatus}

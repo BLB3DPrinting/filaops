@@ -590,24 +590,37 @@ async def delete_scrap_reason(
     return {"message": "Scrap reason deleted"}
 
 
+# Human-readable descriptions for the status enums, keyed by enum VALUE. Kept at
+# module scope (not inline) so test_production_route_shadow can assert they cover
+# every enum member — a new/renamed value then fails loudly at CI instead of
+# silently returning a blank description. The endpoints still `.get(..., "")` so
+# a drift slip degrades gracefully at runtime rather than 500-ing (#818).
+QC_STATUS_DESCRIPTIONS = {
+    "not_required": "No inspection required",
+    "pending": "Awaiting inspection",
+    "in_progress": "Inspection in progress",
+    "passed": "Passed quality check",
+    "failed": "Failed quality check",
+    "waived": "Failed but accepted (waived)",
+}
+
+OPERATION_STATUS_DESCRIPTIONS = {
+    "pending": "Not started",
+    "queued": "Waiting in queue",
+    "running": "Currently running",
+    "complete": "Finished",
+    "skipped": "Skipped",
+}
+
+
 @router.get("/qc-statuses", response_model=QCStatusesResponse)
 async def get_qc_statuses(
     current_user: User = Depends(get_current_user),
 ) -> QCStatusesResponse:
     """Get valid QC status values."""
-    # Build descriptions by iterating actual enum members (keyed by value), so a
-    # description for an enum value that no longer exists can't raise at runtime.
-    descriptions = {
-        "not_required": "No inspection required",
-        "pending": "Awaiting inspection",
-        "in_progress": "Inspection in progress",
-        "passed": "Passed quality check",
-        "failed": "Failed quality check",
-        "waived": "Failed but accepted (waived)",
-    }
     return {
         "statuses": [s.value for s in QCStatus],
-        "descriptions": {s.value: descriptions.get(s.value, "") for s in QCStatus},
+        "descriptions": {s.value: QC_STATUS_DESCRIPTIONS.get(s.value, "") for s in QCStatus},
     }
 
 
@@ -616,19 +629,11 @@ async def get_operation_statuses(
     current_user: User = Depends(get_current_user),
 ) -> OperationStatusesResponse:
     """Get valid operation status values."""
-    # Iterate actual members (keyed by value). The previous version referenced
-    # OperationStatus.PAUSED, which is not a member — a latent 500 that was
-    # hidden while this route was shadowed by GET /{order_id}.
-    descriptions = {
-        "pending": "Not started",
-        "queued": "Waiting in queue",
-        "running": "Currently running",
-        "complete": "Finished",
-        "skipped": "Skipped",
-    }
     return {
         "statuses": [s.value for s in OperationStatus],
-        "descriptions": {s.value: descriptions.get(s.value, "") for s in OperationStatus},
+        "descriptions": {
+            s.value: OPERATION_STATUS_DESCRIPTIONS.get(s.value, "") for s in OperationStatus
+        },
     }
 
 
