@@ -627,6 +627,7 @@ def record_qc_inspection(
     notes: Optional[str] = None,
     defect_reason_id: Optional[int] = None,
     waiver_user_id: Optional[int] = None,
+    measurements: Optional[list] = None,
 ) -> dict:
     """
     Record QC inspection results for a production order.
@@ -789,6 +790,24 @@ def record_qc_inspection(
 
     db.flush()
     inspection_id = inspection.id
+
+    # Persist any SPC measurements captured with this inspection (#784 step 5).
+    # Each row is keyed to the inspection; sequence defaults to input order.
+    if measurements:
+        from app.models.production_order import QCInspectionMeasurement
+        for idx, m in enumerate(measurements):
+            seq = m.get("sequence")
+            db.add(QCInspectionMeasurement(
+                qc_inspection_id=inspection_id,
+                characteristic=m["characteristic"],
+                nominal=m.get("nominal"),
+                lower_limit=m.get("lower_limit"),
+                upper_limit=m.get("upper_limit"),
+                measured_value=m.get("measured_value"),
+                unit=m.get("unit"),
+                sequence=seq if seq is not None else idx,
+            ))
+        db.flush()
 
     inspection_result = {
         "order_id": order_id,
