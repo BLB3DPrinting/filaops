@@ -1379,6 +1379,7 @@ async def record_qc_inspection(
         defect_reason_id=request.defect_reason_id,
         # A waive is attributed to the operator performing it.
         waiver_user_id=current_user.id if request.result.value == "waived" else None,
+        measurements=[m.model_dump() for m in request.measurements],
     )
 
     db.commit()

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **QC inspection measurements (#784).** `POST /api/v1/production-orders/{id}/qc` accepts a `measurements` list (characteristic, nominal, lower/upper limit, measured value, unit) stored as exact `Numeric` (SPC-ready). The inspection history returns each measurement with a computed `is_within_spec` (true/false vs the limits, or null when no value or no limits are defined).
 - **QC defect taxonomy + waive attribution (#784).** New configurable defect reasons (`GET/POST /api/v1/production-orders/defect-reasons`, `/all`, `PATCH /{id}`) with free-form category and a `minor|major|critical` severity. Recording a QC inspection (`POST /production-orders/{id}/qc`) now accepts a `defect_reason_id` and, on a `waived` result, attributes the waive to the operator (`waiver_user_id`); the inspection history exposes the defect reason and waiver.
 
 ### Changed

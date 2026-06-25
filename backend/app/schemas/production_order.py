@@ -3,7 +3,7 @@ Production Order Pydantic Schemas
 
 Manufacturing Orders (MOs) for tracking production of finished goods.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from typing import Any, Dict, Optional, List
 from datetime import datetime, date
 from decimal import Decimal
@@ -568,6 +568,47 @@ class ScrapReasonsResponse(BaseModel):
 # QC Inspection Schemas
 # ============================================================================
 
+class QCMeasurementInput(BaseModel):
+    """One SPC measurement captured during a QC inspection (#784)."""
+    characteristic: str = Field(..., max_length=100, description="What was measured, e.g. 'bore diameter'")
+    nominal: Optional[Decimal] = Field(None, description="Target value")
+    lower_limit: Optional[Decimal] = Field(None, description="Lower spec limit (LSL)")
+    upper_limit: Optional[Decimal] = Field(None, description="Upper spec limit (USL)")
+    measured_value: Optional[Decimal] = Field(None, description="Actual measured value")
+    unit: Optional[str] = Field(None, max_length=20, description="e.g. mm, g")
+    sequence: Optional[int] = Field(None, description="Display order; defaults to input order")
+
+
+class QCMeasurementRecord(BaseModel):
+    """One stored measurement, with computed in/out-of-spec."""
+    id: int
+    characteristic: str
+    nominal: Optional[Decimal] = None
+    lower_limit: Optional[Decimal] = None
+    upper_limit: Optional[Decimal] = None
+    measured_value: Optional[Decimal] = None
+    unit: Optional[str] = None
+    sequence: int = 0
+
+    @computed_field
+    @property
+    def is_within_spec(self) -> Optional[bool]:
+        """True/False vs spec limits; None when not determinable (no measured
+        value, or no limits defined)."""
+        if self.measured_value is None:
+            return None
+        if self.lower_limit is None and self.upper_limit is None:
+            return None
+        if self.lower_limit is not None and self.measured_value < self.lower_limit:
+            return False
+        if self.upper_limit is not None and self.measured_value > self.upper_limit:
+            return False
+        return True
+
+    class Config:
+        from_attributes = True
+
+
 class QCInspectionRequest(BaseModel):
     """Request to perform QC inspection on a production order"""
     result: QCStatus = Field(
@@ -597,6 +638,10 @@ class QCInspectionRequest(BaseModel):
     defect_reason_id: Optional[int] = Field(
         None,
         description="Structured defect classification (DefectReason id), for failed/conditional results.",
+    )
+    measurements: List[QCMeasurementInput] = Field(
+        default_factory=list,
+        description="SPC measurements captured during this inspection.",
     )
 
     class Config:
@@ -642,6 +687,7 @@ class QCInspectionRecord(BaseModel):
     defect_reason_id: Optional[int] = None
     defect_reason: Optional[DefectReasonBrief] = None
     waiver_user_id: Optional[int] = None
+    measurements: List[QCMeasurementRecord] = Field(default_factory=list)
     inspected_at: Optional[datetime] = None
 
     class Config:

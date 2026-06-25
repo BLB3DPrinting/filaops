@@ -1,0 +1,68 @@
+"""#784 step 5 — SPC measurements captured with a QC inspection are persisted
+and surfaced (with computed in/out-of-spec) in the inspection history."""
+from decimal import Decimal
+
+QC = "/api/v1/production-orders/{id}/qc"
+HIST = "/api/v1/production-orders/{id}/qc-inspections"
+
+
+def _make_po(make_product, make_production_order):
+    product = make_product()
+    return make_production_order(
+        product_id=product.id, status="complete",
+        quantity=Decimal("5"), quantity_completed=Decimal("5"),
+    )
+
+
+class TestQCMeasurements:
+    def test_measurements_recorded_with_spec_flags(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        r = client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "bore_dia", "nominal": "10.0", "lower_limit": "9.95",
+                 "upper_limit": "10.05", "measured_value": "10.012", "unit": "mm"},
+                {"characteristic": "height", "lower_limit": "20", "upper_limit": "21",
+                 "measured_value": "21.5", "unit": "mm"},
+                {"characteristic": "note_only", "measured_value": "5"},  # no limits
+            ],
+        })
+        assert r.status_code == 200, r.text
+
+        ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
+        assert len(ms) == 3
+        # default ordering follows input order
+        assert [m["characteristic"] for m in ms] == ["bore_dia", "height", "note_only"]
+        assert ms[0]["is_within_spec"] is True    # 10.012 within [9.95, 10.05]
+        assert ms[1]["is_within_spec"] is False   # 21.5 > 21
+        assert ms[2]["is_within_spec"] is None     # no limits -> not determinable
+        assert abs(float(ms[0]["measured_value"]) - 10.012) < 1e-6  # exact Numeric round-trip
+
+    def test_inspection_without_measurements(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        client.post(QC.format(id=po.id), json={"result": "passed"})
+        rec = client.get(HIST.format(id=po.id)).json()["inspections"][0]
+        assert rec["measurements"] == []
+
+    def test_explicit_sequence_orders_output(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "b", "sequence": 2, "measured_value": "1"},
+                {"characteristic": "a", "sequence": 1, "measured_value": "2"},
+            ],
+        })
+        ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
+        assert [m["characteristic"] for m in ms] == ["a", "b"]
+
+    def test_value_at_limit_is_in_spec(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "edge", "lower_limit": "1.0", "upper_limit": "2.0", "measured_value": "2.0"},
+            ],
+        })
+        ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
+        assert ms[0]["is_within_spec"] is True  # boundary is inclusive
