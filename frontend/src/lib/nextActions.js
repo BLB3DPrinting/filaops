@@ -11,7 +11,8 @@
  * `can_*`/`is_*` order guards). They must NOT recompute readiness — otherwise a
  * cockpit badge and a detail panel could disagree, which is the disconnected-
  * pages problem this program exists to kill. No fetch here; given a payload they
- * return a deterministic NextAction[].
+ * return a deterministic NextAction[]. Malformed elements are skipped, never
+ * thrown on.
  */
 
 /** @typedef {'critical'|'high'|'medium'|'low'} Severity */
@@ -48,6 +49,9 @@ const AXIS_BY_REFERENCE_TYPE = {
 
 const SEVERITY_BY_PRIORITY = { 1: "critical", 2: "high", 3: "medium", 4: "low" };
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+const severityRank = (s) => (SEVERITY_RANK[s] ?? 9);
+
+const isObject = (x) => x != null && typeof x === "object";
 
 /** Map a backend priority int (1=most urgent) to a severity; unknown → 'low'. */
 export function severityFromPriority(priority) {
@@ -56,47 +60,55 @@ export function severityFromPriority(priority) {
 
 /**
  * Project command-center ActionItems into NextActions (one per item).
+ * Malformed (non-object) entries are skipped.
  * @param {Array} actionItems - ActionItem[] from /command-center/action-items
  * @returns {NextAction[]}
  */
 export function fromActionItems(actionItems) {
   if (!Array.isArray(actionItems)) return [];
-  return actionItems.map((item) => {
+  return actionItems.flatMap((item) => {
+    if (!isObject(item)) return [];
     const primary = (item.suggested_actions || [])[0] || {};
     const hasTarget = item.entity_type != null && item.entity_id != null;
-    return {
-      axis: AXIS_BY_ACTION_TYPE[item.type] || "other",
-      label: item.title || primary.label || "Action needed",
-      reason: item.description || undefined,
-      severity: severityFromPriority(item.priority),
-      verb: primary.action_type || undefined,
-      href: primary.url || undefined,
-      target: hasTarget
-        ? { type: item.entity_type, id: item.entity_id, code: item.entity_code || undefined }
-        : undefined,
-      enabled: true,
-    };
+    return [
+      {
+        axis: AXIS_BY_ACTION_TYPE[item.type] || "other",
+        label: item.title || primary.label || "Action needed",
+        reason: item.description || undefined,
+        severity: severityFromPriority(item.priority),
+        verb: primary.action_type || undefined,
+        href: primary.url || undefined,
+        target: hasTarget
+          ? { type: item.entity_type, id: item.entity_id, code: item.entity_code || undefined }
+          : undefined,
+        enabled: true,
+      },
+    ];
   });
 }
 
 /**
  * Project a ProductionOrderBlockingIssues payload's resolution_actions[].
+ * Malformed (non-object) entries are skipped.
  * @param {Object} blockingIssues - { resolution_actions: ResolutionAction[] }
  * @returns {NextAction[]}
  */
 export function fromResolutionActions(blockingIssues) {
   const actions = blockingIssues?.resolution_actions;
   if (!Array.isArray(actions)) return [];
-  return actions.map((a) => {
+  return actions.flatMap((a) => {
+    if (!isObject(a)) return [];
     const hasTarget = a.reference_type != null && a.reference_id != null;
-    return {
-      axis: AXIS_BY_REFERENCE_TYPE[a.reference_type] || "production",
-      label: a.action,
-      reason: a.impact || undefined,
-      severity: severityFromPriority(a.priority),
-      target: hasTarget ? { type: a.reference_type, id: a.reference_id } : undefined,
-      enabled: true,
-    };
+    return [
+      {
+        axis: AXIS_BY_REFERENCE_TYPE[a.reference_type] || "production",
+        label: a.action,
+        reason: a.impact || undefined,
+        severity: severityFromPriority(a.priority),
+        target: hasTarget ? { type: a.reference_type, id: a.reference_id } : undefined,
+        enabled: true,
+      },
+    ];
   });
 }
 
@@ -108,7 +120,7 @@ export function fromResolutionActions(blockingIssues) {
  * @returns {NextAction[]}
  */
 export function fromOrderGuards(order) {
-  if (!order || typeof order !== "object") return [];
+  if (!isObject(order)) return [];
   const out = [];
   const target =
     order.id != null
@@ -152,28 +164,33 @@ const dedupeKey = (a) =>
   `${a.axis}|${a.target?.type || ""}|${a.target?.id ?? ""}|${a.verb || a.label}`;
 
 /**
- * Merge NextAction lists into an axis-keyed map, de-duplicating across sources
- * and sorting each lane by severity (critical first). This is what the Command
- * Center renders as lanes.
+ * Merge NextAction lists into an axis-keyed map. De-duplicates across sources,
+ * keeping the HIGHEST-severity action for a given key (a later `critical` is not
+ * dropped behind an earlier `low`), and sorts each lane by severity. Malformed
+ * entries are skipped. This is what the Command Center renders as lanes.
  * @param {...NextAction[]} lists
  * @returns {Record<string, NextAction[]>}
  */
 export function mergeByAxis(...lists) {
-  const seen = new Set();
-  const byAxis = {};
+  const best = new Map(); // dedupeKey → highest-severity action seen
   for (const list of lists) {
     for (const action of list || []) {
+      if (!isObject(action)) continue;
       const key = dedupeKey(action);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (!byAxis[action.axis]) byAxis[action.axis] = [];
-      byAxis[action.axis].push(action);
+      const existing = best.get(key);
+      // strict < keeps the first-seen entry on a severity tie
+      if (!existing || severityRank(action.severity) < severityRank(existing.severity)) {
+        best.set(key, action);
+      }
     }
   }
+  const byAxis = {};
+  for (const action of best.values()) {
+    if (!byAxis[action.axis]) byAxis[action.axis] = [];
+    byAxis[action.axis].push(action);
+  }
   for (const axis of Object.keys(byAxis)) {
-    byAxis[axis].sort(
-      (x, y) => (SEVERITY_RANK[x.severity] ?? 9) - (SEVERITY_RANK[y.severity] ?? 9)
-    );
+    byAxis[axis].sort((x, y) => severityRank(x.severity) - severityRank(y.severity));
   }
   return byAxis;
 }

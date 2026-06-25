@@ -78,6 +78,12 @@ describe("fromActionItems", () => {
     expect(fromActionItems(undefined)).toEqual([]);
     expect(fromActionItems({})).toEqual([]);
   });
+
+  it("skips malformed (null/non-object) array elements without throwing", () => {
+    const out = fromActionItems([null, item("blocked_po", 1), "junk", undefined, 42]);
+    expect(out).toHaveLength(1);
+    expect(out[0].axis).toBe("production");
+  });
 });
 
 describe("fromResolutionActions", () => {
@@ -103,6 +109,14 @@ describe("fromResolutionActions", () => {
     expect(fromResolutionActions(null)).toEqual([]);
     expect(fromResolutionActions({})).toEqual([]);
     expect(fromResolutionActions({ resolution_actions: "nope" })).toEqual([]);
+  });
+
+  it("skips malformed resolution-action elements without throwing", () => {
+    const out = fromResolutionActions({
+      resolution_actions: [null, { priority: 2, action: "Do it", reference_type: "production_order", reference_id: 1 }, 7],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].label).toBe("Do it");
   });
 });
 
@@ -152,6 +166,19 @@ describe("mergeByAxis", () => {
   it("dedupes identical actions across sources", () => {
     const a = { axis: "payment", label: "Collect payment", verb: "record_payment", target: { type: "sales_order", id: 3 }, severity: "high", enabled: true };
     const grouped = mergeByAxis([a], [{ ...a }]);
+    expect(grouped.payment).toHaveLength(1);
+  });
+
+  it("keeps the highest-severity action when a key is duplicated", () => {
+    const base = { axis: "production", label: "Start", verb: "start_production", target: { type: "sales_order", id: 5 }, enabled: true };
+    // low arrives first, critical later with the same dedupe key
+    const grouped = mergeByAxis([{ ...base, severity: "low" }], [{ ...base, severity: "critical" }]);
+    expect(grouped.production).toHaveLength(1);
+    expect(grouped.production[0].severity).toBe("critical");
+  });
+
+  it("skips malformed entries without throwing", () => {
+    const grouped = mergeByAxis([null, { axis: "payment", label: "Pay", severity: "high", enabled: true }, "junk"]);
     expect(grouped.payment).toHaveLength(1);
   });
 
