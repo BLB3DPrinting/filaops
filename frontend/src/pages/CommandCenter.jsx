@@ -18,7 +18,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useCommandCenter from '../hooks/useCommandCenter';
 import SummaryCard from '../components/command-center/SummaryCard';
-import AlertCard from '../components/command-center/AlertCard';
+import NextActionLane from '../components/command-center/NextActionLane';
+import { orderedLanes } from '../components/command-center/axisMeta';
+import { fromActionItems, mergeByAxis } from '../lib/nextActions';
 import MachineStatusGrid from '../components/command-center/MachineStatusGrid';
 import OperationSchedulerModal from '../components/production/OperationSchedulerModal';
 import { canAutoDispatch, confirmDispatch } from '../components/command-center/DispatchChip';
@@ -372,22 +374,15 @@ export default function CommandCenter() {
             ) : actionItems.length === 0 ? (
               <AllClearState />
             ) : (
-              <div className="space-y-3">
-                {actionItems.map((item) => (
-                  <AlertCard
-                    key={item.id}
-                    type={item.type}
-                    priority={item.priority}
-                    title={item.title}
-                    description={item.description}
-                    entityType={item.entity_type}
-                    entityId={item.entity_id}
-                    entityCode={item.entity_code}
-                    suggestedActions={item.suggested_actions}
-                    createdAt={item.created_at}
-                    metadata={item.metadata}
-                  />
-                ))}
+              // Project the flat ActionItem list through the multi-axis
+              // next-action contract: group by axis into severity-sorted lanes
+              // (#808 F4). Same payload, no new backend calls.
+              <div className="space-y-5">
+                {orderedLanes(mergeByAxis(fromActionItems(actionItems))).map(
+                  ([axis, actions]) => (
+                    <NextActionLane key={axis} axis={axis} actions={actions} />
+                  )
+                )}
               </div>
             )}
           </section>
