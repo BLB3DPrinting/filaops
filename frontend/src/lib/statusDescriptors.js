@@ -139,6 +139,23 @@ export const STATUS_DESCRIPTORS = {
   },
 };
 
+/**
+ * Own-property lookup through the registry. Avoids inherited keys
+ * (`__proto__`, `constructor`, `toString`, ...) resolving to Object.prototype
+ * members, which would make a malformed value falsely "match".
+ * @returns {object|undefined} the registered entry, or undefined.
+ */
+function lookupEntry(model, field, value) {
+  const has = (obj, key) =>
+    obj != null && Object.prototype.hasOwnProperty.call(obj, key);
+  if (!has(STATUS_DESCRIPTORS, model)) return undefined;
+  const fields = STATUS_DESCRIPTORS[model];
+  if (!has(fields, field)) return undefined;
+  const values = fields[field];
+  if (!has(values, value)) return undefined;
+  return values[value];
+}
+
 /** Title-case an unknown status value: `partially_shipped` → `Partially Shipped`. */
 function titleCase(value) {
   return String(value)
@@ -163,7 +180,7 @@ export function getDescriptor(model, field, value) {
   if (value === null || value === undefined || value === "") {
     return { label: "—", tone: "neutral", terminal: false };
   }
-  const entry = STATUS_DESCRIPTORS[model]?.[field]?.[value];
+  const entry = lookupEntry(model, field, value);
   if (entry) {
     return { label: entry.label, tone: entry.tone, terminal: !!entry.terminal };
   }
@@ -172,7 +189,7 @@ export function getDescriptor(model, field, value) {
 
 /** True if (model, field, value) has a registered descriptor (not a fallback). */
 export function hasDescriptor(model, field, value) {
-  return Boolean(STATUS_DESCRIPTORS[model]?.[field]?.[value]);
+  return lookupEntry(model, field, value) !== undefined;
 }
 
 export default getDescriptor;

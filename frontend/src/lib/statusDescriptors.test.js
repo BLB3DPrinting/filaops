@@ -51,6 +51,20 @@ describe("getDescriptor", () => {
     expect(getDescriptor("unknown_model", "status", "anything").label).toBe("Anything");
   });
 
+  it("does not treat inherited Object keys as registered descriptors", () => {
+    // Plain bracket access would resolve __proto__/constructor/toString to
+    // Object.prototype members; the lookup must use own-property checks.
+    for (const evil of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      expect(hasDescriptor("production_order", "status", evil)).toBe(false);
+      const d = getDescriptor("production_order", "status", evil);
+      expect(typeof d.label).toBe("string"); // never undefined
+      expect(d.tone).toBe("neutral");
+      // an inherited model/field key must not resolve either
+      expect(hasDescriptor("toString", "status", "complete")).toBe(false);
+      expect(hasDescriptor("production_order", "constructor", "complete")).toBe(false);
+    }
+  });
+
   it("returns a placeholder for null/undefined/empty value", () => {
     for (const v of [null, undefined, ""]) {
       expect(getDescriptor("sales_order", "status", v)).toEqual({
