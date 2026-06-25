@@ -595,10 +595,13 @@ async def delete_scrap_reason(
 # every enum member — a new/renamed value then fails loudly at CI instead of
 # silently returning a blank description. The endpoints still `.get(..., "")` so
 # a drift slip degrades gracefully at runtime rather than 500-ing (#818).
+#
+# NOTE: these endpoints import QCStatus/OperationStatus from app.core.status_config
+# (NOT the schemas enums of the same name), so the keys mirror that enum's members
+# — status_config.QCStatus has no `in_progress`. (Discrepancy logged separately.)
 QC_STATUS_DESCRIPTIONS = {
     "not_required": "No inspection required",
     "pending": "Awaiting inspection",
-    "in_progress": "Inspection in progress",
     "passed": "Passed quality check",
     "failed": "Failed quality check",
     "waived": "Failed but accepted (waived)",

@@ -20,7 +20,7 @@ class TestStaticRoutesNotShadowed:
         r = client.get(f"{PREFIX}/qc-statuses")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert "statuses" in body and "in_progress" in body["statuses"]
+        assert "statuses" in body and "passed" in body["statuses"]
 
     def test_operation_statuses_resolves(self, client):
         r = client.get(f"{PREFIX}/operation-statuses")
@@ -45,11 +45,11 @@ class TestStatusDescriptionCoverage:
     blank description in the API."""
 
     def test_qc_status_descriptions_cover_all_members(self):
-        from app.api.v1.endpoints.production_orders import QC_STATUS_DESCRIPTIONS
-        from app.schemas.production_order import QCStatus
+        # Import the SAME QCStatus the endpoint uses (status_config, not schemas)
+        # so the map is checked against the enum actually iterated.
+        from app.api.v1.endpoints.production_orders import QC_STATUS_DESCRIPTIONS, QCStatus
         assert set(QC_STATUS_DESCRIPTIONS) == {m.value for m in QCStatus}
 
     def test_operation_status_descriptions_cover_all_members(self):
-        from app.api.v1.endpoints.production_orders import OPERATION_STATUS_DESCRIPTIONS
-        from app.schemas.production_order import OperationStatus
+        from app.api.v1.endpoints.production_orders import OPERATION_STATUS_DESCRIPTIONS, OperationStatus
         assert set(OPERATION_STATUS_DESCRIPTIONS) == {m.value for m in OperationStatus}
