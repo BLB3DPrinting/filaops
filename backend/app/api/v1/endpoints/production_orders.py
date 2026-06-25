@@ -1266,11 +1266,14 @@ async def record_qc_inspection(
     current_user: User = Depends(get_current_user),
 ) -> QCInspectionResponse:
     """Record QC inspection results."""
-    production_order_service.record_qc_inspection(
+    inspection = production_order_service.record_qc_inspection(
         db,
         order_id,
         inspector=current_user.email,
         qc_status=request.result.value,
+        quantity_passed=request.quantity_passed,
+        quantity_failed=request.quantity_failed,
+        failure_reason=request.failure_reason,
         notes=request.notes,
     )
 
@@ -1281,6 +1284,7 @@ async def record_qc_inspection(
     return QCInspectionResponse(
         production_order_id=order.id,
         production_order_code=order.code,
+        inspection_id=inspection.get("inspection_id"),
         qc_status=order.qc_status,
         qc_notes=order.qc_notes,
         qc_inspected_by=order.qc_inspected_by,

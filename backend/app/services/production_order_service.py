@@ -664,19 +664,22 @@ def record_qc_inspection(
 
     # Derive whole-order pass/fail quantities when the caller does not supply
     # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
-    # Only the missing side is derived, so a caller that supplies one keeps it.
-    if quantity_passed is None or quantity_failed is None:
-        order_qty = int(order.quantity_completed or order.quantity_ordered or 0)
+    # When exactly ONE side is given, derive the other as its COMPLEMENT to the
+    # order quantity — a one-sided request like quantity_failed=1 on a 10-unit
+    # order must yield passed=9, not passed=order_qty (which would total 11).
+    order_qty = int(order.quantity_completed or order.quantity_ordered or 0)
+    if quantity_passed is None and quantity_failed is None:
         if qc_status == "failed":
-            if quantity_passed is None:
-                quantity_passed = 0
-            if quantity_failed is None:
-                quantity_failed = order_qty
+            quantity_passed, quantity_failed = 0, order_qty
         else:
-            if quantity_passed is None:
-                quantity_passed = order_qty
-            if quantity_failed is None:
-                quantity_failed = 0
+            quantity_passed, quantity_failed = order_qty, 0
+    elif quantity_passed is None:
+        quantity_passed = max(0, order_qty - quantity_failed)
+    elif quantity_failed is None:
+        quantity_failed = max(0, order_qty - quantity_passed)
+    # else: caller supplied both — trust the explicit split (supports a partial
+    # inspection of fewer than order_qty units).
+    quantity_passed = quantity_passed or 0
     quantity_failed = quantity_failed or 0
 
     inspected_at = datetime.now(timezone.utc)
