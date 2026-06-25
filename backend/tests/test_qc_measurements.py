@@ -66,3 +66,26 @@ class TestQCMeasurements:
         })
         ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
         assert ms[0]["is_within_spec"] is True  # boundary is inclusive
+
+    def test_inverted_limits_rejected(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        r = client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "x", "lower_limit": "10", "upper_limit": "5", "measured_value": "7"},
+            ],
+        })
+        assert r.status_code == 422  # transposed LSL/USL rejected at the boundary
+
+    def test_equal_sequence_keeps_insertion_order(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "first", "sequence": 1, "measured_value": "1"},
+                {"characteristic": "second", "sequence": 1, "measured_value": "2"},
+            ],
+        })
+        ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
+        # equal sequence -> id tie-breaker preserves insertion order
+        assert [m["characteristic"] for m in ms] == ["first", "second"]

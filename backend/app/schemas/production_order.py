@@ -3,7 +3,7 @@ Production Order Pydantic Schemas
 
 Manufacturing Orders (MOs) for tracking production of finished goods.
 """
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 from typing import Any, Dict, Optional, List
 from datetime import datetime, date
 from decimal import Decimal
@@ -577,6 +577,18 @@ class QCMeasurementInput(BaseModel):
     measured_value: Optional[Decimal] = Field(None, description="Actual measured value")
     unit: Optional[str] = Field(None, max_length=20, description="e.g. mm, g")
     sequence: Optional[int] = Field(None, description="Display order; defaults to input order")
+
+    @model_validator(mode="after")
+    def _limits_ordered(self):
+        # A transposed LSL/USL would make is_within_spec contradictory; reject it
+        # at the boundary instead.
+        if (
+            self.lower_limit is not None
+            and self.upper_limit is not None
+            and self.lower_limit > self.upper_limit
+        ):
+            raise ValueError("lower_limit cannot be greater than upper_limit")
+        return self
 
 
 class QCMeasurementRecord(BaseModel):

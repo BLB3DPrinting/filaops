@@ -556,7 +556,9 @@ class QCInspection(Base):
         "QCInspectionMeasurement",
         back_populates="inspection",
         cascade="all, delete-orphan",
-        order_by="QCInspectionMeasurement.sequence",
+        # id is the tie-breaker so equal sequence values keep a stable
+        # (insertion) order rather than being nondeterministic.
+        order_by="(QCInspectionMeasurement.sequence, QCInspectionMeasurement.id)",
     )
     photos = relationship(
         "QCInspectionPhoto",
