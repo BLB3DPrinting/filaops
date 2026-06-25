@@ -247,6 +247,10 @@ class ProductionOrderListResponse(BaseModel):
 
     # QC Status
     qc_status: str = "not_required"
+    # Computed guard flags (UX next-action contract, #808)
+    is_ready_for_qc: bool = False
+    can_close: bool = False
+    is_qc_required: bool = False
 
     due_date: Optional[date] = None
     scheduled_start: Optional[datetime] = None

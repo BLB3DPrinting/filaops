@@ -166,6 +166,12 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
         "created_at": order.created_at,
         "updated_at": order.updated_at,
         "confirmed_at": getattr(order, "confirmed_at", None),
+        # Computed guard flags for the next-action contract (#808)
+        "is_paid": order.is_paid,
+        "is_cancellable": order.is_cancellable,
+        "can_start_production": order.can_start_production,
+        "is_ready_to_ship": order.is_ready_to_ship,
+        "is_complete": order.is_complete,
         "lines": lines,
     }
 
