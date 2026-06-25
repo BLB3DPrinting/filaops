@@ -9,6 +9,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
 
+from app.schemas.defect_reason import DefectReasonBrief
+
 
 # ============================================================================
 # Enums
@@ -592,14 +594,19 @@ class QCInspectionRequest(BaseModel):
         max_length=2000,
         description="Inspector notes about the QC inspection"
     )
+    defect_reason_id: Optional[int] = Field(
+        None,
+        description="Structured defect classification (DefectReason id), for failed/conditional results.",
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
-                "result": "passed",
+                "result": "failed",
                 "quantity_passed": 9,
                 "quantity_failed": 1,
                 "failure_reason": "1 unit warped on the corner",
+                "defect_reason_id": 3,
                 "notes": "All units inspected. Surface finish acceptable."
             }
         }
@@ -614,6 +621,7 @@ class QCInspectionResponse(BaseModel):
     qc_notes: Optional[str] = None
     qc_inspected_by: Optional[str] = None
     qc_inspected_at: Optional[datetime] = None
+    defect_reason_id: Optional[int] = None
     sales_order_updated: bool = False
     sales_order_status: Optional[str] = None
     message: str
@@ -631,6 +639,9 @@ class QCInspectionRecord(BaseModel):
     inspector_name: Optional[str] = None
     failure_reason: Optional[str] = None
     notes: Optional[str] = None
+    defect_reason_id: Optional[int] = None
+    defect_reason: Optional[DefectReasonBrief] = None
+    waiver_user_id: Optional[int] = None
     inspected_at: Optional[datetime] = None
 
     class Config:

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **QC defect taxonomy + waive attribution (#784).** New configurable defect reasons (`GET/POST /api/v1/production-orders/defect-reasons`, `/all`, `PATCH /{id}`) with free-form category and a `minor|major|critical` severity. Recording a QC inspection (`POST /production-orders/{id}/qc`) now accepts a `defect_reason_id` and, on a `waived` result, attributes the waive to the operator (`waiver_user_id`); the inspection history exposes the defect reason and waiver.
+
 ### Changed
 
 - **Quality metrics — true first-pass yield (#784).** `GET /api/v1/quality/metrics` now derives `first_pass_yield`, `passed`, `failed`, and `total_inspections` from each order's **first `qc_inspections` row** instead of the `ProductionOrder.qc_status` cache. The cache is last-write-wins, so an order that failed initial inspection and was later re-inspected or waived to "passed" previously counted as a first-pass success and inflated the yield. **Expect FPY to move** (typically downward) where re-inspections occur — this is the corrected value, not a regression. Orders inspected before inspection rows were recorded are not counted in the metric.

@@ -625,6 +625,8 @@ def record_qc_inspection(
     quantity_failed: Optional[int] = None,
     failure_reason: Optional[str] = None,
     notes: Optional[str] = None,
+    defect_reason_id: Optional[int] = None,
+    waiver_user_id: Optional[int] = None,
 ) -> dict:
     """
     Record QC inspection results for a production order.
@@ -660,6 +662,48 @@ def record_qc_inspection(
             raise HTTPException(
                 status_code=400,
                 detail=f"{_name} cannot be negative (got {_val})",
+            )
+
+    # Validate the defect reason before writing the immutable row. Explicit 400s
+    # beat a 500 IntegrityError and keep QC history clean (#784):
+    #  - must exist; must be active (deactivated reasons are historical-only);
+    #  - a clean 'passed' carries no defect. failed/conditional/waived may — a
+    #    waive records the very defect being accepted.
+    if defect_reason_id is not None:
+        from app.models.defect_reason import DefectReason
+        reason = (
+            db.query(DefectReason).filter(DefectReason.id == defect_reason_id).first()
+        )
+        if reason is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"defect_reason_id {defect_reason_id} does not exist",
+            )
+        if not reason.active:
+            raise HTTPException(
+                status_code=400,
+                detail=f"defect_reason_id {defect_reason_id} is inactive; pick an active reason",
+            )
+        if qc_status == "passed":
+            raise HTTPException(
+                status_code=400,
+                detail="a defect_reason cannot be attached to a 'passed' inspection",
+            )
+
+    # Symmetric guard for the waiver: it may only attribute a 'waived' result,
+    # and the user must exist — an explicit 400 beats a 500 FK IntegrityError on
+    # an unknown id, and keeps waiver attribution off non-waive history (#784).
+    if waiver_user_id is not None:
+        from app.models.user import User
+        if qc_status != "waived":
+            raise HTTPException(
+                status_code=400,
+                detail="waiver_user_id is only allowed on a 'waived' inspection",
+            )
+        if not db.query(User.id).filter(User.id == waiver_user_id).first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"waiver_user_id {waiver_user_id} does not exist",
             )
 
     # Derive whole-order pass/fail quantities when the caller does not supply
@@ -737,6 +781,8 @@ def record_qc_inspection(
         inspector_name=inspector,
         failure_reason=failure_reason,
         notes=notes,
+        defect_reason_id=defect_reason_id,
+        waiver_user_id=waiver_user_id,
         inspected_at=inspected_at,
     )
     db.add(inspection)
@@ -753,6 +799,7 @@ def record_qc_inspection(
         "quantity_failed": quantity_failed,
         "failure_reason": failure_reason,
         "notes": notes,
+        "defect_reason_id": defect_reason_id,
         "inspected_at": inspected_at.isoformat(),
         "inspection_id": inspection_id,
     }
