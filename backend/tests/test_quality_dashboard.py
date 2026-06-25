@@ -11,6 +11,20 @@ Covers:
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.models.production_order import QCInspection
+
+
+def _add_inspection(db, po_id, result, when):
+    """Append a qc_inspections row — the #784 first-pass source of truth.
+
+    Flushes after each insert so auto-increment ids reflect call order, which is
+    what get_quality_metrics relies on (first inspection = min(id) per order).
+    """
+    insp = QCInspection(production_order_id=po_id, result=result, inspected_at=when)
+    db.add(insp)
+    db.flush()
+    return insp
+
 
 # =============================================================================
 # Inspection Queue
@@ -110,19 +124,16 @@ class TestQualityMetrics:
         product = make_product()
         now = datetime.now(timezone.utc)
 
-        # 3 passed, 1 failed → yield = 75%
+        # 3 orders pass first inspection, 1 fails → yield = 75%
         for _ in range(3):
-            make_production_order(
-                product_id=product.id, status="closed",
-                qc_status="passed", qc_inspected_at=now,
-                quantity=Decimal("10"),
+            po = make_production_order(
+                product_id=product.id, status="closed", quantity=Decimal("10"),
             )
-        make_production_order(
-            product_id=product.id, status="qc_hold",
-            qc_status="failed", qc_inspected_at=now,
-            quantity=Decimal("10"),
+            _add_inspection(db, po.id, "passed", now)
+        po_failed = make_production_order(
+            product_id=product.id, status="qc_hold", quantity=Decimal("10"),
         )
-        db.flush()
+        _add_inspection(db, po_failed.id, "failed", now)
 
         resp = client.get("/api/v1/quality/metrics?days=30")
         data = resp.json()
@@ -130,6 +141,58 @@ class TestQualityMetrics:
         assert data["failed"] == 1
         assert data["total_inspections"] == 4
         assert data["first_pass_yield"] == 75.0
+
+    def test_fpy_uses_first_inspection_not_qc_status_cache(
+        self, client, db, make_product, make_production_order
+    ):
+        """An order that FAILED first inspection then passed re-inspection must
+        count as a first-pass FAILURE — even though the qc_status cache says
+        'passed'. This is the whole reason FPY reads the first row (#784)."""
+        product = make_product()
+        now = datetime.now(timezone.utc)
+        po = make_production_order(
+            product_id=product.id, status="closed",
+            qc_status="passed", quantity=Decimal("10"),  # misleading cache
+        )
+        # First inspection FAILED (smaller id), re-inspection PASSED (larger id).
+        _add_inspection(db, po.id, "failed", now)
+        _add_inspection(db, po.id, "passed", now)
+
+        data = client.get("/api/v1/quality/metrics?days=30").json()
+        assert data["passed"] == 0
+        assert data["failed"] == 1
+        assert data["first_pass_yield"] == 0.0  # NOT 100 from the stale cache
+
+    def test_fpy_excludes_waived_and_conditional(
+        self, client, db, make_product, make_production_order
+    ):
+        product = make_product()
+        now = datetime.now(timezone.utc)
+        po_p = make_production_order(product_id=product.id, quantity=Decimal("10"))
+        po_w = make_production_order(product_id=product.id, quantity=Decimal("10"))
+        po_c = make_production_order(product_id=product.id, quantity=Decimal("10"))
+        _add_inspection(db, po_p.id, "passed", now)
+        _add_inspection(db, po_w.id, "waived", now)
+        _add_inspection(db, po_c.id, "conditional", now)
+
+        data = client.get("/api/v1/quality/metrics?days=30").json()
+        assert data["passed"] == 1
+        assert data["total_inspections"] == 3  # passed + waived + conditional
+        # waived + conditional excluded from the ratio → 1 / 1 = 100%
+        assert data["first_pass_yield"] == 100.0
+
+    def test_fpy_respects_period_window(
+        self, client, db, make_product, make_production_order
+    ):
+        """A first inspection older than the window is excluded."""
+        product = make_product()
+        old = datetime.now(timezone.utc) - timedelta(days=45)
+        po = make_production_order(product_id=product.id, quantity=Decimal("10"))
+        _add_inspection(db, po.id, "passed", old)
+
+        data = client.get("/api/v1/quality/metrics?days=30").json()
+        assert data["total_inspections"] == 0
+        assert data["first_pass_yield"] is None
 
     def test_pending_count(self, client, db, make_product, make_production_order):
         product = make_product()
