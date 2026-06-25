@@ -14,7 +14,7 @@
  * cycle — EXCEPT suggestions carrying a maintenance_warning (hard block).
  * canAutoDispatch() from DispatchChip enforces this guard.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useCommandCenter from '../hooks/useCommandCenter';
 import SummaryCard from '../components/command-center/SummaryCard';
@@ -166,6 +166,16 @@ export default function CommandCenter() {
     error,
     refetch
   } = useCommandCenter(true, 60000); // Auto-refresh every 60s
+
+  // Project the flat ActionItem list through the multi-axis next-action
+  // contract ONCE, then drive both the header count and the lane render from
+  // it. mergeByAxis dedupes by key, so deriving the count from the raw
+  // actionItems length would overcount vs the cards actually shown (#808 F4).
+  const laneEntries = useMemo(
+    () => orderedLanes(mergeByAxis(fromActionItems(actionItems))),
+    [actionItems]
+  );
+  const actionCount = laneEntries.reduce((sum, [, actions]) => sum + actions.length, 0);
 
   // ─── Dispatch suggestions fetch ──────────────────────────────────────────
   const refreshSuggestions = useCallback(async () => {
@@ -363,26 +373,23 @@ export default function CommandCenter() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               Action Items
-              {actionItems.length > 0 && (
+              {actionCount > 0 && (
                 <span className="text-sm font-normal text-[var(--color-text-muted,theme(colors.gray.400))]">
-                  ({actionItems.length})
+                  ({actionCount})
                 </span>
               )}
             </h2>
             {loading ? (
               <ActionItemsSkeleton />
-            ) : actionItems.length === 0 ? (
+            ) : actionCount === 0 ? (
               <AllClearState />
             ) : (
-              // Project the flat ActionItem list through the multi-axis
-              // next-action contract: group by axis into severity-sorted lanes
-              // (#808 F4). Same payload, no new backend calls.
+              // Render the projected axis lanes (severity-sorted, deduped).
+              // Same payload, no new backend calls (#808 F4).
               <div className="space-y-5">
-                {orderedLanes(mergeByAxis(fromActionItems(actionItems))).map(
-                  ([axis, actions]) => (
-                    <NextActionLane key={axis} axis={axis} actions={actions} />
-                  )
-                )}
+                {laneEntries.map(([axis, actions]) => (
+                  <NextActionLane key={axis} axis={axis} actions={actions} />
+                ))}
               </div>
             )}
           </section>
