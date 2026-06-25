@@ -313,6 +313,13 @@ def build_list_response(order: ProductionOrder, db: Session) -> ProductionOrderL
         actual_material_cost=order.actual_material_cost,
         actual_labor_cost=order.actual_labor_cost,
         actual_total_cost=order.actual_total_cost,
+        # QC status + computed guards for the next-action contract (#808).
+        # qc_status was previously omitted, so the list always reported the
+        # "not_required" default regardless of the real value.
+        qc_status=order.qc_status or "not_required",
+        is_ready_for_qc=order.is_ready_for_qc,
+        can_close=order.can_close,
+        is_qc_required=order.is_qc_required,
         created_at=order.created_at,
     )
 

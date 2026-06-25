@@ -305,6 +305,15 @@ class SalesOrderResponse(SalesOrderBase):
     closed_short_at: Optional[datetime] = None
     close_short_reason: Optional[str] = None
 
+    # Computed guard flags (UX next-action contract, #808) — surfaced so the
+    # cockpit/workbench PROJECT next-actions from these instead of re-deriving
+    # readiness client-side (which would drift from the model's @property logic).
+    is_paid: bool = False
+    is_cancellable: bool = False
+    can_start_production: bool = False
+    is_ready_to_ship: bool = False
+    is_complete: bool = False
+
     # Timestamps
     created_at: datetime
     updated_at: datetime
