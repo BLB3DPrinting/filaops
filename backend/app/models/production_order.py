@@ -525,6 +525,20 @@ class QCInspection(Base):
     failure_reason = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
 
+    # Structured defect classification (#784) — links a failed inspection to a
+    # configurable DefectReason. Nullable: a pass/waive carries no defect.
+    defect_reason_id = Column(
+        Integer,
+        ForeignKey("defect_reasons.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Who waived (when result='waived'). Core keeps the attributed waive on the
+    # immutable inspection row; NCR / hold-and-disposition is deferred to PRO.
+    waiver_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     inspected_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -536,6 +550,89 @@ class QCInspection(Base):
     production_order = relationship("ProductionOrder", backref="qc_inspections")
     production_operation = relationship("ProductionOrderOperation")
     inspector = relationship("User", foreign_keys=[inspector_user_id])
+    defect_reason = relationship("DefectReason")
+    waiver = relationship("User", foreign_keys=[waiver_user_id])
+    measurements = relationship(
+        "QCInspectionMeasurement",
+        back_populates="inspection",
+        cascade="all, delete-orphan",
+        order_by="QCInspectionMeasurement.sequence",
+    )
+    photos = relationship(
+        "QCInspectionPhoto",
+        back_populates="inspection",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<QCInspection {self.id}: PO {self.production_order_id} -> {self.result}>"
+
+
+class QCInspectionMeasurement(Base):
+    """A single quantitative measurement taken during an inspection (#784).
+
+    Numeric (not Float) so values are exact and SPC-ready. Spec limits are
+    optional — a measurement may be recorded without a defined tolerance.
+    """
+
+    __tablename__ = "qc_inspection_measurements"
+
+    id = Column(Integer, primary_key=True)  # PK auto-indexed; no redundant ix_*_id
+    qc_inspection_id = Column(
+        Integer,
+        ForeignKey("qc_inspections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    characteristic = Column(String(100), nullable=False)  # what was measured
+    nominal = Column(Numeric(18, 4), nullable=True)  # target value
+    lower_limit = Column(Numeric(18, 4), nullable=True)  # LSL
+    upper_limit = Column(Numeric(18, 4), nullable=True)  # USL
+    measured_value = Column(Numeric(18, 4), nullable=True)
+    unit = Column(String(20), nullable=True)  # mm, g, ...
+    sequence = Column(Integer, default=0, nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    inspection = relationship("QCInspection", back_populates="measurements")
+
+    def __repr__(self):
+        return (
+            f"<QCInspectionMeasurement {self.characteristic}="
+            f"{self.measured_value}{self.unit or ''}>"
+        )
+
+
+class QCInspectionPhoto(Base):
+    """A photo attached to a QC inspection (#784).
+
+    Its own table — NOT a reuse of purchase_order_documents — though the column
+    conventions (local path / external url / storage type) mirror that table.
+    """
+
+    __tablename__ = "qc_inspection_photos"
+
+    id = Column(Integer, primary_key=True)  # PK auto-indexed; no redundant ix_*_id
+    qc_inspection_id = Column(
+        Integer,
+        ForeignKey("qc_inspections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=True)  # local path
+    file_url = Column(String(1000), nullable=True)  # external URL
+    storage_type = Column(String(50), nullable=False, default="local")  # local | s3
+    mime_type = Column(String(100), nullable=True)
+    file_size = Column(Integer, nullable=True)  # bytes
+    caption = Column(String(255), nullable=True)
+    uploaded_by = Column(String(100), nullable=True)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    inspection = relationship("QCInspection", back_populates="photos")
+
+    def __repr__(self):
+        return f"<QCInspectionPhoto {self.id}: inspection {self.qc_inspection_id}>"
