@@ -18,6 +18,12 @@ class TestStaticRoutesNotShadowed:
     def test_qc_statuses_resolves(self, client):
         r = client.get(f"{PREFIX}/qc-statuses")
         assert r.status_code == 200, r.text
+        body = r.json()
+        assert "statuses" in body and "in_progress" in body["statuses"]
+
+    def test_operation_statuses_resolves(self, client):
+        r = client.get(f"{PREFIX}/operation-statuses")
+        assert r.status_code == 200, r.text
         assert "statuses" in r.json()
 
     def test_detail_route_still_works_for_int(self, client, db, make_product, make_production_order):

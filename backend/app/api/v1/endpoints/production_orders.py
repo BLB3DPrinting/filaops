@@ -494,7 +494,8 @@ async def get_scrap_reasons(
                 active=r.active,
             )
             for r in reasons
-        ]
+        ],
+        descriptions={r.code: (r.description or r.name or "") for r in reasons},
     )
 
 
@@ -594,16 +595,19 @@ async def get_qc_statuses(
     current_user: User = Depends(get_current_user),
 ) -> QCStatusesResponse:
     """Get valid QC status values."""
+    # Build descriptions by iterating actual enum members (keyed by value), so a
+    # description for an enum value that no longer exists can't raise at runtime.
+    descriptions = {
+        "not_required": "No inspection required",
+        "pending": "Awaiting inspection",
+        "in_progress": "Inspection in progress",
+        "passed": "Passed quality check",
+        "failed": "Failed quality check",
+        "waived": "Failed but accepted (waived)",
+    }
     return {
         "statuses": [s.value for s in QCStatus],
-        "descriptions": {
-            QCStatus.NOT_REQUIRED.value: "No inspection required",
-            QCStatus.PENDING.value: "Awaiting inspection",
-            QCStatus.IN_PROGRESS.value: "Inspection in progress",
-            QCStatus.PASSED.value: "Passed quality check",
-            QCStatus.FAILED.value: "Failed quality check",
-            QCStatus.WAIVED.value: "Failed but accepted (waived)",
-        }
+        "descriptions": {s.value: descriptions.get(s.value, "") for s in QCStatus},
     }
 
 
@@ -612,16 +616,19 @@ async def get_operation_statuses(
     current_user: User = Depends(get_current_user),
 ) -> OperationStatusesResponse:
     """Get valid operation status values."""
+    # Iterate actual members (keyed by value). The previous version referenced
+    # OperationStatus.PAUSED, which is not a member — a latent 500 that was
+    # hidden while this route was shadowed by GET /{order_id}.
+    descriptions = {
+        "pending": "Not started",
+        "queued": "Waiting in queue",
+        "running": "Currently running",
+        "complete": "Finished",
+        "skipped": "Skipped",
+    }
     return {
         "statuses": [s.value for s in OperationStatus],
-        "descriptions": {
-            OperationStatus.PENDING.value: "Not started",
-            OperationStatus.QUEUED.value: "Waiting in queue",
-            OperationStatus.RUNNING.value: "Currently running",
-            OperationStatus.PAUSED.value: "Temporarily paused",
-            OperationStatus.COMPLETE.value: "Finished",
-            OperationStatus.SKIPPED.value: "Skipped",
-        }
+        "descriptions": {s.value: descriptions.get(s.value, "") for s in OperationStatus},
     }
 
 
