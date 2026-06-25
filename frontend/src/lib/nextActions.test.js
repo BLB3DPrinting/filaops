@@ -58,6 +58,7 @@ describe("fromActionItems", () => {
       reason: "blocked_po desc",
       severity: "critical",
       verb: "navigate",
+      verbLabel: "Go",
       href: "/admin/production/7",
       target: { type: "production_order", id: 7, code: "WO-7" },
       enabled: true,

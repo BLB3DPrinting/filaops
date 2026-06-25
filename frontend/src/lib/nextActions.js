@@ -24,6 +24,7 @@
  * @property {string} [reason]
  * @property {Severity} severity
  * @property {string} [verb] - a UI handler key (e.g. 'record_payment')
+ * @property {string} [verbLabel] - human label for the action button (e.g. 'View PO')
  * @property {string} [href] - deep link
  * @property {ActionTarget} [target]
  * @property {boolean} enabled
@@ -77,6 +78,7 @@ export function fromActionItems(actionItems) {
         reason: item.description || undefined,
         severity: severityFromPriority(item.priority),
         verb: primary.action_type || undefined,
+        verbLabel: primary.label || undefined,
         href: primary.url || undefined,
         target: hasTarget
           ? { type: item.entity_type, id: item.entity_id, code: item.entity_code || undefined }
