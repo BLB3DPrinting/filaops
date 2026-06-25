@@ -690,6 +690,22 @@ def record_qc_inspection(
                 detail="a defect_reason cannot be attached to a 'passed' inspection",
             )
 
+    # Symmetric guard for the waiver: it may only attribute a 'waived' result,
+    # and the user must exist — an explicit 400 beats a 500 FK IntegrityError on
+    # an unknown id, and keeps waiver attribution off non-waive history (#784).
+    if waiver_user_id is not None:
+        from app.models.user import User
+        if qc_status != "waived":
+            raise HTTPException(
+                status_code=400,
+                detail="waiver_user_id is only allowed on a 'waived' inspection",
+            )
+        if not db.query(User.id).filter(User.id == waiver_user_id).first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"waiver_user_id {waiver_user_id} does not exist",
+            )
+
     # Derive whole-order pass/fail quantities when the caller does not supply
     # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
     # When exactly ONE side is given, derive the other as its COMPLEMENT to the

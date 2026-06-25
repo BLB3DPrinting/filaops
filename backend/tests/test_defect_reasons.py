@@ -5,6 +5,11 @@ dimension on POST /production-orders/{id}/qc.
 """
 from decimal import Decimal
 
+import pytest
+from fastapi import HTTPException
+
+from app.services import production_order_service
+
 BASE = "/api/v1/production-orders/defect-reasons"
 
 
@@ -121,3 +126,26 @@ class TestQCInspectionDefectAndWaive:
         rec = client.get(self.HIST.format(id=po.id)).json()["inspections"][0]
         assert rec["waiver_user_id"] is None
         assert rec["defect_reason"] is None
+
+
+class TestWaiverServiceGuard:
+    """The /qc endpoint only sets waiver_user_id on a waived result, but the
+    service guards a direct caller too (symmetric to defect_reason)."""
+
+    def test_waiver_rejected_on_non_waived_result(self, db, make_product, make_production_order):
+        from app.models.user import User
+        user = db.query(User).first()
+        po = _make_po(make_product, make_production_order)
+        with pytest.raises(HTTPException) as exc:
+            production_order_service.record_qc_inspection(
+                db, po.id, inspector="x", qc_status="failed", waiver_user_id=user.id,
+            )
+        assert exc.value.status_code == 400
+
+    def test_waiver_rejected_for_unknown_user(self, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        with pytest.raises(HTTPException) as exc:
+            production_order_service.record_qc_inspection(
+                db, po.id, inspector="x", qc_status="waived", waiver_user_id=999999,
+            )
+        assert exc.value.status_code == 400
