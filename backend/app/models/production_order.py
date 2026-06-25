@@ -182,13 +182,16 @@ class ProductionOrder(Base):
     @property
     def is_ready_for_qc(self):
         """True if WO is ready for quality inspection"""
-        return self.status == 'completed' and self.qc_status == 'pending'
-    
+        # Runtime PO status is 'complete' (operation_status/execution_service +
+        # the COMPLETE enum); the old 'completed' literal made this permanently
+        # False, so the cockpit "QC-due" lane could never populate.
+        return self.status == 'complete' and self.qc_status == 'pending'
+
     @property
     def can_close(self):
         """True if WO can be closed (all checks passed)"""
         return (
-            self.status == 'completed' and
+            self.status == 'complete' and
             self.qc_status in ['passed', 'not_required', 'waived'] and
             self.quantity_completed >= self.quantity_ordered
         )
