@@ -25,6 +25,7 @@ from app.models.uom import UnitOfMeasure
 from app.models.uom import UnitOfMeasure as UOM
 from app.models.scrap_reason import ScrapReason
 from app.models.defect_reason import DefectReason
+from app.models.quality_plan import QualityPlan, QualityPlanCharacteristic
 from app.models.adjustment_reason import AdjustmentReason
 from app.models.order_event import OrderEvent
 from app.models.purchasing_event import PurchasingEvent
