@@ -73,3 +73,23 @@ class TestQualityPlans:
 
     def test_rejects_unknown_product(self, client, db):
         assert client.post(PLANS, json=_plan_body(999999, code="QP-X3")).status_code == 400
+
+    def test_template_must_not_have_product(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-T1")
+        body["is_template"] = True  # contradicts the product_id
+        assert client.post(PLANS, json=body).status_code == 422
+
+    def test_product_plan_requires_a_product(self, client, db):
+        body = {"code": "QP-T2", "name": "x", "characteristics": []}  # not a template, no product
+        assert client.post(PLANS, json=body).status_code == 422
+
+    def test_template_without_product_is_ok(self, client, db):
+        body = {
+            "code": "QP-T3", "name": "Template", "is_template": True,
+            "characteristics": [{"characteristic": "length", "unit": "mm"}],
+        }
+        r = client.post(PLANS, json=body)
+        assert r.status_code == 201, r.text
+        assert r.json()["is_template"] is True
+        assert r.json()["product_id"] is None

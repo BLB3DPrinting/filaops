@@ -74,10 +74,29 @@ def create_quality_plan(db: Session, data) -> QualityPlan:
     return plan
 
 
+def _validate_scope(is_template: bool, product_id: Optional[int]) -> None:
+    if is_template and product_id is not None:
+        raise HTTPException(
+            status_code=400, detail="a template plan must not have a product_id"
+        )
+    if not is_template and product_id is None:
+        raise HTTPException(
+            status_code=400, detail="a product plan requires a product_id"
+        )
+
+
 def update_quality_plan(db: Session, plan_id: int, data) -> QualityPlan:
     plan = get_quality_plan(db, plan_id)
     if "product_id" in data.model_fields_set:
         _validate_product(db, data.product_id)
+    # Validate the RESULTING scope (the patch may change either field) before
+    # mutating, so an invalid combination is a clean 400 rather than a 500 from
+    # the DB CHECK at commit.
+    new_is_template = data.is_template if data.is_template is not None else plan.is_template
+    new_product_id = (
+        data.product_id if "product_id" in data.model_fields_set else plan.product_id
+    )
+    _validate_scope(new_is_template, new_product_id)
     for key, value in data.model_dump(
         exclude_unset=True, exclude={"characteristics"}
     ).items():

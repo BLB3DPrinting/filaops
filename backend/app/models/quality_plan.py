@@ -22,6 +22,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    func,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -33,6 +35,16 @@ class QualityPlan(Base):
     can be a reusable template (is_template=True), mirroring Routing."""
 
     __tablename__ = "quality_plans"
+    __table_args__ = (
+        # A template has no product; a product-specific plan must name one. This
+        # keeps scope-based consumers unambiguous (no orphan plans, no
+        # product-bound templates). Mirrors the migration CHECK.
+        CheckConstraint(
+            "(is_template AND product_id IS NULL) OR "
+            "(NOT is_template AND product_id IS NOT NULL)",
+            name="ck_quality_plans_template_scope",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     product_id = Column(
@@ -43,19 +55,23 @@ class QualityPlan(Base):
     )
     code = Column(String(50), nullable=False, index=True)
     name = Column(String(200), nullable=False)
-    version = Column(Integer, default=1, nullable=False)
-    revision = Column(String(20), default="1.0", nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_template = Column(Boolean, default=False, nullable=False)
+    # server_default mirrors migration 097 so create_all (tests/self-host) and
+    # Alembic (deploy) build identical schema.
+    version = Column(Integer, default=1, server_default="1", nullable=False)
+    revision = Column(String(20), default="1.0", server_default="1.0", nullable=False)
+    is_active = Column(Boolean, default=True, server_default=text("true"), nullable=False)
+    is_template = Column(Boolean, default=False, server_default=text("false"), nullable=False)
     effective_date = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(), nullable=False,
     )
     updated_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
         nullable=False,
     )
 
@@ -94,7 +110,7 @@ class QualityPlanCharacteristic(Base):
     lower_limit = Column(Numeric(18, 4), nullable=True)
     upper_limit = Column(Numeric(18, 4), nullable=True)
     unit = Column(String(20), nullable=True)
-    sequence = Column(Integer, default=0, nullable=False)
+    sequence = Column(Integer, default=0, server_default="0", nullable=False)
     severity = Column(String(20), nullable=True)  # minor | major | critical
     # Optional: which routing step this characteristic is inspected at.
     routing_operation_id = Column(
@@ -104,7 +120,8 @@ class QualityPlanCharacteristic(Base):
         index=True,
     )
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(), nullable=False,
     )
 
     plan = relationship("QualityPlan", back_populates="characteristics")

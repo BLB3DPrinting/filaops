@@ -43,6 +43,12 @@ def upgrade() -> None:
         sa.Column("notes", sa.Text, nullable=True),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
+        # A template has no product; a product-specific plan must name one.
+        sa.CheckConstraint(
+            "(is_template AND product_id IS NULL) OR "
+            "(NOT is_template AND product_id IS NOT NULL)",
+            name="ck_quality_plans_template_scope",
+        ),
     )
     op.create_index("ix_quality_plans_product_id", "quality_plans", ["product_id"])
     op.create_index("ix_quality_plans_code", "quality_plans", ["code"])

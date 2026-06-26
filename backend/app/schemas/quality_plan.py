@@ -61,6 +61,17 @@ class QualityPlanCreate(BaseModel):
     notes: Optional[str] = None
     characteristics: List[QualityPlanCharacteristicInput] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _scope(self):
+        # A template has no product; a product-specific plan must name one.
+        if self.is_template and self.product_id is not None:
+            raise ValueError("a template plan must not have a product_id")
+        if not self.is_template and self.product_id is None:
+            raise ValueError(
+                "a product plan requires a product_id (or set is_template=true)"
+            )
+        return self
+
 
 class QualityPlanUpdate(BaseModel):
     code: Optional[str] = Field(None, max_length=50)
