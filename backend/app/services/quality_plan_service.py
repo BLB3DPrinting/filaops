@@ -87,12 +87,18 @@ def _validate_scope(is_template: bool, product_id: Optional[int]) -> None:
 
 def update_quality_plan(db: Session, plan_id: int, data) -> QualityPlan:
     plan = get_quality_plan(db, plan_id)
+    # is_template is NOT NULL; an explicit `null` patch would otherwise be written
+    # by model_dump() and fail at commit. Reject it up front for a clean 400.
+    if "is_template" in data.model_fields_set and data.is_template is None:
+        raise HTTPException(status_code=400, detail="is_template cannot be null")
     if "product_id" in data.model_fields_set:
         _validate_product(db, data.product_id)
     # Validate the RESULTING scope (the patch may change either field) before
     # mutating, so an invalid combination is a clean 400 rather than a 500 from
     # the DB CHECK at commit.
-    new_is_template = data.is_template if data.is_template is not None else plan.is_template
+    new_is_template = (
+        data.is_template if "is_template" in data.model_fields_set else plan.is_template
+    )
     new_product_id = (
         data.product_id if "product_id" in data.model_fields_set else plan.product_id
     )

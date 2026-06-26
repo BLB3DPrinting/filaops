@@ -74,6 +74,12 @@ class TestQualityPlans:
     def test_rejects_unknown_product(self, client, db):
         assert client.post(PLANS, json=_plan_body(999999, code="QP-X3")).status_code == 400
 
+    def test_update_rejects_null_is_template(self, client, db, make_product):
+        product = make_product()
+        pid = client.post(PLANS, json=_plan_body(product.id, code="QP-N1")).json()["id"]
+        r = client.patch(f"{PLANS}/{pid}", json={"is_template": None})
+        assert r.status_code == 400  # not a 500 at commit
+
     def test_template_must_not_have_product(self, client, db, make_product):
         product = make_product()
         body = _plan_body(product.id, code="QP-T1")
