@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { API_URL } from "../config/api";
 import { useToast } from "./Toast";
 import Modal from "./Modal";
+import QCInspectionPhotos from "./QCInspectionPhotos";
 
 // Result options. Explicit Tailwind class strings (no dynamic class names, which
 // Tailwind would purge). Pass/Fail are the common path; Waive (accept despite a
@@ -46,6 +47,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   const [measurements, setMeasurements] = useState([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [recordedId, setRecordedId] = useState(null); // inspection id after a successful record
 
   const [defectReasons, setDefectReasons] = useState([]);
   const [operations, setOperations] = useState([]);
@@ -134,7 +136,11 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         } else {
           toast.success(data.message || "QC inspection recorded");
         }
-        onComplete();
+        if (data.inspection_id) {
+          setRecordedId(data.inspection_id); // advance to the optional photos step
+        } else {
+          onComplete();
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         toast.error(err.detail || "Failed to submit QC inspection");
@@ -148,6 +154,37 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
 
   const inputCls =
     "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm";
+
+  // After recording, switch to an optional photo-attachment step for the new
+  // inspection (photos need the inspection_id the POST just returned).
+  if (recordedId !== null) {
+    // The inspection is already saved, so ANY exit here (Done, header ×, backdrop,
+    // Escape) must run onComplete so the parent refetches and shows fresh QC state.
+    return (
+      <Modal isOpen={true} onClose={onComplete} title="QC Inspection" className="w-full max-w-2xl p-6">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-white">Inspection recorded</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              {productionOrder.code} — attach photos (optional)
+            </p>
+          </div>
+          <button onClick={onComplete} className="text-gray-400 hover:text-white text-xl">
+            &times;
+          </button>
+        </div>
+        <QCInspectionPhotos inspectionId={recordedId} />
+        <div className="flex justify-end mt-6">
+          <button
+            onClick={onComplete}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg"
+          >
+            Done
+          </button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal isOpen={true} onClose={onClose} title="QC Inspection" className="w-full max-w-2xl p-6">

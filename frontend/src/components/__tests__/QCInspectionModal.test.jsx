@@ -23,6 +23,7 @@ function mockFetch({
   details = [{ id: 3, code: "warp", name: "Warping", severity: "major" }],
   operations = [{ id: 11, sequence: 10, operation_name: "Final QC", operation_code: "QC" }],
   postOk = true,
+  inspectionId = null,
 } = {}) {
   const calls = [];
   global.fetch = vi.fn().mockImplementation(async (url, opts) => {
@@ -30,7 +31,8 @@ function mockFetch({
     calls.push({ url: u, opts });
     if (u.includes("/defect-reasons")) return jsonRes({ reasons: details.map((d) => d.code), details });
     if (/\/production-orders\/\d+$/.test(u)) return jsonRes({ operations });
-    if (u.endsWith("/qc")) return { ok: postOk, status: postOk ? 200 : 400, json: async () => ({ message: "ok", detail: "err" }) };
+    if (u.includes("/photos")) return jsonRes([]); // QCInspectionPhotos list (photos step)
+    if (u.endsWith("/qc")) return { ok: postOk, status: postOk ? 200 : 400, json: async () => ({ message: "ok", inspection_id: inspectionId, detail: "err" }) };
     return jsonRes({});
   });
   return calls;
@@ -120,5 +122,14 @@ describe("QCInspectionModal", () => {
       expect(body.measurements[0].measured_value).toBe(10.1);
     });
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
+  });
+
+  it("advances to the optional photos step after recording, then finishes on Done", async () => {
+    const { onComplete } = await renderModal({ inspectionId: 42 });
+    fireEvent.click(screen.getByText(/Record Pass/));
+    await waitFor(() => expect(screen.getByText(/attach photos/i)).toBeTruthy());
+    expect(onComplete).not.toHaveBeenCalled(); // not until the user is done
+    fireEvent.click(screen.getByText("Done"));
+    expect(onComplete).toHaveBeenCalled();
   });
 });
