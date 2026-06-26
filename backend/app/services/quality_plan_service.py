@@ -11,10 +11,16 @@ from app.models.product import Product
 from app.models.quality_plan import QualityPlan, QualityPlanCharacteristic
 
 
+def _norm(value: Optional[str]) -> Optional[str]:
+    """Trim to a real value or None — a blank/whitespace code must persist as
+    NULL (so it follows the text-fallback path, not collide on the index as '')."""
+    return (value or "").strip() or None
+
+
 def _char_kwargs(c, idx: int) -> dict:
     seq = c.sequence
     return dict(
-        code=(c.code.strip() if c.code else None),
+        code=_norm(c.code),
         characteristic=c.characteristic.strip(),
         nominal=c.nominal,
         lower_limit=c.lower_limit,
@@ -29,7 +35,7 @@ def _char_kwargs(c, idx: int) -> dict:
 def _validate_unique_codes(characteristics) -> None:
     """Reject duplicate (non-null) characteristic codes within one plan — they
     would collide on the partial-unique index and make the SPC key ambiguous."""
-    codes = [c.code.strip() for c in characteristics if c.code and c.code.strip()]
+    codes = [code for code in (_norm(c.code) for c in characteristics) if code]
     dupes = sorted({x for x in codes if codes.count(x) > 1})
     if dupes:
         raise HTTPException(
