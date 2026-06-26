@@ -80,6 +80,7 @@ describe("QCInspectionModal", () => {
       .getAllByRole("combobox")
       .find((s) => s.textContent.includes("Warping"));
     fireEvent.change(defectSelect, { target: { value: "3" } }); // pick a defect
+    expect(defectSelect.value).toBe("3"); // ...the pick actually stuck
     fireEvent.click(screen.getByText("Pass")); // ...then go back to a clean pass
     fireEvent.click(screen.getByText(/Record Pass/));
 
@@ -90,6 +91,16 @@ describe("QCInspectionModal", () => {
       expect(body.result).toBe("passed");
       expect(body.defect_reason_id).toBeNull(); // stale pick not submitted
     });
+  });
+
+  it("blocks submit when a measurement row has data but no characteristic", async () => {
+    const { calls } = await renderModal();
+    fireEvent.click(screen.getByText(/Add measurement/));
+    fireEvent.change(screen.getByPlaceholderText("Measured"), { target: { value: "10.1" } });
+    // no characteristic entered
+    fireEvent.click(screen.getByText(/Record Pass/));
+    await waitFor(() => expect(screen.getByText(/Add a characteristic/i)).toBeTruthy());
+    expect(calls.some((c) => c.url.endsWith("/qc"))).toBe(false); // POST never fired
   });
 
   it("submits the selected result + captured measurement in one POST", async () => {

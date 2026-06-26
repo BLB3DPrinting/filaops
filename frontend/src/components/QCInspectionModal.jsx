@@ -88,6 +88,17 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      // Only fully-empty measurement rows are ignored; a row with any data must
+      // name its characteristic, otherwise we'd silently drop the reading.
+      const entered = measurements.filter((m) =>
+        [m.characteristic, m.nominal, m.lower_limit, m.upper_limit, m.measured_value, m.unit]
+          .some((v) => String(v ?? "").trim()),
+      );
+      if (entered.some((m) => !m.characteristic.trim())) {
+        toast.error("Add a characteristic for each measurement row, or remove the row.");
+        return; // the finally block re-enables the submit button
+      }
+
       const payload = {
         result,
         quantity_passed: numOrNull(quantityPassed),
@@ -97,8 +108,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         defect_reason_id: needsDefect && defectReasonId ? Number(defectReasonId) : null,
         operation_id: operationId ? Number(operationId) : null,
         notes: notes.trim() || null,
-        measurements: measurements
-          .filter((m) => m.characteristic.trim())
+        measurements: entered
           .map((m) => ({
             characteristic: m.characteristic.trim(),
             nominal: numOrNull(m.nominal),
