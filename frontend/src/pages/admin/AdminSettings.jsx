@@ -9,6 +9,7 @@ import { formatPhoneNumber, timezoneOptions } from "../../components/settings/co
 import { currencyOptions, localeOptions } from "../../components/settings/i18nConstants";
 import { useLocale } from "../../contexts/LocaleContext";
 import LicenseSection from "../../components/LicenseSection";
+import QualitySettingsSection from "../../components/settings/QualitySettingsSection";
 import { useApp } from "../../contexts/AppContext";
 
 const AdminSettings = () => {
@@ -918,6 +919,9 @@ const AdminSettings = () => {
             </div>
           </div>
         </div>
+
+        {/* Quality (QC) dial — #784 QMS */}
+        <QualitySettingsSection />
 
         {/* AI Configuration moved to /admin/integrations in PR-05.
             Operators with bookmarks/muscle memory pointing here would
