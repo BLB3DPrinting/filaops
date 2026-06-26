@@ -72,6 +72,26 @@ describe("QCInspectionModal", () => {
     expect(screen.getByText(/#10 Final QC/)).toBeTruthy();
   });
 
+  it("does not submit a defect reason after switching back to Pass", async () => {
+    const { calls } = await renderModal();
+    fireEvent.click(screen.getByText("Fail"));
+    await waitFor(() => screen.getByText(/Warping/));
+    const defectSelect = screen
+      .getAllByRole("combobox")
+      .find((s) => s.textContent.includes("Warping"));
+    fireEvent.change(defectSelect, { target: { value: "3" } }); // pick a defect
+    fireEvent.click(screen.getByText("Pass")); // ...then go back to a clean pass
+    fireEvent.click(screen.getByText(/Record Pass/));
+
+    await waitFor(() => {
+      const post = calls.find((c) => c.url.endsWith("/qc"));
+      expect(post).toBeTruthy();
+      const body = JSON.parse(post.opts.body);
+      expect(body.result).toBe("passed");
+      expect(body.defect_reason_id).toBeNull(); // stale pick not submitted
+    });
+  });
+
   it("submits the selected result + captured measurement in one POST", async () => {
     const { calls, onComplete } = await renderModal();
     fireEvent.click(screen.getByText(/Add measurement/));

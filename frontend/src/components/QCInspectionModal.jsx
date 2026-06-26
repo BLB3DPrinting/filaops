@@ -8,13 +8,13 @@ import Modal from "./Modal";
 // defect, attributed to the operator) and Conditional are the full-QMS additions.
 const RESULTS = [
   { value: "passed", label: "Pass", hint: "Quality acceptable",
-    sel: "border-green-500 bg-green-500/10", txt: "text-green-400", btn: "bg-green-600 hover:bg-green-500" },
+    sel: "border-green-500 bg-green-500/10", txt: "text-green-400", fade: "text-green-400/70", btn: "bg-green-600 hover:bg-green-500" },
   { value: "failed", label: "Fail", hint: "Quality issues found",
-    sel: "border-red-500 bg-red-500/10", txt: "text-red-400", btn: "bg-red-600 hover:bg-red-500" },
+    sel: "border-red-500 bg-red-500/10", txt: "text-red-400", fade: "text-red-400/70", btn: "bg-red-600 hover:bg-red-500" },
   { value: "waived", label: "Waive", hint: "Accept despite a defect",
-    sel: "border-amber-500 bg-amber-500/10", txt: "text-amber-400", btn: "bg-amber-600 hover:bg-amber-500" },
+    sel: "border-amber-500 bg-amber-500/10", txt: "text-amber-400", fade: "text-amber-400/70", btn: "bg-amber-600 hover:bg-amber-500" },
   { value: "conditional", label: "Conditional", hint: "Accept with conditions",
-    sel: "border-blue-500 bg-blue-500/10", txt: "text-blue-400", btn: "bg-blue-600 hover:bg-blue-500" },
+    sel: "border-blue-500 bg-blue-500/10", txt: "text-blue-400", fade: "text-blue-400/70", btn: "bg-blue-600 hover:bg-blue-500" },
 ];
 
 const emptyMeasurement = () => ({
@@ -92,7 +92,9 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         result,
         quantity_passed: numOrNull(quantityPassed),
         quantity_failed: numOrNull(quantityFailed),
-        defect_reason_id: defectReasonId ? Number(defectReasonId) : null,
+        // A clean pass carries no defect — the backend rejects one. Gate on
+        // needsDefect so switching back to Pass doesn't submit a stale pick.
+        defect_reason_id: needsDefect && defectReasonId ? Number(defectReasonId) : null,
         operation_id: operationId ? Number(operationId) : null,
         notes: notes.trim() || null,
         measurements: measurements
@@ -182,7 +184,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
               <span className={`font-medium ${result === r.value ? r.txt : "text-gray-300"}`}>
                 {r.label}
               </span>
-              <p className={`text-xs mt-1 ${result === r.value ? r.txt + "/70" : "text-gray-500"}`}>
+              <p className={`text-xs mt-1 ${result === r.value ? r.fade : "text-gray-500"}`}>
                 {r.hint}
               </p>
             </button>
@@ -258,13 +260,13 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
                 <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                   <input className={`${inputCls} col-span-3`} placeholder="Characteristic"
                     value={m.characteristic} onChange={(e) => setMeasurement(idx, "characteristic", e.target.value)} />
-                  <input className={`${inputCls} col-span-2`} type="number" placeholder="Nominal"
+                  <input className={`${inputCls} col-span-2`} type="number" step="any" placeholder="Nominal"
                     value={m.nominal} onChange={(e) => setMeasurement(idx, "nominal", e.target.value)} />
-                  <input className={`${inputCls} col-span-1`} type="number" placeholder="LSL"
+                  <input className={`${inputCls} col-span-1`} type="number" step="any" placeholder="LSL"
                     value={m.lower_limit} onChange={(e) => setMeasurement(idx, "lower_limit", e.target.value)} />
-                  <input className={`${inputCls} col-span-1`} type="number" placeholder="USL"
+                  <input className={`${inputCls} col-span-1`} type="number" step="any" placeholder="USL"
                     value={m.upper_limit} onChange={(e) => setMeasurement(idx, "upper_limit", e.target.value)} />
-                  <input className={`${inputCls} col-span-2`} type="number" placeholder="Measured"
+                  <input className={`${inputCls} col-span-2`} type="number" step="any" placeholder="Measured"
                     value={m.measured_value} onChange={(e) => setMeasurement(idx, "measured_value", e.target.value)} />
                   <input className={`${inputCls} col-span-2`} placeholder="Unit"
                     value={m.unit} onChange={(e) => setMeasurement(idx, "unit", e.target.value)} />
