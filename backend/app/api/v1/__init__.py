@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     vendors,
     purchase_orders,
     po_documents,
+    qc_photos,
     vendor_items,
     work_centers,
     resources,
@@ -72,6 +73,16 @@ router.include_router(
     items.router,
     prefix="/items",
     tags=["items"]
+)
+
+# QC Inspection Photos (nested under a specific inspection). Registered BEFORE
+# production_orders so the static /qc-inspections prefix is matched ahead of the
+# /{order_id:int} detail routes (it can't actually shadow — "qc-inspections" is
+# not an int — but order-first keeps the intent explicit).
+router.include_router(
+    qc_photos.router,
+    prefix="/production-orders/qc-inspections",
+    tags=["quality"],
 )
 
 # Production Orders
