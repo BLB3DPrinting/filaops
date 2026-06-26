@@ -74,6 +74,9 @@ class QualityPlanCreate(BaseModel):
 
 
 class QualityPlanUpdate(BaseModel):
+    product_id: Optional[int] = Field(
+        None, description="Reassign the plan's product, or clear it (with is_template) to make a template"
+    )
     code: Optional[str] = Field(None, max_length=50)
     name: Optional[str] = Field(None, max_length=200)
     version: Optional[int] = None

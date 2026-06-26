@@ -80,6 +80,20 @@ class TestQualityPlans:
         r = client.patch(f"{PLANS}/{pid}", json={"is_template": None})
         assert r.status_code == 400  # not a 500 at commit
 
+    def test_update_can_convert_product_plan_to_template(self, client, db, make_product):
+        product = make_product()
+        pid = client.post(PLANS, json=_plan_body(product.id, code="QP-C1")).json()["id"]
+        r = client.patch(f"{PLANS}/{pid}", json={"product_id": None, "is_template": True})
+        assert r.status_code == 200, r.text
+        assert r.json()["is_template"] is True
+        assert r.json()["product_id"] is None
+
+    def test_update_clearing_product_without_template_is_rejected(self, client, db, make_product):
+        product = make_product()
+        pid = client.post(PLANS, json=_plan_body(product.id, code="QP-C2")).json()["id"]
+        r = client.patch(f"{PLANS}/{pid}", json={"product_id": None})  # still not a template
+        assert r.status_code == 400
+
     def test_template_must_not_have_product(self, client, db, make_product):
         product = make_product()
         body = _plan_body(product.id, code="QP-T1")
