@@ -171,12 +171,15 @@ async def upload_photo(
         )
         db.add(photo)
         db.commit()
-        db.refresh(photo)
     except Exception:
         db.rollback()
         if os.path.exists(local_path):
             os.remove(local_path)
         raise
+    # refresh AFTER the try: once the commit succeeds the row is durable, so a
+    # refresh failure must NOT trigger the file cleanup (that would orphan the
+    # reference — the very thing the cleanup exists to prevent).
+    db.refresh(photo)
     logger.info("QC photo %s uploaded for inspection %s", photo.id, inspection_id)
     return _photo_to_response(photo)
 
