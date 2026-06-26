@@ -90,6 +90,17 @@ class TestQCPhotos:
         )
         assert r.status_code == 413
 
+    def test_rejects_overlong_caption(
+        self, client, db, photo_dir, make_product, make_production_order
+    ):
+        insp = _make_inspection(db, make_product, make_production_order)
+        r = client.post(
+            f"{BASE}/{insp.id}/photos",
+            files={"file": ("a.png", IMG, "image/png")},
+            data={"caption": "x" * 256},  # column is String(255)
+        )
+        assert r.status_code == 400
+
     def test_patch_caption(
         self, client, db, photo_dir, make_product, make_production_order
     ):

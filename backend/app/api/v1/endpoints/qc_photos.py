@@ -120,6 +120,13 @@ async def upload_photo(
     _require_quality_enabled(db)
     _get_inspection_or_404(db, inspection_id)
 
+    # Bound the caption to the column width (String(255)) so an over-long value
+    # fails fast with a 4xx instead of erroring at commit on a strict DB.
+    if caption is not None and len(caption) > 255:
+        raise HTTPException(
+            status_code=400, detail="caption must be 255 characters or fewer"
+        )
+
     original = file.filename or "photo"
     ext = os.path.splitext(original)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -146,22 +153,30 @@ async def upload_photo(
     safe_name = _safe_filename(original, inspection_id)
     _ensure_upload_dir()
     local_path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(local_path, "wb") as fh:
-        fh.write(content)
+    # Write the blob and the row together: if the commit fails, remove the file
+    # we just wrote so it can't orphan under uploads/qc_photos.
+    try:
+        with open(local_path, "wb") as fh:
+            fh.write(content)
 
-    photo = QCInspectionPhoto(
-        qc_inspection_id=inspection_id,
-        file_name=safe_name,
-        file_path=local_path,
-        storage_type="local",
-        mime_type=mime_type,
-        file_size=len(content),
-        caption=caption,
-        uploaded_by=current_user.email,
-    )
-    db.add(photo)
-    db.commit()
-    db.refresh(photo)
+        photo = QCInspectionPhoto(
+            qc_inspection_id=inspection_id,
+            file_name=safe_name,
+            file_path=local_path,
+            storage_type="local",
+            mime_type=mime_type,
+            file_size=len(content),
+            caption=caption,
+            uploaded_by=current_user.email,
+        )
+        db.add(photo)
+        db.commit()
+        db.refresh(photo)
+    except Exception:
+        db.rollback()
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        raise
     logger.info("QC photo %s uploaded for inspection %s", photo.id, inspection_id)
     return _photo_to_response(photo)
 
@@ -231,15 +246,18 @@ def delete_photo(
     """Delete a QC photo (DB row + local file)."""
     _require_quality_enabled(db)
     photo = _get_photo_or_404(db, inspection_id, photo_id)
-    if photo.storage_type == "local" and photo.file_path:
-        try:
-            if os.path.exists(photo.file_path):
-                os.remove(photo.file_path)
-        except OSError as exc:
-            logger.warning(
-                "Could not delete QC photo file %s: %s", photo.file_path, exc
-            )
+    # Commit the row delete BEFORE removing the blob. If we removed the file first
+    # and the commit then failed, the row would survive pointing at a missing file
+    # — download would 404 forever. This ordering leaves the file intact on a
+    # failed commit instead (a harmless orphan, recoverable).
+    local_path = photo.file_path if photo.storage_type == "local" else None
     db.delete(photo)
     db.commit()
+    if local_path:
+        try:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+        except OSError as exc:
+            logger.warning("Could not delete QC photo file %s: %s", local_path, exc)
     logger.info("QC photo %s deleted from inspection %s", photo_id, inspection_id)
     return {"message": "Photo deleted", "id": photo_id}
