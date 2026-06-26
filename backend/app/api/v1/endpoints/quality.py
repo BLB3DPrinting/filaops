@@ -12,14 +12,38 @@ from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.models.user import User
 from app.services import quality_service as svc
+from app.services.quality_policy import get_quality_policy
 from app.schemas.quality import (
     InspectionQueueResponse,
     QualityMetricsResponse,
+    QualityPolicyResponse,
     RecentInspectionItem,
     ScrapSummaryItem,
 )
 
 router = APIRouter()
+
+
+@router.get("/policy", response_model=QualityPolicyResponse)
+def get_policy(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the company's QC rigor configuration (the selectable "dial").
+
+    The UI reads this to decide whether to show QC surfaces at all and, when on,
+    whether to run the simple (basic) or plan-driven (full) experience. Readable
+    by any authenticated user; changing it is an admin action via
+    PUT /system/settings/quality_mode.
+    """
+    policy = get_quality_policy(db)
+    return QualityPolicyResponse(
+        mode=policy.mode.value,
+        gate_close=policy.gate_close,
+        surfaces_enabled=policy.surfaces_enabled,
+        plan_driven=policy.plan_driven,
+        gates_close=policy.gates_close,
+    )
 
 
 @router.get("/inspection-queue", response_model=InspectionQueueResponse)

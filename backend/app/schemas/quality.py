@@ -79,3 +79,28 @@ class ScrapSummaryItem(BaseModel):
     count: int
     total_quantity: float
     total_cost: float
+
+
+# =============================================================================
+# Quality Policy (the QC rigor "dial")
+# =============================================================================
+
+class QualityPolicyResponse(BaseModel):
+    """The company's QC rigor configuration, for the UI to decide what to show.
+
+    ``mode`` is the raw dial position; the booleans are the derived questions the
+    UI actually asks (e.g. hide all QC nav when ``surfaces_enabled`` is False).
+    """
+    mode: str = Field(description="off | basic | full")
+    gate_close: bool = Field(
+        description="Raw setting: hard-block close on failed inspection (full mode only)"
+    )
+    surfaces_enabled: bool = Field(
+        description="Whether QC surfaces should appear at all (basic or full)"
+    )
+    plan_driven: bool = Field(
+        description="Whether quality plans + measurements apply (full only)"
+    )
+    gates_close: bool = Field(
+        description="Effective gating: a failed inspection hard-blocks close (full + gate_close)"
+    )
