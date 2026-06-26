@@ -95,9 +95,13 @@ export default function QCInspectionPhotos({ inspectionId }) {
   };
 
   const remove = async (id) => {
-    const res = await fetch(`${base}/${id}`, { method: "DELETE", credentials: "include" });
-    if (res.ok) await load();
-    else toast.error("Failed to delete photo");
+    try {
+      const res = await fetch(`${base}/${id}`, { method: "DELETE", credentials: "include" });
+      if (res.ok) await load();
+      else toast.error("Failed to delete photo");
+    } catch (err) {
+      toast.error(err.message || "Failed to delete photo");
+    }
   };
 
   return (
