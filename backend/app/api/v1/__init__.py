@@ -33,6 +33,7 @@ from app.api.v1.endpoints import (
     spools,
     traceability,
     quality,
+    quality_plans,
     maintenance,
     maintenance_windows,
     command_center,
@@ -242,6 +243,13 @@ router.include_router(
     quality.router,
     prefix="/quality",
     tags=["quality"]
+)
+
+# Quality - Plans (per-product inspection plans)
+router.include_router(
+    quality_plans.router,
+    prefix="/quality-plans",
+    tags=["quality"],
 )
 
 # Quality - Traceability
