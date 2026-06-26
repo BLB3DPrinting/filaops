@@ -14,6 +14,7 @@ export default function QCInspectionPhotos({ inspectionId }) {
   const [photos, setPhotos] = useState([]);
   const [thumbs, setThumbs] = useState({}); // photoId -> object URL
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(false);
   const fileRef = useRef(null);
   const thumbsRef = useRef({}); // mirror of `thumbs` for cleanup without re-renders
 
@@ -25,24 +26,32 @@ export default function QCInspectionPhotos({ inspectionId }) {
   };
 
   const load = async () => {
-    const res = await fetch(base, { credentials: "include" });
-    if (!res.ok) return;
-    const list = await res.json();
-    setPhotos(list);
-    const entries = await Promise.all(
-      list.map(async (p) => {
-        try {
-          const r = await fetch(`${API_URL}${p.download_url}`, { credentials: "include" });
-          return r.ok ? [p.id, URL.createObjectURL(await r.blob())] : [p.id, null];
-        } catch {
-          return [p.id, null];
-        }
-      }),
-    );
-    revokeAll();
-    const map = Object.fromEntries(entries);
-    thumbsRef.current = map;
-    setThumbs(map);
+    try {
+      const res = await fetch(base, { credentials: "include" });
+      if (!res.ok) {
+        setError(true); // a failed fetch must not masquerade as an empty gallery
+        return;
+      }
+      setError(false);
+      const list = await res.json();
+      setPhotos(list);
+      const entries = await Promise.all(
+        list.map(async (p) => {
+          try {
+            const r = await fetch(`${API_URL}${p.download_url}`, { credentials: "include" });
+            return r.ok ? [p.id, URL.createObjectURL(await r.blob())] : [p.id, null];
+          } catch {
+            return [p.id, null];
+          }
+        }),
+      );
+      revokeAll();
+      const map = Object.fromEntries(entries);
+      thumbsRef.current = map;
+      setThumbs(map);
+    } catch {
+      setError(true);
+    }
   };
 
   useEffect(() => {
@@ -94,7 +103,9 @@ export default function QCInspectionPhotos({ inspectionId }) {
         <input ref={fileRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
       </div>
 
-      {photos.length === 0 ? (
+      {error ? (
+        <p className="text-xs text-red-400">Couldn&apos;t load photos. Please try again.</p>
+      ) : photos.length === 0 ? (
         <p className="text-xs text-gray-500">No photos attached.</p>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">

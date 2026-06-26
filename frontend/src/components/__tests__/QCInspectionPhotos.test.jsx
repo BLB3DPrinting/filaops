@@ -15,7 +15,7 @@ afterEach(() => {
 const jsonRes = (data) => ({ ok: true, status: 200, json: async () => data });
 const blobRes = () => ({ ok: true, status: 200, blob: async () => new Blob(["x"]) });
 
-function mockFetch({ list = [], postOk = true } = {}) {
+function mockFetch({ list = [], postOk = true, listOk = true } = {}) {
   const calls = [];
   let current = [...list];
   let nextId = 100;
@@ -35,7 +35,9 @@ function mockFetch({ list = [], postOk = true } = {}) {
       current = [...current, { id, file_name: "new.png", caption: null, download_url: `/api/v1/production-orders/qc-inspections/1/photos/${id}/download` }];
       return { ok: true, status: 201, json: async () => ({ id }) };
     }
-    if (u.endsWith("/photos")) return jsonRes(current); // GET list
+    if (u.endsWith("/photos")) {
+      return listOk ? jsonRes(current) : { ok: false, status: 500, json: async () => ({}) };
+    }
     return jsonRes({});
   });
   return calls;
@@ -76,6 +78,12 @@ describe("QCInspectionPhotos", () => {
       expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/photos"))).toBe(true),
     );
     await waitFor(() => expect(screen.getByAltText("new.png")).toBeTruthy());
+  });
+
+  it("shows a load error instead of the empty state when the list fails", async () => {
+    await renderPhotos({ list: [], listOk: false });
+    await waitFor(() => expect(screen.getByText(/load photos/i)).toBeTruthy());
+    expect(screen.queryByText(/No photos attached/i)).toBeNull();
   });
 
   it("deletes a photo", async () => {

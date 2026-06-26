@@ -158,8 +158,10 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   // After recording, switch to an optional photo-attachment step for the new
   // inspection (photos need the inspection_id the POST just returned).
   if (recordedId !== null) {
+    // The inspection is already saved, so ANY exit here (Done, header ×, backdrop,
+    // Escape) must run onComplete so the parent refetches and shows fresh QC state.
     return (
-      <Modal isOpen={true} onClose={onClose} title="QC Inspection" className="w-full max-w-2xl p-6">
+      <Modal isOpen={true} onClose={onComplete} title="QC Inspection" className="w-full max-w-2xl p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-bold text-white">Inspection recorded</h2>
@@ -167,7 +169,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
               {productionOrder.code} — attach photos (optional)
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">
+          <button onClick={onComplete} className="text-gray-400 hover:text-white text-xl">
             &times;
           </button>
         </div>
