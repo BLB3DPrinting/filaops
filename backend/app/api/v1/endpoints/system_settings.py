@@ -103,9 +103,32 @@ def _validate_origin_list(value: Any) -> list[str]:
     return normalized
 
 
+def _validate_quality_mode(value: Any) -> str:
+    """Validate the QC rigor dial: must be one of off | basic | full.
+
+    See ``app.services.quality_policy`` for what each mode means.
+    """
+    from app.services.quality_policy import QualityMode
+
+    allowed = [m.value for m in QualityMode]
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"quality_mode must be one of: {', '.join(allowed)}")
+    return value
+
+
+def _validate_bool(value: Any) -> bool:
+    """Validate a strict JSON boolean (no truthy coercion)."""
+    if not isinstance(value, bool):
+        raise ValueError("must be a boolean (true or false)")
+    return value
+
+
 SETTING_VALIDATORS: dict[str, Callable[[Any], Any]] = {
     "pro_portal_origins": _validate_origin_list,
     "pro_quoter_origins": _validate_origin_list,
+    # QC rigor dial (#784 QMS) — read via app.services.quality_policy
+    "quality_mode": _validate_quality_mode,
+    "quality_gate_close": _validate_bool,
 }
 
 
