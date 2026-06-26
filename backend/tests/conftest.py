@@ -144,6 +144,11 @@ def setup_database():
             "ALTER TABLE routing_operation_materials "
             "ADD COLUMN IF NOT EXISTS is_variable BOOLEAN NOT NULL DEFAULT FALSE"
         ))
+        # #784 PR-4: denormalized grouping keys on qc_inspections. create_all
+        # won't add them to a pre-existing table in the accumulated test DB.
+        conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
+        conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS work_center_id INTEGER"))
+        conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS operator_id INTEGER"))
         conn.execute(text("""
             DO $$
             BEGIN

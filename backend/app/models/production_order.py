@@ -539,6 +539,19 @@ class QCInspection(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Denormalized grouping keys (#784): copied from the inspected operation at
+    # record time so grouped metrics (by printer / work-center / operator) don't
+    # drop order-level inspections that have no production_operation_id. NULL
+    # keys group as "unassigned" rather than vanishing from the aggregate.
+    # operator_id is a plain user id (no FK) — mirrors ProductionOrderOperation.
+    printer_id = Column(
+        Integer, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    work_center_id = Column(
+        Integer, ForeignKey("work_centers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    operator_id = Column(Integer, nullable=True, index=True)
+
     inspected_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
