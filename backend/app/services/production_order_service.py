@@ -628,6 +628,7 @@ def record_qc_inspection(
     defect_reason_id: Optional[int] = None,
     waiver_user_id: Optional[int] = None,
     measurements: Optional[list] = None,
+    operation_id: Optional[int] = None,
 ) -> dict:
     """
     Record QC inspection results for a production order.
@@ -707,6 +708,29 @@ def record_qc_inspection(
                 detail=f"waiver_user_id {waiver_user_id} does not exist",
             )
 
+    # Resolve an explicit target operation (#784): an inspection may be recorded
+    # against a SPECIFIC routing operation instead of the first QC-coded op,
+    # which supports routings with more than one inspection step (e.g. in-process
+    # + final). Validate it belongs to THIS order before any side effect.
+    target_op = None
+    if operation_id is not None:
+        target_op = (
+            db.query(ProductionOrderOperation)
+            .filter(
+                ProductionOrderOperation.id == operation_id,
+                ProductionOrderOperation.production_order_id == order_id,
+            )
+            .first()
+        )
+        if target_op is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"operation_id {operation_id} is not an operation of "
+                    f"order {order_id}"
+                ),
+            )
+
     # Derive whole-order pass/fail quantities when the caller does not supply
     # them (e.g. the /qc endpoint, where QC is a binary pass/fail on the order).
     # When exactly ONE side is given, derive the other as its COMPLEMENT to the
@@ -729,8 +753,10 @@ def record_qc_inspection(
 
     inspected_at = datetime.now(timezone.utc)
 
-    # Find QC operation
-    qc_op = (
+    # Resolve the operation this inspection completes: the explicit target when
+    # the caller gave one, else the first QC-coded op (legacy heuristic, kept for
+    # callers that don't pass an operation_id).
+    qc_op = target_op or (
         db.query(ProductionOrderOperation)
         .filter(
             ProductionOrderOperation.production_order_id == order_id,

@@ -651,6 +651,11 @@ class QCInspectionRequest(BaseModel):
         None,
         description="Structured defect classification (DefectReason id), for failed/conditional results.",
     )
+    operation_id: Optional[int] = Field(
+        None,
+        description="Target a specific production operation (routing step) for this "
+                    "inspection. Omit to attribute to the order's QC-coded operation (legacy).",
+    )
     measurements: List[QCMeasurementInput] = Field(
         default_factory=list,
         description="SPC measurements captured during this inspection.",
