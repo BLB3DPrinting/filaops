@@ -18,6 +18,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -96,6 +97,16 @@ class QualityPlanCharacteristic(Base):
             "severity IN ('minor', 'major', 'critical')",
             name="ck_quality_plan_characteristics_severity",
         ),
+        # A stable code is unique within a plan (so it's an unambiguous SPC key),
+        # but the SAME code recurs across plan versions on purpose. Partial so
+        # manual rows (code NULL) are unconstrained. Mirrors migration 098.
+        Index(
+            "uq_quality_plan_characteristics_plan_code",
+            "quality_plan_id",
+            "code",
+            unique=True,
+            postgresql_where=text("code IS NOT NULL"),
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -105,6 +116,9 @@ class QualityPlanCharacteristic(Base):
         nullable=False,
         index=True,
     )
+    # Stable, rename-/edit-proof key for SPC series (keyed on (product_id, code)).
+    # Nullable: manual/ad-hoc characteristics fall back to text grouping.
+    code = Column(String(50), nullable=True)
     characteristic = Column(String(100), nullable=False)
     nominal = Column(Numeric(18, 4), nullable=True)
     lower_limit = Column(Numeric(18, 4), nullable=True)

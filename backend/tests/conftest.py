@@ -149,6 +149,8 @@ def setup_database():
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS work_center_id INTEGER"))
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS operator_id INTEGER"))
+        # #784: stable SPC code on plan characteristics (added after the table).
+        conn.execute(text("ALTER TABLE quality_plan_characteristics ADD COLUMN IF NOT EXISTS code VARCHAR(50)"))
         conn.execute(text("""
             DO $$
             BEGIN

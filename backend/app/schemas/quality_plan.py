@@ -10,6 +10,9 @@ _SEVERITIES = ("minor", "major", "critical")
 
 class QualityPlanCharacteristicInput(BaseModel):
     """One characteristic to inspect under a plan."""
+    code: Optional[str] = Field(
+        None, max_length=50, description="Stable per-plan key for SPC series (rename-proof)"
+    )
     characteristic: str = Field(..., max_length=100)
     nominal: Optional[Decimal] = None
     lower_limit: Optional[Decimal] = Field(None, description="Lower spec limit (LSL)")
@@ -36,6 +39,7 @@ class QualityPlanCharacteristicInput(BaseModel):
 
 class QualityPlanCharacteristicResponse(BaseModel):
     id: int
+    code: Optional[str] = None
     characteristic: str
     nominal: Optional[Decimal] = None
     lower_limit: Optional[Decimal] = None

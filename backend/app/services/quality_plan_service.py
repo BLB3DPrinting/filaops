@@ -14,6 +14,7 @@ from app.models.quality_plan import QualityPlan, QualityPlanCharacteristic
 def _char_kwargs(c, idx: int) -> dict:
     seq = c.sequence
     return dict(
+        code=(c.code.strip() if c.code else None),
         characteristic=c.characteristic.strip(),
         nominal=c.nominal,
         lower_limit=c.lower_limit,
@@ -23,6 +24,18 @@ def _char_kwargs(c, idx: int) -> dict:
         severity=c.severity,
         routing_operation_id=c.routing_operation_id,
     )
+
+
+def _validate_unique_codes(characteristics) -> None:
+    """Reject duplicate (non-null) characteristic codes within one plan — they
+    would collide on the partial-unique index and make the SPC key ambiguous."""
+    codes = [c.code.strip() for c in characteristics if c.code and c.code.strip()]
+    dupes = sorted({x for x in codes if codes.count(x) > 1})
+    if dupes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"duplicate characteristic code(s) within the plan: {', '.join(dupes)}",
+        )
 
 
 def _validate_product(db: Session, product_id: Optional[int]) -> None:
@@ -54,6 +67,7 @@ def get_quality_plan(db: Session, plan_id: int) -> QualityPlan:
 
 def create_quality_plan(db: Session, data) -> QualityPlan:
     _validate_product(db, data.product_id)
+    _validate_unique_codes(data.characteristics)
     plan = QualityPlan(
         product_id=data.product_id,
         code=data.code,
@@ -110,6 +124,7 @@ def update_quality_plan(db: Session, plan_id: int, data) -> QualityPlan:
     # A provided characteristics list REPLACES the plan's characteristics
     # wholesale (delete-orphan removes the old ones on flush).
     if data.characteristics is not None:
+        _validate_unique_codes(data.characteristics)
         plan.characteristics.clear()
         db.flush()
         for idx, c in enumerate(data.characteristics):
