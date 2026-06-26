@@ -25,16 +25,19 @@ export default function QCInspectionPhotos({ inspectionId }) {
     thumbsRef.current = {};
   };
 
-  const load = async () => {
+  // isActive lets the caller (the effect) abandon a stale in-flight load — a slow
+  // response for a previous inspectionId (or after unmount) must not overwrite
+  // newer state or leak object URLs.
+  const load = async (isActive = () => true) => {
     try {
       const res = await fetch(base, { credentials: "include" });
+      if (!isActive()) return;
       if (!res.ok) {
         setError(true); // a failed fetch must not masquerade as an empty gallery
         return;
       }
       setError(false);
       const list = await res.json();
-      setPhotos(list);
       const entries = await Promise.all(
         list.map(async (p) => {
           try {
@@ -45,18 +48,27 @@ export default function QCInspectionPhotos({ inspectionId }) {
           }
         }),
       );
+      if (!isActive()) {
+        entries.forEach(([, u]) => u && URL.revokeObjectURL(u)); // drop what we built
+        return;
+      }
       revokeAll();
       const map = Object.fromEntries(entries);
       thumbsRef.current = map;
+      setPhotos(list);
       setThumbs(map);
     } catch {
-      setError(true);
+      if (isActive()) setError(true);
     }
   };
 
   useEffect(() => {
-    load();
-    return revokeAll;
+    let active = true;
+    load(() => active);
+    return () => {
+      active = false;
+      revokeAll();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inspectionId]);
 
@@ -125,8 +137,9 @@ export default function QCInspectionPhotos({ inspectionId }) {
               <button
                 type="button"
                 onClick={() => remove(p.id)}
+                aria-label={`Delete ${p.file_name}`}
                 title="Delete photo"
-                className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 transition-opacity"
               >
                 &times;
               </button>
