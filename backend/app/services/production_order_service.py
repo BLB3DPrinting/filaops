@@ -801,6 +801,11 @@ def record_qc_inspection(
     inspection = QCInspection(
         production_order_id=order_id,
         production_operation_id=qc_op.id if qc_op else None,
+        # Denormalized grouping keys (#784) — copied from the inspected op so
+        # grouped metrics don't drop order-level inspections (NULL op).
+        printer_id=qc_op.printer_id if qc_op else None,
+        work_center_id=qc_op.work_center_id if qc_op else None,
+        operator_id=qc_op.operator_id if qc_op else None,
         result=qc_status,
         quantity_passed=quantity_passed,
         quantity_failed=quantity_failed,
