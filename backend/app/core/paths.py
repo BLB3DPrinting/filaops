@@ -115,6 +115,22 @@ def resolve_upload_po_docs_dir(override: str | None = None) -> Path:
     return BACKEND_DIR / "uploads" / "po_documents"
 
 
+def resolve_upload_qc_photos_dir(override: str | None = None) -> Path:
+    """QC inspection photos upload directory.
+
+    Default: ``<backend>/uploads/qc_photos`` (kept outside the static-files
+    root because QC photos are downloaded via an authenticated endpoint, not
+    served via the public ``/static`` mount — same rationale as PO documents).
+    A dedicated directory, NOT a reuse of ``po_documents``, so the two file
+    sets never collide.
+    Override: ``UPLOAD_QC_PHOTOS_DIR`` env / ``settings.UPLOAD_QC_PHOTOS_DIR``.
+    """
+    overridden = _coerce_override(override)
+    if overridden is not None:
+        return overridden
+    return BACKEND_DIR / "uploads" / "qc_photos"
+
+
 def resolve_frontend_dist(override: str | None = None) -> Path | None:
     """React SPA dist directory, OR None if unset.
 

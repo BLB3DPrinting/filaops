@@ -104,3 +104,28 @@ class QualityPolicyResponse(BaseModel):
     gates_close: bool = Field(
         description="Effective gating: a failed inspection hard-blocks close (full + gate_close)"
     )
+
+
+# =============================================================================
+# QC Inspection Photos
+# =============================================================================
+
+class QCPhotoResponse(BaseModel):
+    """A photo attached to a QC inspection."""
+    id: int
+    qc_inspection_id: int
+    file_name: str
+    caption: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    storage_type: str
+    uploaded_by: Optional[str] = None
+    created_at: Optional[str] = None
+    download_url: Optional[str] = Field(
+        None, description="Authenticated endpoint to fetch the image bytes"
+    )
+
+
+class QCPhotoUpdate(BaseModel):
+    """Editable metadata on a QC photo (caption only)."""
+    caption: Optional[str] = Field(None, max_length=255)

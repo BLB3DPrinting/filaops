@@ -260,6 +260,10 @@ class Settings(BaseSettings):
         default="",
         description="PO document upload dir (defaults to <backend>/uploads/po_documents)",
     )
+    UPLOAD_QC_PHOTOS_DIR: str = Field(
+        default="",
+        description="QC inspection photo upload dir (defaults to <backend>/uploads/qc_photos)",
+    )
     FRONTEND_DIST: str = Field(
         default="",
         description=(
