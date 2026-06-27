@@ -12,10 +12,12 @@ const blankRow = () => ({
   code: "",
   codeTouched: false,
   characteristic: "",
+  characteristic_type: "variable",
   nominal: "",
   lower_limit: "",
   upper_limit: "",
   unit: "",
+  acceptance_criteria: "",
   severity: "",
 });
 
@@ -24,10 +26,12 @@ const rowFromChar = (c) => ({
   code: c.code ?? "",
   codeTouched: Boolean(c.code),
   characteristic: c.characteristic ?? "",
+  characteristic_type: c.characteristic_type ?? "variable",
   nominal: c.nominal ?? "",
   lower_limit: c.lower_limit ?? "",
   upper_limit: c.upper_limit ?? "",
   unit: c.unit ?? "",
+  acceptance_criteria: c.acceptance_criteria ?? "",
   severity: c.severity ?? "",
 });
 
@@ -129,6 +133,16 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
   const addRow = () => setRows((rs) => [...rs, blankRow()]);
   const removeRow = (key) => setRows((rs) => rs.filter((r) => r.key !== key));
 
+  // Switching to "attribute" clears the spec-limit fields (they're meaningless
+  // for pass/fail); switching back to "variable" clears acceptance criteria.
+  const setRowType = (key, type) =>
+    updateRow(
+      key,
+      type === "attribute"
+        ? { characteristic_type: type, nominal: "", lower_limit: "", upper_limit: "", unit: "" }
+        : { characteristic_type: type, acceptance_criteria: "" }
+    );
+
   // Auto-fill the code from the name on blur, unless the user has set one.
   const onCharacteristicBlur = (row) => {
     if (!row.codeTouched && !row.code.trim() && row.characteristic.trim()) {
@@ -171,6 +185,7 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
     const cleaned = [];
     for (const r of rows) {
       const ch = r.characteristic.trim();
+      const isAttr = r.characteristic_type === "attribute";
       const anyData =
         ch ||
         r.code.trim() ||
@@ -178,10 +193,12 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
         r.lower_limit !== "" ||
         r.upper_limit !== "" ||
         r.unit.trim() ||
+        r.acceptance_criteria.trim() ||
         r.severity;
       if (!anyData) continue; // skip an untouched scaffold row
       if (!ch) throw new Error("Each characteristic needs a name.");
       if (
+        !isAttr &&
         r.lower_limit !== "" &&
         r.upper_limit !== "" &&
         Number(r.lower_limit) > Number(r.upper_limit)
@@ -204,16 +221,26 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
       is_template: isTemplate,
       effective_date: effectiveDate || null,
       notes: notes.trim() || null,
-      characteristics: cleaned.map((r, idx) => ({
-        code: r.code.trim() || null,
-        characteristic: r.characteristic.trim(),
-        nominal: r.nominal === "" ? null : r.nominal,
-        lower_limit: r.lower_limit === "" ? null : r.lower_limit,
-        upper_limit: r.upper_limit === "" ? null : r.upper_limit,
-        unit: r.unit.trim() || null,
-        severity: r.severity || null,
-        sequence: idx,
-      })),
+      characteristics: cleaned.map((r, idx) => {
+        // Attribute (pass/fail) rows carry no spec limits/unit; variable rows
+        // carry no acceptance criteria. Force the irrelevant fields null so the
+        // backend never sees a stale value the other type left behind.
+        const isAttr = r.characteristic_type === "attribute";
+        return {
+          code: r.code.trim() || null,
+          characteristic: r.characteristic.trim(),
+          characteristic_type: r.characteristic_type,
+          nominal: isAttr || r.nominal === "" ? null : r.nominal,
+          lower_limit: isAttr || r.lower_limit === "" ? null : r.lower_limit,
+          upper_limit: isAttr || r.upper_limit === "" ? null : r.upper_limit,
+          unit: isAttr ? null : r.unit.trim() || null,
+          acceptance_criteria: isAttr
+            ? r.acceptance_criteria.trim() || null
+            : null,
+          severity: r.severity || null,
+          sequence: idx,
+        };
+      }),
     };
   };
 
@@ -481,7 +508,7 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
               </button>
             </div>
             <div className="overflow-x-auto border border-[var(--border-subtle)] rounded-lg">
-              <table className="w-full text-sm min-w-[680px]">
+              <table className="w-full text-sm min-w-[820px]">
                 <thead>
                   <tr className="border-b border-[var(--border-subtle)] text-left">
                     <th className="px-2 py-2 text-[var(--text-muted)] font-medium">
@@ -489,6 +516,9 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                     </th>
                     <th className="px-2 py-2 text-[var(--text-muted)] font-medium">
                       Characteristic *
+                    </th>
+                    <th className="px-2 py-2 text-[var(--text-muted)] font-medium">
+                      Type
                     </th>
                     <th className="px-2 py-2 text-[var(--text-muted)] font-medium">
                       Nominal
@@ -541,53 +571,83 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                         />
                       </td>
                       <td className="px-2 py-1.5">
-                        <input
-                          type="number"
-                          step="any"
-                          value={r.nominal}
-                          onChange={(e) =>
-                            updateRow(r.key, { nominal: e.target.value })
-                          }
-                          aria-label="Nominal"
-                          className={`${inputCls} min-w-[5rem]`}
-                        />
+                        <select
+                          value={r.characteristic_type}
+                          onChange={(e) => setRowType(r.key, e.target.value)}
+                          aria-label="Characteristic type"
+                          className={`${inputCls} min-w-[7rem]`}
+                        >
+                          <option value="variable">Variable</option>
+                          <option value="attribute">Attribute</option>
+                        </select>
                       </td>
-                      <td className="px-2 py-1.5">
-                        <input
-                          type="number"
-                          step="any"
-                          value={r.lower_limit}
-                          onChange={(e) =>
-                            updateRow(r.key, { lower_limit: e.target.value })
-                          }
-                          aria-label="Lower spec limit"
-                          className={`${inputCls} min-w-[5rem]`}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <input
-                          type="number"
-                          step="any"
-                          value={r.upper_limit}
-                          onChange={(e) =>
-                            updateRow(r.key, { upper_limit: e.target.value })
-                          }
-                          aria-label="Upper spec limit"
-                          className={`${inputCls} min-w-[5rem]`}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <input
-                          type="text"
-                          value={r.unit}
-                          onChange={(e) =>
-                            updateRow(r.key, { unit: e.target.value })
-                          }
-                          maxLength={20}
-                          aria-label="Unit"
-                          className={`${inputCls} min-w-[4rem]`}
-                        />
-                      </td>
+                      {r.characteristic_type === "attribute" ? (
+                        <td className="px-2 py-1.5" colSpan={4}>
+                          <input
+                            type="text"
+                            value={r.acceptance_criteria}
+                            onChange={(e) =>
+                              updateRow(r.key, {
+                                acceptance_criteria: e.target.value,
+                              })
+                            }
+                            placeholder="Pass/fail acceptance criteria (e.g. no visible defects)"
+                            aria-label="Acceptance criteria"
+                            className={`${inputCls} min-w-[12rem]`}
+                          />
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="number"
+                              step="any"
+                              value={r.nominal}
+                              onChange={(e) =>
+                                updateRow(r.key, { nominal: e.target.value })
+                              }
+                              aria-label="Nominal"
+                              className={`${inputCls} min-w-[5rem]`}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="number"
+                              step="any"
+                              value={r.lower_limit}
+                              onChange={(e) =>
+                                updateRow(r.key, { lower_limit: e.target.value })
+                              }
+                              aria-label="Lower spec limit"
+                              className={`${inputCls} min-w-[5rem]`}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="number"
+                              step="any"
+                              value={r.upper_limit}
+                              onChange={(e) =>
+                                updateRow(r.key, { upper_limit: e.target.value })
+                              }
+                              aria-label="Upper spec limit"
+                              className={`${inputCls} min-w-[5rem]`}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="text"
+                              value={r.unit}
+                              onChange={(e) =>
+                                updateRow(r.key, { unit: e.target.value })
+                              }
+                              maxLength={20}
+                              aria-label="Unit"
+                              className={`${inputCls} min-w-[4rem]`}
+                            />
+                          </td>
+                        </>
+                      )}
                       <td className="px-2 py-1.5">
                         <select
                           value={r.severity}
@@ -620,7 +680,7 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                   {rows.length === 0 && (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="px-2 py-4 text-center text-[var(--text-muted)]"
                       >
                         No characteristics. Add one to inspect against this plan.

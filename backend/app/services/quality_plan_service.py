@@ -22,10 +22,12 @@ def _char_kwargs(c, idx: int) -> dict:
     return dict(
         code=_norm(c.code),
         characteristic=c.characteristic.strip(),
+        characteristic_type=c.characteristic_type,
         nominal=c.nominal,
         lower_limit=c.lower_limit,
         upper_limit=c.upper_limit,
-        unit=(c.unit.strip() if c.unit else None),
+        unit=_norm(c.unit),
+        acceptance_criteria=_norm(c.acceptance_criteria),
         sequence=seq if seq is not None else idx,
         severity=c.severity,
         routing_operation_id=c.routing_operation_id,

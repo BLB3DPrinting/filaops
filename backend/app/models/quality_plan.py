@@ -97,6 +97,21 @@ class QualityPlanCharacteristic(Base):
             "severity IN ('minor', 'major', 'critical')",
             name="ck_quality_plan_characteristics_severity",
         ),
+        CheckConstraint(
+            "characteristic_type IN ('variable', 'attribute')",
+            name="ck_quality_plan_characteristics_type",
+        ),
+        # Field coupling: attribute (pass/fail) rows carry no spec limits/unit;
+        # variable rows carry no acceptance criteria. Defense-in-depth for
+        # writers that bypass the Pydantic layer (the model anticipates other
+        # consumers seeding from this table). Mirrors migration 099.
+        CheckConstraint(
+            "(characteristic_type = 'attribute' "
+            "AND nominal IS NULL AND lower_limit IS NULL "
+            "AND upper_limit IS NULL AND unit IS NULL) "
+            "OR (characteristic_type = 'variable' AND acceptance_criteria IS NULL)",
+            name="ck_quality_plan_characteristics_type_fields",
+        ),
         # A stable code is unique within a plan (so it's an unambiguous SPC key),
         # but the SAME code recurs across plan versions on purpose. Partial so
         # manual rows (code NULL) are unconstrained. Mirrors migration 098.
@@ -120,10 +135,17 @@ class QualityPlanCharacteristic(Base):
     # Nullable: manual/ad-hoc characteristics fall back to text grouping.
     code = Column(String(50), nullable=True)
     characteristic = Column(String(100), nullable=False)
+    # "variable" = measured value vs nominal/spec limits; "attribute" = pass/fail
+    # (Go/No-Go), no spec limits. Drives how the inspection form renders the row.
+    characteristic_type = Column(
+        String(20), default="variable", server_default="variable", nullable=False
+    )
     nominal = Column(Numeric(18, 4), nullable=True)
     lower_limit = Column(Numeric(18, 4), nullable=True)
     upper_limit = Column(Numeric(18, 4), nullable=True)
     unit = Column(String(20), nullable=True)
+    # Optional, for attribute characteristics: what counts as a "pass".
+    acceptance_criteria = Column(Text, nullable=True)
     sequence = Column(Integer, default=0, server_default="0", nullable=False)
     severity = Column(String(20), nullable=True)  # minor | major | critical
     # Optional: which routing step this characteristic is inspected at.
