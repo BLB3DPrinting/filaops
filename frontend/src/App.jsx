@@ -84,6 +84,9 @@ const MaterialTraceability = lazy(
 const QualityDashboard = lazy(
   () => import("./pages/admin/quality/QualityDashboard"),
 );
+const QualityPlansPage = lazy(
+  () => import("./pages/admin/quality/QualityPlansPage"),
+);
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 
 // Suspense fallback for lazy-loaded pages
@@ -408,6 +411,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <MaterialTraceability />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="quality/plans"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <QualityPlansPage />
                         </Suspense>
                       }
                     />

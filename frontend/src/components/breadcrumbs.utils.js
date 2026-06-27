@@ -41,6 +41,7 @@ export const ROUTE_LABELS = {
   "/admin/shipping": "Shipping",
   // Quality
   "/admin/quality": "Quality",
+  "/admin/quality/plans": "Quality Plans",
   "/admin/quality/traceability": "Material Traceability",
   // B2B Portal
   "/admin/access-requests": "Access Requests",
