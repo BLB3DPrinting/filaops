@@ -226,3 +226,25 @@ class TestQualityPlans:
         r = client.post(PLANS, json=body)
         assert r.status_code == 201, r.text
         assert r.json()["characteristics"][0]["unit"] is None
+
+    def test_get_active_plan_returns_the_active_plan(self, client, db, make_product):
+        product = make_product()
+        client.post(PLANS, json=_plan_body(product.id, code="QP-ACT"))
+        # Hitting /active (not /{plan_id}) — also asserts the route isn't shadowed.
+        r = client.get(f"{PLANS}/active?product_id={product.id}")
+        assert r.status_code == 200, r.text
+        assert r.json()["code"] == "QP-ACT"
+
+    def test_get_active_plan_null_when_none(self, client, db, make_product):
+        product = make_product()
+        r = client.get(f"{PLANS}/active?product_id={product.id}")
+        assert r.status_code == 200
+        assert r.json() is None
+
+    def test_get_active_plan_excludes_inactive(self, client, db, make_product):
+        product = make_product()
+        pid = client.post(PLANS, json=_plan_body(product.id, code="QP-ACT2")).json()["id"]
+        client.delete(f"{PLANS}/{pid}")  # deactivate
+        r = client.get(f"{PLANS}/active?product_id={product.id}")
+        assert r.status_code == 200
+        assert r.json() is None  # only an inactive plan exists -> null

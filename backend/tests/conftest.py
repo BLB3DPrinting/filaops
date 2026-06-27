@@ -149,6 +149,30 @@ def setup_database():
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS printer_id INTEGER"))
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS work_center_id INTEGER"))
         conn.execute(text("ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS operator_id INTEGER"))
+        # #784 PR-6: qc measurement -> plan characteristic link + conformance
+        # (migration 100). create_all won't ALTER the pre-existing table.
+        conn.execute(text("ALTER TABLE qc_inspection_measurements ADD COLUMN IF NOT EXISTS quality_plan_characteristic_id INTEGER"))
+        conn.execute(text("ALTER TABLE qc_inspection_measurements ADD COLUMN IF NOT EXISTS characteristic_code VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE qc_inspection_measurements ADD COLUMN IF NOT EXISTS conforms BOOLEAN"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_qc_inspection_measurements_quality_plan_characteristic_id "
+            "ON qc_inspection_measurements (quality_plan_characteristic_id)"
+        ))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'fk_qc_measurement_plan_characteristic'
+                ) THEN
+                    ALTER TABLE qc_inspection_measurements
+                    ADD CONSTRAINT fk_qc_measurement_plan_characteristic
+                    FOREIGN KEY (quality_plan_characteristic_id)
+                    REFERENCES quality_plan_characteristics(id) ON DELETE SET NULL;
+                END IF;
+            END
+            $$;
+        """))
         # #784: stable SPC code on plan characteristics (added after the table).
         conn.execute(text("ALTER TABLE quality_plan_characteristics ADD COLUMN IF NOT EXISTS code VARCHAR(50)"))
         conn.execute(text(

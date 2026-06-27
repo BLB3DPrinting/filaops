@@ -66,6 +66,18 @@ def list_quality_plans(
     return q.order_by(QualityPlan.code, QualityPlan.id).all()
 
 
+def get_active_quality_plan(db: Session, product_id: int) -> Optional[QualityPlan]:
+    """The single active plan for a product, or None. Deterministic pick (by
+    code, id) since nothing enforces one-active-plan-per-product. Used to seed
+    the QC inspection form when a product's order reaches its QC step."""
+    return (
+        db.query(QualityPlan)
+        .filter(QualityPlan.product_id == product_id, QualityPlan.is_active.is_(True))
+        .order_by(QualityPlan.code, QualityPlan.id)
+        .first()
+    )
+
+
 def get_quality_plan(db: Session, plan_id: int) -> QualityPlan:
     plan = db.query(QualityPlan).filter(QualityPlan.id == plan_id).first()
     if plan is None:

@@ -7,7 +7,7 @@ Integrates with:
 - Routings (process steps to follow)
 - Work Centers & Resources (where/how work happens)
 """
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, CheckConstraint
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, CheckConstraint, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 
@@ -600,11 +600,26 @@ class QCInspectionMeasurement(Base):
         index=True,
     )
     characteristic = Column(String(100), nullable=False)  # what was measured
+    # Link back to the plan characteristic this reading was taken for (when the
+    # form was seeded from a quality plan). SET NULL so deleting a plan never
+    # destroys inspection history.
+    quality_plan_characteristic_id = Column(
+        Integer,
+        ForeignKey("quality_plan_characteristics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Denormalized stable SPC key, copied from the plan characteristic at record
+    # time so (product_id, code) series survive the FK being SET NULL.
+    characteristic_code = Column(String(50), nullable=True)
     nominal = Column(Numeric(18, 4), nullable=True)  # target value
     lower_limit = Column(Numeric(18, 4), nullable=True)  # LSL
     upper_limit = Column(Numeric(18, 4), nullable=True)  # USL
     measured_value = Column(Numeric(18, 4), nullable=True)
     unit = Column(String(20), nullable=True)  # mm, g, ...
+    # Pass/fail for an ATTRIBUTE (Go/No-Go) characteristic; NULL for variable
+    # rows, whose conformance is computed from measured_value vs limits.
+    conforms = Column(Boolean, nullable=True)
     sequence = Column(Integer, default=0, nullable=False)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

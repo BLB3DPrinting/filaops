@@ -826,16 +826,51 @@ def record_qc_inspection(
     # Each row is keyed to the inspection; sequence defaults to input order.
     if measurements:
         from app.models.production_order import QCInspectionMeasurement
+        from app.models.quality_plan import QualityPlanCharacteristic
+
+        # Validate linked plan characteristics up front — a clean 400 beats a 500
+        # FK IntegrityError on flush (matches the defect_reason_id/waiver_user_id
+        # guards above). The same query yields the authoritative SPC code, so a
+        # client can't desync characteristic_code from the linked characteristic.
+        char_ids = {
+            m.get("quality_plan_characteristic_id")
+            for m in measurements
+            if m.get("quality_plan_characteristic_id") is not None
+        }
+        code_by_id = {}
+        if char_ids:
+            rows = (
+                db.query(QualityPlanCharacteristic.id, QualityPlanCharacteristic.code)
+                .filter(QualityPlanCharacteristic.id.in_(char_ids))
+                .all()
+            )
+            code_by_id = {row.id: row.code for row in rows}
+            missing = char_ids - code_by_id.keys()
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"quality_plan_characteristic_id(s) do not exist: {sorted(missing)}",
+                )
+
         for idx, m in enumerate(measurements):
             seq = m.get("sequence")
+            qpc_id = m.get("quality_plan_characteristic_id")
+            # Authoritative SPC key from the plan when linked; else the client's.
+            char_code = (
+                code_by_id.get(qpc_id) if qpc_id is not None
+                else m.get("characteristic_code")
+            )
             db.add(QCInspectionMeasurement(
                 qc_inspection_id=inspection_id,
                 characteristic=m["characteristic"],
+                quality_plan_characteristic_id=qpc_id,
+                characteristic_code=char_code,
                 nominal=m.get("nominal"),
                 lower_limit=m.get("lower_limit"),
                 upper_limit=m.get("upper_limit"),
                 measured_value=m.get("measured_value"),
                 unit=m.get("unit"),
+                conforms=m.get("conforms"),
                 sequence=seq if seq is not None else idx,
             ))
         db.flush()
