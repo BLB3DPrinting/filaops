@@ -323,7 +323,7 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                   placeholder="Search products by SKU or name…"
                   className={inputCls}
                 />
-                {searching && (
+                {search.trim() && searching && (
                   <div
                     role="status"
                     className="mt-1 text-xs text-[var(--text-muted)]"
@@ -331,7 +331,10 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                     Searching…
                   </div>
                 )}
-                {search.trim() && results.length > 0 && (
+                {/* Gate results on `queried === search` so a previous term's
+                    results aren't shown (and clickable) while a newer search is
+                    in flight — a stale click would pick the wrong product. */}
+                {search.trim() && queried === search.trim() && results.length > 0 && (
                   // A list of buttons (not a multi-row <select>): arrowing a
                   // sized select fires onChange per keypress and would commit +
                   // unmount on the first option, trapping keyboard users.
