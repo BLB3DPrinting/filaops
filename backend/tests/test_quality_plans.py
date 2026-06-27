@@ -49,6 +49,15 @@ class TestQualityPlans:
         ]
         assert client.post(PLANS, json=body).status_code == 400
 
+    def test_update_rejects_duplicate_characteristic_codes(self, client, db, make_product):
+        product = make_product()
+        pid = client.post(PLANS, json=_plan_body(product.id, code="QP-PD1")).json()["id"]
+        r = client.patch(f"{PLANS}/{pid}", json={"characteristics": [
+            {"characteristic": "a", "code": "DUP"},
+            {"characteristic": "b", "code": "DUP"},
+        ]})
+        assert r.status_code == 400  # the update replace path validates like create
+
     def test_blank_codes_normalize_to_null_and_do_not_collide(self, client, db, make_product):
         product = make_product()
         body = _plan_body(product.id, code="QP-BLANK")
