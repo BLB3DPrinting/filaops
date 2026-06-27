@@ -127,4 +127,44 @@ describe("QualityPlanEditor", () => {
       sequence: 0,
     });
   });
+
+  it("rejects an empty version instead of silently coercing it to 1", async () => {
+    renderEditor();
+    fireEvent.click(screen.getByLabelText(/Reusable template/));
+    fireEvent.change(screen.getByLabelText(/Plan code/), {
+      target: { value: "QP-V" },
+    });
+    fireEvent.change(screen.getByLabelText(/Plan name/), {
+      target: { value: "V" },
+    });
+    fireEvent.change(screen.getByLabelText("Characteristic name"), {
+      target: { value: "x" },
+    });
+    fireEvent.change(screen.getByLabelText(/Version/), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByText("Create plan"));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Version must be a positive integer/i)
+      ).toBeTruthy()
+    );
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("lets the user pick a product from keyboard-focusable search results", async () => {
+    api.get.mockResolvedValue({
+      items: [{ id: 5, sku: "WID-1", name: "Widget" }],
+    });
+    renderEditor();
+    fireEvent.change(screen.getByLabelText("Product"), {
+      target: { value: "wid" },
+    });
+    // Results render as <button>s (not a multi-row select), so each option is
+    // individually focusable/activatable — no arrow-key auto-commit trap.
+    const option = await screen.findByRole("button", { name: /WID-1/ });
+    fireEvent.click(option);
+    expect(screen.getByText(/Selected:/)).toBeTruthy();
+    expect(screen.getByText(/WID-1 — Widget/)).toBeTruthy();
+  });
 });

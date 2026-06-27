@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../../../hooks/useApi";
 import { useToast } from "../../../components/Toast";
@@ -27,13 +27,21 @@ export default function QualityPlansPage() {
   const [confirmPlan, setConfirmPlan] = useState(null);
   const [deactivating, setDeactivating] = useState(false);
 
+  // Monotonic request id: only the newest fetchPlans invocation may write state.
+  // Toggling "Show inactive" (and concurrent deactivate/onSaved re-fetches) can
+  // overlap, and apiClient retries network/5xx with backoff, so responses can
+  // resolve out of order — without this guard an older response could win.
+  const reqIdRef = useRef(0);
+
   const fetchPlans = useCallback(async () => {
+    const myId = ++reqIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const data = await api.get(
         `/api/v1/quality-plans?include_inactive=${includeInactive}`
       );
+      if (myId !== reqIdRef.current) return; // superseded by a newer fetch
       const list = Array.isArray(data) ? data : data.items || [];
       setPlans(list);
 
@@ -47,6 +55,7 @@ export default function QualityPlansPage() {
         const settled = await Promise.allSettled(
           ids.map((id) => api.get(`/api/v1/items/${id}`))
         );
+        if (myId !== reqIdRef.current) return; // superseded during label fetch
         setProductLabels((prev) => {
           const next = { ...prev };
           settled.forEach((r, i) => {
@@ -58,9 +67,10 @@ export default function QualityPlansPage() {
         });
       }
     } catch (err) {
+      if (myId !== reqIdRef.current) return;
       setError(err?.message || "Failed to load quality plans.");
     } finally {
-      setLoading(false);
+      if (myId === reqIdRef.current) setLoading(false);
     }
   }, [api, includeInactive]);
 
@@ -156,7 +166,10 @@ export default function QualityPlansPage() {
       </div>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+        <div
+          role="alert"
+          className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm"
+        >
           {error}
         </div>
       )}

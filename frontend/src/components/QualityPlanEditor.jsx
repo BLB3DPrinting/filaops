@@ -157,6 +157,17 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
   };
 
   const buildPayload = () => {
+    // Validate header fields that have non-null persisted values, so a cleared
+    // or zeroed field can't silently overwrite a stored value on edit.
+    const parsedVersion = Number(version);
+    if (!Number.isInteger(parsedVersion) || parsedVersion < 1) {
+      throw new Error("Version must be a positive integer.");
+    }
+    const trimmedRevision = revision.trim();
+    if (!trimmedRevision) {
+      throw new Error("Revision is required.");
+    }
+
     const cleaned = [];
     for (const r of rows) {
       const ch = r.characteristic.trim();
@@ -187,8 +198,8 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
       product_id: isTemplate ? null : productId,
       code: code.trim(),
       name: name.trim(),
-      version: Number(version) || 1,
-      revision: revision.trim() || "1.0",
+      version: parsedVersion,
+      revision: trimmedRevision,
       is_active: isActive,
       is_template: isTemplate,
       effective_date: effectiveDate || null,
@@ -271,7 +282,10 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
         {/* Body */}
         <div className="px-5 py-4 overflow-y-auto space-y-5">
           {formError && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+            <div
+              role="alert"
+              className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm"
+            >
               {formError}
             </div>
           )}
@@ -310,34 +324,42 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
                   className={inputCls}
                 />
                 {searching && (
-                  <div className="mt-1 text-xs text-[var(--text-muted)]">
+                  <div
+                    role="status"
+                    className="mt-1 text-xs text-[var(--text-muted)]"
+                  >
                     Searching…
                   </div>
                 )}
                 {search.trim() && results.length > 0 && (
-                  <select
-                    size={Math.min(6, results.length)}
-                    onChange={(e) => {
-                      const item = results.find(
-                        (r) => String(r.id) === e.target.value
-                      );
-                      if (item) pickProduct(item);
-                    }}
+                  // A list of buttons (not a multi-row <select>): arrowing a
+                  // sized select fires onChange per keypress and would commit +
+                  // unmount on the first option, trapping keyboard users.
+                  <ul
                     aria-label="Matching products"
-                    className="mt-1 w-full rounded-md bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+                    className="mt-1 max-h-48 overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] divide-y divide-[var(--border-subtle)]"
                   >
                     {results.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.sku} — {item.name}
-                      </option>
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => pickProduct(item)}
+                          className="w-full text-left px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-card)] focus:bg-[var(--bg-card)] focus:outline-none"
+                        >
+                          {item.sku} — {item.name}
+                        </button>
+                      </li>
                     ))}
-                  </select>
+                  </ul>
                 )}
                 {search.trim() &&
                   !searching &&
                   queried === search.trim() &&
                   results.length === 0 && (
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">
+                    <div
+                      role="status"
+                      className="mt-1 text-xs text-[var(--text-muted)]"
+                    >
                       No matching products.
                     </div>
                   )}
@@ -392,7 +414,7 @@ export default function QualityPlanEditor({ plan, onClose, onSaved }) {
               </div>
               <div>
                 <label className={labelCls} htmlFor="qp-revision">
-                  Revision
+                  Revision *
                 </label>
                 <input
                   id="qp-revision"
