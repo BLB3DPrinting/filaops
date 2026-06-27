@@ -156,3 +156,73 @@ class TestQualityPlans:
         assert r.status_code == 201, r.text
         assert r.json()["is_template"] is True
         assert r.json()["product_id"] is None
+
+    def test_create_attribute_characteristic(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-ATTR")
+        body["characteristics"] = [
+            {
+                "characteristic": "Surface defects",
+                "characteristic_type": "attribute",
+                "acceptance_criteria": "No visible scratches or layer shifts",
+                "severity": "major",
+            }
+        ]
+        r = client.post(PLANS, json=body)
+        assert r.status_code == 201, r.text
+        c = r.json()["characteristics"][0]
+        assert c["characteristic_type"] == "attribute"
+        assert c["acceptance_criteria"] == "No visible scratches or layer shifts"
+        assert c["lower_limit"] is None and c["upper_limit"] is None
+
+    def test_characteristic_type_defaults_to_variable(self, client, db, make_product):
+        product = make_product()
+        r = client.post(PLANS, json=_plan_body(product.id, code="QP-VARDEF"))
+        assert r.status_code == 201, r.text
+        assert all(
+            c["characteristic_type"] == "variable"
+            for c in r.json()["characteristics"]
+        )
+
+    def test_attribute_characteristic_rejects_spec_limits(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-ATTRX")
+        body["characteristics"] = [
+            {
+                "characteristic": "bore",
+                "characteristic_type": "attribute",
+                "upper_limit": "10.0",  # limits make no sense for pass/fail
+            }
+        ]
+        assert client.post(PLANS, json=body).status_code == 422
+
+    def test_rejects_unknown_characteristic_type(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-ATTRT")
+        body["characteristics"] = [
+            {"characteristic": "x", "characteristic_type": "bogus"}
+        ]
+        assert client.post(PLANS, json=body).status_code == 422
+
+    def test_variable_characteristic_rejects_acceptance_criteria(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-VARAC")
+        body["characteristics"] = [
+            {
+                "characteristic": "bore",
+                "characteristic_type": "variable",
+                "acceptance_criteria": "no scratches",  # only valid for attribute
+            }
+        ]
+        assert client.post(PLANS, json=body).status_code == 422
+
+    def test_attribute_characteristic_allows_blank_unit(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-ATTRBU")
+        body["characteristics"] = [
+            {"characteristic": "finish", "characteristic_type": "attribute", "unit": "  "}
+        ]
+        # A blank unit is "no unit", not a spec — it must not 422.
+        r = client.post(PLANS, json=body)
+        assert r.status_code == 201, r.text
+        assert r.json()["characteristics"][0]["unit"] is None

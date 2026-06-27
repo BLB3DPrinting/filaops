@@ -167,4 +167,48 @@ describe("QualityPlanEditor", () => {
     expect(screen.getByText(/Selected:/)).toBeTruthy();
     expect(screen.getByText(/WID-1 — Widget/)).toBeTruthy();
   });
+
+  it("swaps spec-limit inputs for an acceptance-criteria field on attribute type", () => {
+    renderEditor();
+    expect(screen.getByLabelText("Nominal")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Characteristic type"), {
+      target: { value: "attribute" },
+    });
+    expect(screen.queryByLabelText("Nominal")).toBeNull();
+    expect(screen.queryByLabelText("Lower spec limit")).toBeNull();
+    expect(screen.getByLabelText("Acceptance criteria")).toBeTruthy();
+  });
+
+  it("posts an attribute characteristic with null limits + acceptance criteria", async () => {
+    renderEditor();
+    fireEvent.click(screen.getByLabelText(/Reusable template/));
+    fireEvent.change(screen.getByLabelText(/Plan code/), {
+      target: { value: "QP-A" },
+    });
+    fireEvent.change(screen.getByLabelText(/Plan name/), {
+      target: { value: "Attr plan" },
+    });
+    fireEvent.change(screen.getByLabelText("Characteristic name"), {
+      target: { value: "Surface defects" },
+    });
+    fireEvent.change(screen.getByLabelText("Characteristic type"), {
+      target: { value: "attribute" },
+    });
+    fireEvent.change(screen.getByLabelText("Acceptance criteria"), {
+      target: { value: "No visible defects" },
+    });
+    fireEvent.click(screen.getByText("Create plan"));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    const payload = api.post.mock.calls[0][1];
+    expect(payload.characteristics[0]).toMatchObject({
+      characteristic: "Surface defects",
+      characteristic_type: "attribute",
+      acceptance_criteria: "No visible defects",
+      nominal: null,
+      lower_limit: null,
+      upper_limit: null,
+      unit: null,
+    });
+  });
 });

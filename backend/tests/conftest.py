@@ -155,6 +155,45 @@ def setup_database():
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_quality_plan_characteristics_plan_code "
             "ON quality_plan_characteristics (quality_plan_id, code) WHERE code IS NOT NULL"
         ))
+        # #784 PR-6a: variable/attribute discriminator + acceptance criteria
+        # (migration 099). create_all won't ALTER the pre-existing table.
+        conn.execute(text(
+            "ALTER TABLE quality_plan_characteristics "
+            "ADD COLUMN IF NOT EXISTS characteristic_type VARCHAR(20) NOT NULL DEFAULT 'variable'"
+        ))
+        conn.execute(text(
+            "ALTER TABLE quality_plan_characteristics "
+            "ADD COLUMN IF NOT EXISTS acceptance_criteria TEXT"
+        ))
+        # create_all won't add CHECKs to the pre-existing table — back-fill them
+        # so accumulated test DBs match fresh ones (mirrors migration 099).
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_quality_plan_characteristics_type'
+                ) THEN
+                    ALTER TABLE quality_plan_characteristics
+                    ADD CONSTRAINT ck_quality_plan_characteristics_type
+                    CHECK (characteristic_type IN ('variable', 'attribute'));
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_quality_plan_characteristics_type_fields'
+                ) THEN
+                    ALTER TABLE quality_plan_characteristics
+                    ADD CONSTRAINT ck_quality_plan_characteristics_type_fields
+                    CHECK (
+                        (characteristic_type = 'attribute'
+                         AND nominal IS NULL AND lower_limit IS NULL
+                         AND upper_limit IS NULL AND unit IS NULL)
+                        OR (characteristic_type = 'variable' AND acceptance_criteria IS NULL)
+                    );
+                END IF;
+            END
+            $$;
+        """))
         conn.execute(text("""
             DO $$
             BEGIN
