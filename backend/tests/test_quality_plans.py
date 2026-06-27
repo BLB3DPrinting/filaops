@@ -29,6 +29,49 @@ class TestQualityPlans:
         assert got.status_code == 200
         assert got.json()["code"] == "QP-1"
 
+    def test_characteristic_code_round_trips(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-CODE1")
+        body["characteristics"] = [
+            {"characteristic": "Bore diameter", "code": "BORE_DIA", "unit": "mm"},
+            {"characteristic": "Surface finish", "code": "FINISH"},
+        ]
+        r = client.post(PLANS, json=body)
+        assert r.status_code == 201, r.text
+        assert [c["code"] for c in r.json()["characteristics"]] == ["BORE_DIA", "FINISH"]
+
+    def test_rejects_duplicate_characteristic_codes(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-CODE2")
+        body["characteristics"] = [
+            {"characteristic": "a", "code": "DUP"},
+            {"characteristic": "b", "code": "DUP"},
+        ]
+        assert client.post(PLANS, json=body).status_code == 400
+
+    def test_update_rejects_duplicate_characteristic_codes(self, client, db, make_product):
+        product = make_product()
+        create_r = client.post(PLANS, json=_plan_body(product.id, code="QP-PD1"))
+        assert create_r.status_code == 201, create_r.text
+        pid = create_r.json()["id"]
+        r = client.patch(f"{PLANS}/{pid}", json={"characteristics": [
+            {"characteristic": "a", "code": "DUP"},
+            {"characteristic": "b", "code": "DUP"},
+        ]})
+        assert r.status_code == 400  # the update replace path validates like create
+        assert "duplicate characteristic code" in r.json()["detail"]
+
+    def test_blank_codes_normalize_to_null_and_do_not_collide(self, client, db, make_product):
+        product = make_product()
+        body = _plan_body(product.id, code="QP-BLANK")
+        body["characteristics"] = [
+            {"characteristic": "a", "code": "   "},  # whitespace -> NULL
+            {"characteristic": "b", "code": ""},      # empty -> NULL
+        ]
+        r = client.post(PLANS, json=body)
+        assert r.status_code == 201, r.text  # two blanks don't collide on the index
+        assert [c["code"] for c in r.json()["characteristics"]] == [None, None]
+
     def test_list_by_product(self, client, db, make_product):
         product = make_product()
         client.post(PLANS, json=_plan_body(product.id, code="QP-L1"))
