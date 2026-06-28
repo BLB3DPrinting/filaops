@@ -699,6 +699,10 @@ class QCInspectionResponse(BaseModel):
     sales_order_updated: bool = False
     sales_order_status: Optional[str] = None
     message: str
+    warnings: List[str] = Field(
+        default_factory=list,
+        description="Non-blocking quality-gate warnings (full mode, warn action)",
+    )
 
 
 class QCInspectionRecord(BaseModel):

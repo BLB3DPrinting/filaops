@@ -657,6 +657,27 @@ def record_qc_inspection(
             status_code=400,
             detail=f"qc_status must be an inspection result {_QC_RESULTS}, got '{qc_status}'",
         )
+
+    # Inspection-result gate (#784 PR-7): in FULL mode a recorded *pass* must
+    # satisfy the product's active quality plan — every characteristic measured
+    # and conformant (variable in-spec, attribute Go), derived server-side.
+    # off = no gate; warn = record + return a warning; block = reject the pass so
+    # the inspector completes it or records fail/conditional. Before any side effect.
+    gate_warnings: list = []
+    if qc_status == "passed":
+        from app.services.quality_policy import GateAction, get_quality_policy
+        policy = get_quality_policy(db)
+        if policy.gate_enforced:  # full mode AND action != off
+            from app.services.quality_gate_service import evaluate_inspection
+            from app.services.quality_plan_service import get_active_quality_plan
+            plan = get_active_quality_plan(db, order.product_id)
+            if plan and plan.characteristics:
+                ev = evaluate_inspection(plan, measurements or [])
+                if not ev.is_clean:
+                    detail = f"Inspection does not satisfy plan {plan.code}: {ev.summary()}"
+                    if policy.gate_action is GateAction.BLOCK:
+                        raise HTTPException(status_code=400, detail=detail)
+                    gate_warnings.append(detail)
     # Reject negative quantities before they are written to the immutable
     # history row, where they would permanently skew audit / FPY figures.
     for _name, _val in (("quantity_passed", quantity_passed), ("quantity_failed", quantity_failed)):
@@ -896,6 +917,7 @@ def record_qc_inspection(
         "defect_reason_id": defect_reason_id,
         "inspected_at": inspected_at.isoformat(),
         "inspection_id": inspection_id,
+        "warnings": gate_warnings,
     }
 
     logger.info(f"QC inspection recorded for {order.code}: {qc_status}")

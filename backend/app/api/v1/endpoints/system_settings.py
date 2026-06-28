@@ -116,6 +116,19 @@ def _validate_quality_mode(value: Any) -> str:
     return value
 
 
+def _validate_quality_gate_action(value: Any) -> str:
+    """Validate the Full-mode inspection gate: must be one of off | warn | block.
+
+    See ``app.services.quality_policy.GateAction`` for what each level does.
+    """
+    from app.services.quality_policy import GateAction
+
+    allowed = [a.value for a in GateAction]
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"quality_gate_action must be one of: {', '.join(allowed)}")
+    return value
+
+
 def _validate_bool(value: Any) -> bool:
     """Validate a strict JSON boolean (no truthy coercion)."""
     if not isinstance(value, bool):
@@ -128,7 +141,8 @@ SETTING_VALIDATORS: dict[str, Callable[[Any], Any]] = {
     "pro_quoter_origins": _validate_origin_list,
     # QC rigor dial (#784 QMS) — read via app.services.quality_policy
     "quality_mode": _validate_quality_mode,
-    "quality_gate_close": _validate_bool,
+    "quality_gate_action": _validate_quality_gate_action,
+    "quality_gate_close": _validate_bool,  # legacy bool (back-compat fallback)
 }
 
 

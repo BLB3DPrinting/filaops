@@ -92,8 +92,11 @@ class QualityPolicyResponse(BaseModel):
     UI actually asks (e.g. hide all QC nav when ``surfaces_enabled`` is False).
     """
     mode: str = Field(description="off | basic | full")
+    gate_action: str = Field(
+        description="Inspection gate action: off | warn | block (full mode only)"
+    )
     gate_close: bool = Field(
-        description="Raw setting: hard-block close on failed inspection (full mode only)"
+        description="Raw legacy setting (back-compat); prefer gate_action"
     )
     surfaces_enabled: bool = Field(
         description="Whether QC surfaces should appear at all (basic or full)"
@@ -102,7 +105,7 @@ class QualityPolicyResponse(BaseModel):
         description="Whether quality plans + measurements apply (full only)"
     )
     gates_close: bool = Field(
-        description="Effective gating: a failed inspection hard-blocks close (full + gate_close)"
+        description="Effective hard-block: gate_action=block in full mode"
     )
 
 
