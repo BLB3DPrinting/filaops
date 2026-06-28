@@ -67,7 +67,6 @@ class QualityPolicy:
     """
     mode: QualityMode
     gate_action: GateAction
-    gate_close: bool  # raw legacy setting, surfaced for back-compat consumers
 
     @property
     def is_off(self) -> bool:
@@ -104,6 +103,15 @@ class QualityPolicy:
         Only in ``full`` mode and only when the action isn't ``off``.
         """
         return self.mode is QualityMode.FULL and self.gate_action is not GateAction.OFF
+
+    @property
+    def gate_close(self) -> bool:
+        """Back-compat for the legacy boolean toggle: whether the resolved action
+        is ``block``. Derived from the RESOLVED ``gate_action`` (not the raw legacy
+        row) so setting the new ``quality_gate_action`` key keeps older clients in
+        sync. Mode-independent, matching the legacy raw-setting semantics.
+        """
+        return self.gate_action is GateAction.BLOCK
 
     @property
     def gates_close(self) -> bool:
@@ -153,4 +161,4 @@ def get_quality_policy(db: Session) -> QualityPolicy:
         # unconfigured install never hard-blocks.
         gate_action = GateAction.BLOCK if legacy_close else DEFAULT_GATE_ACTION
 
-    return QualityPolicy(mode=mode, gate_action=gate_action, gate_close=legacy_close)
+    return QualityPolicy(mode=mode, gate_action=gate_action)

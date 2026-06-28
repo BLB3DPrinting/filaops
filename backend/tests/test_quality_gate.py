@@ -6,6 +6,7 @@ from app.services.quality_gate_service import evaluate_inspection
 from app.services.quality_policy import GateAction, get_quality_policy
 
 QC = "/api/v1/production-orders/{id}/qc"
+HIST = "/api/v1/production-orders/{id}/qc-inspections"
 PLANS = "/api/v1/quality-plans"
 
 
@@ -110,6 +111,16 @@ class TestGateEvaluation:
         assert ev.missing == ["finish"]
         assert ev.failing == []
 
+    def test_duplicate_rows_cannot_hide_a_failure(self):
+        # Two rows for the same characteristic — a later passing row must not
+        # hide an earlier out-of-spec one.
+        plan = _Plan([_Char(1, "bore", "variable", Decimal("9.9"), Decimal("10.1"))])
+        ev = evaluate_inspection(plan, [
+            {"quality_plan_characteristic_id": 1, "measured_value": "50"},    # fail
+            {"quality_plan_characteristic_id": 1, "measured_value": "10.0"},  # pass
+        ])
+        assert ev.failing == ["bore"]
+
 
 # --- policy resolution -------------------------------------------------------
 
@@ -130,6 +141,16 @@ class TestGatePolicy:
         _set(db, "quality_gate_close", True)
         _set(db, "quality_gate_action", "off")
         assert get_quality_policy(db).gate_action is GateAction.OFF
+
+    def test_policy_endpoint_returns_action_and_legacy_close(self, client, db):
+        # Setting the NEW key alone must keep the legacy gate_close field in sync
+        # (derived from the action), so older UI toggles don't drift.
+        _set(db, "quality_mode", "full")
+        _set(db, "quality_gate_action", "block")
+        body = client.get("/api/v1/quality/policy").json()
+        assert body["gate_action"] == "block"
+        assert body["gate_close"] is True   # derived from action, not the raw row
+        assert body["gates_close"] is True  # block + full
 
 
 # --- end-to-end via /qc ------------------------------------------------------
@@ -160,6 +181,8 @@ class TestGateEndpoint:
         })
         assert r.status_code == 400, r.text
         assert "does not satisfy plan" in r.json()["detail"]
+        # Block runs before any side effect: no inspection row was written.
+        assert client.get(HIST.format(id=po.id)).json()["inspections"] == []
 
     def test_warn_allows_incomplete_pass_with_warning(self, client, db, make_product, make_production_order):
         product, po = _make_po(make_product, make_production_order)
