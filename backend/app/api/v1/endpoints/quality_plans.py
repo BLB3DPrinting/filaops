@@ -40,6 +40,20 @@ def create_plan(
     return svc.create_quality_plan(db, body)
 
 
+@router.get("/active", response_model=Optional[QualityPlanResponse])
+def get_active_plan(
+    product_id: int = Query(..., description="Product to fetch the active plan for"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The single active plan for a product, or null — seeds the QC form.
+
+    Registered before ``/{plan_id}`` so the literal path isn't shadowed by the
+    int path param.
+    """
+    return svc.get_active_quality_plan(db, product_id)
+
+
 @router.get("/{plan_id}", response_model=QualityPlanResponse)
 def get_plan(
     plan_id: int,

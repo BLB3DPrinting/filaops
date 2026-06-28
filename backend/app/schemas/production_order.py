@@ -577,6 +577,15 @@ class QCMeasurementInput(BaseModel):
     measured_value: Optional[Decimal] = Field(None, description="Actual measured value")
     unit: Optional[str] = Field(None, max_length=20, description="e.g. mm, g")
     sequence: Optional[int] = Field(None, description="Display order; defaults to input order")
+    quality_plan_characteristic_id: Optional[int] = Field(
+        None, description="Plan characteristic this reading was seeded from"
+    )
+    characteristic_code: Optional[str] = Field(
+        None, max_length=50, description="Stable SPC key, denormalized from the plan"
+    )
+    conforms: Optional[bool] = Field(
+        None, description="Pass/fail for an attribute (Go/No-Go) characteristic"
+    )
 
     @model_validator(mode="after")
     def _limits_ordered(self):
@@ -601,6 +610,9 @@ class QCMeasurementRecord(BaseModel):
     measured_value: Optional[Decimal] = None
     unit: Optional[str] = None
     sequence: int = 0
+    quality_plan_characteristic_id: Optional[int] = None
+    characteristic_code: Optional[str] = None
+    conforms: Optional[bool] = None
 
     @computed_field
     @property
