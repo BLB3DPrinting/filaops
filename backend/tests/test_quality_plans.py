@@ -248,3 +248,13 @@ class TestQualityPlans:
         r = client.get(f"{PLANS}/active?product_id={product.id}")
         assert r.status_code == 200
         assert r.json() is None  # only an inactive plan exists -> null
+
+    def test_get_active_plan_picks_deterministically_by_code(self, client, db, make_product):
+        product = make_product()
+        # Nothing enforces one-active-plan-per-product; the pick is the first
+        # active row by (code, id), so 'QP-AAA' wins over 'QP-ZZZ'.
+        client.post(PLANS, json=_plan_body(product.id, code="QP-ZZZ"))
+        client.post(PLANS, json=_plan_body(product.id, code="QP-AAA"))
+        r = client.get(f"{PLANS}/active?product_id={product.id}")
+        assert r.status_code == 200
+        assert r.json()["code"] == "QP-AAA"

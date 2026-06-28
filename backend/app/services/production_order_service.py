@@ -826,11 +826,13 @@ def record_qc_inspection(
     # Each row is keyed to the inspection; sequence defaults to input order.
     if measurements:
         from app.models.production_order import QCInspectionMeasurement
-        from app.models.quality_plan import QualityPlanCharacteristic
+        from app.models.quality_plan import QualityPlan, QualityPlanCharacteristic
 
         # Validate linked plan characteristics up front — a clean 400 beats a 500
         # FK IntegrityError on flush (matches the defect_reason_id/waiver_user_id
-        # guards above). The same query yields the authoritative SPC code, so a
+        # guards above). SCOPE to THIS order's product's plans so a measurement
+        # can't be linked to another product's characteristic (which would
+        # mis-bucket SPC). The same query yields the authoritative SPC code, so a
         # client can't desync characteristic_code from the linked characteristic.
         char_ids = {
             m.get("quality_plan_characteristic_id")
@@ -841,7 +843,11 @@ def record_qc_inspection(
         if char_ids:
             rows = (
                 db.query(QualityPlanCharacteristic.id, QualityPlanCharacteristic.code)
-                .filter(QualityPlanCharacteristic.id.in_(char_ids))
+                .join(QualityPlan, QualityPlanCharacteristic.quality_plan_id == QualityPlan.id)
+                .filter(
+                    QualityPlanCharacteristic.id.in_(char_ids),
+                    QualityPlan.product_id == order.product_id,
+                )
                 .all()
             )
             code_by_id = {row.id: row.code for row in rows}
@@ -849,7 +855,10 @@ def record_qc_inspection(
             if missing:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"quality_plan_characteristic_id(s) do not exist: {sorted(missing)}",
+                    detail=(
+                        "quality_plan_characteristic_id(s) not found in this "
+                        f"product's quality plans: {sorted(missing)}"
+                    ),
                 )
 
         for idx, m in enumerate(measurements):

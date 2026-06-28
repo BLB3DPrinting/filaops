@@ -605,7 +605,11 @@ class QCInspectionMeasurement(Base):
     # destroys inspection history.
     quality_plan_characteristic_id = Column(
         Integer,
-        ForeignKey("quality_plan_characteristics.id", ondelete="SET NULL"),
+        ForeignKey(
+            "quality_plan_characteristics.id",
+            ondelete="SET NULL",
+            name="fk_qc_measurement_plan_characteristic",
+        ),
         nullable=True,
         index=True,
     )

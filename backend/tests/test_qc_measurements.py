@@ -124,7 +124,7 @@ class TestQCMeasurements:
         })
         # A bogus FK is a clean 400, not a 500 FK IntegrityError.
         assert r.status_code == 400, r.text
-        assert "do not exist" in r.json()["detail"]
+        assert "not found in this product" in r.json()["detail"]
 
     def test_characteristic_code_is_authoritative_from_plan(self, client, db, make_product, make_production_order):
         po = _make_po(make_product, make_production_order)
@@ -143,6 +143,49 @@ class TestQCMeasurements:
         ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
         # The server overrides a wrong client code with the plan's real code.
         assert ms[0]["characteristic_code"] == "REAL_CODE"
+
+    def test_characteristic_from_another_product_is_rejected(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)  # product A
+        other = make_product()                              # product B
+        other_plan = client.post(PLANS, json={
+            "product_id": other.id, "code": "QP-OTHER", "name": "Other plan",
+            "characteristics": [{"characteristic": "x", "code": "X"}],
+        }).json()
+        other_cid = other_plan["characteristics"][0]["id"]
+        r = client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "x", "quality_plan_characteristic_id": other_cid,
+                 "measured_value": "1"},
+            ],
+        })
+        # The characteristic exists but belongs to a different product's plan.
+        assert r.status_code == 400, r.text
+        assert "not found in this product" in r.json()["detail"]
+
+    def test_deleting_linked_characteristic_nulls_fk_keeps_code(self, client, db, make_product, make_production_order):
+        po = _make_po(make_product, make_production_order)
+        plan = client.post(PLANS, json={
+            "product_id": po.product_id, "code": "QP-DEL", "name": "Del plan",
+            "characteristics": [{"characteristic": "bore", "code": "BORE", "nominal": "10"}],
+        }).json()
+        cid = plan["characteristics"][0]["id"]
+        pid = plan["id"]
+        client.post(QC.format(id=po.id), json={
+            "result": "passed",
+            "measurements": [
+                {"characteristic": "bore", "quality_plan_characteristic_id": cid,
+                 "characteristic_code": "BORE", "measured_value": "10"},
+            ],
+        })
+        # Replacing the plan's characteristics delete-orphans the old row; its
+        # ON DELETE SET NULL nulls the measurement FK, but the denormalized code
+        # is preserved for historical SPC grouping.
+        r = client.patch(f"{PLANS}/{pid}", json={"characteristics": [{"characteristic": "new"}]})
+        assert r.status_code == 200, r.text
+        ms = client.get(HIST.format(id=po.id)).json()["inspections"][0]["measurements"]
+        assert ms[0]["quality_plan_characteristic_id"] is None  # FK SET NULL
+        assert ms[0]["characteristic_code"] == "BORE"           # code preserved
 
     def test_equal_sequence_keeps_insertion_order(self, client, db, make_product, make_production_order):
         po = _make_po(make_product, make_production_order)
