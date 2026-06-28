@@ -39,6 +39,7 @@ def get_policy(
     policy = get_quality_policy(db)
     return QualityPolicyResponse(
         mode=policy.mode.value,
+        gate_action=policy.gate_action.value,
         gate_close=policy.gate_close,
         surfaces_enabled=policy.surfaces_enabled,
         plan_driven=policy.plan_driven,

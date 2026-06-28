@@ -1399,6 +1399,7 @@ async def record_qc_inspection(
         sales_order_updated=False,
         sales_order_status=None,
         message=f"QC {order.qc_status} recorded for {order.code}",
+        warnings=inspection.get("warnings", []),
     )
 
 
