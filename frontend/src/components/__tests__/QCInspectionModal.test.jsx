@@ -160,10 +160,13 @@ describe("QCInspectionModal", () => {
   });
 
   it("does not seed in basic mode (today's empty grid)", async () => {
-    await renderModal({ productId: 5, planDriven: false });
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const { calls } = await renderModal({ productId: 5, planDriven: false });
+    // Wait for the settled state: the policy check runs, but the active-plan
+    // endpoint must never be hit and the grid stays empty.
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/quality/policy"))).toBe(true));
+    await waitFor(() => expect(screen.getByText(/No measurements/)).toBeTruthy());
+    expect(calls.some((c) => c.url.includes("/quality-plans/active"))).toBe(false);
     expect(screen.queryByText(/Seeded from plan/)).toBeNull();
-    expect(screen.getByText(/No measurements/)).toBeTruthy();
   });
 
   it("submits the plan link and conforms for seeded rows", async () => {
@@ -186,6 +189,21 @@ describe("QCInspectionModal", () => {
       expect(byChar["Surface"].quality_plan_characteristic_id).toBe(101);
       expect(byChar["Surface"].conforms).toBe(true);
       expect(byChar["Surface"].measured_value).toBeNull();
+    });
+  });
+
+  it("submits conforms:false for a seeded attribute row marked Fail", async () => {
+    const { calls } = await renderModal({ productId: 5, planDriven: true, plan: PLAN });
+    await waitFor(() => expect(screen.getByDisplayValue("Bore")).toBeTruthy());
+    const group = screen.getByRole("group", { name: /Surface result/i });
+    fireEvent.click(within(group).getByText("Fail"));
+    fireEvent.click(screen.getByText(/Record Pass/));
+    await waitFor(() => {
+      const post = calls.find((c) => c.url.endsWith("/qc"));
+      const body = JSON.parse(post.opts.body);
+      const surface = body.measurements.find((m) => m.characteristic === "Surface");
+      // `false` must survive — a regression that drops it back to null fails here.
+      expect(surface.conforms).toBe(false);
     });
   });
 });

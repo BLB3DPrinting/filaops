@@ -80,6 +80,12 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Clear any prior order's seeded rows before loading the new order — a
+      // reused modal (productionOrder.id change without unmount) must not submit
+      // stale measurements against a different order. Runs synchronously before
+      // the first await, so it resets immediately on an id change.
+      setMeasurements([]);
+      setSeededPlan(null);
       try {
         const [drRes, poRes] = await Promise.all([
           fetch(`${API_URL}/api/v1/production-orders/defect-reasons`, { credentials: "include" }),
