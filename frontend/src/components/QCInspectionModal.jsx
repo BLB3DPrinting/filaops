@@ -19,8 +19,29 @@ const RESULTS = [
 ];
 
 const emptyMeasurement = () => ({
-  characteristic: "", nominal: "", lower_limit: "", upper_limit: "",
-  measured_value: "", unit: "",
+  characteristic: "", characteristic_type: "variable",
+  nominal: "", lower_limit: "", upper_limit: "", measured_value: "", unit: "",
+  quality_plan_characteristic_id: null, characteristic_code: null,
+  acceptance_criteria: null, conforms: null, locked: false,
+});
+
+// A measurement row seeded from a plan characteristic: the spec is locked (it
+// comes from the plan), the inspector only fills the reading (measured_value for
+// variable, conforms for attribute). Numeric specs are kept as strings to match
+// the form inputs; the backend re-derives the authoritative characteristic_code.
+const rowFromPlanChar = (c) => ({
+  characteristic: c.characteristic ?? "",
+  characteristic_type: c.characteristic_type ?? "variable",
+  nominal: c.nominal ?? "",
+  lower_limit: c.lower_limit ?? "",
+  upper_limit: c.upper_limit ?? "",
+  measured_value: "",
+  unit: c.unit ?? "",
+  quality_plan_characteristic_id: c.id,
+  characteristic_code: c.code ?? null,
+  acceptance_criteria: c.acceptance_criteria ?? null,
+  conforms: null,
+  locked: true,
 });
 
 // Client-side mirror of the backend's computed is_within_spec, for a live hint.
@@ -51,6 +72,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
 
   const [defectReasons, setDefectReasons] = useState([]);
   const [operations, setOperations] = useState([]);
+  const [seededPlan, setSeededPlan] = useState(null); // {code, name} when the grid was seeded from a plan
 
   const selected = RESULTS.find((r) => r.value === result) || RESULTS[0];
   const needsDefect = result !== "passed"; // fail/waive/conditional may carry a defect
@@ -58,6 +80,12 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Clear any prior order's seeded rows before loading the new order — a
+      // reused modal (productionOrder.id change without unmount) must not submit
+      // stale measurements against a different order. Runs synchronously before
+      // the first await, so it resets immediately on an id change.
+      setMeasurements([]);
+      setSeededPlan(null);
       try {
         const [drRes, poRes] = await Promise.all([
           fetch(`${API_URL}/api/v1/production-orders/defect-reasons`, { credentials: "include" }),
@@ -67,12 +95,38 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
           const data = await drRes.json();
           setDefectReasons(data.details || []);
         }
+        let productId = null;
         if (!cancelled && poRes.ok) {
           const data = await poRes.json();
           setOperations(data.operations || []);
+          productId = data.product_id ?? null;
+        }
+
+        // Plan-driven seeding (Full mode only): pre-fill the grid from the
+        // product's active quality plan. Best-effort — any failure just leaves
+        // today's empty grid, and basic/off mode never seeds.
+        if (!cancelled && productId != null) {
+          const polRes = await fetch(`${API_URL}/api/v1/quality/policy`, { credentials: "include" });
+          const policy = polRes.ok ? await polRes.json() : null;
+          if (!cancelled && policy?.plan_driven) {
+            const planRes = await fetch(
+              `${API_URL}/api/v1/quality-plans/active?product_id=${productId}`,
+              { credentials: "include" },
+            );
+            const plan = planRes.ok ? await planRes.json() : null;
+            if (!cancelled && plan?.characteristics?.length) {
+              // Don't clobber rows the user may have added during the fetch gap,
+              // and only show the "seeded" banner if the seed actually happened.
+              setMeasurements((prev) => {
+                if (prev.length) return prev;
+                setSeededPlan({ code: plan.code, name: plan.name });
+                return plan.characteristics.map(rowFromPlanChar);
+              });
+            }
+          }
         }
       } catch {
-        /* non-critical — the dropdowns just stay empty */
+        /* non-critical — the dropdowns/seed just stay empty */
       }
     })();
     return () => { cancelled = true; };
@@ -90,13 +144,20 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      // Only fully-empty measurement rows are ignored; a row with any data must
-      // name its characteristic, otherwise we'd silently drop the reading.
-      const entered = measurements.filter((m) =>
-        [m.characteristic, m.nominal, m.lower_limit, m.upper_limit, m.measured_value, m.unit]
-          .some((v) => String(v ?? "").trim()),
-      );
-      if (entered.some((m) => !m.characteristic.trim())) {
+      // Decide which rows to record. Attribute rows count once a Pass/Fail is
+      // chosen; a seeded (locked) variable row needs an actual reading; a manual
+      // row counts if it carries any data. A counted row must name a
+      // characteristic, otherwise we'd silently drop the reading.
+      const entered = measurements.filter((m) => {
+        if (m.characteristic_type === "attribute") return m.conforms !== null;
+        if (m.locked) return String(m.measured_value ?? "").trim() !== "";
+        return [m.characteristic, m.nominal, m.lower_limit, m.upper_limit, m.measured_value, m.unit]
+          .some((v) => String(v ?? "").trim());
+      });
+      // Only MANUAL rows must name a characteristic — a plan-seeded row's
+      // identity is its quality_plan_characteristic_id, and its (read-only)
+      // name comes from the plan, so it must never block submit.
+      if (entered.some((m) => m.quality_plan_characteristic_id == null && !m.characteristic.trim())) {
         toast.error("Add a characteristic for each measurement row, or remove the row.");
         return; // the finally block re-enables the submit button
       }
@@ -116,8 +177,13 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
             nominal: numOrNull(m.nominal),
             lower_limit: numOrNull(m.lower_limit),
             upper_limit: numOrNull(m.upper_limit),
-            measured_value: numOrNull(m.measured_value),
-            unit: m.unit.trim() || null,
+            // Attribute rows have no measured value; their result is `conforms`.
+            measured_value:
+              m.characteristic_type === "attribute" ? null : numOrNull(m.measured_value),
+            unit: (m.unit || "").trim() || null,
+            quality_plan_characteristic_id: m.quality_plan_characteristic_id ?? null,
+            characteristic_code: m.characteristic_code ?? null,
+            conforms: m.characteristic_type === "attribute" ? m.conforms : null,
           })),
       };
       const res = await fetch(
@@ -293,35 +359,97 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
       {/* Measurements grid */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm text-gray-400">Measurements (SPC)</label>
+          <label className="block text-sm text-gray-400">
+            {seededPlan ? "Characteristics (from plan)" : "Measurements (SPC)"}
+          </label>
           <button type="button" onClick={addMeasurement}
             className="text-sm text-blue-400 hover:text-blue-300">+ Add measurement</button>
         </div>
+        {seededPlan && (
+          <p className="text-xs text-gray-400 mb-2">
+            Seeded from plan{" "}
+            <span className="font-mono text-gray-300">{seededPlan.code}</span>
+            {seededPlan.name ? ` — ${seededPlan.name}` : ""}. Record a reading for each characteristic.
+          </p>
+        )}
         {measurements.length === 0 ? (
           <p className="text-xs text-gray-500">No measurements. Add one to record a dimensional/SPC reading.</p>
         ) : (
           <div className="space-y-2">
             {measurements.map((m, idx) => {
+              // Attribute (Go/No-Go) row: a Pass/Fail toggle, no numeric inputs.
+              if (m.characteristic_type === "attribute") {
+                return (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-5">
+                      <div className="px-3 py-2 text-sm text-white truncate" title={m.characteristic}>
+                        {m.characteristic}
+                      </div>
+                      {m.acceptance_criteria && (
+                        <p className="text-xs text-gray-500 px-3 -mt-1">{m.acceptance_criteria}</p>
+                      )}
+                    </div>
+                    <div className="col-span-6 flex gap-2" role="group"
+                      aria-label={`${m.characteristic} result`}>
+                      <button type="button" aria-pressed={m.conforms === true}
+                        aria-label={`${m.characteristic}: pass`}
+                        onClick={() => setMeasurement(idx, "conforms", m.conforms === true ? null : true)}
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
+                          m.conforms === true ? "border-green-500 bg-green-500/10 text-green-400"
+                            : "border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600"}`}>
+                        Pass
+                      </button>
+                      <button type="button" aria-pressed={m.conforms === false}
+                        aria-label={`${m.characteristic}: fail`}
+                        onClick={() => setMeasurement(idx, "conforms", m.conforms === false ? null : false)}
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
+                          m.conforms === false ? "border-red-500 bg-red-500/10 text-red-400"
+                            : "border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600"}`}>
+                        Fail
+                      </button>
+                    </div>
+                    <div className="col-span-1" />
+                  </div>
+                );
+              }
+              // Variable row: locked spec (from plan) is read-only, only the
+              // measured value is editable; a manual row is fully editable.
               const ok = withinSpec(m);
+              const ro = m.locked ? "bg-gray-800/40 text-gray-400 cursor-default" : "";
               return (
                 <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                  <input className={`${inputCls} col-span-3`} placeholder="Characteristic"
-                    value={m.characteristic} onChange={(e) => setMeasurement(idx, "characteristic", e.target.value)} />
-                  <input className={`${inputCls} col-span-2`} type="number" step="any" placeholder="Nominal"
-                    value={m.nominal} onChange={(e) => setMeasurement(idx, "nominal", e.target.value)} />
-                  <input className={`${inputCls} col-span-1`} type="number" step="any" placeholder="LSL"
-                    value={m.lower_limit} onChange={(e) => setMeasurement(idx, "lower_limit", e.target.value)} />
-                  <input className={`${inputCls} col-span-1`} type="number" step="any" placeholder="USL"
-                    value={m.upper_limit} onChange={(e) => setMeasurement(idx, "upper_limit", e.target.value)} />
+                  <input className={`${inputCls} col-span-3 ${ro}`} placeholder="Characteristic"
+                    aria-label="Characteristic" tabIndex={m.locked ? -1 : undefined}
+                    value={m.characteristic} readOnly={m.locked}
+                    onChange={(e) => setMeasurement(idx, "characteristic", e.target.value)} />
+                  <input className={`${inputCls} col-span-2 ${ro}`} type="number" step="any" placeholder="Nominal"
+                    aria-label="Nominal" tabIndex={m.locked ? -1 : undefined}
+                    value={m.nominal} readOnly={m.locked}
+                    onChange={(e) => setMeasurement(idx, "nominal", e.target.value)} />
+                  <input className={`${inputCls} col-span-1 ${ro}`} type="number" step="any" placeholder="LSL"
+                    aria-label="Lower spec limit" tabIndex={m.locked ? -1 : undefined}
+                    value={m.lower_limit} readOnly={m.locked}
+                    onChange={(e) => setMeasurement(idx, "lower_limit", e.target.value)} />
+                  <input className={`${inputCls} col-span-1 ${ro}`} type="number" step="any" placeholder="USL"
+                    aria-label="Upper spec limit" tabIndex={m.locked ? -1 : undefined}
+                    value={m.upper_limit} readOnly={m.locked}
+                    onChange={(e) => setMeasurement(idx, "upper_limit", e.target.value)} />
                   <input className={`${inputCls} col-span-2`} type="number" step="any" placeholder="Measured"
+                    aria-label={`${m.characteristic || "measurement"} measured value`}
                     value={m.measured_value} onChange={(e) => setMeasurement(idx, "measured_value", e.target.value)} />
-                  <input className={`${inputCls} col-span-2`} placeholder="Unit"
-                    value={m.unit} onChange={(e) => setMeasurement(idx, "unit", e.target.value)} />
+                  <input className={`${inputCls} col-span-2 ${ro}`} placeholder="Unit"
+                    aria-label="Unit" tabIndex={m.locked ? -1 : undefined}
+                    value={m.unit} readOnly={m.locked}
+                    onChange={(e) => setMeasurement(idx, "unit", e.target.value)} />
                   <div className="col-span-1 flex items-center justify-end gap-1">
-                    {ok === true && <span className="w-2.5 h-2.5 rounded-full bg-green-500" title="In spec" />}
-                    {ok === false && <span className="w-2.5 h-2.5 rounded-full bg-red-500" title="Out of spec" />}
-                    <button type="button" onClick={() => removeMeasurement(idx)}
-                      className="text-gray-500 hover:text-red-400" title="Remove">&times;</button>
+                    {ok === true && <span role="img" aria-label="In spec"
+                      className="w-2.5 h-2.5 rounded-full bg-green-500" title="In spec" />}
+                    {ok === false && <span role="img" aria-label="Out of spec"
+                      className="w-2.5 h-2.5 rounded-full bg-red-500" title="Out of spec" />}
+                    {!m.locked && (
+                      <button type="button" onClick={() => removeMeasurement(idx)}
+                        className="text-gray-500 hover:text-red-400" title="Remove">&times;</button>
+                    )}
                   </div>
                 </div>
               );
