@@ -136,7 +136,7 @@
 | 53 | Material-Printer Compatibility Validation | Validates filament material type and diameter against printer nozzle and platform specs before scheduling; suggests compatible alternatives | ✅ Complete |
 | 54 | Scheduling Sequence Enforcement | Operations must be scheduled in sequence order; attempting to schedule out of order returns a validation error with next-available slot suggestion | ✅ Complete |
 | 55 | Scheduling Conflict Slot Suggestion | When a requested time slot is taken, returns the next available slot on that work center | ✅ Complete |
-| 56 | Quality Dashboard | Inspection queue, pass/fail metrics, scrap analysis, and trend charts for QC managers | ✅ Complete |
+| 56 | Quality Module | Selectable QC rigor (off/basic/full), per-product quality plans with variable + attribute characteristics, plan-driven inspection with measurements, defect taxonomy, inspection photos, and a configurable inspection gate (off/warn/block). SPC trend charts and control charts are PRO. | ✅ Complete |
 
 ### Supply Chain (v4.0.0)
 
