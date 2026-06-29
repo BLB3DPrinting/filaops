@@ -40,8 +40,6 @@ async function renderSection(opts) {
   return { ...utils, calls };
 }
 
-// Helpers to disambiguate the mode vs gate radio groups (both have "Off").
-const modeRadio = (value) => screen.getByRole("radio", { name: new RegExp(value, "i") });
 const gateRadios = () => screen.getAllByRole("radio").filter((r) => r.name === "quality_gate_action");
 
 describe("QualitySettingsSection", () => {
