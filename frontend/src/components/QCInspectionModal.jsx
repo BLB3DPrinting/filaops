@@ -202,6 +202,9 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         } else {
           toast.success(data.message || "QC inspection recorded");
         }
+        if (data.warnings?.length) {
+          data.warnings.forEach((w) => toast.warning(w));
+        }
         if (data.inspection_id) {
           setRecordedId(data.inspection_id); // advance to the optional photos step
         } else {
