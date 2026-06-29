@@ -9,7 +9,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mockFetch({ policy = { mode: "basic", gate_close: false }, putOk = true } = {}) {
+function mockFetch({ policy = { mode: "basic", gate_action: "warn" }, putOk = true } = {}) {
   const calls = [];
   global.fetch = vi.fn().mockImplementation(async (url, opts) => {
     const urlStr = typeof url === "string" ? url : url.toString();
@@ -30,8 +30,6 @@ function mockFetch({ policy = { mode: "basic", gate_close: false }, putOk = true
 
 async function renderSection(opts) {
   const calls = mockFetch(opts);
-  // Dynamic import after the fetch mock + module reset, mirroring the
-  // QualityDashboard test so useToast shares the post-reset Toast context.
   const { default: QualitySettingsSection } = await import("../QualitySettingsSection");
   const { ToastProvider } = await import("../../Toast");
   const utils = render(
@@ -42,22 +40,25 @@ async function renderSection(opts) {
   return { ...utils, calls };
 }
 
+const gateRadios = () => screen.getAllByRole("radio").filter((r) => r.name === "quality_gate_action");
+
 describe("QualitySettingsSection", () => {
   it("renders the three modes and reflects the current policy", async () => {
-    await renderSection({ policy: { mode: "full", gate_close: true } });
+    await renderSection({ policy: { mode: "full", gate_action: "block" } });
     await waitFor(() => expect(screen.getByText("Full")).toBeTruthy());
-    expect(screen.getByText("Off")).toBeTruthy();
-    expect(screen.getByText("Basic")).toBeTruthy();
-    // The current mode (full) is the selected radio.
-    expect(screen.getByDisplayValue("full").checked).toBe(true);
-    expect(screen.getByDisplayValue("basic").checked).toBe(false);
+
+    const modeGroup = screen.getAllByRole("radio").filter((r) => r.name === "quality_mode");
+    expect(modeGroup).toHaveLength(3);
+    expect(modeGroup.find((r) => r.value === "full").checked).toBe(true);
+    expect(modeGroup.find((r) => r.value === "basic").checked).toBe(false);
   });
 
   it("saves the selected mode via PUT /system/settings/quality_mode", async () => {
-    const { calls } = await renderSection({ policy: { mode: "basic", gate_close: false } });
+    const { calls } = await renderSection({ policy: { mode: "basic", gate_action: "warn" } });
     await waitFor(() => screen.getByText("Full"));
 
-    fireEvent.click(screen.getByDisplayValue("full"));
+    const modeGroup = screen.getAllByRole("radio").filter((r) => r.name === "quality_mode");
+    fireEvent.click(modeGroup.find((r) => r.value === "full"));
     fireEvent.click(screen.getByText(/Save Quality Settings/i));
 
     await waitFor(() => {
@@ -68,14 +69,40 @@ describe("QualitySettingsSection", () => {
     });
   });
 
-  it("disables the gate toggle unless mode is full", async () => {
-    await renderSection({ policy: { mode: "basic", gate_close: false } });
-    await waitFor(() => screen.getByText("Full"));
-    // gate-close checkbox is the only checkbox in the section
-    const gate = screen.getByRole("checkbox");
-    expect(gate.disabled).toBe(true);
+  it("saves gate_action via PUT /system/settings/quality_gate_action", async () => {
+    const { calls } = await renderSection({ policy: { mode: "full", gate_action: "warn" } });
+    await waitFor(() => screen.getByText("Block"));
 
-    fireEvent.click(screen.getByDisplayValue("full"));
-    expect(gate.disabled).toBe(false);
+    const gate = gateRadios();
+    fireEvent.click(gate.find((r) => r.value === "block"));
+    fireEvent.click(screen.getByText(/Save Quality Settings/i));
+
+    await waitFor(() => {
+      const put = calls.find((c) => c.url.includes("/system/settings/quality_gate_action"));
+      expect(put).toBeTruthy();
+      expect(put.opts.method).toBe("PUT");
+      expect(JSON.parse(put.opts.body).value).toBe("block");
+    });
+  });
+
+  it("disables the gate selector unless mode is full", async () => {
+    await renderSection({ policy: { mode: "basic", gate_action: "warn" } });
+    await waitFor(() => screen.getByText("Full"));
+
+    gateRadios().forEach((r) => expect(r.disabled).toBe(true));
+
+    const modeGroup = screen.getAllByRole("radio").filter((r) => r.name === "quality_mode");
+    fireEvent.click(modeGroup.find((r) => r.value === "full"));
+    gateRadios().forEach((r) => expect(r.disabled).toBe(false));
+  });
+
+  it("reflects gate_action from the policy response", async () => {
+    await renderSection({ policy: { mode: "full", gate_action: "block" } });
+    await waitFor(() => screen.getByText("Block"));
+
+    const gate = gateRadios();
+    expect(gate.find((r) => r.value === "block").checked).toBe(true);
+    expect(gate.find((r) => r.value === "warn").checked).toBe(false);
+    expect(gate.find((r) => r.value === "off").checked).toBe(false);
   });
 });
