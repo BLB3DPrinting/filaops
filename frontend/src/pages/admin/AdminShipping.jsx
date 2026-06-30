@@ -322,6 +322,7 @@ export default function AdminShipping() {
   const [error, setError] = useState(null);
   const [productionStatus, setProductionStatus] = useState({});
   const [canShip, setCanShip] = useState({}); // #845: order_id -> {can_ship, reasons[]}
+  const [canShipUnavailable, setCanShipUnavailable] = useState(false); // preflight fetch failed — fail CLOSED, not open
   const [activeTab, setActiveTab] = useState("packaging"); // packaging, needs_label, ready_to_ship
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [trackingForm, setTrackingForm] = useState({ carrier: "USPS", tracking_number: "" });
@@ -404,8 +405,14 @@ export default function AdminShipping() {
     try {
       const data = await api.get(`/api/v1/sales-orders/can-ship`);
       setCanShip(data || {});
+      setCanShipUnavailable(false);
     } catch {
-      // Non-critical — Ship action still falls back to a reactive error toast.
+      // Fail CLOSED, not open: if the preflight can't be fetched, treat every
+      // order as unverified rather than silently re-enabling Ship with zero
+      // protection. ship_order() still enforces correctness server-side, but
+      // the whole point of this preflight is to warn BEFORE the click.
+      setCanShip({});
+      setCanShipUnavailable(true);
     }
   };
 
@@ -690,6 +697,16 @@ export default function AdminShipping() {
           </div>
         );
       })()}
+
+      {/* Preflight degraded-state warning — make a can-ship fetch failure
+          VISIBLE rather than silently re-enabling Ship with no protection.
+          ship_order() still fully validates server-side either way; this is
+          advisory so the operator isn't caught off guard by a 409. */}
+      {canShipUnavailable && activeTab === "ready_to_ship" && (
+        <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg px-4 py-2.5 text-[var(--status-amber)] text-sm">
+          Couldn&apos;t verify which orders are ready to ship — the eligibility check didn&apos;t load. Shipping will still be validated when you click Ship.
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
