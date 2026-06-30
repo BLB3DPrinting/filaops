@@ -950,9 +950,11 @@ def update_shipping_info(
 
     # Shipping (status -> 'shipped', shipped_at, inventory relief, COGS) happens
     # ONLY in ship_order(). This endpoint edits tracking metadata; it must never
-    # flip an unshipped order to 'shipped', which would set shipment evidence
-    # with no inventory or GL movement — silent corruption (#838).
-    if shipped_at is not None and order.status != "shipped":
+    # flip a not-yet-shipped order to a shipped state, which would set shipment
+    # evidence with no inventory or GL movement — silent corruption (#838).
+    # 'shipped', 'delivered', and 'completed' are all post-shipment states.
+    already_shipped = order.status in SHIPPED_ORDER_STATUSES
+    if shipped_at is not None and not already_shipped:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -968,8 +970,9 @@ def update_shipping_info(
     if carrier:
         order.carrier = carrier
 
-    # Allow correcting/recording the ship timestamp on an already-shipped order.
-    if shipped_at is not None and order.status == "shipped":
+    # Allow correcting/recording the ship timestamp on an order that has already
+    # shipped (shipped / delivered / completed) — pure metadata, no ledger impact.
+    if shipped_at is not None and already_shipped:
         order.shipped_at = shipped_at
 
     return order

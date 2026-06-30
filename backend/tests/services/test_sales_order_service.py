@@ -1017,6 +1017,19 @@ class TestUpdateShippingInfo:
         ).all()
         assert events == []
 
+    def test_corrects_shipped_at_on_delivered_and_completed(self, db, make_sales_order):
+        """shipped_at correction is allowed on all post-ship states, not just 'shipped'."""
+        from datetime import datetime, timezone
+        for status in ("delivered", "completed"):
+            so = make_sales_order(status=status)
+            ts = datetime.now(timezone.utc)
+            result = sales_order_service.update_shipping_info(
+                db, so.id, user_id=1, tracking_number="TRK-D", shipped_at=ts
+            )
+            assert result.status == status
+            assert result.shipped_at == ts
+            assert result.tracking_number == "TRK-D"
+
 
 # =============================================================================
 # update_shipping_address

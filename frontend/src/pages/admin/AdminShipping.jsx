@@ -493,10 +493,14 @@ export default function AdminShipping() {
       toast.error("Add a tracking number before shipping");
       return;
     }
+    if (!order.carrier) {
+      toast.error("Add a carrier before shipping");
+      return;
+    }
     setSaving(true);
     try {
       await api.post(`/api/v1/sales-orders/${orderId}/ship`, {
-        carrier: order.carrier || "USPS",
+        carrier: order.carrier,
         tracking_number: order.tracking_number,
       });
       toast.success("Order marked as shipped");
