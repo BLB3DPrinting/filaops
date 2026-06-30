@@ -485,9 +485,20 @@ export default function AdminShipping() {
   };
 
   const handleMarkShipped = async (orderId) => {
+    // Ship through POST /ship (relieves inventory + posts COGS), not a bare
+    // status flip. The button only shows for orders that already have a
+    // tracking number, so reuse the order's saved carrier/tracking (#838).
+    const order = orders.find((o) => o.id === orderId);
+    if (!order?.tracking_number) {
+      toast.error("Add a tracking number before shipping");
+      return;
+    }
     setSaving(true);
     try {
-      await api.patch(`/api/v1/sales-orders/${orderId}/status`, { status: "shipped" });
+      await api.post(`/api/v1/sales-orders/${orderId}/ship`, {
+        carrier: order.carrier || "USPS",
+        tracking_number: order.tracking_number,
+      });
       toast.success("Order marked as shipped");
       fetchOrders();
       setExpandedOrder(null);

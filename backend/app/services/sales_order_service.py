@@ -835,6 +835,20 @@ def update_sales_order_status(
     order = get_sales_order(db, order_id)
     old_status = order.status
 
+    # Shipping must go through ship_order() so inventory is relieved and COGS
+    # posts. Flipping to 'shipped' via a bare status update sets shipment
+    # evidence (shipped_at) with no inventory or GL movement — silent stock
+    # overstatement + missing COGS (#838).
+    if new_status == "shipped":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Orders cannot be marked shipped via status update. Use "
+                "POST /sales-orders/<order_id>/ship so inventory and COGS "
+                "post correctly."
+            ),
+        )
+
     try:
         validate_sales_order_transition(old_status, new_status)
     except StatusTransitionError as exc:
@@ -845,9 +859,6 @@ def update_sales_order_status(
     # Set timestamps based on status
     if new_status == "confirmed" and old_status in ("pending", "pending_confirmation"):
         order.confirmed_at = datetime.now(timezone.utc)
-
-    if new_status == "shipped":
-        order.shipped_at = datetime.now(timezone.utc)
 
     if new_status == "delivered":
         order.delivered_at = datetime.now(timezone.utc)
@@ -936,7 +947,20 @@ def update_shipping_info(
 ) -> SalesOrder:
     """Update shipping information for an order."""
     order = get_sales_order(db, order_id)
-    is_shipping = order.shipped_at is None and shipped_at is not None
+
+    # Shipping (status -> 'shipped', shipped_at, inventory relief, COGS) happens
+    # ONLY in ship_order(). This endpoint edits tracking metadata; it must never
+    # flip an unshipped order to 'shipped', which would set shipment evidence
+    # with no inventory or GL movement — silent corruption (#838).
+    if shipped_at is not None and order.status != "shipped":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cannot mark an order shipped here. Use "
+                "POST /sales-orders/<order_id>/ship so inventory and COGS "
+                "post correctly."
+            ),
+        )
 
     if tracking_number:
         order.tracking_number = tracking_number
@@ -944,21 +968,9 @@ def update_shipping_info(
     if carrier:
         order.carrier = carrier
 
-    if shipped_at:
+    # Allow correcting/recording the ship timestamp on an already-shipped order.
+    if shipped_at is not None and order.status == "shipped":
         order.shipped_at = shipped_at
-        order.status = "shipped"
-
-    if is_shipping:
-        record_order_event(
-            db=db,
-            order_id=order_id,
-            event_type="shipped",
-            title="Order shipped",
-            description=f"Shipped via {carrier or 'carrier'}" + (f", tracking: {tracking_number}" if tracking_number else ""),
-            user_id=user_id,
-            metadata_key="tracking_number" if tracking_number else None,
-            metadata_value=tracking_number,
-        )
 
     return order
 
