@@ -39,8 +39,11 @@ class OrderStatusService:
         "payment_failed": ["pending_payment", "cancelled"],  # Allow retry
         "confirmed": ["in_production", "ready_to_ship", "on_hold", "cancelled"],
         "in_production": ["ready_to_ship", "on_hold", "cancelled"],
-        "ready_to_ship": ["shipped", "partially_shipped", "on_hold"],
-        "partially_shipped": ["shipped", "on_hold"],
+        # 'shipped' is reached only via ship_order() (which posts inventory +
+        # COGS); update_so_status() guards it (#839), so it is intentionally not
+        # a valid target of the generic transition validator.
+        "ready_to_ship": ["partially_shipped", "on_hold"],
+        "partially_shipped": ["on_hold"],
         "shipped": ["delivered"],
         "delivered": ["completed"],
         "on_hold": ["confirmed", "in_production", "ready_to_ship", "cancelled"],
@@ -137,6 +140,18 @@ class OrderStatusService:
         Raises:
             ValueError: If transition is invalid
         """
+        # Shipping carries inventory + COGS side effects that must go through
+        # ship_order() (POST /{id}/ship). Setting 'shipped' here would set
+        # shipped_at + fulfillment_status with NO inventory relief or GL entry —
+        # the #838 corruption class. Block it even when skip_validation=True;
+        # use resolve_legacy_fulfillment() for brownfield close-out.
+        if new_status == "shipped":
+            raise ValueError(
+                "Cannot set status 'shipped' via update_so_status: shipping must "
+                "go through ship_order() so inventory and COGS post correctly. "
+                "Use resolve_legacy_fulfillment() for brownfield close-out."
+            )
+
         if not skip_validation:
             is_valid, error = self.validate_so_transition(so.status, new_status)
             if not is_valid:
