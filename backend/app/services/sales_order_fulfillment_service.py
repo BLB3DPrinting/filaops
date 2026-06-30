@@ -99,6 +99,12 @@ def _create_shipment_gl_entry(
             ]),
         ).all()
 
+    # Whether there were any candidate shipment transactions BEFORE the
+    # held-filter below. If there were, but they were all held for approval,
+    # the goods were not relieved — and the line-cost fallback must NOT fire
+    # (that would post COGS for unrelieved goods).
+    had_candidate_transactions = bool(shipment_transactions)
+
     # Never post COGS for goods that weren't actually relieved: a short on a
     # finished good or packaging comes back as a held negative_adjustment
     # (requires_approval=True) with on_hand untouched. Exclude held txns — the
@@ -144,7 +150,11 @@ def _create_shipment_gl_entry(
         if cost_type is not None:
             cost_by_transaction_type[cost_type] += txn_cost(txn)
 
-    if cost_by_transaction_type["shipment"] <= 0 and not shipment_transactions:
+    if (
+        cost_by_transaction_type["shipment"] <= 0
+        and not shipment_transactions
+        and not had_candidate_transactions
+    ):
         for line in (order.lines or []):
             if not line.product_id or not line.product:
                 continue
@@ -262,16 +272,32 @@ def ship_order(
     # are summed), lock each FG row, and compare available (on_hand - allocated,
     # matching the relief gate). The row lock is held for the rest of this
     # transaction, so two orders racing the same FG row serialize here.
+    from app.models.product import Product
+
     _location = get_or_create_default_location(db)
+
+    # Only consider products that still exist — issue_shipped_goods skips lines
+    # whose Product row is gone, so the pre-check must skip them too (otherwise
+    # a deleted-product line would 409 a shippable order).
+    _candidate_ids: set[int] = set()
+    if order.lines:
+        _candidate_ids.update(_l.product_id for _l in order.lines if _l.product_id)
+    elif order.product_id:
+        _candidate_ids.add(order.product_id)
+    _existing_ids = {
+        pid
+        for (pid,) in db.query(Product.id).filter(Product.id.in_(_candidate_ids)).all()
+    } if _candidate_ids else set()
+
     _demand_by_product: dict[int, Decimal] = {}
     if order.lines:
         for _line in order.lines:
-            if _line.product_id:
+            if _line.product_id and _line.product_id in _existing_ids:
                 _demand_by_product[_line.product_id] = (
                     _demand_by_product.get(_line.product_id, Decimal("0"))
                     + Decimal(str(_line.quantity))
                 )
-    elif order.product_id:
+    elif order.product_id and order.product_id in _existing_ids:
         _demand_by_product[order.product_id] = Decimal(str(order.quantity or 1))
 
     for _product_id, _needed in _demand_by_product.items():
