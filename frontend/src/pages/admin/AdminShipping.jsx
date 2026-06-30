@@ -56,7 +56,7 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
   if (loading) {
     return (
       <div className="h-32 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
       </div>
     );
   }
@@ -127,8 +127,8 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
               onClick={() => onPeriodChange(p.key)}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
                 period === p.key
-                  ? "bg-cyan-600 text-white"
-                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  ? "bg-[var(--ink)] text-[var(--paper)]"
+                  : "bg-[var(--paper-sunk)] text-[var(--ink-3)] hover:text-[var(--ink)]"
               }`}
             >
               {p.label}
@@ -137,17 +137,17 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
         </div>
         <div className="flex gap-4 text-right">
           <div>
-            <p className="text-sm font-semibold text-cyan-400">{data?.total_shipped || 0}</p>
-            <p className="text-xs text-gray-500">shipped</p>
+            <p className="text-sm font-semibold text-[var(--ink)]">{data?.total_shipped || 0}</p>
+            <p className="text-xs text-[var(--ink-4)]">shipped</p>
           </div>
           <div>
-            <p className="text-sm font-semibold text-green-400">{formatCurrency(data?.total_value || 0)}</p>
-            <p className="text-xs text-gray-500">value</p>
+            <p className="text-sm font-semibold text-[var(--status-green)]">{formatCurrency(data?.total_value || 0)}</p>
+            <p className="text-xs text-[var(--ink-4)]">value</p>
           </div>
           {(data?.pipeline_ready > 0 || data?.pipeline_packaging > 0) && (
             <div>
-              <p className="text-sm font-semibold text-yellow-400">{(data?.pipeline_ready || 0) + (data?.pipeline_packaging || 0)}</p>
-              <p className="text-xs text-gray-500">in pipeline</p>
+              <p className="text-sm font-semibold text-[var(--status-amber)]">{(data?.pipeline_ready || 0) + (data?.pipeline_packaging || 0)}</p>
+              <p className="text-xs text-[var(--ink-4)]">in pipeline</p>
             </div>
           )}
         </div>
@@ -155,19 +155,19 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
 
       <div className="flex gap-4 mb-2 text-xs">
         <div className="flex items-center gap-1">
-          <div className="w-2 h-3 bg-cyan-500/30 rounded-sm"></div>
-          <span className="text-gray-500">Daily Shipped</span>
+          <div className="w-2 h-3 bg-[var(--orange-tint)] rounded-sm"></div>
+          <span className="text-[var(--ink-4)]">Daily Shipped</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-0.5 bg-green-500"></div>
-          <span className="text-gray-400">Cumulative Value</span>
+          <div className="w-3 h-0.5 bg-[var(--status-green)]"></div>
+          <span className="text-[var(--ink-3)]">Cumulative Value</span>
         </div>
       </div>
 
       {dataPoints.length > 0 ? (
         <div ref={chartRef} className="relative" style={{ height: chartHeight }} onMouseLeave={() => setHoveredIndex(null)}>
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-            <line x1="0" y1="50" x2="100" y2="50" stroke="#374151" strokeWidth="0.5" />
+            <line x1="0" y1="50" x2="100" y2="50" stroke="var(--rule-hair)" strokeWidth="0.5" />
 
             {dataPoints.map((d, i) => {
               const barWidth = 100 / Math.max(dataPoints.length, 1) * 0.6;
@@ -181,12 +181,12 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
                   width={barWidth}
                   height={barHeight}
                   fill="url(#shippingBarGradient)"
-                  opacity="0.4"
+                  opacity="0.6"
                 />
               );
             })}
 
-            <path d={generateValuePath()} fill="none" stroke="#22c55e" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            <path d={generateValuePath()} fill="none" stroke="var(--status-green)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
 
             {dataPoints.map((_, i) => {
               const sliceWidth = 100 / dataPoints.length;
@@ -199,45 +199,45 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
               <circle
                 cx={(hoveredIndex / Math.max(cumulativeData.length - 1, 1)) * 100}
                 cy={100 - (cumulativeData[hoveredIndex].cumulativeValue / Math.max(maxCumulativeValue, 1)) * 100}
-                r="3" fill="#22c55e" stroke="white" strokeWidth="1" vectorEffect="non-scaling-stroke"
+                r="3" fill="var(--status-green)" stroke="var(--paper)" strokeWidth="1" vectorEffect="non-scaling-stroke"
               />
             )}
 
             <defs>
               <linearGradient id="shippingBarGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#06b6d4" />
-                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.2" />
+                <stop offset="0%" stopColor="var(--orange)" />
+                <stop offset="100%" stopColor="var(--orange)" stopOpacity="0.15" />
               </linearGradient>
             </defs>
           </svg>
 
           {hoveredIndex !== null && getHoveredData() && (
             <div
-              className="absolute z-10 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-3 pointer-events-none"
+              className="absolute z-10 bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg shadow-[var(--shadow-pop)] p-3 pointer-events-none"
               style={{ left: Math.min(mousePos.x + 10, chartWidth - 150), top: Math.max(mousePos.y - 70, 0), minWidth: '140px' }}
             >
               {(() => {
                 const d = getHoveredData();
                 return (
                   <>
-                    <div className="text-white font-medium text-sm mb-2">{d.date}</div>
+                    <div className="text-[var(--ink)] font-medium text-sm mb-2">{d.date}</div>
                     <div className="space-y-1 text-xs">
                       <div className="flex justify-between gap-4">
-                        <span className="text-cyan-400">Shipped:</span>
-                        <span className="text-white font-medium">{d.shipped}</span>
+                        <span className="text-[var(--ink-3)]">Shipped:</span>
+                        <span className="text-[var(--ink)] font-medium font-mono-data">{d.shipped}</span>
                       </div>
                       <div className="flex justify-between gap-4">
-                        <span className="text-green-400">Value:</span>
-                        <span className="text-white">${d.dailyValue.toFixed(2)}</span>
+                        <span className="text-[var(--status-green)]">Value:</span>
+                        <span className="text-[var(--ink)] font-mono-data">${d.dailyValue.toFixed(2)}</span>
                       </div>
-                      <div className="border-t border-gray-700 my-1 pt-1">
+                      <div className="border-t border-[var(--rule-hair)] my-1 pt-1">
                         <div className="flex justify-between gap-4">
-                          <span className="text-gray-400">Total Shipped:</span>
-                          <span className="text-white">{d.cumulativeShipped}</span>
+                          <span className="text-[var(--ink-3)]">Total Shipped:</span>
+                          <span className="text-[var(--ink)] font-mono-data">{d.cumulativeShipped}</span>
                         </div>
                         <div className="flex justify-between gap-4">
-                          <span className="text-gray-400">Total Value:</span>
-                          <span className="text-white">${d.cumulativeValue.toFixed(2)}</span>
+                          <span className="text-[var(--ink-3)]">Total Value:</span>
+                          <span className="text-[var(--ink)] font-mono-data">${d.cumulativeValue.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -248,11 +248,11 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
           )}
         </div>
       ) : (
-        <div className="h-24 flex items-center justify-center text-gray-500 text-sm">No shipments for this period</div>
+        <div className="h-24 flex items-center justify-center text-[var(--ink-4)] text-sm">No shipments for this period</div>
       )}
 
       {dataPoints.length > 0 && (
-        <div className="flex justify-between text-xs text-gray-500 mt-2">
+        <div className="flex justify-between text-xs text-[var(--ink-4)] mt-2">
           <span>{dataPoints[0]?.date ? parseLocalDate(dataPoints[0].date)?.toLocaleDateString() : ""}</span>
           <span>{dataPoints[dataPoints.length - 1]?.date ? parseLocalDate(dataPoints[dataPoints.length - 1].date)?.toLocaleDateString() : ""}</span>
         </div>
@@ -321,6 +321,7 @@ export default function AdminShipping() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [productionStatus, setProductionStatus] = useState({});
+  const [canShip, setCanShip] = useState({}); // #845: order_id -> {can_ship, reasons[]}
   const [activeTab, setActiveTab] = useState("packaging"); // packaging, needs_label, ready_to_ship
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [trackingForm, setTrackingForm] = useState({ carrier: "USPS", tracking_number: "" });
@@ -373,9 +374,10 @@ export default function AdminShipping() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      // Fetch orders ready to ship
+      // Fetch orders ready to ship. (qc_passed removed — not a SalesOrder
+      // status; it matched zero rows. #845)
       const data = await api.get(
-        `/api/v1/sales-orders/?status=confirmed&status=in_production&status=ready_to_ship&status=qc_passed&limit=100`
+        `/api/v1/sales-orders/?status=confirmed&status=in_production&status=ready_to_ship&limit=100`
       );
 
       const orderList = data.items || data || [];
@@ -384,12 +386,26 @@ export default function AdminShipping() {
       // Fetch production status for all orders in one batch call
       fetchAllProductionStatuses(orderList);
 
+      // Fetch the can-ship preflight for every ready_to_ship order in one
+      // batch call (#845) — this is the same gate ship_order() itself
+      // enforces, so the UI never disagrees with the backend.
+      fetchCanShip();
+
       // Fetch shipped today for metrics
       fetchShippedToday();
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCanShip = async () => {
+    try {
+      const data = await api.get(`/api/v1/sales-orders/can-ship`);
+      setCanShip(data || {});
+    } catch {
+      // Non-critical — Ship action still falls back to a reactive error toast.
     }
   };
 
@@ -497,6 +513,13 @@ export default function AdminShipping() {
       toast.error("Add a carrier before shipping");
       return;
     }
+    // Preflight check (#845) — surface the backend's real blocker before
+    // firing the request, instead of only reacting to a 409 after the fact.
+    const preflight = canShip[orderId] ?? canShip[String(orderId)];
+    if (preflight && !preflight.can_ship) {
+      toast.error(preflight.reasons?.[0] || "Order is not ready to ship");
+      return;
+    }
     setSaving(true);
     try {
       await api.post(`/api/v1/sales-orders/${orderId}/ship`, {
@@ -517,7 +540,10 @@ export default function AdminShipping() {
     window.open(`${API_URL}/api/v1/sales-orders/${orderId}/packing-slip/pdf`, "_blank");
   };
 
-  // Categorize orders into workflow stages
+  // Categorize orders into workflow stages. This is the physical packaging
+  // workflow (where is the order in the packing/labeling process) — distinct
+  // from the backend's can-ship gate, which augments the ready_to_ship tab
+  // below rather than replacing this bucketing (#845).
   const categorizeOrders = () => {
     const packaging = []; // Production not complete
     const needsLabel = []; // Production complete, no tracking
@@ -542,8 +568,8 @@ export default function AdminShipping() {
   const { packaging, needsLabel, readyToShip } = categorizeOrders();
 
   const tabs = [
-    { key: "packaging", label: "Ready for Packaging", count: packaging.length, color: "blue" },
-    { key: "needs_label", label: "Needs Label", count: needsLabel.length, color: "yellow" },
+    { key: "packaging", label: "Ready for Packaging", count: packaging.length, color: "amber" },
+    { key: "needs_label", label: "Needs Label", count: needsLabel.length, color: "amber" },
     { key: "ready_to_ship", label: "Ready to Ship", count: readyToShip.length, color: "green" },
   ];
 
@@ -559,22 +585,25 @@ export default function AdminShipping() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
+      {/* Header — wrapped in its own paper card: the AdminLayout shell behind
+          this page is still the un-migrated dark Neo background (a later
+          #846 slice), so ink-toned text needs its own light surface here
+          rather than floating directly on the shell. */}
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)] flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white">Shipping</h1>
-          <p className="text-gray-500 text-sm">Package, label, and ship orders</p>
+          <h1 className="text-xl font-bold text-[var(--ink)]">Shipping</h1>
+          <p className="text-[var(--ink-4)] text-sm">Package, label, and ship orders</p>
         </div>
         <button
           onClick={fetchOrders}
-          className="px-3 py-1.5 bg-gray-800 text-gray-300 rounded-lg text-sm hover:bg-gray-700"
+          className="px-3 py-1.5 bg-[var(--paper-sunk)] text-[var(--ink-2)] rounded-lg text-sm hover:bg-[var(--rule-hair)]"
         >
           Refresh
         </button>
       </div>
 
       {/* Shipping Trend Chart */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
         <ShippingChart
           data={shippingTrend}
           period={shippingPeriod}
@@ -585,43 +614,43 @@ export default function AdminShipping() {
 
       {/* Metrics Row - Compact */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-          <p className="text-gray-500 text-xs">Total Pending</p>
-          <p className="text-xl font-bold text-white">{orders.length}</p>
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg p-3 shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--ink-4)] text-xs">Total Pending</p>
+          <p className="text-xl font-bold text-[var(--ink)]">{orders.length}</p>
         </div>
-        <div className="bg-gray-900 border border-blue-800/50 rounded-lg p-3">
-          <p className="text-blue-400 text-xs">Packaging</p>
-          <p className="text-xl font-bold text-white">{packaging.length}</p>
+        <div className="bg-[var(--paper)] border border-[var(--status-amber-tint)] rounded-lg p-3 shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--status-amber)] text-xs">Packaging</p>
+          <p className="text-xl font-bold text-[var(--ink)]">{packaging.length}</p>
         </div>
-        <div className="bg-gray-900 border border-yellow-800/50 rounded-lg p-3">
-          <p className="text-yellow-400 text-xs">Needs Label</p>
-          <p className="text-xl font-bold text-white">{needsLabel.length}</p>
+        <div className="bg-[var(--paper)] border border-[var(--status-amber-tint)] rounded-lg p-3 shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--status-amber)] text-xs">Needs Label</p>
+          <p className="text-xl font-bold text-[var(--ink)]">{needsLabel.length}</p>
         </div>
-        <div className="bg-gray-900 border border-green-800/50 rounded-lg p-3">
-          <p className="text-green-400 text-xs">Ready to Ship</p>
-          <p className="text-xl font-bold text-white">{readyToShip.length}</p>
+        <div className="bg-[var(--paper)] border border-[var(--status-green-tint)] rounded-lg p-3 shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--status-green)] text-xs">Ready to Ship</p>
+          <p className="text-xl font-bold text-[var(--ink)]">{readyToShip.length}</p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-          <p className="text-gray-500 text-xs">Shipped Today</p>
-          <p className="text-xl font-bold text-white">{shippedToday.length}</p>
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg p-3 shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--ink-4)] text-xs">Shipped Today</p>
+          <p className="text-xl font-bold text-[var(--ink)]">{shippedToday.length}</p>
         </div>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+        <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3 text-[var(--status-red)] text-sm">
           {error}
         </div>
       )}
 
       {/* Deep-link banner: orderId param present but order not in ready-to-ship set */}
       {!loading && orderIdParam && !orders.find((o) => o.id === parseInt(orderIdParam)) && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 flex items-start gap-3">
-          <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg px-4 py-3 flex items-start gap-3">
+          <svg className="w-5 h-5 text-[var(--status-amber)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
           </svg>
-          <p className="text-yellow-300 text-sm">
-            Order isn&apos;t ready to ship yet — production must complete.
+          <p className="text-[var(--status-amber)] text-sm">
+            Order isn&apos;t in an active shipping stage — it may already be shipped, cancelled, or not yet confirmed.
           </p>
         </div>
       )}
@@ -632,14 +661,13 @@ export default function AdminShipping() {
       {/* purger and will be stripped from the production bundle. */}
       {(() => {
         const TAB_STYLES = {
-          blue:   { border: "border-blue-500 text-blue-400",     badge: "bg-blue-500/20"   },
-          yellow: { border: "border-yellow-500 text-yellow-400", badge: "bg-yellow-500/20" },
-          green:  { border: "border-green-500 text-green-400",   badge: "bg-green-500/20"  },
+          amber: { border: "border-[var(--status-amber)] text-[var(--status-amber)]", badge: "bg-[var(--status-amber-tint)]" },
+          green: { border: "border-[var(--status-green)] text-[var(--status-green)]", badge: "bg-[var(--status-green-tint)]" },
         };
         return (
-          <div className="flex gap-1 border-b border-gray-800">
+          <div className="flex gap-1 border-b border-[var(--rule-hair)]">
             {tabs.map((tab) => {
-              const styles = TAB_STYLES[tab.color] ?? TAB_STYLES.blue;
+              const styles = TAB_STYLES[tab.color] ?? TAB_STYLES.amber;
               return (
                 <button
                   key={tab.key}
@@ -647,12 +675,12 @@ export default function AdminShipping() {
                   className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.key
                       ? styles.border
-                      : "border-transparent text-gray-500 hover:text-gray-300"
+                      : "border-transparent text-[var(--ink-4)] hover:text-[var(--ink-2)]"
                   }`}
                 >
                   {tab.label}
-                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
-                    activeTab === tab.key ? styles.badge : "bg-gray-800"
+                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-mono-data ${
+                    activeTab === tab.key ? styles.badge : "bg-[var(--paper-sunk)]"
                   }`}>
                     {tab.count}
                   </span>
@@ -666,17 +694,17 @@ export default function AdminShipping() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
         </div>
       )}
 
       {/* Orders Table */}
       {!loading && (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg overflow-hidden shadow-[var(--shadow-pop)]">
           <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-gray-800/50">
-              <tr className="text-left text-gray-400 text-xs uppercase">
+            <thead className="bg-[var(--paper-sunk)]">
+              <tr className="text-left text-[var(--ink-3)] text-xs uppercase">
                 <th className="px-4 py-3 font-medium">Order</th>
                 <th className="px-4 py-3 font-medium">Product</th>
                 <th className="px-4 py-3 font-medium">Ship To</th>
@@ -687,65 +715,74 @@ export default function AdminShipping() {
                 <th className="px-4 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800">
+            <tbody className="divide-y divide-[var(--rule-hair)]">
               {getCurrentOrders().map((order) => {
                 const ps = productionStatus[order.id];
                 const isExpanded = expandedOrder === order.id;
                 const dueDateInfo = getDueDateInfo(order);
+                const preflight = canShip[order.id] ?? canShip[String(order.id)];
+                const blocked = activeTab === "ready_to_ship" && preflight && !preflight.can_ship;
 
                 // Color classes for due date urgency
                 const dueDateColorClass = {
-                  overdue: "text-red-400 font-medium",
-                  today: "text-yellow-400 font-medium",
-                  soon: "text-orange-400",
-                  normal: "text-gray-400",
-                  none: "text-gray-600",
+                  overdue: "text-[var(--status-red)] font-medium",
+                  today: "text-[var(--status-amber)] font-medium",
+                  soon: "text-[var(--status-amber)]",
+                  normal: "text-[var(--ink-3)]",
+                  none: "text-[var(--ink-4)]",
                 }[dueDateInfo.status];
 
                 return (
-                  <tr key={order.id} className="hover:bg-gray-800/50">
+                  <tr key={order.id} className="hover:bg-[var(--paper-sunk)]">
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/admin/orders/${order.id}`)}
-                        className="text-blue-400 hover:text-blue-300 font-medium"
+                        className="text-[var(--ink)] hover:text-[var(--orange)] font-medium font-mono-data"
                       >
                         {order.order_number}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-white">
+                    <td className="px-4 py-3 text-[var(--ink)]">
                       <div className="max-w-[200px] truncate" title={order.product_name}>
                         {order.product_name}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-400">
+                    <td className="px-4 py-3 text-[var(--ink-3)]">
                       {hasShippingAddress(order) ? (
                         formatAddressShort(order)
                       ) : (
-                        <span className="text-red-400">No address</span>
+                        <span className="text-[var(--status-red)]">No address</span>
                       )}
                     </td>
                     <td className={`px-4 py-3 ${dueDateColorClass}`}>
                       {dueDateInfo.text}
                     </td>
-                    <td className="px-4 py-3 text-right text-white">{order.quantity}</td>
-                    <td className="px-4 py-3 text-right text-green-400">
+                    <td className="px-4 py-3 text-right text-[var(--ink)] font-mono-data">{order.quantity}</td>
+                    <td className="px-4 py-3 text-right text-[var(--status-green)] font-mono-data">
                       {formatCurrency(order.grand_total)}
                     </td>
                     <td className="px-4 py-3">
                       {activeTab === "packaging" && ps && (
-                        <span className="text-yellow-400 text-xs">
+                        <span className="text-[var(--status-amber)] text-xs">
                           {ps.anyInProgress
                             ? `${Math.round(ps.completionPercent)}% done`
                             : "Not started"}
                         </span>
                       )}
                       {activeTab === "needs_label" && (
-                        <span className="text-blue-400 text-xs">Ready to label</span>
+                        <span className="text-[var(--status-amber)] text-xs">Ready to label</span>
                       )}
                       {activeTab === "ready_to_ship" && order.tracking_number && (
-                        <span className="font-mono text-xs text-gray-400" title={order.tracking_number}>
-                          {order.carrier}: {order.tracking_number.slice(0, 12)}...
-                        </span>
+                        <div>
+                          <span className="font-mono-data text-xs text-[var(--ink-3)]" title={order.tracking_number}>
+                            {order.carrier}: {order.tracking_number.slice(0, 12)}...
+                          </span>
+                          {blocked && (
+                            <div className="text-[var(--status-red)] text-xs mt-0.5" title={preflight.reasons?.join("; ")}>
+                              {preflight.reasons?.[0] || "Cannot ship yet"}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -754,26 +791,26 @@ export default function AdminShipping() {
                           <>
                             <button
                               onClick={() => handlePackingSlip(order.id)}
-                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              className="px-3 py-1 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-xs hover:bg-[var(--rule-hair)]"
                               title="Print packing slip"
                             >
                               Packing Slip
                             </button>
-                            <span className="text-gray-500 text-xs italic">Awaiting production</span>
+                            <span className="text-[var(--ink-4)] text-xs italic">Awaiting production</span>
                           </>
                         )}
                         {activeTab === "needs_label" && (
                           <>
                             <button
                               onClick={() => handlePackingSlip(order.id)}
-                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              className="px-3 py-1 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-xs hover:bg-[var(--rule-hair)]"
                               title="Print packing slip"
                             >
                               Packing Slip
                             </button>
                             <button
                               onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
-                              className="px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
+                              className="px-3 py-1 bg-[var(--orange)] text-white rounded text-xs hover:bg-[var(--orange-press)]"
                             >
                               {isExpanded ? "Cancel" : "Add Label"}
                             </button>
@@ -783,15 +820,16 @@ export default function AdminShipping() {
                           <>
                             <button
                               onClick={() => handlePackingSlip(order.id)}
-                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                              className="px-3 py-1 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-xs hover:bg-[var(--rule-hair)]"
                               title="Print packing slip"
                             >
                               Packing Slip
                             </button>
                             <button
                               onClick={() => handleMarkShipped(order.id)}
-                              disabled={saving}
-                              className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                              disabled={saving || blocked}
+                              title={blocked ? preflight.reasons?.join("; ") : undefined}
+                              className="px-3 py-1 bg-[var(--orange)] text-white rounded text-xs hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {saving ? "..." : "Ship"}
                             </button>
@@ -805,15 +843,15 @@ export default function AdminShipping() {
 
               {/* Inline Label Entry Row */}
               {expandedOrder && activeTab === "needs_label" && (
-                <tr className="bg-yellow-900/10">
+                <tr className="bg-[var(--status-amber-tint)]">
                   <td colSpan={8} className="px-4 py-4">
                     <div className="flex items-center gap-4">
                       <div className="flex-1 flex items-center gap-3">
-                        <span className="text-gray-400 text-sm">Carrier:</span>
+                        <span className="text-[var(--ink-3)] text-sm">Carrier:</span>
                         <select
                           value={trackingForm.carrier}
                           onChange={(e) => setTrackingForm({ ...trackingForm, carrier: e.target.value })}
-                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm"
+                          className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded px-2 py-1.5 text-[var(--ink)] text-sm"
                         >
                           <option value="USPS">USPS</option>
                           <option value="FedEx">FedEx</option>
@@ -821,13 +859,13 @@ export default function AdminShipping() {
                           <option value="DHL">DHL</option>
                           <option value="Other">Other</option>
                         </select>
-                        <span className="text-gray-400 text-sm">Tracking:</span>
+                        <span className="text-[var(--ink-3)] text-sm">Tracking:</span>
                         <input
                           type="text"
                           value={trackingForm.tracking_number}
                           onChange={(e) => setTrackingForm({ ...trackingForm, tracking_number: e.target.value })}
                           placeholder="Enter tracking number..."
-                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500"
+                          className="flex-1 bg-[var(--paper)] border border-[var(--rule-hair)] rounded px-3 py-1.5 text-[var(--ink)] text-sm placeholder-[var(--ink-4)]"
                           autoFocus
                         />
                       </div>
@@ -836,7 +874,7 @@ export default function AdminShipping() {
                           href="https://www.usps.com/ship/"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-2 py-1.5 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                          className="px-2 py-1.5 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-xs hover:bg-[var(--rule-hair)]"
                         >
                           USPS ↗
                         </a>
@@ -844,14 +882,14 @@ export default function AdminShipping() {
                           href="https://www.pirateship.com/"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-2 py-1.5 bg-gray-700 text-gray-300 rounded text-xs hover:bg-gray-600"
+                          className="px-2 py-1.5 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-xs hover:bg-[var(--rule-hair)]"
                         >
                           PirateShip ↗
                         </a>
                         <button
                           onClick={() => handleSaveTracking(expandedOrder)}
                           disabled={saving || !trackingForm.tracking_number.trim()}
-                          className="px-4 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                          className="px-4 py-1.5 bg-[var(--orange)] text-white rounded text-sm hover:bg-[var(--orange-press)] disabled:opacity-50"
                         >
                           {saving ? "Saving..." : "Save & Ship"}
                         </button>
@@ -860,7 +898,7 @@ export default function AdminShipping() {
                             setExpandedOrder(null);
                             setTrackingForm({ carrier: "USPS", tracking_number: "" });
                           }}
-                          className="px-3 py-1.5 bg-gray-700 text-gray-300 rounded text-sm hover:bg-gray-600"
+                          className="px-3 py-1.5 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded text-sm hover:bg-[var(--rule-hair)]"
                         >
                           Cancel
                         </button>
@@ -872,7 +910,7 @@ export default function AdminShipping() {
 
               {getCurrentOrders().length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-4)]">
                     {activeTab === "packaging" && "No orders awaiting packaging"}
                     {activeTab === "needs_label" && "No orders need labels"}
                     {activeTab === "ready_to_ship" && "No orders ready to ship"}

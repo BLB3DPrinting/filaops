@@ -29,6 +29,16 @@
   --rule-hair:    #E5E3DC;
   --shadow-pop:   0 1px 2px rgba(31, 31, 28, 0.06), 0 4px 12px rgba(31, 31, 28, 0.08);
 
+  /* ---- Status semantics (locked decision, #846) -------------------------
+     amber = in-progress/working, green = ready/cleared, red = overdue/error.
+     Orange is reserved for primary action and must never double as a status. */
+  --status-amber:      #B45309;
+  --status-amber-tint: #FEF3C7;
+  --status-green:      #15803D;
+  --status-green-tint: #DCFCE7;
+  --status-red:        #DC2626;
+  --status-red-tint:   #FEE2E2;
+
   /* ---- Liquid-glass material (floating chrome only) --------------------- */
   --glass-bg:     rgba(250, 250, 247, 0.66);
   --glass-blur:   blur(26px) saturate(200%);
@@ -76,6 +86,13 @@
   --orange-tint:  #3A2418;
   --rule-hair:    #34302A;
   --shadow-pop:   0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.40);
+
+  --status-amber:      #FBBF24;
+  --status-amber-tint: #3D2E0A;
+  --status-green:      #4ADE80;
+  --status-green-tint: #0F2E1A;
+  --status-red:        #F87171;
+  --status-red-tint:   #3A1414;
 
   --glass-bg:     rgba(36, 33, 27, 0.62);
   --glass-blur:   blur(28px) saturate(180%);
