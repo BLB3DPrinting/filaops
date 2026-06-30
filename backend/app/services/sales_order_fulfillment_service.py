@@ -38,6 +38,12 @@ _MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE = (
 # Mirrors SHIPPED_ORDER_STATUSES in frontend/src/pages/admin/OrderDetail.jsx.
 SHIPPED_ORDER_STATUSES = {"shipped", "delivered", "completed"}
 
+# Full-ship correctness only. Partial / mixed-lot shipping is the separate
+# #726 feature; until it lands, 'ready_to_ship' is the only shippable state.
+# ship_order() and can_ship_reasons() both import this single constant so the
+# UI preflight and the actual ship gate can never drift apart (#845/#846).
+SHIPPABLE_STATUSES = frozenset({"ready_to_ship"})
+
 # Order-level fulfillment_status values that count as shipment evidence.
 # Grounded in order_status.py which sets "shipped"/"delivered" on those
 # transitions; "fulfilled" is accepted defensively for older data.
@@ -191,6 +197,58 @@ def _create_shipment_gl_entry(
         txn.journal_entry_id = journal_entry.id
 
 
+def _candidate_product_ids(order: "SalesOrder") -> set[int]:
+    """Product ids `order` would demand if shipped (no query — reads loaded lines)."""
+    if order.lines:
+        return {line.product_id for line in order.lines if line.product_id}
+    if order.product_id:
+        return {order.product_id}
+    return set()
+
+
+def _aggregate_shippable_demand(
+    db: Session,
+    order: "SalesOrder",
+    *,
+    existing_product_ids: Optional[set[int]] = None,
+) -> dict[int, Decimal]:
+    """Per-product FG demand for shipping `order`, summed across its lines.
+
+    Two lines that share a product_id are summed into one entry. Lines whose
+    Product row no longer exists are skipped — issue_shipped_goods does the
+    same, so a deleted-product line must never 409 a shippable order.
+
+    Single implementation shared by ship_order() (which locks each row before
+    checking) and can_ship_reasons() (which reads a non-locking snapshot) —
+    extracting this is what makes "exact parity between the two" a structural
+    guarantee instead of something to remember to keep in sync (#845/#846).
+
+    Pass `existing_product_ids` (pre-fetched once across many orders) to avoid
+    a per-order Product existence query — see can_ship_reasons() batch usage.
+    """
+    candidate_ids = _candidate_product_ids(order)
+    if existing_product_ids is None:
+        from app.models.product import Product
+        existing_ids = {
+            pid for (pid,) in db.query(Product.id).filter(Product.id.in_(candidate_ids)).all()
+        } if candidate_ids else set()
+    else:
+        existing_ids = candidate_ids & existing_product_ids
+
+    demand_by_product: dict[int, Decimal] = {}
+    if order.lines:
+        for line in order.lines:
+            if line.product_id and line.product_id in existing_ids:
+                demand_by_product[line.product_id] = (
+                    demand_by_product.get(line.product_id, Decimal("0"))
+                    + Decimal(str(line.quantity))
+                )
+    elif order.product_id and order.product_id in existing_ids:
+        demand_by_product[order.product_id] = Decimal(str(order.quantity or 1))
+
+    return demand_by_product
+
+
 def ship_order(
     db: Session,
     order_id: int,
@@ -223,10 +281,6 @@ def ship_order(
     from app.services.inventory_ledger import get_or_create_inventory_row
     from app.services.event_service import record_shipping_event
 
-    # Full-ship correctness only. Partial / mixed-lot shipping is the separate
-    # #726 feature; until it lands, 'ready_to_ship' is the only shippable state.
-    shippable_statuses = frozenset({"ready_to_ship"})
-
     # Serialize concurrent ship attempts on this order (#838/MF4). Lock a plain
     # single-table row first — Postgres can't FOR UPDATE a collection join.
     locked = (
@@ -242,7 +296,7 @@ def ship_order(
     # ship sees status='shipped' set by the first and 409s (TOCTOU guard).
     # 'ready_to_ship' is the status machine's gate for an order cleared to ship;
     # it blocks shipping draft/confirmed/in-production orders.
-    if locked.status not in shippable_statuses:
+    if locked.status not in SHIPPABLE_STATUSES:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -272,33 +326,8 @@ def ship_order(
     # are summed), lock each FG row, and compare available (on_hand - allocated,
     # matching the relief gate). The row lock is held for the rest of this
     # transaction, so two orders racing the same FG row serialize here.
-    from app.models.product import Product
-
     _location = get_or_create_default_location(db)
-
-    # Only consider products that still exist — issue_shipped_goods skips lines
-    # whose Product row is gone, so the pre-check must skip them too (otherwise
-    # a deleted-product line would 409 a shippable order).
-    _candidate_ids: set[int] = set()
-    if order.lines:
-        _candidate_ids.update(_l.product_id for _l in order.lines if _l.product_id)
-    elif order.product_id:
-        _candidate_ids.add(order.product_id)
-    _existing_ids = {
-        pid
-        for (pid,) in db.query(Product.id).filter(Product.id.in_(_candidate_ids)).all()
-    } if _candidate_ids else set()
-
-    _demand_by_product: dict[int, Decimal] = {}
-    if order.lines:
-        for _line in order.lines:
-            if _line.product_id and _line.product_id in _existing_ids:
-                _demand_by_product[_line.product_id] = (
-                    _demand_by_product.get(_line.product_id, Decimal("0"))
-                    + Decimal(str(_line.quantity))
-                )
-    elif order.product_id and order.product_id in _existing_ids:
-        _demand_by_product[order.product_id] = Decimal(str(order.quantity or 1))
+    _demand_by_product = _aggregate_shippable_demand(db, order)
 
     for _product_id, _needed in _demand_by_product.items():
         _inv = get_or_create_inventory_row(db, _product_id, _location.id)
@@ -398,6 +427,75 @@ def ship_order(
         "shipped_at": order.shipped_at.isoformat(),
         "label_url": None,
     }
+
+
+def can_ship_reasons(
+    db: Session,
+    order: "SalesOrder",
+    *,
+    location_id: Optional[int] = None,
+    existing_product_ids: Optional[set[int]] = None,
+    inventory_snapshot: Optional[dict[int, tuple[Decimal, Decimal]]] = None,
+) -> dict:
+    """Preflight: would ship_order() accept this order right now?
+
+    Read-only — takes NO row lock and is safe to call from a GET. Checks the
+    SAME conditions, in the SAME order, that ship_order() itself enforces
+    (status -> address -> material-backed -> inventory), reusing the same
+    SHIPPABLE_STATUSES constant and _aggregate_shippable_demand() helper, so a
+    "can_ship: true" here means ship_order will not 400/409 a moment later for
+    the same reason. It is a preflight, not a guarantee: ship_order() re-checks
+    every one of these under a row lock at ship time, which is the only place
+    a concurrent-order race is actually resolved (#838/MF4).
+
+    Reasons are deliberately conservative (no raw on-hand/allocated numbers)
+    to avoid exposing exact stock counts on a list view (#845/#846).
+
+    Called with no optional args, this does its own queries (location lookup,
+    existing-product check, one inventory read per product) — fine for a
+    single order. A caller checking MANY orders (the AdminShipping batch
+    endpoint) should pre-fetch `location_id`, `existing_product_ids`, and
+    `inventory_snapshot` ONCE and pass them to every call, so the batch cost
+    stays O(1) backend queries instead of O(orders).
+
+    Returns {"can_ship": bool, "reasons": [str, ...]}.
+    """
+    from app.services.inventory_service import (
+        get_inventory_snapshot,
+        get_or_create_default_location,
+    )
+
+    reasons: list[str] = []
+
+    if order.status not in SHIPPABLE_STATUSES:
+        reasons.append(f"Order is {order.status!r}; it must be 'ready_to_ship' to ship.")
+        # Every other check assumes a shippable order; nothing else is actionable yet.
+        return {"can_ship": False, "reasons": reasons}
+
+    if not order.shipping_address_line1 or not order.shipping_city:
+        reasons.append("Order has no shipping address.")
+
+    if _has_material_backed_lines(order):
+        reasons.append(_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE)
+
+    if location_id is None:
+        location_id = get_or_create_default_location(db).id
+
+    demand_by_product = _aggregate_shippable_demand(
+        db, order, existing_product_ids=existing_product_ids
+    )
+    for product_id, needed in demand_by_product.items():
+        if inventory_snapshot is not None:
+            on_hand, allocated = inventory_snapshot.get(
+                product_id, (Decimal("0"), Decimal("0"))
+            )
+        else:
+            on_hand, allocated = get_inventory_snapshot(db, product_id, location_id)
+        available = on_hand - allocated
+        if available < needed:
+            reasons.append(f"Insufficient inventory for product {product_id}.")
+
+    return {"can_ship": not reasons, "reasons": reasons}
 
 
 # =============================================================================

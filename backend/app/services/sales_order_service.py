@@ -52,8 +52,11 @@ from app.services.sales_order_fulfillment_service import (
     _SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES,  # noqa: F401
     _SHIPMENT_TRANSACTION_COST_TYPES,  # noqa: F401
     SHIPPED_ORDER_STATUSES,  # noqa: F401
+    SHIPPABLE_STATUSES,  # noqa: F401
+    _candidate_product_ids,  # noqa: F401
     _create_shipment_gl_entry,  # noqa: F401
     _has_material_backed_lines,  # noqa: F401
+    can_ship_reasons,  # noqa: F401
     has_shipment_evidence,  # noqa: F401
     resolve_legacy_fulfillment,  # noqa: F401
     ship_order,  # noqa: F401

@@ -8,13 +8,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 
 from app.db.session import get_db
 from app.models.user import User
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.product import Product
+from app.models.inventory import Inventory
 from app.models.material import MaterialInventory
 from app.models.shipping_event import ShippingEvent
 from app.logging_config import get_logger
@@ -43,6 +44,7 @@ from app.schemas.shipping_event import (
     ShippingEventListResponse,
 )
 from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.services.event_service import record_shipping_event
 from app.core.status_config import (
     SalesOrderStatus,
@@ -238,6 +240,73 @@ async def get_payment_statuses(
             PaymentStatus.REFUNDED.value: "Payment refunded",
             PaymentStatus.OVERDUE.value: "Payment is overdue",
         },
+    }
+
+
+@router.get("/can-ship")
+async def get_can_ship_batch(
+    current_user: User = Depends(get_current_staff_user),
+    db: Session = Depends(get_db),
+):
+    """Preflight: which 'ready_to_ship' orders can ship_order() actually ship right now?
+
+    Batch, read-only, no row locks — backs the AdminShipping list so the UI
+    never disagrees with ship_order()'s real gate (#845/#846). Declared here,
+    BEFORE the bare GET /{order_id} route below, so it isn't shadowed by it —
+    same route-ordering issue fixed for production-order routes in #818.
+
+    Cost is O(1) backend queries regardless of how many orders are in
+    'ready_to_ship' (bounded list + one default-location lookup + one batch
+    inventory read), not O(orders) — see can_ship_reasons()/sales_order_fulfillment_service.
+
+    Returns {order_id: {can_ship: bool, reasons: [str, ...]}} for every order
+    currently in 'ready_to_ship' (capped at 500).
+    """
+    from app.services.inventory_service import get_or_create_default_location
+
+    orders = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .filter(SalesOrder.status == "ready_to_ship")
+        .limit(500)
+        .all()
+    )
+    if not orders:
+        return {}
+
+    # Pre-fetch everything once so per-order cost is zero additional queries —
+    # 4 backend queries total regardless of how many orders are ready_to_ship
+    # (orders+lines, location, existing-product check, inventory snapshot).
+    location_id = get_or_create_default_location(db).id
+
+    candidate_ids: set[int] = set()
+    for order in orders:
+        candidate_ids |= sales_order_service._candidate_product_ids(order)
+
+    existing_product_ids = {
+        pid for (pid,) in db.query(Product.id).filter(Product.id.in_(candidate_ids)).all()
+    } if candidate_ids else set()
+
+    inventory_snapshot = {
+        inv.product_id: (
+            Decimal(str(inv.on_hand_quantity)),
+            Decimal(str(inv.allocated_quantity)),
+        )
+        for inv in db.query(Inventory).filter(
+            Inventory.product_id.in_(existing_product_ids),
+            Inventory.location_id == location_id,
+        ).all()
+    } if existing_product_ids else {}
+
+    return {
+        order.id: sales_order_service.can_ship_reasons(
+            db,
+            order,
+            location_id=location_id,
+            existing_product_ids=existing_product_ids,
+            inventory_snapshot=inventory_snapshot,
+        )
+        for order in orders
     }
 
 

@@ -325,6 +325,31 @@ def get_or_create_inventory(
     return inventory
 
 
+def get_inventory_snapshot(
+    db: Session,
+    product_id: int,
+    location_id: int,
+) -> tuple[Decimal, Decimal]:
+    """Read-only (on_hand, allocated) snapshot for a product at a location.
+
+    No row lock and no insert-on-miss — safe to call from a GET/preflight path
+    with many products in a loop. Do NOT use this where a write follows; use
+    inventory_ledger.get_or_create_inventory_row (which locks) for that.
+    A missing row reads as (0, 0), matching how a never-stocked product is
+    treated everywhere else in inventory math.
+    """
+    inventory = db.query(Inventory).filter(
+        Inventory.product_id == product_id,
+        Inventory.location_id == location_id,
+    ).first()
+    if not inventory:
+        return Decimal("0"), Decimal("0")
+    return (
+        Decimal(str(inventory.on_hand_quantity)),
+        Decimal(str(inventory.allocated_quantity)),
+    )
+
+
 def validate_inventory_consistency(
     db: Session,
     product_id: Optional[int] = None,

@@ -1241,6 +1241,135 @@ class TestShipOrder:
         assert response.json()["tracking_number"] == "1Z999AA10123456784"
 
 
+class TestCanShipBatch:
+    """#845/#846: GET /sales-orders/can-ship preflight."""
+
+    @pytest.fixture
+    def customer_client(self, db):
+        """TestClient authenticated as a non-staff (customer) user — used to
+        verify /can-ship rejects non-staff (staff = admin or operator)."""
+        from app.models.user import User
+        from app.core.security import create_access_token
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.db.session import get_db
+
+        user = db.query(User).filter(User.id == 3).first()
+        if not user:
+            user = User(
+                id=3, email="customer@filaops.dev",
+                password_hash="not-a-real-hash",
+                first_name="Customer", last_name="User",
+                account_type="customer",
+            )
+            db.add(user)
+            db.flush()
+        token = create_access_token(user_id=3)
+
+        def _override_get_db():
+            try:
+                yield db
+            finally:
+                pass
+
+        app.dependency_overrides[get_db] = _override_get_db
+        with TestClient(app, raise_server_exceptions=False) as c:
+            c.headers["Authorization"] = f"Bearer {token}"
+            yield c
+        app.dependency_overrides.clear()
+
+    def test_requires_auth(self, unauthed_client):
+        response = unauthed_client.get(f"{BASE_URL}/can-ship")
+        assert response.status_code == 401
+
+    def test_rejects_non_staff(self, customer_client):
+        response = customer_client.get(f"{BASE_URL}/can-ship")
+        assert response.status_code == 403
+
+    def test_not_shadowed_by_order_id_route(self, client):
+        """Regression for the #818 route-shadow class: GET /can-ship must hit
+        this endpoint, not be swallowed as order_id='can-ship' by the bare
+        GET /{order_id} detail route."""
+        response = client.get(f"{BASE_URL}/can-ship")
+        assert response.status_code == 200
+        assert isinstance(response.json(), dict)
+
+    def test_ready_order_with_stock_is_can_ship_true(self, client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        so.shipping_address_line1 = "1 Ship Way"
+        so.shipping_city = "Portland"
+        db.flush()
+        _seed_ship_inventory(db, product.id)
+
+        response = client.get(f"{BASE_URL}/can-ship")
+        assert response.status_code == 200
+        data = response.json()
+        assert str(so.id) in data or so.id in data
+        entry = data.get(str(so.id), data.get(so.id))
+        assert entry == {"can_ship": True, "reasons": []}
+
+    def test_non_ready_orders_excluded(self, client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="in_production")
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/can-ship")
+        assert response.status_code == 200
+        data = response.json()
+        assert str(so.id) not in data and so.id not in data
+
+    def test_short_order_is_can_ship_false(self, client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        so.shipping_address_line1 = "1 Ship Way"
+        so.shipping_city = "Portland"
+        db.flush()
+        _seed_ship_inventory(db, product.id, on_hand=Decimal("0"))
+
+        response = client.get(f"{BASE_URL}/can-ship")
+        data = response.json()
+        entry = data.get(str(so.id), data.get(so.id))
+        assert entry["can_ship"] is False
+        assert len(entry["reasons"]) >= 1
+
+    def test_query_count_does_not_scale_with_order_count(self, client, db, make_sales_order, make_product):
+        """The whole point of the batch design: a fixed, small number of SQL
+        queries regardless of how many ready_to_ship orders exist."""
+        from sqlalchemy import event
+        from app.db.session import engine
+
+        products = [make_product(selling_price=Decimal("10.00")) for _ in range(8)]
+        for p in products:
+            _seed_ship_inventory(db, p.id)
+        orders = []
+        for p in products:
+            so = make_sales_order(product_id=p.id, status="ready_to_ship")
+            so.shipping_address_line1 = "1 Ship Way"
+            so.shipping_city = "Portland"
+            orders.append(so)
+        db.flush()
+
+        counts = {"many": 0}
+
+        def _count_many(*a, **kw):
+            counts["many"] += 1
+
+        event.listen(engine, "before_cursor_execute", _count_many)
+        try:
+            response = client.get(f"{BASE_URL}/can-ship")
+        finally:
+            event.remove(engine, "before_cursor_execute", _count_many)
+
+        assert response.status_code == 200
+        # Bounded: orders+lines, location, existing-products, inventory ≈ a
+        # handful of queries — not anywhere near one-per-order (8).
+        assert counts["many"] < 8, (
+            f"can-ship issued {counts['many']} queries for 8 orders — "
+            "looks like a per-order query crept back in"
+        )
+
+
 # =============================================================================
 # Required Orders (MRP Cascade) -- GET /api/v1/sales-orders/{id}/required-orders
 # =============================================================================
