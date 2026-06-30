@@ -655,6 +655,37 @@ async def get_order_fulfillment_status(
     return result
 
 
+@router.get("/{order_id}/can-ship")
+async def get_order_can_ship(
+    order_id: int,
+    current_user: User = Depends(get_current_staff_user),
+    db: Session = Depends(get_db),
+):
+    """Preflight for ONE order, in ANY status: can ship_order() ship it right now?
+
+    The single-order complement to the batch GET /can-ship. The batch route is
+    scoped to 'ready_to_ship' (it backs the AdminShipping queue); this one works
+    for an order in any status so the OrderDetail page can answer "why can't I
+    ship this yet?" — e.g. "status is in_production", "no shipping address" —
+    instead of letting the UI advertise a Ship action the backend would 409.
+
+    Routes through the SAME can_ship_reasons() helper that ship_order() enforces,
+    so the surfaced gate can never disagree with the actual ship gate (#845/#846).
+
+    Returns {can_ship: bool, reasons: [str, ...]}.
+    """
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .filter(SalesOrder.id == order_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Sales order {order_id} not found")
+
+    return sales_order_service.can_ship_reasons(db, order)
+
+
 class MaterialRequirementItem(BaseModel):
     """Single material requirement for a sales order."""
     product_id: int

@@ -1370,6 +1370,107 @@ class TestCanShipBatch:
         )
 
 
+class TestCanShipSingleOrder:
+    """#846: GET /sales-orders/{order_id}/can-ship — the single-order, any-status
+    complement to the batch endpoint, used by OrderDetail to gate its Ship button
+    on the SAME backend reasons ship_order() enforces."""
+
+    @pytest.fixture
+    def customer_client(self, db):
+        from app.models.user import User
+        from app.core.security import create_access_token
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.db.session import get_db
+
+        user = db.query(User).filter(User.id == 3).first()
+        if not user:
+            user = User(
+                id=3, email="customer@filaops.dev",
+                password_hash="not-a-real-hash",
+                first_name="Customer", last_name="User",
+                account_type="customer",
+            )
+            db.add(user)
+            db.flush()
+        token = create_access_token(user_id=3)
+
+        def _override_get_db():
+            try:
+                yield db
+            finally:
+                pass
+
+        app.dependency_overrides[get_db] = _override_get_db
+        with TestClient(app, raise_server_exceptions=False) as c:
+            c.headers["Authorization"] = f"Bearer {token}"
+            yield c
+        app.dependency_overrides.clear()
+
+    def test_requires_auth(self, unauthed_client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        db.flush()
+        response = unauthed_client.get(f"{BASE_URL}/{so.id}/can-ship")
+        assert response.status_code == 401
+
+    def test_rejects_non_staff(self, customer_client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        db.flush()
+        response = customer_client.get(f"{BASE_URL}/{so.id}/can-ship")
+        assert response.status_code == 403
+
+    def test_nonexistent_order_404(self, client):
+        response = client.get(f"{BASE_URL}/999999/can-ship")
+        assert response.status_code == 404
+
+    def test_ready_order_with_stock_is_can_ship_true(self, client, db, make_sales_order, make_product):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        so.shipping_address_line1 = "1 Ship Way"
+        so.shipping_city = "Portland"
+        db.flush()
+        _seed_ship_inventory(db, product.id)
+
+        response = client.get(f"{BASE_URL}/{so.id}/can-ship")
+        assert response.status_code == 200
+        assert response.json() == {"can_ship": True, "reasons": []}
+
+    def test_in_production_order_included_with_reason(self, client, db, make_sales_order, make_product):
+        """The differentiator vs the batch route: a non-ready order is NOT
+        excluded here — it returns can_ship=False with a status reason, so
+        OrderDetail can explain *why* it isn't shippable yet."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="in_production")
+        so.shipping_address_line1 = "1 Ship Way"
+        so.shipping_city = "Portland"
+        db.flush()
+        _seed_ship_inventory(db, product.id)
+
+        response = client.get(f"{BASE_URL}/{so.id}/can-ship")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["can_ship"] is False
+        assert len(data["reasons"]) >= 1
+
+    def test_no_address_returns_reason(self, client, db, make_sales_order, make_product):
+        """Stock present + ready_to_ship but no shipping address — fulfillment
+        readiness alone would say 'shippable'; the real gate must not."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="ready_to_ship")
+        so.shipping_address_line1 = None
+        so.shipping_city = None
+        db.flush()
+        _seed_ship_inventory(db, product.id)
+
+        response = client.get(f"{BASE_URL}/{so.id}/can-ship")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["can_ship"] is False
+        assert len(data["reasons"]) >= 1
+
+
 # =============================================================================
 # Required Orders (MRP Cascade) -- GET /api/v1/sales-orders/{id}/required-orders
 # =============================================================================
