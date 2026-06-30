@@ -543,8 +543,8 @@ class TestUpdateStatus:
         data = response.json()
         assert data.get("confirmed_at") is not None
 
-    def test_shipped_sets_shipped_at(self, client, db, make_sales_order, make_product):
-        """Marking as shipped should set shipped_at timestamp."""
+    def test_status_update_to_shipped_is_blocked(self, client, db, make_sales_order, make_product):
+        """Shipping must go through POST /ship, not a bare status flip (#838)."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(product_id=product.id, status="ready_to_ship")
         db.flush()
@@ -552,9 +552,12 @@ class TestUpdateStatus:
         response = client.patch(f"{BASE_URL}/{so.id}/status", json={
             "status": "shipped",
         })
-        assert response.status_code == 200
-        data = response.json()
-        assert data.get("shipped_at") is not None
+        assert response.status_code == 400
+        assert "ship" in response.json()["detail"].lower()
+        # No corruption: status and shipment evidence untouched.
+        got = client.get(f"{BASE_URL}/{so.id}").json()
+        assert got["status"] == "ready_to_ship"
+        assert got["shipped_at"] is None
 
     def test_delivered_sets_delivered_at(self, client, db, make_sales_order, make_product):
         """Marking as delivered should set delivered_at timestamp."""
@@ -656,8 +659,8 @@ class TestUpdateShipping:
         assert data["tracking_number"] == "1Z999AA10123456784"
         assert data["carrier"] == "UPS"
 
-    def test_update_shipping_with_shipped_at(self, client, db, make_sales_order, make_product):
-        """Setting shipped_at should also update order status to 'shipped'."""
+    def test_update_shipping_with_shipped_at_is_blocked(self, client, db, make_sales_order, make_product):
+        """PATCH /shipping cannot mark an unshipped order shipped — use POST /ship (#838)."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(product_id=product.id, status="ready_to_ship")
         db.flush()
@@ -667,10 +670,12 @@ class TestUpdateShipping:
             "carrier": "USPS",
             "shipped_at": "2026-01-15T10:00:00",
         })
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "shipped"
-        assert data["shipped_at"] is not None
+        assert response.status_code == 400
+        assert "ship" in response.json()["detail"].lower()
+        # No corruption: status and shipment evidence untouched.
+        got = client.get(f"{BASE_URL}/{so.id}").json()
+        assert got["status"] == "ready_to_ship"
+        assert got["shipped_at"] is None
 
     def test_update_shipping_nonexistent_order(self, client):
         response = client.patch(f"{BASE_URL}/999999/shipping", json={

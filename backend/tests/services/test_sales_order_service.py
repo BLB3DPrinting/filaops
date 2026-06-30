@@ -789,20 +789,27 @@ class TestUpdateSalesOrderStatus:
 
         with pytest.raises(HTTPException) as exc_info:
             sales_order_service.update_sales_order_status(
-                db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
+                db, so.id, "delivered", user_id=1, user_email="test@filaops.dev"
             )
 
         assert exc_info.value.status_code == 400
         assert "Invalid sales order status transition" in exc_info.value.detail
         assert so.status == "pending"
 
-    def test_shipped_sets_shipped_at(self, db, make_sales_order):
-        """Setting status to shipped sets shipped_at."""
+    def test_status_update_to_shipped_is_blocked(self, db, make_sales_order):
+        """Shipping must go through POST /ship, not a bare status flip (#838)."""
         so = make_sales_order(status="ready_to_ship")
-        result = sales_order_service.update_sales_order_status(
-            db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
-        )
-        assert result.shipped_at is not None
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.update_sales_order_status(
+                db, so.id, "shipped", user_id=1, user_email="test@filaops.dev"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "ship" in exc_info.value.detail
+        # No corruption: status and shipment evidence are untouched.
+        assert so.status == "ready_to_ship"
+        assert so.shipped_at is None
 
     def test_delivered_sets_delivered_at(self, db, make_sales_order):
         """Setting status to delivered sets delivered_at."""
@@ -972,24 +979,28 @@ class TestUpdateShippingInfo:
         )
         assert result.carrier == "UPS"
 
-    def test_shipped_at_sets_status_to_shipped(self, db, make_sales_order):
-        """Providing shipped_at transitions status to shipped."""
+    def test_shipped_at_on_unshipped_order_is_blocked(self, db, make_sales_order):
+        """shipped_at cannot ship an order here — that must go through POST /ship (#838)."""
         from datetime import datetime, timezone
         so = make_sales_order(status="in_production")
         now = datetime.now(timezone.utc)
 
-        result = sales_order_service.update_shipping_info(
-            db, so.id, user_id=1, shipped_at=now
-        )
-        assert result.status == "shipped"
-        assert result.shipped_at == now
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.update_shipping_info(
+                db, so.id, user_id=1, shipped_at=now
+            )
 
-    def test_records_shipped_event_on_first_ship(self, db, make_sales_order):
-        """Shipping event is recorded on the initial ship."""
+        assert exc_info.value.status_code == 400
+        # No corruption: status and shipment evidence are untouched.
+        assert so.status == "in_production"
+        assert so.shipped_at is None
+
+    def test_updates_tracking_on_shipped_order_without_event(self, db, make_sales_order):
+        """Tracking edits on an already-shipped order succeed and post no ship event."""
         from datetime import datetime, timezone
-        so = make_sales_order(status="in_production")
+        so = make_sales_order(status="shipped")
 
-        sales_order_service.update_shipping_info(
+        result = sales_order_service.update_shipping_info(
             db, so.id, user_id=1,
             carrier="USPS",
             tracking_number="TRK123",
@@ -997,11 +1008,27 @@ class TestUpdateShippingInfo:
         )
         db.flush()
 
+        assert result.tracking_number == "TRK123"
+        assert result.carrier == "USPS"
+        assert result.status == "shipped"
         events = db.query(OrderEvent).filter(
             OrderEvent.sales_order_id == so.id,
             OrderEvent.event_type == "shipped",
         ).all()
-        assert len(events) >= 1
+        assert events == []
+
+    def test_corrects_shipped_at_on_delivered_and_completed(self, db, make_sales_order):
+        """shipped_at correction is allowed on all post-ship states, not just 'shipped'."""
+        from datetime import datetime, timezone
+        for status in ("delivered", "completed"):
+            so = make_sales_order(status=status)
+            ts = datetime.now(timezone.utc)
+            result = sales_order_service.update_shipping_info(
+                db, so.id, user_id=1, tracking_number="TRK-D", shipped_at=ts
+            )
+            assert result.status == status
+            assert result.shipped_at == ts
+            assert result.tracking_number == "TRK-D"
 
 
 # =============================================================================
