@@ -414,3 +414,56 @@ def _reconcile_invoice(db: Session, *, invoice, payment: Payment) -> None:
         locked.paid_at = payment.payment_date or datetime.now(timezone.utc)
     elif new_paid > 0:
         locked.status = "partially_paid"
+
+
+def resync_invoice_paid_from_payments(db: Session, *, sales_order_id: int):
+    """Recompute the order's invoice amount_paid / status from its completed
+    payments (refunds count as negative), under a row lock.
+
+    Called after a payment is voided or refunded so the invoice's AR view
+    matches the ledger. Previously void/refund reversed the GL and the order
+    status but left the invoice marked Paid, understating AR and blocking
+    re-payment (#846 audit). Drift-free: it sums the source-of-truth payments
+    rather than incrementally adjusting, so repeated calls converge.
+
+    Does NOT touch the invoice-receivable GL — the invoice is still issued
+    (revenue earned, AR reopened by the reversed payment-receipt entry); only
+    the invoice's bookkeeping metadata is synced. Does NOT commit.
+
+    Returns the locked invoice, or None if the order has no invoice.
+    """
+    from app.models.invoice import Invoice as _Invoice
+
+    locked = (
+        db.query(_Invoice)
+        .filter(_Invoice.sales_order_id == sales_order_id)
+        .with_for_update()
+        .first()
+    )
+    if locked is None:
+        return None
+
+    net = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.sales_order_id == sales_order_id,
+        Payment.status == "completed",
+    ).scalar()
+    net = _money(net or 0)
+    if net < 0:
+        net = Decimal("0")
+
+    locked.amount_paid = net
+    if locked.total and net >= _money(locked.total):
+        locked.status = "paid"
+        if not locked.paid_at:
+            locked.paid_at = datetime.now(timezone.utc)
+    elif net > 0:
+        locked.status = "partially_paid"
+        locked.paid_at = None
+    else:
+        # Fully unpaid again — reopen AR. Keep an issued invoice at 'sent';
+        # never resurrect a draft, and don't disturb void/cancelled invoices.
+        if locked.status in ("paid", "partially_paid"):
+            locked.status = "sent"
+        locked.paid_at = None
+
+    return locked
