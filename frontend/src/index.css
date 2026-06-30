@@ -110,6 +110,8 @@
     --glass-border: var(--rule-hair);
     --glass-hi:     transparent;
     --glass-shadow: var(--shadow-pop);
+    --glass-fill:   var(--paper-sunk);
+    --glass-sel:    var(--paper-sunk);
   }
 }
 
@@ -184,6 +186,17 @@ body {
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border-subtle);
+}
+
+/* Reduced-transparency users get a solid, un-blurred bar that matches the dark
+   shell. (The token-aware .glass-topbar replacement lands in the shell slice;
+   data-glass="off" is wired with the theme store in the command-palette slice.) */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: rgb(28, 28, 50);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Primary glow effect (legacy) */
