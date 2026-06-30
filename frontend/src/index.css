@@ -1,49 +1,128 @@
 @import "tailwindcss";
 
 /* =============================================================================
-   BLB3D / FILAOPS ERP - NEO-INDUSTRIAL DESIGN SYSTEM
-   Colors extracted from BLB3D logo:
-   - Primary Blue: #026DF8
-   - Accent Orange: #EE7A08
-   - Background: #0F0F1E
-   ============================================================================= */
+   FILAOPS — INDUSTRIAL WORKBENCH + LIQUID GLASS DESIGN SYSTEM
+   -----------------------------------------------------------------------------
+   Foundation layer (#846 PR-1). Tailwind v4 is CSS-first, so design tokens live
+   here as custom properties (consumed via var() or arbitrary utilities like
+   bg-[var(--paper)]).
 
-/* =============================================================================
-   CSS CUSTOM PROPERTIES
+   This PR is ADDITIVE + cleanup: it introduces the Workbench base tokens, the
+   liquid-glass material tokens, and the day/dim/flat theme scaffolding, and
+   removes genuinely-dead Neo-Industrial CSS. The legacy Neo tokens
+   (--bg-primary, --primary, --text-*, …) are KEPT (marked @deprecated) so the
+   ~40 files that still consume them keep rendering until each screen is migrated
+   to the Workbench tokens in its own slice. They are removed at the end of #846.
    ============================================================================= */
 
 :root {
-  /* Background hierarchy - from logo #0F0F1E */
+  /* ---- Industrial Workbench base tokens (day / default) ----------------- */
+  --paper:        #FAFAF7;
+  --paper-sunk:   #F2F0E9;
+  --ink:          #1F1F1C;
+  --ink-2:        #3D3D38;
+  --ink-3:        #6B6B66;
+  --ink-4:        #94938C;
+  --orange:       #E85D1F;   /* safety-orange — PRIMARY ACTION only, never a status */
+  --orange-press: #C44C15;
+  --orange-tint:  #FBE7DC;
+  --rule-hair:    #E5E3DC;
+  --shadow-pop:   0 1px 2px rgba(31, 31, 28, 0.06), 0 4px 12px rgba(31, 31, 28, 0.08);
+
+  /* ---- Liquid-glass material (floating chrome only) --------------------- */
+  --glass-bg:     rgba(250, 250, 247, 0.66);
+  --glass-blur:   blur(26px) saturate(200%);
+  --glass-border: rgba(255, 255, 255, 0.80);
+  --glass-hi:     rgba(255, 255, 255, 0.95);   /* specular top edge */
+  --glass-shadow: 0 26px 70px -20px rgba(31, 31, 28, 0.40),
+                  0 4px 14px rgba(31, 31, 28, 0.10);
+  --glass-scrim:  rgba(31, 31, 28, 0.16);
+  --glass-fill:   rgba(255, 255, 255, 0.60);   /* keycaps, icon chips, row hover */
+  --glass-sel:    rgba(255, 255, 255, 0.85);   /* keyboard-selected row */
+
+  /* ---- @deprecated Neo-Industrial tokens (removed at end of #846) ------- */
   --bg-primary: #0F0F1E;
   --bg-secondary: #161628;
   --bg-card: #1C1C32;
   --bg-elevated: #242440;
-
-  /* Brand Colors - from BLB3D logo */
   --primary: #026DF8;
   --primary-light: #0088FF;
   --accent: #EE7A08;
   --accent-light: #FF9933;
-
-  /* Status Colors */
   --success: #00c853;
   --warning: #EE7A08;
   --error: #ef4444;
   --info: #026DF8;
-
-  /* Text */
   --text-primary: #fafafa;
   --text-secondary: #a1a1a1;
   --text-muted: #666666;
-
-  /* Borders */
   --border-subtle: #2a2a3a;
   --border-active: #3a3a4a;
-
-  /* Transitions */
   --transition-fast: 150ms ease;
   --transition-base: 250ms ease;
   --transition-slow: 400ms ease;
+}
+
+/* ---- Dim theme: warm dark surfaces ------------------------------------- */
+[data-theme="dim"] {
+  --paper:        #211E18;
+  --paper-sunk:   #2A2620;
+  --ink:          #ECE8DE;
+  --ink-2:        #C7C2B6;
+  --ink-3:        #9A958A;
+  --ink-4:        #746F66;
+  --orange:       #F26C2E;
+  --orange-press: #D5571B;
+  --orange-tint:  #3A2418;
+  --rule-hair:    #34302A;
+  --shadow-pop:   0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.40);
+
+  --glass-bg:     rgba(36, 33, 27, 0.62);
+  --glass-blur:   blur(28px) saturate(180%);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-hi:     rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.72),
+                  0 4px 14px rgba(0, 0, 0, 0.50);
+  --glass-scrim:  rgba(0, 0, 0, 0.46);
+  --glass-fill:   rgba(255, 255, 255, 0.06);
+  --glass-sel:    rgba(255, 255, 255, 0.10);
+}
+
+/* ---- Flat opt-out: the canonical solid + shadow material --------------- */
+[data-glass="off"] {
+  --glass-bg:     var(--paper);
+  --glass-blur:   none;
+  --glass-border: var(--rule-hair);
+  --glass-hi:     transparent;
+  --glass-shadow: var(--shadow-pop);
+  --glass-scrim:  rgba(31, 31, 28, 0.28);
+  --glass-fill:   var(--paper-sunk);
+  --glass-sel:    var(--paper-sunk);
+}
+[data-theme="dim"][data-glass="off"] { --glass-scrim: rgba(0, 0, 0, 0.55); }
+
+/* ---- A11y: reduced transparency falls back to the flat material -------- */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  [data-theme="dim"] {
+    --glass-bg:     var(--paper);
+    --glass-blur:   none;
+    --glass-border: var(--rule-hair);
+    --glass-hi:     transparent;
+    --glass-shadow: var(--shadow-pop);
+  }
+}
+
+/* ---- A11y: honor reduced motion globally ------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* =============================================================================
@@ -95,10 +174,11 @@ body {
 }
 
 /* =============================================================================
-   COMPONENT UTILITIES
+   COMPONENT UTILITIES (legacy — migrated per-screen during #846)
    ============================================================================= */
 
-/* Glass morphism effect */
+/* Old glassmorphism — still used by the AdminLayout top bar; replaced by the
+   .glass-topbar material when the shell slice lands (#846). */
 .glass {
   background: rgba(28, 28, 50, 0.8);
   -webkit-backdrop-filter: blur(12px);
@@ -106,33 +186,15 @@ body {
   border: 1px solid var(--border-subtle);
 }
 
-/* Primary glow effect */
+/* Primary glow effect (legacy) */
 .glow {
   box-shadow: 0 0 20px -5px rgba(2, 109, 248, 0.4);
 }
 
-/* Accent (orange) glow */
-.glow-accent {
-  box-shadow: 0 0 20px -5px rgba(238, 122, 8, 0.4);
-}
-
-/* Subtle card hover lift */
-.card-hover {
-  transition: all var(--transition-base);
-}
-
-.card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 10px 40px -10px rgba(2, 109, 248, 0.15),
-    0 0 0 1px var(--border-subtle);
-}
-
 /* =============================================================================
-   LOGO ENHANCEMENT STYLES
+   LOGO ENHANCEMENT STYLES (legacy)
    ============================================================================= */
 
-/* Logo container with orange accent glow on hover */
 .logo-container {
   padding: 10px;
   border-radius: 12px;
@@ -146,7 +208,6 @@ body {
   box-shadow: 0 0 20px -5px rgba(238, 122, 8, 0.5);
 }
 
-/* Orange glow for logo image */
 .logo-glow {
   transition: all var(--transition-base);
   filter: drop-shadow(0 0 0 transparent);
@@ -157,7 +218,6 @@ body {
   filter: drop-shadow(0 0 10px rgba(238, 122, 8, 0.4));
 }
 
-/* Subtle breathing glow animation */
 @keyframes logo-breathe {
   0%, 100% {
     filter: drop-shadow(0 0 8px rgba(238, 122, 8, 0.3));
@@ -172,87 +232,14 @@ body {
 }
 
 /* =============================================================================
-   BACKGROUND PATTERNS
+   BACKGROUND PATTERNS (legacy)
    ============================================================================= */
 
-/* Grid pattern for backgrounds */
 .grid-pattern {
   background-image:
     linear-gradient(rgba(2, 109, 248, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(2, 109, 248, 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
-}
-
-/* Industrial noise texture overlay */
-.noise-overlay {
-  position: relative;
-}
-
-.noise-overlay::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.02'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* =============================================================================
-   STATUS BADGES
-   ============================================================================= */
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-badge-pending {
-  background: rgba(234, 179, 8, 0.1);
-  color: #eab308;
-  border: 1px solid rgba(234, 179, 8, 0.2);
-}
-
-.status-badge-processing {
-  background: rgba(2, 109, 248, 0.1);
-  color: #026DF8;
-  border: 1px solid rgba(2, 109, 248, 0.2);
-}
-
-.status-badge-printing {
-  background: rgba(2, 109, 248, 0.1);
-  color: #0088FF;
-  border: 1px solid rgba(2, 109, 248, 0.2);
-}
-
-.status-badge-shipped {
-  background: rgba(168, 85, 247, 0.1);
-  color: #a855f7;
-  border: 1px solid rgba(168, 85, 247, 0.2);
-}
-
-.status-badge-delivered,
-.status-badge-success {
-  background: rgba(0, 200, 83, 0.1);
-  color: #00c853;
-  border: 1px solid rgba(0, 200, 83, 0.2);
-}
-
-.status-badge-error,
-.status-badge-cancelled {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.status-badge-maintenance {
-  background: rgba(238, 122, 8, 0.1);
-  color: #EE7A08;
-  border: 1px solid rgba(238, 122, 8, 0.2);
 }
 
 /* =============================================================================
@@ -292,76 +279,14 @@ body {
   }
 }
 
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px -5px rgba(2, 109, 248, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 30px -5px rgba(2, 109, 248, 0.5);
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }
 
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
-}
-
-.animate-fade-in {
-  animation: fade-in 0.2s ease-out;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite ease-in-out;
-}
-
-.animate-shimmer {
-  animation: shimmer 2s infinite linear;
-  background: linear-gradient(
-    90deg,
-    var(--bg-card) 0%,
-    var(--border-subtle) 50%,
-    var(--bg-card) 100%
-  );
-  background-size: 200% 100%;
-}
-
 /* =============================================================================
-   NAVIGATION ACTIVE STATE (NEO-INDUSTRIAL)
+   NAVIGATION ACTIVE STATE (legacy — migrated in the shell slice)
    ============================================================================= */
 
-/* Replace cyan/blue gradient with primary/accent */
 .nav-item-active {
   background: linear-gradient(90deg, rgba(2, 109, 248, 0.2), rgba(238, 122, 8, 0.1));
   border: 1px solid rgba(2, 109, 248, 0.3);
@@ -372,7 +297,6 @@ body {
   border-color: rgba(238, 122, 8, 0.5);
 }
 
-/* Nav item base state */
 .nav-item {
   color: var(--text-secondary);
   transition: all var(--transition-base);
@@ -383,7 +307,6 @@ body {
   color: var(--text-primary);
 }
 
-/* Focus indicators for nav items - enhanced visibility */
 .nav-item:focus-visible {
   outline: none;
   background: var(--bg-card);
@@ -393,52 +316,4 @@ body {
 .nav-item-active:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(238, 122, 8, 0.3);
-}
-
-/* =============================================================================
-   BUTTON ENHANCEMENTS
-   ============================================================================= */
-
-/* Primary button with glow on hover */
-.btn-primary {
-  background: var(--primary);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-weight: 500;
-  transition: all var(--transition-base);
-}
-
-.btn-primary:hover {
-  background: var(--primary-light);
-  box-shadow: 0 0 20px -5px rgba(2, 109, 248, 0.5);
-}
-
-/* Accent button */
-.btn-accent {
-  background: var(--accent);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-weight: 500;
-  transition: all var(--transition-base);
-}
-
-.btn-accent:hover {
-  background: var(--accent-light);
-  box-shadow: 0 0 20px -5px rgba(238, 122, 8, 0.5);
-}
-
-/* Ghost button */
-.btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
-  padding: 8px 16px;
-  border-radius: 8px;
-  transition: all var(--transition-base);
-}
-
-.btn-ghost:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
 }
