@@ -1061,7 +1061,9 @@ export default function AdminInventoryTransactions() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">
-                  Quantity *
+                  {formData.transaction_type === "adjustment"
+                    ? "Quantity adjustment (+/-) *"
+                    : "Quantity *"}
                 </label>
                 <input
                   type="number"
@@ -1073,6 +1075,13 @@ export default function AdminInventoryTransactions() {
                   }
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
                 />
+                {formData.transaction_type === "adjustment" && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Signed change to on-hand: a positive number adds stock, a
+                    negative number removes it. To set an exact counted
+                    quantity, use Reconciliation instead.
+                  </p>
+                )}
               </div>
 
               <div>
