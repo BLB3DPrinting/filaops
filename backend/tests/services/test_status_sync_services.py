@@ -212,7 +212,7 @@ class TestOrderStatusServiceUpdateSO:
             unit_price=Decimal("10.00"), status="draft"
         )
         with pytest.raises(ValueError, match="Invalid SO status"):
-            self.svc.update_so_status(db, so, "shipped")
+            self.svc.update_so_status(db, so, "delivered")
 
     def test_update_so_skip_validation(self, db, make_product, make_sales_order):
         product = make_product(selling_price=Decimal("10.00"))
@@ -220,8 +220,10 @@ class TestOrderStatusServiceUpdateSO:
             product_id=product.id, quantity=1,
             unit_price=Decimal("10.00"), status="draft"
         )
-        result = self.svc.update_so_status(db, so, "shipped", skip_validation=True)
-        assert result.status == "shipped"
+        # skip_validation bypasses the transition machine for a normally-invalid
+        # hop; 'shipped' stays blocked regardless (covered elsewhere).
+        result = self.svc.update_so_status(db, so, "delivered", skip_validation=True)
+        assert result.status == "delivered"
 
     def test_confirmed_sets_timestamp(self, db, make_product, make_sales_order):
         product = make_product(selling_price=Decimal("10.00"))
@@ -457,15 +459,17 @@ class TestUpdateSOStatusSideEffects:
     def setup_method(self):
         self.svc = OrderStatusService()
 
-    def test_shipped_sets_timestamps(self, db, make_product, make_sales_order):
+    def test_shipped_via_status_is_blocked(self, db, make_product, make_sales_order):
+        # ship_order() owns the shipped transition (inventory + COGS); the bare
+        # status setter must refuse it so it can't set shipped_at without a
+        # ledger effect (#838/#839).
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(
             product_id=product.id, quantity=1,
             unit_price=Decimal("10.00"), status="ready_to_ship"
         )
-        result = self.svc.update_so_status(db, so, "shipped")
-        assert result.shipped_at is not None
-        assert result.fulfillment_status == "shipped"
+        with pytest.raises(ValueError, match="ship_order"):
+            self.svc.update_so_status(db, so, "shipped")
 
     def test_delivered_sets_timestamps(self, db, make_product, make_sales_order):
         product = make_product(selling_price=Decimal("10.00"))

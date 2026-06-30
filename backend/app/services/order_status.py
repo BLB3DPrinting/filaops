@@ -137,6 +137,18 @@ class OrderStatusService:
         Raises:
             ValueError: If transition is invalid
         """
+        # Shipping carries inventory + COGS side effects that must go through
+        # ship_order() (POST /{id}/ship). Setting 'shipped' here would set
+        # shipped_at + fulfillment_status with NO inventory relief or GL entry —
+        # the #838 corruption class. Block it even when skip_validation=True;
+        # use resolve_legacy_fulfillment() for brownfield close-out.
+        if new_status == "shipped":
+            raise ValueError(
+                "Cannot set status 'shipped' via update_so_status: shipping must "
+                "go through ship_order() so inventory and COGS post correctly. "
+                "Use resolve_legacy_fulfillment() for brownfield close-out."
+            )
+
         if not skip_validation:
             is_valid, error = self.validate_so_transition(so.status, new_status)
             if not is_valid:

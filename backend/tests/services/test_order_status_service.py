@@ -96,14 +96,17 @@ class TestUpdateSOStatus:
         assert updated.status == "confirmed"
         assert updated.confirmed_at is not None
 
-    def test_update_so_to_shipped_sets_fulfillment(self, db, make_sales_order, make_product):
+    def test_update_so_to_shipped_is_blocked(self, db, make_sales_order, make_product):
+        # Shipping must go through ship_order() (inventory + COGS); the status
+        # setter cannot flip to 'shipped', even with skip_validation (#838/#839).
         product = make_product()
         so = make_sales_order(product_id=product.id, status="ready_to_ship")
         svc = OrderStatusService()
-        updated = svc.update_so_status(db, so, "shipped")
-        assert updated.status == "shipped"
-        assert updated.fulfillment_status == "shipped"
-        assert updated.shipped_at is not None
+        with pytest.raises(ValueError, match="ship_order"):
+            svc.update_so_status(db, so, "shipped")
+        with pytest.raises(ValueError, match="ship_order"):
+            svc.update_so_status(db, so, "shipped", skip_validation=True)
+        assert so.status == "ready_to_ship"
 
     def test_update_so_to_cancelled_sets_timestamp(self, db, make_sales_order, make_product):
         product = make_product()
@@ -118,14 +121,16 @@ class TestUpdateSOStatus:
         so = make_sales_order(product_id=product.id, status="draft")
         svc = OrderStatusService()
         with pytest.raises(ValueError, match="Invalid SO status transition"):
-            svc.update_so_status(db, so, "shipped")
+            svc.update_so_status(db, so, "delivered")
 
     def test_skip_validation_allows_any_transition(self, db, make_sales_order, make_product):
         product = make_product()
         so = make_sales_order(product_id=product.id, status="draft")
         svc = OrderStatusService()
-        updated = svc.update_so_status(db, so, "shipped", skip_validation=True)
-        assert updated.status == "shipped"
+        # skip_validation bypasses the transition machine for a normally-invalid
+        # hop (draft -> delivered); 'shipped' stays blocked regardless (see above).
+        updated = svc.update_so_status(db, so, "delivered", skip_validation=True)
+        assert updated.status == "delivered"
 
 
 class TestUpdateWOStatus:
