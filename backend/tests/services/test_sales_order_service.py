@@ -68,6 +68,29 @@ def _make_order_line(db, sales_order_id, product_id, quantity=1, unit_price=Deci
     return line
 
 
+def _seed_fg_inventory(db, product_id, on_hand=Decimal("100")):
+    """Seed on-hand finished-goods inventory at the default location for ship tests."""
+    from app.models.inventory import Inventory
+    from app.services.inventory_service import get_or_create_default_location
+    loc = get_or_create_default_location(db)
+    inv = db.query(Inventory).filter(
+        Inventory.product_id == product_id,
+        Inventory.location_id == loc.id,
+    ).first()
+    if inv is None:
+        inv = Inventory(
+            product_id=product_id,
+            location_id=loc.id,
+            on_hand_quantity=Decimal(str(on_hand)),
+            allocated_quantity=Decimal("0"),
+        )
+        db.add(inv)
+    else:
+        inv.on_hand_quantity = Decimal(str(on_hand))
+    db.flush()
+    return inv
+
+
 def _set_company_tax(db, *, tax_enabled=True, tax_rate=Decimal("0.0825"), company_state=None):
     """Insert or update company settings row with tax config."""
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
@@ -1852,7 +1875,7 @@ class TestShipOrder:
 
     def test_rejects_order_without_address(self, db, make_sales_order):
         """Cannot ship an order without a shipping address."""
-        so = make_sales_order(status="in_production")
+        so = make_sales_order(status="ready_to_ship")
         # No shipping address set
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1865,7 +1888,7 @@ class TestShipOrder:
     def test_rejects_order_with_partial_address(self, db, make_sales_order):
         """Cannot ship an order with address_line1 but no city."""
         so = make_sales_order(
-            status="in_production",
+            status="ready_to_ship",
             shipping_address_line1="123 Main St",
             # No city
         )
@@ -1880,7 +1903,7 @@ class TestShipOrder:
         """Successfully ships an order with a valid address."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(
-            status="in_production",
+            status="ready_to_ship",
             order_type="line_item",
             product_id=product.id,
             shipping_address_line1="123 Main St",
@@ -1889,6 +1912,7 @@ class TestShipOrder:
             shipping_zip="62701",
         )
         _make_order_line(db, so.id, product.id, quantity=1)
+        _seed_fg_inventory(db, product.id)
 
         result = sales_order_service.ship_order(
             db, so.id, user_id=1, user_email="test@filaops.dev",
@@ -1905,7 +1929,7 @@ class TestShipOrder:
         """Tracking number is auto-generated when not provided."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(
-            status="in_production",
+            status="ready_to_ship",
             order_type="line_item",
             product_id=product.id,
             shipping_address_line1="456 Oak Ave",
@@ -1914,6 +1938,7 @@ class TestShipOrder:
             shipping_zip="80202",
         )
         _make_order_line(db, so.id, product.id, quantity=1)
+        _seed_fg_inventory(db, product.id)
 
         result = sales_order_service.ship_order(
             db, so.id, user_id=1, user_email="test@filaops.dev",
@@ -1931,6 +1956,138 @@ class TestShipOrder:
                 db, 999999, user_id=1, user_email="test@filaops.dev"
             )
         assert exc_info.value.status_code == 404
+
+
+class TestShipOrderShippedQuantity:
+    """PR-2 (#839): ship_order writes per-line shipped_quantity, blocks
+    unproduced/understocked orders, and is not double-shippable."""
+
+    def _ready_order(self, db, make_sales_order, product_id):
+        return make_sales_order(
+            status="ready_to_ship",
+            order_type="line_item",
+            product_id=product_id,
+            shipping_address_line1="1 Ship Way",
+            shipping_city="Portland",
+            shipping_state="OR",
+            shipping_zip="97201",
+        )
+
+    def test_full_ship_writes_shipped_quantity_per_line(self, db, make_sales_order, make_product):
+        p1 = make_product(selling_price=Decimal("10.00"))
+        p2 = make_product(selling_price=Decimal("20.00"))
+        so = self._ready_order(db, make_sales_order, p1.id)
+        l1 = _make_order_line(db, so.id, p1.id, quantity=2)
+        l2 = _make_order_line(db, so.id, p2.id, quantity=3)
+        _seed_fg_inventory(db, p1.id)
+        _seed_fg_inventory(db, p2.id)
+
+        sales_order_service.ship_order(
+            db, so.id, user_id=1, user_email="test@filaops.dev",
+            carrier="USPS", tracking_number="TRK-PR2-1",
+        )
+        db.refresh(l1)
+        db.refresh(l2)
+        assert l1.shipped_quantity == Decimal("2")
+        assert l2.shipped_quantity == Decimal("3")
+
+    def test_duplicate_product_id_lines_each_credited(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        l1 = _make_order_line(db, so.id, p.id, quantity=2)
+        l2 = _make_order_line(db, so.id, p.id, quantity=3)
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("5"))  # exactly the summed demand
+
+        sales_order_service.ship_order(
+            db, so.id, user_id=1, user_email="test@filaops.dev",
+            carrier="USPS", tracking_number="TRK-PR2-2",
+        )
+        db.refresh(l1)
+        db.refresh(l2)
+        assert l1.shipped_quantity == Decimal("2")
+        assert l2.shipped_quantity == Decimal("3")
+
+    def test_service_line_not_credited(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        prod_line = _make_order_line(db, so.id, p.id, quantity=1)
+        svc = SalesOrderLine(  # product_id None -> line_type auto 'service'
+            sales_order_id=so.id,
+            product_id=None,
+            description="Design fee",
+            quantity=Decimal("1"),
+            unit_price=Decimal("15.00"),
+            total=Decimal("15.00"),
+            discount=Decimal("0"),
+            tax_rate=Decimal("0"),
+        )
+        db.add(svc)
+        db.flush()
+        _seed_fg_inventory(db, p.id)
+
+        sales_order_service.ship_order(
+            db, so.id, user_id=1, user_email="test@filaops.dev",
+            carrier="USPS", tracking_number="TRK-PR2-3",
+        )
+        db.refresh(prod_line)
+        db.refresh(svc)
+        assert prod_line.shipped_quantity == Decimal("1")
+        assert (svc.shipped_quantity or Decimal("0")) == Decimal("0")
+
+    def test_non_ready_status_blocks_ship(self, db, make_sales_order, make_product):
+        # The gate checks status == 'ready_to_ship' (the status machine's
+        # ship-ready proxy), not production completion directly.
+        p = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="confirmed", order_type="line_item", product_id=p.id,
+            shipping_address_line1="1 Ship Way", shipping_city="Portland",
+            shipping_state="OR", shipping_zip="97201",
+        )
+        _make_order_line(db, so.id, p.id, quantity=1)
+        _seed_fg_inventory(db, p.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.ship_order(
+                db, so.id, user_id=1, user_email="test@filaops.dev",
+            )
+        assert exc_info.value.status_code == 409
+        db.refresh(so)
+        assert so.status == "confirmed"
+
+    def test_insufficient_inventory_blocks_ship(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        line = _make_order_line(db, so.id, p.id, quantity=10)
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("3"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.ship_order(
+                db, so.id, user_id=1, user_email="test@filaops.dev",
+            )
+        assert exc_info.value.status_code == 409
+        assert "insufficient" in exc_info.value.detail.lower()
+        db.refresh(so)
+        db.refresh(line)
+        assert so.status == "ready_to_ship"
+        assert (line.shipped_quantity or Decimal("0")) == Decimal("0")
+
+    def test_double_ship_blocked(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        line = _make_order_line(db, so.id, p.id, quantity=2)
+        _seed_fg_inventory(db, p.id)
+
+        sales_order_service.ship_order(
+            db, so.id, user_id=1, user_email="test@filaops.dev",
+            carrier="USPS", tracking_number="TRK-PR2-4",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.ship_order(
+                db, so.id, user_id=1, user_email="test@filaops.dev",
+            )
+        assert exc_info.value.status_code == 409
+        db.refresh(line)
+        assert line.shipped_quantity == Decimal("2")  # not double-credited
 
 
 # =============================================================================
