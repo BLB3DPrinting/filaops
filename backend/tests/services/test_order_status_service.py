@@ -21,7 +21,6 @@ class TestValidateSOTransition:
         ("pending_payment", "confirmed"),
         ("confirmed", "in_production"),
         ("in_production", "ready_to_ship"),
-        ("ready_to_ship", "shipped"),
         ("shipped", "delivered"),
         ("delivered", "completed"),
     ])
@@ -31,6 +30,7 @@ class TestValidateSOTransition:
 
     @pytest.mark.parametrize("from_s, to_s", [
         ("draft", "shipped"),
+        ("ready_to_ship", "shipped"),  # shipped only via ship_order() (#839)
         ("cancelled", "draft"),
         ("completed", "draft"),
         ("shipped", "draft"),

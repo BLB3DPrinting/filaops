@@ -39,8 +39,11 @@ class OrderStatusService:
         "payment_failed": ["pending_payment", "cancelled"],  # Allow retry
         "confirmed": ["in_production", "ready_to_ship", "on_hold", "cancelled"],
         "in_production": ["ready_to_ship", "on_hold", "cancelled"],
-        "ready_to_ship": ["shipped", "partially_shipped", "on_hold"],
-        "partially_shipped": ["shipped", "on_hold"],
+        # 'shipped' is reached only via ship_order() (which posts inventory +
+        # COGS); update_so_status() guards it (#839), so it is intentionally not
+        # a valid target of the generic transition validator.
+        "ready_to_ship": ["partially_shipped", "on_hold"],
+        "partially_shipped": ["on_hold"],
         "shipped": ["delivered"],
         "delivered": ["completed"],
         "on_hold": ["confirmed", "in_production", "ready_to_ship", "cancelled"],
