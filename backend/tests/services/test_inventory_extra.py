@@ -706,10 +706,12 @@ class TestIssueShippedGoods:
         db.add(so)
         db.flush()
 
-        txns = inventory_service.issue_shipped_goods(db, so)
-        assert len(txns) == 1
-        assert txns[0].transaction_type == "shipment"
-        assert txns[0].quantity == Decimal("-3")  # signed (HARD-4a)
+        pairs = inventory_service.issue_shipped_goods(db, so)
+        assert len(pairs) == 1
+        line_obj, txn = pairs[0]
+        assert line_obj is None  # header-only order has no line
+        assert txn.transaction_type == "shipment"
+        assert txn.quantity == Decimal("-3")  # signed (HARD-4a)
 
     def test_issues_from_order_lines(self, db, make_product):
         """issue_shipped_goods reads from sales_order.lines when present."""
@@ -744,10 +746,12 @@ class TestIssueShippedGoods:
         db.add(line)
         db.flush()
 
-        txns = inventory_service.issue_shipped_goods(db, so)
-        assert len(txns) == 1
-        assert txns[0].quantity == Decimal("-4")  # signed (HARD-4a)
-        assert txns[0].transaction_type == "shipment"
+        pairs = inventory_service.issue_shipped_goods(db, so)
+        assert len(pairs) == 1
+        line_obj, txn = pairs[0]
+        assert line_obj is not None and line_obj.id == line.id
+        assert txn.quantity == Decimal("-4")  # signed (HARD-4a)
+        assert txn.transaction_type == "shipment"
 
 
 # =============================================================================
@@ -790,9 +794,9 @@ class TestProcessShipment:
         db.add(so)
         db.flush()
 
-        packaging_txns, issue_txns = inventory_service.process_shipment(db, so)
+        packaging_txns, issue_pairs = inventory_service.process_shipment(db, so)
         assert len(packaging_txns) == 1  # box consumed
-        assert len(issue_txns) == 1  # FG shipped
+        assert len(issue_pairs) == 1  # FG shipped
 
     def test_process_shipment_no_packaging(self, db, make_product):
         fg = make_product(
@@ -817,9 +821,9 @@ class TestProcessShipment:
         db.add(so)
         db.flush()
 
-        packaging_txns, issue_txns = inventory_service.process_shipment(db, so)
+        packaging_txns, issue_pairs = inventory_service.process_shipment(db, so)
         assert len(packaging_txns) == 0
-        assert len(issue_txns) == 1
+        assert len(issue_pairs) == 1
 
 
 # =============================================================================

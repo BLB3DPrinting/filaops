@@ -99,6 +99,15 @@ def _create_shipment_gl_entry(
             ]),
         ).all()
 
+    # Never post COGS for goods that weren't actually relieved: a short on a
+    # finished good or packaging comes back as a held negative_adjustment
+    # (requires_approval=True) with on_hand untouched. Exclude held txns — the
+    # negative-inventory approval flow reposts the cost when it is applied (#838).
+    shipment_transactions = [
+        txn for txn in shipment_transactions
+        if not getattr(txn, "requires_approval", False)
+    ]
+
     def shipment_cost_type(txn: InventoryTransaction) -> str | None:
         if txn.transaction_type in _SHIPMENT_TRANSACTION_COST_TYPES:
             return _SHIPMENT_TRANSACTION_COST_TYPES[txn.transaction_type]
@@ -197,9 +206,42 @@ def ship_order(
     """
     import random
     import string
-    from app.services.inventory_service import process_shipment
+    from app.services.inventory_service import (
+        process_shipment,
+        get_or_create_default_location,
+    )
+    from app.services.inventory_ledger import get_or_create_inventory_row
     from app.services.event_service import record_shipping_event
 
+    # Full-ship correctness only. Partial / mixed-lot shipping is the separate
+    # #726 feature; until it lands, 'ready_to_ship' is the only shippable state.
+    shippable_statuses = frozenset({"ready_to_ship"})
+
+    # Serialize concurrent ship attempts on this order (#838/MF4). Lock a plain
+    # single-table row first — Postgres can't FOR UPDATE a collection join.
+    locked = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if locked is None:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+
+    # Ship-ready precondition, re-checked under the lock so a second concurrent
+    # ship sees status='shipped' set by the first and 409s (TOCTOU guard).
+    # 'ready_to_ship' is the status machine's gate for an order cleared to ship;
+    # it blocks shipping draft/confirmed/in-production orders.
+    if locked.status not in shippable_statuses:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Order {locked.order_number} cannot be shipped from status "
+                f"{locked.status!r}; it must be 'ready_to_ship'."
+            ),
+        )
+
+    # Re-load with lines (identity map returns the same locked row).
     order = get_sales_order_with_lines(db, order_id)
 
     # Validate shipping address
@@ -213,6 +255,40 @@ def ship_order(
             status_code=400,
             detail=_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE,
         )
+
+    # Block shipping unless every finished good can be fully relieved (#838/MF2).
+    # A short would otherwise post COGS while the stock stays held pending
+    # approval. Aggregate demand per product (so two lines of the same product
+    # are summed), lock each FG row, and compare available (on_hand - allocated,
+    # matching the relief gate). The row lock is held for the rest of this
+    # transaction, so two orders racing the same FG row serialize here.
+    _location = get_or_create_default_location(db)
+    _demand_by_product: dict[int, Decimal] = {}
+    if order.lines:
+        for _line in order.lines:
+            if _line.product_id:
+                _demand_by_product[_line.product_id] = (
+                    _demand_by_product.get(_line.product_id, Decimal("0"))
+                    + Decimal(str(_line.quantity))
+                )
+    elif order.product_id:
+        _demand_by_product[order.product_id] = Decimal(str(order.quantity or 1))
+
+    for _product_id, _needed in _demand_by_product.items():
+        _inv = get_or_create_inventory_row(db, _product_id, _location.id)
+        _on_hand = Decimal(str(_inv.on_hand_quantity))
+        _allocated = Decimal(str(_inv.allocated_quantity))
+        _available = _on_hand - _allocated
+        if _available < _needed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Insufficient inventory to ship product {_product_id}: "
+                    f"need {_needed}, available {_available} "
+                    f"(on hand {_on_hand}, allocated {_allocated}). Restock or "
+                    f"release the allocation before shipping."
+                ),
+            )
 
     # Generate tracking number if not provided
     if not tracking_number:
@@ -229,11 +305,22 @@ def ship_order(
     order.updated_at = datetime.now(timezone.utc)
 
     # Process inventory transactions
-    packaging_txns, issue_txns = process_shipment(
+    packaging_txns, issue_pairs = process_shipment(
         db=db,
         sales_order=order,
         created_by=user_email,
     )
+
+    # Record per-line shipped quantity (full ship: the whole ordered qty left).
+    # Absolute SET, not accumulate — re-ship is blocked by the status gate above,
+    # and SET keeps shipped_quantity from drifting past the ordered quantity.
+    # Skip held txns defensively; the availability pre-check means a finished
+    # good is never held here.
+    for line, txn in issue_pairs:
+        if line is not None and not txn.requires_approval:
+            line.shipped_quantity = Decimal(str(line.quantity))
+
+    issue_txns = [txn for _, txn in issue_pairs]
 
     # Create GL journal entry for COGS and FG inventory relief
     _create_shipment_gl_entry(db, order, user_id, [*packaging_txns, *issue_txns])

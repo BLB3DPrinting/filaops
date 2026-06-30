@@ -24,6 +24,27 @@ from decimal import Decimal
 BASE_URL = "/api/v1/sales-orders"
 
 
+def _seed_ship_inventory(db, product_id, on_hand=Decimal("100")):
+    """Seed on-hand FG inventory so ship_order's availability pre-check passes."""
+    from app.models.inventory import Inventory
+    from app.services.inventory_service import get_or_create_default_location
+    loc = get_or_create_default_location(db)
+    inv = db.query(Inventory).filter(
+        Inventory.product_id == product_id,
+        Inventory.location_id == loc.id,
+    ).first()
+    if inv is None:
+        inv = Inventory(
+            product_id=product_id, location_id=loc.id,
+            on_hand_quantity=on_hand, allocated_quantity=Decimal("0"),
+        )
+        db.add(inv)
+    else:
+        inv.on_hand_quantity = on_hand
+    db.flush()
+    return inv
+
+
 # =============================================================================
 # Auth tests -- endpoints requiring authentication
 # =============================================================================
@@ -1192,6 +1213,7 @@ class TestShipOrder:
         so.shipping_state = "TX"
         so.shipping_zip = "77001"
         db.flush()
+        _seed_ship_inventory(db, product.id)
 
         response = client.post(f"{BASE_URL}/{so.id}/ship", json={
             "carrier": "FedEx",
@@ -1209,6 +1231,7 @@ class TestShipOrder:
         so.shipping_address_line1 = "100 Main St"
         so.shipping_city = "Dallas"
         db.flush()
+        _seed_ship_inventory(db, product.id)
 
         response = client.post(f"{BASE_URL}/{so.id}/ship", json={
             "carrier": "UPS",

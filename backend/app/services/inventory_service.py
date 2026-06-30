@@ -14,7 +14,7 @@ from app.models.inventory import Inventory, InventoryTransaction, InventoryLocat
 from app.models.product import Product
 from app.models.bom import BOM, BOMLine
 from app.models.production_order import ProductionOrder, ProductionOrderOperationMaterial
-from app.models.sales_order import SalesOrder
+from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.traceability import MaterialLot, ProductionLotConsumption
 from app.logging_config import get_logger
 from app.services import inventory_ledger
@@ -1721,9 +1721,16 @@ def issue_shipped_goods(
     db: Session,
     sales_order: SalesOrder,
     created_by: Optional[str] = None,
-) -> List[InventoryTransaction]:
+) -> List[Tuple[Optional[SalesOrderLine], InventoryTransaction]]:
     """
-    Issue finished goods from inventory when order ships.
+    Issue finished goods from inventory when an order ships.
+
+    Returns a list of (line, txn) pairs so callers can attribute each shipment
+    transaction back to its originating SalesOrderLine — e.g. to write
+    SalesOrderLine.shipped_quantity per line. Two lines that share a product_id
+    each get their own pair (no positional collapsing). Lines without a product
+    (service/material) are skipped. A header-only legacy order (no lines, but
+    sales_order.product_id set) yields a single (None, txn).
 
     Args:
         db: Database session
@@ -1731,26 +1738,15 @@ def issue_shipped_goods(
         created_by: User processing the shipment
 
     Returns:
-        List of created inventory transactions
+        List of (SalesOrderLine | None, InventoryTransaction) pairs
     """
-    transactions = []
+    result: List[Tuple[Optional[SalesOrderLine], InventoryTransaction]] = []
     location = get_or_create_default_location(db)
 
-    # Get products to ship
-    products_to_ship = []
-
-    if sales_order.lines:
-        for line in sales_order.lines:
-            if line.product_id:
-                products_to_ship.append((line.product_id, line.quantity))
-    elif sales_order.product_id:
-        products_to_ship.append((sales_order.product_id, sales_order.quantity or 1))
-
-    for product_id, qty in products_to_ship:
+    def _issue(line: Optional[SalesOrderLine], product_id: int, qty) -> None:
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
-            continue
-
+            return
         txn = create_inventory_transaction(
             db=db,
             product_id=product_id,
@@ -1763,21 +1759,27 @@ def issue_shipped_goods(
             cost_per_unit=get_effective_cost_per_inventory_unit(product),
             created_by=created_by,
         )
-        transactions.append(txn)
-
+        result.append((line, txn))
         logger.info(
-            f"Issued {qty} units of {product.sku} "
-            f"for sales order {sales_order.id}"
+            f"Issued {qty} units of {product.sku} for sales order "
+            f"{sales_order.id}" + (f" (line {line.id})" if line is not None else "")
         )
 
-    return transactions
+    if sales_order.lines:
+        for line in sales_order.lines:
+            if line.product_id:
+                _issue(line, line.product_id, line.quantity)
+    elif sales_order.product_id:
+        _issue(None, sales_order.product_id, sales_order.quantity or 1)
+
+    return result
 
 
 def process_shipment(
     db: Session,
     sales_order: SalesOrder,
     created_by: Optional[str] = None,
-) -> Tuple[List[InventoryTransaction], List[InventoryTransaction]]:
+) -> Tuple[List[InventoryTransaction], List[Tuple[Optional[SalesOrderLine], InventoryTransaction]]]:
     """
     Process all inventory transactions for shipping an order.
 
@@ -1790,7 +1792,8 @@ def process_shipment(
         created_by: User processing the shipment
 
     Returns:
-        Tuple of (packaging_consumption_txns, goods_issue_txns)
+        Tuple of (packaging_consumption_txns, goods_issue_pairs) where each
+        goods-issue pair is (SalesOrderLine | None, InventoryTransaction).
     """
     # Consume packaging materials
     packaging_txns = consume_shipping_materials(
@@ -1799,8 +1802,8 @@ def process_shipment(
         created_by=created_by,
     )
 
-    # Issue finished goods
-    issue_txns = issue_shipped_goods(
+    # Issue finished goods (as (line, txn) pairs for per-line attribution)
+    issue_pairs = issue_shipped_goods(
         db=db,
         sales_order=sales_order,
         created_by=created_by,
@@ -1823,4 +1826,4 @@ def process_shipment(
             }
         )
 
-    return packaging_txns, issue_txns
+    return packaging_txns, issue_pairs
