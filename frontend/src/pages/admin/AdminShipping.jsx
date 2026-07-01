@@ -398,7 +398,7 @@ export default function AdminShipping() {
       setOrders(orderList);
 
       // Fetch production status for all orders in one batch call
-      fetchAllProductionStatuses(orderList);
+      fetchAllProductionStatuses(orderList, requestId);
 
       // Await the can-ship preflight so loading stays true until eligibility is
       // known — Ship rows must not be interactive before the preflight resolves
@@ -406,7 +406,7 @@ export default function AdminShipping() {
       await fetchCanShip();
 
       // Fetch shipped today for metrics
-      fetchShippedToday();
+      fetchShippedToday(requestId);
     } catch (err) {
       if (requestId === ordersReqRef.current) setError(err.message);
     } finally {
@@ -434,12 +434,14 @@ export default function AdminShipping() {
     }
   };
 
-  const fetchShippedToday = async () => {
+  const fetchShippedToday = async (requestId) => {
     try {
       const today = new Date().toISOString().split("T")[0];
       const data = await api.get(
         `/api/v1/sales-orders/?status=shipped&shipped_after=${today}&limit=100`
       );
+      // Drop the write if a newer fetchOrders() sequence has started.
+      if (requestId !== undefined && requestId !== ordersReqRef.current) return;
       setShippedToday(data.items || data || []);
     } catch {
       // Non-critical
@@ -462,7 +464,7 @@ export default function AdminShipping() {
   };
 
   // Batch fetch: one API call for all production orders, group by sales_order_id
-  const fetchAllProductionStatuses = async (orderList) => {
+  const fetchAllProductionStatuses = async (orderList, requestId) => {
     if (orderList.length === 0) return;
     try {
       const data = await api.get(`/api/v1/production-orders?limit=500`);
@@ -480,6 +482,8 @@ export default function AdminShipping() {
       for (const order of orderList) {
         statusMap[order.id] = computeProductionStatus(grouped[order.id] || []);
       }
+      // Drop the write if a newer fetchOrders() sequence has started.
+      if (requestId !== undefined && requestId !== ordersReqRef.current) return;
       setProductionStatus(statusMap);
     } catch {
       // Non-critical - production status just won't show
