@@ -1048,7 +1048,7 @@ export default function OrderDetail() {
           <div>
             <div className="text-sm text-gray-400">Total</div>
             <div className="text-white font-medium">
-              ${parseFloat(order.total_price || 0).toFixed(2)}
+              ${parseFloat(order.grand_total ?? order.total_price ?? 0).toFixed(2)}
             </div>
           </div>
         </div>

@@ -199,13 +199,55 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
               )}
             </tbody>
             <tfoot>
+              {/* Break out subtotal / tax / shipping so the Order Total
+                  (grand_total) doesn't look like it disagrees with the line
+                  sum. The label spans cols 1-5 and the amount sits in the
+                  Total column (6); the trailing cell fills the Actions column
+                  when the table is editable so nothing lands under it. */}
               <tr className="border-t border-gray-700">
-                <td colSpan={canEditLines() ? 6 : 5} className="py-3 px-3 text-right text-white font-medium">
+                <td colSpan={5} className="py-2 px-3 text-right text-gray-400">
+                  Subtotal
+                </td>
+                <td className="py-2 px-3 text-right text-gray-300">
+                  ${parseFloat(order.total_price || 0).toFixed(2)}
+                </td>
+                {canEditLines() && <td />}
+              </tr>
+              {parseFloat(order.tax_amount || 0) > 0 && (
+                <tr>
+                  <td colSpan={5} className="py-1 px-3 text-right text-gray-400">
+                    Tax
+                  </td>
+                  <td className="py-1 px-3 text-right text-gray-300">
+                    ${parseFloat(order.tax_amount || 0).toFixed(2)}
+                  </td>
+                  {canEditLines() && <td />}
+                </tr>
+              )}
+              {parseFloat(order.shipping_cost || 0) > 0 && (
+                <tr>
+                  <td colSpan={5} className="py-1 px-3 text-right text-gray-400">
+                    Shipping
+                  </td>
+                  <td className="py-1 px-3 text-right text-gray-300">
+                    ${parseFloat(order.shipping_cost || 0).toFixed(2)}
+                  </td>
+                  {canEditLines() && <td />}
+                </tr>
+              )}
+              <tr className="border-t border-gray-700">
+                <td colSpan={5} className="py-3 px-3 text-right text-white font-medium">
                   Order Total
                 </td>
                 <td className="py-3 px-3 text-right text-green-400 font-bold">
-                  ${parseFloat(order.total_price || 0).toFixed(2)}
+                  ${parseFloat(
+                    order.grand_total ??
+                      (parseFloat(order.total_price || 0) +
+                        parseFloat(order.tax_amount || 0) +
+                        parseFloat(order.shipping_cost || 0))
+                  ).toFixed(2)}
                 </td>
+                {canEditLines() && <td />}
               </tr>
             </tfoot>
           </table>
