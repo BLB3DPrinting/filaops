@@ -1701,7 +1701,7 @@ class TestGenerateProductionOrders:
     ):
         """Existing line-level POs do not block release of uncovered lines."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         line1 = _make_order_line(db, so.id, product.id, quantity=1)
         line2 = _make_order_line(db, so.id, product.id, quantity=2)
 
@@ -1755,9 +1755,93 @@ class TestGenerateProductionOrders:
         assert result["message"] == "Production orders already exist"
         assert "PO-EXIST-QB-001" in result["existing_orders"]
 
+    def test_rejects_confirmed_order_without_billing(self, db, make_sales_order, make_product):
+        """Billing must be initiated (payment or issued invoice) before release."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        _make_order_line(db, so.id, product.id, quantity=1)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert exc_info.value.status_code == 400
+        assert "billing" in exc_info.value.detail.lower()
+
+    def test_allows_release_with_issued_invoice_and_no_payment(
+        self, db, make_sales_order, make_product
+    ):
+        """Net-terms path: an issued (sent) invoice satisfies billing even when
+        no payment has been recorded."""
+        from datetime import date
+        from app.models.invoice import Invoice
+
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        _make_order_line(db, so.id, product.id, quantity=1)
+        db.add(Invoice(
+            invoice_number=f"INV-BILL-{so.id}",
+            sales_order_id=so.id,
+            payment_terms="net_30",
+            due_date=date.today(),
+            subtotal=Decimal("10.00"),
+            total=Decimal("10.00"),
+            status="sent",
+        ))
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+    def test_allows_release_with_completed_payment(self, db, make_sales_order, make_product):
+        """Prepay path via the payment ledger: a completed Payment (not merely
+        payment_status='paid') satisfies billing."""
+        from app.models.payment import Payment
+
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        _make_order_line(db, so.id, product.id, quantity=1)
+        db.add(Payment(
+            payment_number=f"PAY-BILL-{so.id}",
+            sales_order_id=so.id,
+            amount=Decimal("10.00"),
+            payment_method="cash",
+            status="completed",
+        ))
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+    def test_service_only_order_no_op_not_billing_gated(self, db, make_sales_order):
+        """A confirmed line_item order with only non-producible (service) lines
+        creates zero production orders — a no-op that must NOT be turned into a
+        billing 400, even with no payment or invoice (CodeRabbit #853)."""
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        db.add(SalesOrderLine(
+            sales_order_id=so.id,
+            line_type="service",
+            product_id=None,
+            material_inventory_id=None,
+            description="Design service",
+            quantity=Decimal("1"),
+            unit_price=Decimal("5.00"),
+            total=Decimal("5.00"),
+        ))
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert result["created_orders"] == []
+
     def test_rejects_line_item_order_with_no_lines(self, db, make_sales_order):
         """line_item order with no lines raises 400."""
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
 
         with pytest.raises(HTTPException) as exc_info:
             sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1767,7 +1851,7 @@ class TestGenerateProductionOrders:
     def test_creates_po_for_line_item_order(self, db, make_sales_order, make_product):
         """Creates a production order for each line item."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=3)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1785,7 +1869,7 @@ class TestGenerateProductionOrders:
         """Creates one PO per line item."""
         p1 = make_product(selling_price=Decimal("10.00"))
         p2 = make_product(selling_price=Decimal("20.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, p1.id, quantity=2)
         _make_order_line(db, so.id, p2.id, quantity=5)
 
@@ -1795,7 +1879,7 @@ class TestGenerateProductionOrders:
     def test_confirmed_order_transitions_to_in_production(self, db, make_sales_order, make_product):
         """Confirmed order transitions to in_production after PO creation."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=1)
 
         sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1806,7 +1890,7 @@ class TestGenerateProductionOrders:
     def test_records_production_started_event(self, db, make_sales_order, make_product):
         """Records a production_started event after PO creation."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=1)
 
         sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -1820,7 +1904,7 @@ class TestGenerateProductionOrders:
 
     def test_rejects_quote_based_order_without_quote(self, db, make_sales_order):
         """quote_based order without a quote_id raises 400."""
-        so = make_sales_order(status="confirmed", order_type="quote_based")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="quote_based")
         # quote_id is None by default
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1855,6 +1939,7 @@ class TestGenerateProductionOrders:
 
         so = make_sales_order(
             status="confirmed",
+            payment_status="paid",
             order_type="quote_based",
             product_id=product.id,
             quote_id=quote.id,
@@ -2659,6 +2744,7 @@ class TestGenerateProductionOrdersQuoteBased:
 
         so = make_sales_order(
             status="confirmed",
+            payment_status="paid",
             order_type="quote_based",
             quote_id=quote.id,
         )
@@ -2905,7 +2991,7 @@ class TestCopyRoutingToOperations:
              "setup_time_minutes": 0, "run_time_minutes": 10},
         ])
 
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, fg.id, quantity=2)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -3061,7 +3147,7 @@ class TestGenerateProductionOrdersErrorCopy:
     def test_confirmed_order_succeeds(self, db, make_sales_order, make_product):
         """Confirmed order with producible lines creates work orders successfully."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, product.id, quantity=2)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -3078,7 +3164,7 @@ class TestGenerateProductionOrdersLineLinkage:
     def test_line_item_wo_carries_line_id(self, db, make_sales_order, make_product):
         """WOs created for line_item orders must have sales_order_line_id set."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         line = _make_order_line(db, so.id, product.id, quantity=3)
 
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
@@ -3094,7 +3180,7 @@ class TestGenerateProductionOrdersLineLinkage:
         """Each WO carries the ID of its specific line."""
         p1 = make_product(selling_price=Decimal("10.00"))
         p2 = make_product(selling_price=Decimal("20.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         line1 = _make_order_line(db, so.id, p1.id, quantity=1)
         line2 = _make_order_line(db, so.id, p2.id, quantity=2)
 
@@ -3133,6 +3219,7 @@ class TestGenerateProductionOrdersLineLinkage:
 
         so = make_sales_order(
             status="confirmed",
+            payment_status="paid",
             order_type="quote_based",
             product_id=product.id,
             quote_id=quote.id,
