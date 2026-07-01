@@ -1111,27 +1111,39 @@ class TestCreateTransactionAdmin:
                 location_id=loc.id,
             )
 
-    def test_adjustment_sets_on_hand(self, db, make_product):
+    def test_adjustment_applies_signed_delta(self, db, make_product):
         product = make_product(unit="EA", item_type="finished_good")
         loc = _make_location(db, name="Adjust WH", code="ADJ")
         _make_inventory(db, product.id, loc.id, Decimal("100"))
 
-        result = inventory_transaction_service.create_transaction(
+        # +75 ADDS to on-hand (100 -> 175); it must NOT set on-hand to 75.
+        inventory_transaction_service.create_transaction(
             db,
             product_id=product.id,
             transaction_type="adjustment",
             quantity=Decimal("75"),
             created_by="test-user",
             location_id=loc.id,
-            notes="Cycle count",
+            notes="Found extra stock",
         )
-
         inv = db.query(Inventory).filter(
             Inventory.product_id == product.id,
             Inventory.location_id == loc.id,
         ).first()
-        # Admin service adjustment sets on_hand to quantity directly
-        assert float(inv.on_hand_quantity) == 75.0
+        assert float(inv.on_hand_quantity) == 175.0
+
+        # A negative adjustment removes (175 -> 125).
+        inventory_transaction_service.create_transaction(
+            db,
+            product_id=product.id,
+            transaction_type="adjustment",
+            quantity=Decimal("-50"),
+            created_by="test-user",
+            location_id=loc.id,
+            notes="Damaged",
+        )
+        db.refresh(inv)
+        assert float(inv.on_hand_quantity) == 125.0
 
     def test_transfer_missing_to_location(self, db, make_product):
         product = make_product(unit="EA", item_type="finished_good")

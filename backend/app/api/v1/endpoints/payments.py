@@ -22,6 +22,7 @@ from app.services.payment_service import (
     outstanding_balance_summary,
     generate_payment_number,
     record_payment_and_reconcile,
+    resync_invoice_paid_from_payments,
     reverse_payment_receipt,
     sales_order_total,
     update_order_payment_status,
@@ -119,12 +120,41 @@ async def record_refund(
 
     Amount is stored as negative value.
     """
-    # Verify order exists
-    order = db.query(SalesOrder).filter(SalesOrder.id == refund_data.sales_order_id).first()
+    # Lock the order row FOR UPDATE so the over-refund guard is atomic: two
+    # concurrent refunds would otherwise both read the same net_collected and
+    # both pass before either is persisted, allowing a combined over-refund.
+    # Serializing on the order row forces the second refund to re-read the sum
+    # after the first commits.
+    order = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == refund_data.sales_order_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Sales order {refund_data.sales_order_id} not found"
+        )
+
+    # Guard against over-refunding: a refund cannot exceed the net amount
+    # actually collected on the order (completed payments minus prior refunds).
+    net_collected = Decimal(str(
+        db.query(func.coalesce(func.sum(Payment.amount), 0))
+        .filter(
+            Payment.sales_order_id == order.id,
+            Payment.status == "completed",
+        )
+        .scalar() or 0
+    ))
+    refund_amount = abs(Decimal(str(refund_data.amount)))
+    if refund_amount > net_collected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Refund ${refund_amount:.2f} exceeds net payments collected "
+                f"${net_collected:.2f} on this order"
+            ),
         )
 
     # Create refund record (negative amount)
@@ -146,6 +176,11 @@ async def record_refund(
 
     # Update order payment status
     update_order_payment_status(db, order)
+
+    # Keep the linked invoice's AR view in step with the ledger — the refund
+    # is a completed negative payment, so the invoice's amount_paid/status
+    # must drop accordingly (it previously stayed marked Paid).
+    resync_invoice_paid_from_payments(db, sales_order_id=order.id)
 
     # Record order event for activity timeline
     event = OrderEvent(
@@ -400,7 +435,10 @@ async def update_payment(
 
     if update_data.status is not None:
         old_status = payment.status
-        if old_status == "completed" and update_data.status != "completed":
+        reversed_completed = (
+            old_status == "completed" and update_data.status != "completed"
+        )
+        if reversed_completed:
             reverse_payment_receipt(
                 db,
                 payment,
@@ -412,6 +450,12 @@ async def update_payment(
         # If status changed, update order payment status
         if old_status != update_data.status:
             update_order_payment_status(db, payment.sales_order)
+            # Keep the linked invoice's AR view in step with the ledger when a
+            # completed payment is reversed via the status field.
+            if reversed_completed and payment.sales_order_id:
+                resync_invoice_paid_from_payments(
+                    db, sales_order_id=payment.sales_order_id
+                )
 
     db.commit()
     db.refresh(payment)
@@ -442,7 +486,8 @@ async def void_payment(
             detail="Payment is already voided"
         )
 
-    if payment.status == "completed":
+    was_completed = payment.status == "completed"
+    if was_completed:
         reverse_payment_receipt(
             db,
             payment,
@@ -455,6 +500,11 @@ async def void_payment(
     order = db.query(SalesOrder).filter(SalesOrder.id == payment.sales_order_id).first()
     if order:
         update_order_payment_status(db, order)
+        # Sync the linked invoice's AR view: a voided payment no longer counts
+        # as completed, so the invoice must drop back off Paid (it previously
+        # stayed Paid, understating AR and blocking re-payment).
+        if was_completed:
+            resync_invoice_paid_from_payments(db, sales_order_id=order.id)
 
     db.commit()
 

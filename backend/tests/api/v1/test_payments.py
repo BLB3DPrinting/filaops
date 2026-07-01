@@ -418,3 +418,133 @@ class TestVoidPayment:
     def test_void_payment_unauthorized(self, unauthed_client):
         resp = unauthed_client.delete(f"{BASE_URL}/1")
         assert resp.status_code == 401
+
+
+def _make_invoice(db, order, *, total, amount_paid, status):
+    """Create an Invoice linked to an order in a given paid state."""
+    from datetime import date
+    from app.models.invoice import Invoice
+
+    inv = Invoice(
+        invoice_number=f"INV-TEST-{uuid.uuid4().hex[:8]}",
+        sales_order_id=order.id,
+        payment_terms="net_30",
+        due_date=date.today(),
+        subtotal=Decimal(str(total)),
+        total=Decimal(str(total)),
+        amount_paid=Decimal(str(amount_paid)),
+        status=status,
+    )
+    db.add(inv)
+    db.flush()
+    return inv
+
+
+def _reload_invoice(db, invoice_id):
+    from app.models.invoice import Invoice
+    db.expire_all()
+    return db.query(Invoice).filter(Invoice.id == invoice_id).first()
+
+
+class TestInvoiceArSyncOnReversal:
+    """#846 audit critical: voiding/refunding a payment must keep the linked
+    invoice's amount_paid/status in step with the ledger (it previously stayed
+    marked Paid, understating AR and blocking re-payment)."""
+
+    def test_void_reverts_paid_invoice_to_unpaid(self, client, db, test_order):
+        # A $500 payment is collected and the invoice is marked fully paid.
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "500.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+        payment_id = resp.json()["id"]
+        invoice = _make_invoice(
+            db, test_order, total="500.00", amount_paid="500.00", status="paid"
+        )
+
+        # Void the payment.
+        void_resp = client.delete(f"{BASE_URL}/{payment_id}")
+        assert void_resp.status_code == 204
+
+        invoice = _reload_invoice(db, invoice.id)
+        # The invoice must no longer read as Paid; AR is reopened.
+        assert invoice.amount_paid == Decimal("0.00")
+        assert invoice.status == "sent"
+        assert invoice.paid_at is None
+
+    def test_refund_reduces_invoice_amount_paid(self, client, db, test_order):
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "500.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+        invoice = _make_invoice(
+            db, test_order, total="500.00", amount_paid="500.00", status="paid"
+        )
+
+        # Refund $200 of the $500 collected.
+        resp = client.post(f"{BASE_URL}/refund", json={
+            "sales_order_id": test_order.id,
+            "amount": "200.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+
+        invoice = _reload_invoice(db, invoice.id)
+        assert invoice.amount_paid == Decimal("300.00")
+        assert invoice.status == "partially_paid"
+
+    def test_over_refund_rejected(self, client, test_order):
+        # Only $100 collected...
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "100.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+
+        # ...so a $200 refund must be rejected.
+        resp = client.post(f"{BASE_URL}/refund", json={
+            "sales_order_id": test_order.id,
+            "amount": "200.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 400
+        assert "exceeds net payments collected" in resp.json()["detail"].lower()
+
+    def test_void_without_invoice_still_succeeds(self, client, test_order):
+        # No invoice on the order — void must not error on the missing invoice.
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "100.00",
+            "payment_method": "credit_card",
+        })
+        payment_id = resp.json()["id"]
+        void_resp = client.delete(f"{BASE_URL}/{payment_id}")
+        assert void_resp.status_code == 204
+
+    def test_cancelled_invoice_not_resurrected_by_refund(self, client, db, test_order):
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "500.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+        invoice = _make_invoice(
+            db, test_order, total="500.00", amount_paid="500.00", status="cancelled"
+        )
+
+        # A refund must not transition a terminal (cancelled) invoice back into
+        # a paid/partially_paid state.
+        resp = client.post(f"{BASE_URL}/refund", json={
+            "sales_order_id": test_order.id,
+            "amount": "200.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+
+        invoice = _reload_invoice(db, invoice.id)
+        assert invoice.status == "cancelled"
