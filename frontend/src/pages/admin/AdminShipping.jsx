@@ -322,7 +322,8 @@ export default function AdminShipping() {
   const [error, setError] = useState(null);
   const [productionStatus, setProductionStatus] = useState({});
   const [canShip, setCanShip] = useState({}); // #845: order_id -> {can_ship, reasons[]}
-  const [canShipUnavailable, setCanShipUnavailable] = useState(false); // preflight fetch failed — fail CLOSED, not open
+  const [canShipUnavailable, setCanShipUnavailable] = useState(false); // preflight fetch failed — surfaced via a banner (fail-visible)
+  const canShipReqRef = useRef(0); // monotonic guard: only the latest fetch writes state
   const [activeTab, setActiveTab] = useState("packaging"); // packaging, needs_label, ready_to_ship
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [trackingForm, setTrackingForm] = useState({ carrier: "USPS", tracking_number: "" });
@@ -402,15 +403,20 @@ export default function AdminShipping() {
   };
 
   const fetchCanShip = async () => {
+    // Guard against stale overlapping refreshes (initial load / manual refresh /
+    // post-ship reload can race): only the newest request may write state.
+    const requestId = ++canShipReqRef.current;
     try {
       const data = await api.get(`/api/v1/sales-orders/can-ship`);
+      if (requestId !== canShipReqRef.current) return;
       setCanShip(data || {});
       setCanShipUnavailable(false);
     } catch {
-      // Fail CLOSED, not open: if the preflight can't be fetched, treat every
-      // order as unverified rather than silently re-enabling Ship with zero
-      // protection. ship_order() still enforces correctness server-side, but
-      // the whole point of this preflight is to warn BEFORE the click.
+      if (requestId !== canShipReqRef.current) return;
+      // Fail VISIBLE, not closed: show a banner but keep Ship enabled.
+      // ship_order() is the authoritative gate, so a preflight outage must not
+      // block shipping of orders that are actually shippable — it only costs
+      // the pre-click warning, which the banner explains.
       setCanShip({});
       setCanShipUnavailable(true);
     }

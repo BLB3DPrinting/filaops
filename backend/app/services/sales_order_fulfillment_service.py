@@ -462,7 +462,7 @@ def can_ship_reasons(
     """
     from app.services.inventory_service import (
         get_inventory_snapshot,
-        get_or_create_default_location,
+        get_default_location,
     )
 
     reasons: list[str] = []
@@ -478,8 +478,11 @@ def can_ship_reasons(
     if _has_material_backed_lines(order):
         reasons.append(_MATERIAL_SHIPMENT_GL_UNSUPPORTED_MESSAGE)
 
-    if location_id is None:
-        location_id = get_or_create_default_location(db).id
+    # Read-only: never create a warehouse from a preflight GET. Only resolve a
+    # location when we'll actually query inventory ourselves (no snapshot given).
+    if location_id is None and inventory_snapshot is None:
+        default_loc = get_default_location(db)
+        location_id = default_loc.id if default_loc else None
 
     demand_by_product = _aggregate_shippable_demand(
         db, order, existing_product_ids=existing_product_ids
@@ -489,6 +492,9 @@ def can_ship_reasons(
             on_hand, allocated = inventory_snapshot.get(
                 product_id, (Decimal("0"), Decimal("0"))
             )
+        elif location_id is None:
+            # No warehouse exists yet → no stock anywhere.
+            on_hand, allocated = Decimal("0"), Decimal("0")
         else:
             on_hand, allocated = get_inventory_snapshot(db, product_id, location_id)
         available = on_hand - allocated

@@ -288,6 +288,9 @@ export default function OrderDetail() {
             };
           });
           setMaterialRequirements(scaled);
+          // Fallback path has no summary object — clear it so the shortage
+          // footer/badge can't show the previous order's stale summary.
+          setMaterialSummary(null);
         } catch {
           // If MRP endpoint fails, try BOM explosion directly
           try {
@@ -309,6 +312,7 @@ export default function OrderDetail() {
               material_source: "bom",
             }));
             setMaterialRequirements(requirements);
+            setMaterialSummary(null);
           } catch {
             // All BOM endpoints failed - material requirements section will be empty
           }
@@ -452,6 +456,12 @@ export default function OrderDetail() {
       // Advisory only — ship_order() still enforces the gate server-side.
       if (shouldApply()) setCanShip(null);
     }
+  };
+
+  // The FulfillmentProgress panel now renders its Ship CTA/reasons from canShip,
+  // so a panel refresh must refresh the ship gate too — not just line readiness.
+  const refreshFulfillmentPanel = async () => {
+    await Promise.all([refetchFulfillment(), fetchCanShip()]);
   };
 
   useEffect(() => {
@@ -979,7 +989,7 @@ export default function OrderDetail() {
         fulfillmentStatus={fulfillmentStatus}
         loading={fulfillmentLoading}
         error={fulfillmentError}
-        onRefresh={refetchFulfillment}
+        onRefresh={refreshFulfillmentPanel}
         canShip={canShip}
         onShip={() => navigate(`/admin/shipping?orderId=${order.id}`)}
         closedShort={order?.closed_short === true}

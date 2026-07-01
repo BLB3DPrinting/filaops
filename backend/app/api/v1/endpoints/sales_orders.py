@@ -262,7 +262,7 @@ async def get_can_ship_batch(
     Returns {order_id: {can_ship: bool, reasons: [str, ...]}} for every order
     currently in 'ready_to_ship' (capped at 500).
     """
-    from app.services.inventory_service import get_or_create_default_location
+    from app.services.inventory_service import get_default_location
 
     orders = (
         db.query(SalesOrder)
@@ -277,7 +277,9 @@ async def get_can_ship_batch(
     # Pre-fetch everything once so per-order cost is zero additional queries —
     # 4 backend queries total regardless of how many orders are ready_to_ship
     # (orders+lines, location, existing-product check, inventory snapshot).
-    location_id = get_or_create_default_location(db).id
+    # Read-only: never create a warehouse from this GET preflight.
+    default_loc = get_default_location(db)
+    location_id = default_loc.id if default_loc else None
 
     candidate_ids: set[int] = set()
     for order in orders:
@@ -296,7 +298,7 @@ async def get_can_ship_batch(
             Inventory.product_id.in_(existing_product_ids),
             Inventory.location_id == location_id,
         ).all()
-    } if existing_product_ids else {}
+    } if (existing_product_ids and location_id is not None) else {}
 
     return {
         order.id: sales_order_service.can_ship_reasons(

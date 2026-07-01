@@ -2225,9 +2225,10 @@ class TestCanShipReasons:
         result = sales_order_service.can_ship_reasons(db, so)
         assert result["can_ship"] is False
         assert len(result["reasons"]) == 1
-        # Conservative: no on-hand/available numbers leaked into the reason text.
-        assert "3" not in result["reasons"][0]
-        assert "10" not in result["reasons"][0]
+        # Conservative: names the product but leaks no on-hand/demand quantities.
+        # (Assert the exact format rather than a digit-substring check — the
+        # product id itself may contain a 3 or 10.)
+        assert result["reasons"][0] == f"Insufficient inventory for product {p.id}."
 
     def test_duplicate_product_lines_aggregate_demand(self, db, make_sales_order, make_product):
         p = make_product(selling_price=Decimal("10.00"))

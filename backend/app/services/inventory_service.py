@@ -276,6 +276,15 @@ def convert_and_generate_notes(
     return total_qty, notes
 
 
+def get_default_location(db: Session) -> Optional[InventoryLocation]:
+    """Read-only counterpart to get_or_create_default_location.
+
+    Returns the default warehouse, or None if none exists yet. Never INSERTs,
+    so it is safe for GET preflight endpoints and read-only DB replicas.
+    """
+    return db.query(InventoryLocation).filter(InventoryLocation.type == "warehouse").first()
+
+
 def get_or_create_default_location(db: Session) -> InventoryLocation:
     """Get or create the default warehouse location."""
     location = db.query(InventoryLocation).filter(InventoryLocation.type == "warehouse").first()

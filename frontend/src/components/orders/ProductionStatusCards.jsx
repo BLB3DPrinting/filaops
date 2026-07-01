@@ -130,7 +130,7 @@ export function ProductionOrderStatusCard({ order, onViewInProduction, onAcceptS
           <div className="flex flex-wrap gap-1">
             {order.operations.slice(0, 5).map((op, idx) => (
               <span
-                key={idx}
+                key={op.id ?? `${op.sequence}-${op.operation_code ?? op.operation_name ?? idx}`}
                 className={`px-2 py-0.5 rounded text-xs ${
                   OP_STATUS_CLASS[op.status] || "bg-[var(--paper-sunk)] text-[var(--ink-3)]"
                 }`}
