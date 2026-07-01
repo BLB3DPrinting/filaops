@@ -443,6 +443,12 @@ def resync_invoice_paid_from_payments(db: Session, *, sales_order_id: int):
     if locked is None:
         return None
 
+    # A cancelled/voided invoice is terminal and out of the AR picture — leave
+    # it entirely unchanged so a later void/refund can't resurrect it into
+    # paid/partially_paid.
+    if locked.status in ("cancelled", "voided"):
+        return locked
+
     net = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
         Payment.sales_order_id == sales_order_id,
         Payment.status == "completed",

@@ -465,7 +465,8 @@ class TestInvoiceArSyncOnReversal:
         )
 
         # Void the payment.
-        assert client.delete(f"{BASE_URL}/{payment_id}").status_code == 204
+        void_resp = client.delete(f"{BASE_URL}/{payment_id}")
+        assert void_resp.status_code == 204
 
         invoice = _reload_invoice(db, invoice.id)
         # The invoice must no longer read as Paid; AR is reopened.
@@ -522,4 +523,28 @@ class TestInvoiceArSyncOnReversal:
             "payment_method": "credit_card",
         })
         payment_id = resp.json()["id"]
-        assert client.delete(f"{BASE_URL}/{payment_id}").status_code == 204
+        void_resp = client.delete(f"{BASE_URL}/{payment_id}")
+        assert void_resp.status_code == 204
+
+    def test_cancelled_invoice_not_resurrected_by_refund(self, client, db, test_order):
+        resp = client.post(BASE_URL, json={
+            "sales_order_id": test_order.id,
+            "amount": "500.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+        invoice = _make_invoice(
+            db, test_order, total="500.00", amount_paid="500.00", status="cancelled"
+        )
+
+        # A refund must not transition a terminal (cancelled) invoice back into
+        # a paid/partially_paid state.
+        resp = client.post(f"{BASE_URL}/refund", json={
+            "sales_order_id": test_order.id,
+            "amount": "200.00",
+            "payment_method": "credit_card",
+        })
+        assert resp.status_code == 201
+
+        invoice = _reload_invoice(db, invoice.id)
+        assert invoice.status == "cancelled"

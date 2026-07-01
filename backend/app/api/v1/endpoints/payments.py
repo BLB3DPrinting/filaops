@@ -120,8 +120,17 @@ async def record_refund(
 
     Amount is stored as negative value.
     """
-    # Verify order exists
-    order = db.query(SalesOrder).filter(SalesOrder.id == refund_data.sales_order_id).first()
+    # Lock the order row FOR UPDATE so the over-refund guard is atomic: two
+    # concurrent refunds would otherwise both read the same net_collected and
+    # both pass before either is persisted, allowing a combined over-refund.
+    # Serializing on the order row forces the second refund to re-read the sum
+    # after the first commits.
+    order = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == refund_data.sales_order_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
