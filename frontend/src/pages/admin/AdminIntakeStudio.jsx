@@ -1160,7 +1160,24 @@ export default function AdminIntakeStudio() {
       // drop the response so it can't re-apply stale parse/seed state or toast.
       if (isStaleUpload()) return;
       if (!res.ok) {
-        toast.error(data.detail || `Parse failed (${res.status})`);
+        // A large/complex plate can exceed the worker's slice-time limit. The
+        // backend maps that to 504 (SlicerWorkerTimeoutError); an edge proxy can
+        // surface the same slow-slice cause as 524. The raw detail isn't
+        // actionable, so for the timeout case point the operator at the reliable
+        // path — slice locally in Bambu Studio and drop the exported .gcode.3mf,
+        // which imports without any server slice. Longer toast so it stays
+        // readable; `willSlice` scopes this to runs that actually sliced (a
+        // pre-sliced .gcode.3mf parse never hits the slice timeout).
+        if (willSlice && (res.status === 504 || res.status === 524)) {
+          toast.error(
+            "This file is too large or complex to slice on the server — it timed " +
+              "out. Slice it in Bambu Studio and drop the exported .gcode.3mf (it " +
+              "imports instantly), or pick a lighter plate.",
+            14000,
+          );
+        } else {
+          toast.error(data.detail || `Parse failed (${res.status})`);
+        }
         return;
       }
       setPendingMesh(null);
