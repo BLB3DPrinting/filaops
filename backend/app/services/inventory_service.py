@@ -276,6 +276,15 @@ def convert_and_generate_notes(
     return total_qty, notes
 
 
+def get_default_location(db: Session) -> Optional[InventoryLocation]:
+    """Read-only counterpart to get_or_create_default_location.
+
+    Returns the default warehouse, or None if none exists yet. Never INSERTs,
+    so it is safe for GET preflight endpoints and read-only DB replicas.
+    """
+    return db.query(InventoryLocation).filter(InventoryLocation.type == "warehouse").first()
+
+
 def get_or_create_default_location(db: Session) -> InventoryLocation:
     """Get or create the default warehouse location."""
     location = db.query(InventoryLocation).filter(InventoryLocation.type == "warehouse").first()
@@ -323,6 +332,31 @@ def get_or_create_inventory(
             )
 
     return inventory
+
+
+def get_inventory_snapshot(
+    db: Session,
+    product_id: int,
+    location_id: int,
+) -> tuple[Decimal, Decimal]:
+    """Read-only (on_hand, allocated) snapshot for a product at a location.
+
+    No row lock and no insert-on-miss — safe to call from a GET/preflight path
+    with many products in a loop. Do NOT use this where a write follows; use
+    inventory_ledger.get_or_create_inventory_row (which locks) for that.
+    A missing row reads as (0, 0), matching how a never-stocked product is
+    treated everywhere else in inventory math.
+    """
+    inventory = db.query(Inventory).filter(
+        Inventory.product_id == product_id,
+        Inventory.location_id == location_id,
+    ).first()
+    if not inventory:
+        return Decimal("0"), Decimal("0")
+    return (
+        Decimal(str(inventory.on_hand_quantity)),
+        Decimal(str(inventory.allocated_quantity)),
+    )
 
 
 def validate_inventory_consistency(

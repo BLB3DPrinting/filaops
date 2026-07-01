@@ -65,11 +65,11 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
   };
 
   return (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Line Items</h2>
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+          <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Line Items</h2>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-700 text-gray-400">
+              <tr className="border-b border-[var(--rule-hair)] text-[var(--ink-3)]">
                 <th className="text-left py-2 px-3">Product</th>
                 <th className="text-left py-2 px-3">SKU</th>
                 <th className="text-right py-2 px-3">Qty</th>
@@ -79,7 +79,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                 {canEditLines() && <th className="text-center py-2 px-3 w-16"></th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800">
+            <tbody className="divide-y divide-[var(--rule-hair)]">
               {order.lines.map((line, idx) => {
                 const isEditing = editingLineId === line.id;
                 const shipped = parseFloat(line.shipped_quantity || 0);
@@ -87,13 +87,13 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                 const lineCode = line.product_sku || line.material_sku || line.sku || (line.line_type === "service" ? "FEE" : "\u2014");
                 return (
                   <tr key={line.id || idx}>
-                    <td className="py-2 px-3 text-white">
+                    <td className="py-2 px-3 text-[var(--ink)]">
                       {lineLabel}
                     </td>
-                    <td className="py-2 px-3 text-gray-400 font-mono text-xs">
+                    <td className="py-2 px-3 text-[var(--ink-3)] font-mono text-xs">
                       {lineCode}
                     </td>
-                    <td className="py-2 px-3 text-right text-white">
+                    <td className="py-2 px-3 text-right text-[var(--ink)]">
                       {isEditing ? (
                         <input
                           type="number"
@@ -101,22 +101,22 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                           onChange={(e) => setEditQty(e.target.value)}
                           min={shipped}
                           step="1"
-                          className="w-20 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
+                          className="w-20 bg-[var(--paper-sunk)] border border-[var(--orange)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
                           autoFocus
                         />
                       ) : (
                         <span className="flex items-center justify-end gap-1">
                           {line.original_quantity && parseFloat(line.original_quantity) !== parseFloat(line.quantity) && (
-                            <span className="text-gray-500 line-through text-xs">{line.original_quantity}</span>
+                            <span className="text-[var(--ink-4)] line-through text-xs">{line.original_quantity}</span>
                           )}
                           {line.quantity}
                         </span>
                       )}
                     </td>
-                    <td className="py-2 px-3 text-right text-gray-400">
+                    <td className="py-2 px-3 text-right text-[var(--ink-3)]">
                       {shipped > 0 ? shipped : "\u2014"}
                     </td>
-                    <td className="py-2 px-3 text-right text-gray-300">
+                    <td className="py-2 px-3 text-right text-[var(--ink-2)]">
                       {isEditing ? (
                         <input
                           type="number"
@@ -124,13 +124,13 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                           onChange={(e) => setEditPrice(e.target.value)}
                           min="0"
                           step="0.01"
-                          className="w-24 bg-gray-800 border border-blue-500 rounded px-2 py-1 text-right text-white text-sm"
+                          className="w-24 bg-[var(--paper-sunk)] border border-[var(--orange)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
                         />
                       ) : (
                         `$${parseFloat(line.unit_price || 0).toFixed(2)}`
                       )}
                     </td>
-                    <td className="py-2 px-3 text-right text-green-400 font-medium">
+                    <td className="py-2 px-3 text-right text-[var(--status-green)] font-medium">
                       ${parseFloat(line.total || 0).toFixed(2)}
                     </td>
                     {canEditLines() && (
@@ -140,14 +140,14 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                             <button
                               onClick={() => handleSaveLineEdit(line.id)}
                               disabled={savingLineEdit || (editQty === "" && editPrice === "") || !editReason.trim()}
-                              className="text-green-400 hover:text-green-300 disabled:opacity-50 text-xs"
+                              className="text-[var(--status-green)] hover:text-[var(--status-green)] disabled:opacity-50 text-xs"
                               title="Save"
                             >
                               {savingLineEdit ? "..." : "\u2713"}
                             </button>
                             <button
                               onClick={() => { setEditingLineId(null); setEditQty(""); setEditPrice(""); setEditReason(""); }}
-                              className="text-gray-400 hover:text-white text-xs"
+                              className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xs"
                               title="Cancel"
                             >
                               \u2717
@@ -162,7 +162,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                                 setEditPrice(String(line.unit_price || 0));
                                 setEditReason("");
                               }}
-                              className="text-gray-500 hover:text-blue-400 text-xs"
+                              className="text-[var(--ink-4)] hover:text-[var(--orange)] text-xs"
                               title="Edit line"
                             >
                               Edit
@@ -171,7 +171,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                               <button
                                 onClick={() => handleRemoveLine(line)}
                                 disabled={removingLineId === line.id}
-                                className="text-gray-600 hover:text-red-400 disabled:opacity-50 text-xs"
+                                className="text-[var(--ink-4)] hover:text-[var(--status-red)] disabled:opacity-50 text-xs"
                                 title="Remove line"
                               >
                                 {removingLineId === line.id ? "…" : "✕"}
@@ -192,20 +192,62 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                       value={editReason}
                       onChange={(e) => setEditReason(e.target.value)}
                       placeholder="Reason for change (required)..."
-                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:border-blue-500"
+                      className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded px-3 py-1.5 text-[var(--ink)] text-sm placeholder-[var(--ink-4)] focus:border-[var(--orange)]"
                     />
                   </td>
                 </tr>
               )}
             </tbody>
             <tfoot>
-              <tr className="border-t border-gray-700">
-                <td colSpan={canEditLines() ? 6 : 5} className="py-3 px-3 text-right text-white font-medium">
-                  Order Total
+              {/* Break out subtotal / tax / shipping so the Order Total
+                  (grand_total) doesn't look like it disagrees with the line
+                  sum. The label spans cols 1-5 and the amount sits in the
+                  Total column (6); the trailing cell fills the Actions column
+                  when the table is editable so nothing lands under it. */}
+              <tr className="border-t border-[var(--rule-hair)]">
+                <td colSpan={5} className="py-2 px-3 text-right text-[var(--ink-3)]">
+                  Subtotal
                 </td>
-                <td className="py-3 px-3 text-right text-green-400 font-bold">
+                <td className="py-2 px-3 text-right text-[var(--ink-2)]">
                   ${parseFloat(order.total_price || 0).toFixed(2)}
                 </td>
+                {canEditLines() && <td />}
+              </tr>
+              {parseFloat(order.tax_amount || 0) > 0 && (
+                <tr>
+                  <td colSpan={5} className="py-1 px-3 text-right text-[var(--ink-3)]">
+                    Tax
+                  </td>
+                  <td className="py-1 px-3 text-right text-[var(--ink-2)]">
+                    ${parseFloat(order.tax_amount || 0).toFixed(2)}
+                  </td>
+                  {canEditLines() && <td />}
+                </tr>
+              )}
+              {parseFloat(order.shipping_cost || 0) > 0 && (
+                <tr>
+                  <td colSpan={5} className="py-1 px-3 text-right text-[var(--ink-3)]">
+                    Shipping
+                  </td>
+                  <td className="py-1 px-3 text-right text-[var(--ink-2)]">
+                    ${parseFloat(order.shipping_cost || 0).toFixed(2)}
+                  </td>
+                  {canEditLines() && <td />}
+                </tr>
+              )}
+              <tr className="border-t border-[var(--rule-hair)]">
+                <td colSpan={5} className="py-3 px-3 text-right text-[var(--ink)] font-medium">
+                  Order Total
+                </td>
+                <td className="py-3 px-3 text-right text-[var(--status-green)] font-bold">
+                  ${parseFloat(
+                    order.grand_total ??
+                      (parseFloat(order.total_price || 0) +
+                        parseFloat(order.tax_amount || 0) +
+                        parseFloat(order.shipping_cost || 0))
+                  ).toFixed(2)}
+                </td>
+                {canEditLines() && <td />}
               </tr>
             </tfoot>
           </table>

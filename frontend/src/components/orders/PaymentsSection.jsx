@@ -14,21 +14,21 @@ export default function PaymentsSection({
   const formatCurrency = useFormatCurrency();
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-white">Payments</h2>
+        <h2 className="text-lg font-semibold text-[var(--ink)]">Payments</h2>
         <div className="flex gap-2">
           {paymentSummary && paymentSummary.total_paid > 0 && (
             <button
               onClick={onRefund}
-              className="px-3 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded text-sm"
+              className="px-3 py-1 bg-[var(--status-red-tint)] hover:bg-[var(--status-red-tint)] text-[var(--status-red)] rounded text-sm"
             >
               Refund
             </button>
           )}
           <button
             onClick={onRecordPayment}
-            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm flex items-center gap-1"
+            className="px-3 py-1 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded text-sm flex items-center gap-1"
           >
             <svg
               className="w-4 h-4"
@@ -50,34 +50,34 @@ export default function PaymentsSection({
 
       {/* Payment Summary */}
       {paymentSummary && (
-        <div className="grid grid-cols-4 gap-4 mb-4 p-4 bg-gray-800/50 rounded-lg">
+        <div className="grid grid-cols-4 gap-4 mb-4 p-4 bg-[var(--paper-sunk)] rounded-lg">
           <div>
-            <div className="text-sm text-gray-400">Order Total</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Order Total</div>
+            <div className="text-[var(--ink)] font-medium">
               {formatCurrency(parseFloat(paymentSummary.order_total || 0))}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Paid</div>
-            <div className="text-green-400 font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Paid</div>
+            <div className="text-[var(--status-green)] font-medium">
               {formatCurrency(parseFloat(paymentSummary.total_paid || 0))}
             </div>
           </div>
           {paymentSummary.total_refunded > 0 && (
             <div>
-              <div className="text-sm text-gray-400">Refunded</div>
-              <div className="text-red-400 font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Refunded</div>
+              <div className="text-[var(--status-red)] font-medium">
                 {formatCurrency(parseFloat(paymentSummary.total_refunded || 0))}
               </div>
             </div>
           )}
           <div>
-            <div className="text-sm text-gray-400">Balance Due</div>
+            <div className="text-sm text-[var(--ink-3)]">Balance Due</div>
             <div
               className={`font-medium ${
                 paymentSummary.balance_due > 0
-                  ? "text-yellow-400"
-                  : "text-green-400"
+                  ? "text-[var(--status-amber)]"
+                  : "text-[var(--status-green)]"
               }`}
             >
               {formatCurrency(parseFloat(paymentSummary.balance_due || 0))}
@@ -92,17 +92,17 @@ export default function PaymentsSection({
           {payments.map((payment) => (
             <div
               key={payment.id}
-              className="flex justify-between items-center p-3 bg-gray-800 rounded-lg"
+              className="flex justify-between items-center p-3 bg-[var(--paper-sunk)] rounded-lg"
             >
               <div className="flex items-center gap-3">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    payment.amount < 0 ? "bg-red-500/20" : "bg-green-500/20"
+                    payment.amount < 0 ? "bg-[var(--status-red-tint)]" : "bg-[var(--status-green-tint)]"
                   }`}
                 >
                   {payment.amount < 0 ? (
                     <svg
-                      className="w-4 h-4 text-red-400"
+                      className="w-4 h-4 text-[var(--status-red)]"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -116,7 +116,7 @@ export default function PaymentsSection({
                     </svg>
                   ) : (
                     <svg
-                      className="w-4 h-4 text-green-400"
+                      className="w-4 h-4 text-[var(--status-green)]"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -131,10 +131,10 @@ export default function PaymentsSection({
                   )}
                 </div>
                 <div>
-                  <div className="text-white font-medium">
+                  <div className="text-[var(--ink)] font-medium">
                     {payment.payment_number}
                   </div>
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-[var(--ink-3)]">
                     {payment.payment_method}
                     {payment.check_number && ` #${payment.check_number}`}
                     {payment.transaction_id && ` - ${payment.transaction_id}`}
@@ -144,12 +144,12 @@ export default function PaymentsSection({
               <div className="text-right">
                 <div
                   className={`font-medium ${
-                    payment.amount < 0 ? "text-red-400" : "text-green-400"
+                    payment.amount < 0 ? "text-[var(--status-red)]" : "text-[var(--status-green)]"
                   }`}
                 >
                   {formatCurrency(Math.abs(parseFloat(payment.amount)))}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-[var(--ink-4)]">
                   {new Date(payment.payment_date).toLocaleDateString()}
                 </div>
               </div>
@@ -157,7 +157,7 @@ export default function PaymentsSection({
           ))}
         </div>
       ) : (
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-[var(--ink-4)]">
           No payments recorded yet
         </div>
       )}

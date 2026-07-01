@@ -11,7 +11,7 @@ sales_order_shared.py).  Every name this module previously exposed is
 re-exported below, so existing imports keep working unchanged.
 """
 import io
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -52,8 +52,11 @@ from app.services.sales_order_fulfillment_service import (
     _SHIPMENT_EVIDENCE_FULFILLMENT_STATUSES,  # noqa: F401
     _SHIPMENT_TRANSACTION_COST_TYPES,  # noqa: F401
     SHIPPED_ORDER_STATUSES,  # noqa: F401
+    SHIPPABLE_STATUSES,  # noqa: F401
+    _candidate_product_ids,  # noqa: F401
     _create_shipment_gl_entry,  # noqa: F401
     _has_material_backed_lines,  # noqa: F401
+    can_ship_reasons,  # noqa: F401
     has_shipment_evidence,  # noqa: F401
     resolve_legacy_fulfillment,  # noqa: F401
     ship_order,  # noqa: F401
@@ -112,6 +115,7 @@ def list_sales_orders(
     status_filter: Optional[str] = None,
     statuses: Optional[list[str]] = None,
     source: Optional[str] = None,
+    shipped_after: Optional[date] = None,
     skip: int = 0,
     limit: int = 50,
     sort_by: str = "order_date",
@@ -154,6 +158,10 @@ def list_sales_orders(
     # Source filtering
     if source:
         query = query.filter(SalesOrder.source == source)
+
+    # Shipped on-or-after filter (backs the Shipping "Shipped Today" widget).
+    if shipped_after:
+        query = query.filter(SalesOrder.shipped_at >= shipped_after)
 
     # Sorting — "order_date" maps to created_at (SalesOrder has no order_date column)
     if sort_by == "customer_name":

@@ -62,13 +62,13 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
   };
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-white">Shipping Address</h2>
+        <h2 className="text-lg font-semibold text-[var(--ink)]">Shipping Address</h2>
         {!editingAddress && (
           <button
             onClick={handleEditAddress}
-            className="text-blue-400 hover:text-blue-300 text-sm"
+            className="text-[var(--orange)] hover:text-[var(--orange-press)] text-sm"
           >
             Edit
           </button>
@@ -79,7 +79,7 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2 md:col-span-1">
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Shipping Charge
               </label>
               <input
@@ -91,13 +91,13 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_cost: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 min="0"
                 step="0.01"
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Address Line 1
               </label>
               <input
@@ -109,12 +109,12 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_address_line1: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 placeholder="Street address"
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Address Line 2
               </label>
               <input
@@ -126,12 +126,12 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_address_line2: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 placeholder="Apt, suite, etc."
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">City</label>
+              <label className="block text-sm text-[var(--ink-3)] mb-1">City</label>
               <input
                 type="text"
                 value={addressForm.shipping_city}
@@ -141,11 +141,11 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_city: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 State
               </label>
               <input
@@ -157,11 +157,11 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_state: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 ZIP Code
               </label>
               <input
@@ -173,11 +173,11 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_zip: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Country
               </label>
               <input
@@ -189,21 +189,21 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                     shipping_country: e.target.value,
                   })
                 }
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setEditingAddress(false)}
-              className="px-4 py-2 text-gray-400 hover:text-white"
+              className="px-4 py-2 text-[var(--ink-3)] hover:text-[var(--ink)]"
             >
               Cancel
             </button>
             <button
               onClick={handleSaveAddress}
               disabled={savingAddress}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50"
+              className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg disabled:opacity-50"
             >
               {savingAddress ? "Saving..." : "Save Address"}
             </button>
@@ -213,20 +213,20 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-sm text-gray-400">Shipping Charge</div>
-              <div className="text-white font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Shipping Charge</div>
+              <div className="text-[var(--ink)] font-medium">
                 ${Number.isNaN(shippingCharge) ? "0.00" : shippingCharge.toFixed(2)}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-400">Order Total</div>
-              <div className="text-white font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Order Total</div>
+              <div className="text-[var(--ink)] font-medium">
                 ${Number.isNaN(grandTotal) ? "0.00" : grandTotal.toFixed(2)}
               </div>
             </div>
           </div>
           {order.shipping_address_line1 ? (
-            <div className="text-white">
+            <div className="text-[var(--ink)]">
               <div>{order.shipping_address_line1}</div>
               {order.shipping_address_line2 && (
                 <div>{order.shipping_address_line2}</div>
@@ -235,12 +235,12 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
                 {order.shipping_city}, {order.shipping_state}{" "}
                 {order.shipping_zip}
               </div>
-              <div className="text-gray-400">
+              <div className="text-[var(--ink-3)]">
                 {order.shipping_country || "USA"}
               </div>
             </div>
           ) : (
-            <div className="text-yellow-400 flex items-center gap-2">
+            <div className="text-[var(--status-amber)] flex items-center gap-2">
               <svg
                 className="w-5 h-5"
                 fill="none"

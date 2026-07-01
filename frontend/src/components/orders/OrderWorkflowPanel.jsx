@@ -99,29 +99,29 @@ export default function OrderWorkflowPanel({
   const getStepClasses = (state) => {
     if (state === "done") {
       return {
-        panel: "border-emerald-500/40 bg-emerald-950/20",
-        icon: "bg-emerald-500/20 text-emerald-300",
-        label: "text-emerald-300",
+        panel: "border-[var(--status-green)]/40 bg-[var(--status-green-tint)]",
+        icon: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
+        label: "text-[var(--status-green)]",
       };
     }
     if (state === "active") {
       return {
-        panel: "border-blue-500/50 bg-blue-950/30",
-        icon: "bg-blue-500/20 text-blue-300",
-        label: "text-blue-300",
+        panel: "border-[var(--orange)]/50 bg-[var(--orange-tint)]",
+        icon: "bg-[var(--orange-tint)] text-[var(--orange)]",
+        label: "text-[var(--orange)]",
       };
     }
     if (state === "blocked") {
       return {
-        panel: "border-amber-500/40 bg-amber-950/20",
-        icon: "bg-amber-500/20 text-amber-300",
-        label: "text-amber-300",
+        panel: "border-[var(--status-amber)]/40 bg-[var(--status-amber-tint)]",
+        icon: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+        label: "text-[var(--status-amber)]",
       };
     }
     return {
-      panel: "border-gray-700 bg-gray-900/60",
-      icon: "bg-gray-800 text-gray-400",
-      label: "text-gray-400",
+      panel: "border-[var(--rule-hair)] bg-[var(--paper-sunk)]",
+      icon: "bg-[var(--paper-sunk)] text-[var(--ink-3)]",
+      label: "text-[var(--ink-3)]",
     };
   };
 
@@ -290,15 +290,15 @@ export default function OrderWorkflowPanel({
   };
 
   return (
-      <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-5">
+      <div className="rounded-xl border border-[var(--rule-hair)] bg-[var(--paper)] p-5 shadow-[var(--shadow-pop)]">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Order Workflow</h2>
-            <p className="text-sm text-gray-400">
+            <h2 className="text-lg font-semibold text-[var(--ink)]">Order Workflow</h2>
+            <p className="text-sm text-[var(--ink-3)]">
               Confirm, bill, release production, then fulfill.
             </p>
           </div>
-          <span className="w-fit rounded-full bg-gray-800 px-3 py-1 text-xs font-medium text-gray-300">
+          <span className="w-fit rounded-full bg-[var(--paper-sunk)] px-3 py-1 text-xs font-medium text-[var(--ink-2)]">
             {order.status?.replace(/_/g, " ") || "unknown"}
           </span>
         </div>
@@ -316,15 +316,15 @@ export default function OrderWorkflowPanel({
                       {renderStepIcon(step)}
                     </div>
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-4)]">
                         Step {index + 1}
                       </div>
-                      <h3 className="text-sm font-semibold text-white">
+                      <h3 className="text-sm font-semibold text-[var(--ink)]">
                         {step.title}
                       </h3>
                     </div>
                   </div>
-                  <span className={`rounded-full bg-gray-950/50 px-2 py-1 text-xs font-medium capitalize ${classes.label}`}>
+                  <span className={`rounded-full bg-[var(--paper-sunk)] px-2 py-1 text-xs font-medium capitalize ${classes.label}`}>
                     {step.state}
                   </span>
                 </div>
@@ -333,7 +333,7 @@ export default function OrderWorkflowPanel({
                   <div className={`text-sm font-medium capitalize ${classes.label}`}>
                     {step.meta || "Waiting"}
                   </div>
-                  <p className="mt-2 text-sm leading-5 text-gray-300">
+                  <p className="mt-2 text-sm leading-5 text-[var(--ink-2)]">
                     {step.detail}
                   </p>
                 </div>
@@ -342,7 +342,7 @@ export default function OrderWorkflowPanel({
                   <button
                     onClick={step.action.onClick}
                     disabled={step.action.disabled}
-                    className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-4 w-full rounded-lg bg-[var(--orange)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--orange-press)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {step.action.label}
                   </button>
@@ -354,8 +354,8 @@ export default function OrderWorkflowPanel({
 
         {/* Secondary / destructive actions — below workflow steps */}
         {(order.status === "pending_confirmation" || canCancelOrder() || canCloseShort() || canDeleteOrder()) && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-700/50 pt-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--rule-hair)] pt-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-[var(--ink-4)]">
               Order actions:
             </span>
             {(order.status === "pending" || order.status === "pending_confirmation") && (
@@ -363,14 +363,14 @@ export default function OrderWorkflowPanel({
                 <button
                   onClick={onConfirmOrder}
                   disabled={confirmingOrder}
-                  className="rounded-lg bg-green-700 px-3 py-1.5 text-sm text-white hover:bg-green-600 disabled:opacity-50"
+                  className="rounded-lg bg-[var(--paper-sunk)] px-3 py-1.5 text-sm text-[var(--ink-2)] border border-[var(--rule-hair)] hover:bg-[var(--rule-hair)] disabled:opacity-50"
                 >
                   {confirmingOrder ? "Confirming..." : "Confirm Order"}
                 </button>
                 {order.status === "pending_confirmation" && (
                   <button
                     onClick={onRejectOrder}
-                    className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600"
+                    className="rounded-lg bg-[var(--status-red)] px-3 py-1.5 text-sm text-white hover:opacity-90"
                   >
                     Reject Order
                   </button>
@@ -380,7 +380,7 @@ export default function OrderWorkflowPanel({
             {canCancelOrder() && (
               <button
                 onClick={onCancelOrder}
-                className="rounded-lg bg-yellow-700 px-3 py-1.5 text-sm text-white hover:bg-yellow-600"
+                className="rounded-lg bg-[var(--paper-sunk)] px-3 py-1.5 text-sm text-[var(--ink-2)] border border-[var(--rule-hair)] hover:bg-[var(--rule-hair)]"
               >
                 Cancel Order
               </button>
@@ -388,7 +388,7 @@ export default function OrderWorkflowPanel({
             {canCloseShort() && (
               <button
                 onClick={onCloseShort}
-                className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white hover:bg-amber-600"
+                className="rounded-lg bg-[var(--paper-sunk)] px-3 py-1.5 text-sm text-[var(--ink-2)] border border-[var(--rule-hair)] hover:bg-[var(--rule-hair)]"
               >
                 Close Short
               </button>
@@ -396,7 +396,7 @@ export default function OrderWorkflowPanel({
             {canDeleteOrder() && (
               <button
                 onClick={onDeleteOrder}
-                className="rounded-lg bg-red-900 px-3 py-1.5 text-sm text-white hover:bg-red-800 border border-red-700"
+                className="rounded-lg bg-[var(--status-red)] px-3 py-1.5 text-sm text-white hover:opacity-90 border border-[var(--status-red)]"
               >
                 Delete Order
               </button>

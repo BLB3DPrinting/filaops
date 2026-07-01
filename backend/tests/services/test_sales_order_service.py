@@ -2175,6 +2175,132 @@ class TestShipOrderShippedQuantity:
         assert line.shipped_quantity == Decimal("2")  # not double-credited
 
 
+class TestCanShipReasons:
+    """#845/#846: can_ship_reasons() preflight — exact parity with ship_order()."""
+
+    def _ready_order(self, db, make_sales_order, product_id):
+        return make_sales_order(
+            status="ready_to_ship",
+            order_type="line_item",
+            product_id=product_id,
+            shipping_address_line1="1 Ship Way",
+            shipping_city="Portland",
+            shipping_state="OR",
+            shipping_zip="97201",
+        )
+
+    def test_ready_order_with_stock_can_ship(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=2)
+        _seed_fg_inventory(db, p.id)
+
+        result = sales_order_service.can_ship_reasons(db, so)
+        assert result == {"can_ship": True, "reasons": []}
+
+    def test_not_ready_to_ship_short_circuits(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="in_production", product_id=p.id)
+        result = sales_order_service.can_ship_reasons(db, so)
+        assert result["can_ship"] is False
+        assert len(result["reasons"]) == 1
+        assert "ready_to_ship" in result["reasons"][0]
+
+    def test_no_address_is_a_reason(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(status="ready_to_ship", order_type="line_item", product_id=p.id)
+        _make_order_line(db, so.id, p.id, quantity=1)
+        _seed_fg_inventory(db, p.id)
+
+        result = sales_order_service.can_ship_reasons(db, so)
+        assert result["can_ship"] is False
+        assert any("address" in r.lower() for r in result["reasons"])
+
+    def test_insufficient_inventory_is_a_reason_no_raw_numbers(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=10)
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("3"))
+
+        result = sales_order_service.can_ship_reasons(db, so)
+        assert result["can_ship"] is False
+        assert len(result["reasons"]) == 1
+        # Conservative: names the product but leaks no on-hand/demand quantities.
+        # (Assert the exact format rather than a digit-substring check — the
+        # product id itself may contain a 3 or 10.)
+        assert result["reasons"][0] == f"Insufficient inventory for product {p.id}."
+
+    def test_duplicate_product_lines_aggregate_demand(self, db, make_sales_order, make_product):
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=2)
+        _make_order_line(db, so.id, p.id, quantity=3)
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("5"))  # exactly the summed demand
+
+        assert sales_order_service.can_ship_reasons(db, so)["can_ship"] is True
+
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("4"))  # now short by 1
+        assert sales_order_service.can_ship_reasons(db, so)["can_ship"] is False
+
+    def test_excluded_product_line_does_not_block(self, db, make_sales_order, make_product):
+        """A line whose product_id is absent from existing_product_ids must be
+        excluded from demand — this is the real, reachable mechanism that
+        protects the batch endpoint from a product that vanished between the
+        existing-products query and the per-order check (Product rows can't
+        be hard-deleted while referenced by a line — FK-enforced — but the
+        batch path's pre-fetched existing_product_ids is what issue_shipped_goods's
+        'if not product: continue' mirrors, so this is what's actually tested)."""
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=2)
+        # No inventory seeded — if the line's demand were (wrongly) counted,
+        # needed=2 > available=0 would make this order falsely unshippable.
+
+        result = sales_order_service.can_ship_reasons(
+            db, so, existing_product_ids=set(),  # simulates "product not found"
+        )
+        assert result == {"can_ship": True, "reasons": []}
+
+    def test_agrees_with_ship_order_on_the_same_order(self, db, make_sales_order, make_product):
+        """A 'true' from can_ship_reasons must mean ship_order() will succeed."""
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=2)
+        _seed_fg_inventory(db, p.id)
+
+        assert sales_order_service.can_ship_reasons(db, so)["can_ship"] is True
+        # Should not raise.
+        sales_order_service.ship_order(
+            db, so.id, user_id=1, user_email="test@filaops.dev",
+            carrier="USPS", tracking_number="TRK-CANSHIP-1",
+        )
+
+    def test_batch_args_match_default_args(self, db, make_sales_order, make_product):
+        """Pre-fetched location/existing-ids/inventory-snapshot must give the
+        same verdict as the no-args (per-order-query) path — the batch
+        endpoint's whole point is reusing the same logic, not a parallel one."""
+        from app.services.inventory_service import get_or_create_default_location
+
+        p = make_product(selling_price=Decimal("10.00"))
+        so = self._ready_order(db, make_sales_order, p.id)
+        _make_order_line(db, so.id, p.id, quantity=2)
+        _seed_fg_inventory(db, p.id, on_hand=Decimal("1"))  # short
+
+        default_result = sales_order_service.can_ship_reasons(db, so)
+
+        location_id = get_or_create_default_location(db).id
+        batch_result = sales_order_service.can_ship_reasons(
+            db, so,
+            location_id=location_id,
+            existing_product_ids={p.id},
+            inventory_snapshot={p.id: (Decimal("1"), Decimal("0"))},
+        )
+        assert default_result == batch_result == {
+            "can_ship": False,
+            "reasons": ["Insufficient inventory for product {}.".format(p.id)],
+        }
+
+
 # =============================================================================
 # convert_quote_to_sales_order
 # =============================================================================
