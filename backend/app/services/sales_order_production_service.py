@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -288,6 +288,38 @@ def create_production_orders_for_sales_order(
 # Generate Production Orders
 # =============================================================================
 
+def billing_release_satisfied(db: Session, order: SalesOrder) -> bool:
+    """Whether billing has been INITIATED enough to release production.
+
+    Production may be released once billing is under way — either a payment
+    recorded (prepay customers) or an invoice issued/sent (net-terms
+    customers). It deliberately does NOT require full payment: many customers
+    are billed net-30 and pay after the work ships.
+
+    Mirrors ``isBillingReleaseSatisfied()`` in
+    ``frontend/src/pages/admin/OrderDetail.jsx`` — keep the two in sync.
+    """
+    if order.payment_status == "paid":
+        return True
+
+    # Any completed payment on the order (covers partial prepay).
+    from app.models.payment import Payment
+    paid = db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.sales_order_id == order.id,
+        Payment.status == "completed",
+    ).scalar()
+    if paid and Decimal(str(paid)) > 0:
+        return True
+
+    # An issued invoice (sent / partially paid / paid) — the net-terms path.
+    from app.models.invoice import Invoice
+    issued = db.query(Invoice.id).filter(
+        Invoice.sales_order_id == order.id,
+        Invoice.status.in_(["sent", "partially_paid", "paid"]),
+    ).first()
+    return issued is not None
+
+
 def generate_production_orders(
     db: Session,
     order_id: int,
@@ -372,6 +404,15 @@ def generate_production_orders(
                 f"Work orders can only be generated while the order is in Confirmed status; "
                 f"this order is {order.status.replace('_', ' ')}."
             )
+        )
+
+    if not billing_release_satisfied(db, order):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Billing must be initiated before production release: record a "
+                "payment or issue (send) an invoice for this order."
+            ),
         )
 
     created_orders = []

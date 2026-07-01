@@ -180,7 +180,15 @@ class SalesOrder(Base):
 
     @property
     def can_start_production(self) -> bool:
-        """Check if order can start production"""
+        """Payment-readiness hint for the cockpit next-actions.
+
+        NOTE: this is a payment-only signal, NOT the authoritative
+        production-release gate. The gate enforced server-side in
+        ``sales_order_production_service.billing_release_satisfied()`` also
+        accepts an issued invoice (net-terms customers), which this property
+        cannot see without a per-order query. Read this as "payment received?",
+        not "may release production?".
+        """
         return (
             self.status == "confirmed" and
             self.payment_status in ["paid", "partial"]
