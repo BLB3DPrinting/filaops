@@ -813,8 +813,9 @@ export default function OrderDetail() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+      {/* Header — wrapped in a paper card so the dark ink title/subtitle read
+          against the (still-dark) app shell until the shell slice lands. */}
+      <div className="flex justify-between items-center bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
         <div>
           <button
             onClick={() => navigate("/admin/orders")}
