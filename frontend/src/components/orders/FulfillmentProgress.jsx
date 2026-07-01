@@ -5,12 +5,12 @@
 
 // Status badge styles per fulfillment state
 const STATUS_STYLES = {
-  ready_to_ship: 'bg-green-500/20 text-green-400 border-green-500/30',
-  partially_ready: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  blocked: 'bg-red-500/20 text-red-400 border-red-500/30',
-  short_closed: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  shipped: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  cancelled: 'bg-gray-500/20 text-gray-500 border-gray-500/30',
+  ready_to_ship: 'bg-[var(--status-green-tint)] text-[var(--status-green)] border-[var(--status-green)]/30',
+  partially_ready: 'bg-[var(--status-amber-tint)] text-[var(--status-amber)] border-[var(--status-amber)]/30',
+  blocked: 'bg-[var(--status-red-tint)] text-[var(--status-red)] border-[var(--status-red)]/30',
+  short_closed: 'bg-[var(--status-amber-tint)] text-[var(--status-amber)] border-[var(--status-amber)]/30',
+  shipped: 'bg-[var(--paper-sunk)] text-[var(--ink-3)] border-[var(--rule-hair)]',
+  cancelled: 'bg-[var(--paper-sunk)] text-[var(--ink-4)] border-[var(--rule-hair)]',
 };
 
 // Human-readable labels for fulfillment states
@@ -27,10 +27,10 @@ const STATUS_LABELS = {
  * Get progress bar color based on fulfillment percentage
  */
 function getProgressColor(percent) {
-  if (percent === 100) return 'bg-green-500';
-  if (percent >= 50) return 'bg-yellow-500';
-  if (percent > 0) return 'bg-orange-500';
-  return 'bg-red-500';
+  if (percent === 100) return 'bg-[var(--status-green)]';
+  if (percent >= 50) return 'bg-[var(--status-amber)]';
+  if (percent > 0) return 'bg-[var(--status-amber)]';
+  return 'bg-[var(--status-red)]';
 }
 
 /**
@@ -87,11 +87,11 @@ export default function FulfillmentProgress({
   // Loading state
   if (loading) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 mb-4 shadow-[var(--shadow-pop)]">
         <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-800 rounded w-1/3"></div>
-          <div className="h-4 bg-gray-800 rounded w-2/3"></div>
-          <div className="h-20 bg-gray-800 rounded"></div>
+          <div className="h-6 bg-[var(--paper-sunk)] rounded w-1/3"></div>
+          <div className="h-4 bg-[var(--paper-sunk)] rounded w-2/3"></div>
+          <div className="h-20 bg-[var(--paper-sunk)] rounded"></div>
         </div>
       </div>
     );
@@ -100,19 +100,19 @@ export default function FulfillmentProgress({
   // Error state
   if (error) {
     return (
-      <div className="bg-gray-900 border border-red-500/30 rounded-xl p-4 mb-4">
+      <div className="bg-[var(--paper)] border border-[var(--status-red)]/30 rounded-xl p-4 mb-4 shadow-[var(--shadow-pop)]">
         <div className="flex items-center gap-3">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-[var(--status-red)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <p className="text-red-400 font-medium">Failed to load fulfillment status</p>
-            <p className="text-sm text-gray-500">{error}</p>
+            <p className="text-[var(--status-red)] font-medium">Failed to load fulfillment status</p>
+            <p className="text-sm text-[var(--ink-4)]">{error}</p>
           </div>
           {onRefresh && (
             <button
               onClick={onRefresh}
-              className="ml-auto px-3 py-1 text-sm bg-gray-800 text-gray-300 rounded hover:bg-gray-700"
+              className="ml-auto px-3 py-1 text-sm bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded hover:bg-[var(--rule-hair)]"
             >
               Retry
             </button>
@@ -125,7 +125,7 @@ export default function FulfillmentProgress({
   // No data state
   if (!fulfillmentStatus) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center text-gray-500 mb-4">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 text-center text-[var(--ink-4)] mb-4 shadow-[var(--shadow-pop)]">
         No fulfillment status data available
       </div>
     );
@@ -141,12 +141,12 @@ export default function FulfillmentProgress({
   const percent = summary?.fulfillment_percent ?? 0;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl mb-4">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl mb-4 shadow-[var(--shadow-pop)]">
       {/* Header */}
-      <div className="p-4 border-b border-gray-800">
+      <div className="p-4 border-b border-[var(--rule-hair)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h3 className="text-lg font-semibold text-white">Fulfillment Progress</h3>
+            <h3 className="text-lg font-semibold text-[var(--ink)]">Fulfillment Progress</h3>
             <span className={`px-2 py-1 rounded-full text-xs font-medium border ${STATUS_STYLES[state] || STATUS_STYLES.blocked}`}>
               {STATUS_LABELS[state] || state}
             </span>
@@ -154,7 +154,7 @@ export default function FulfillmentProgress({
           {onRefresh && (
             <button
               onClick={onRefresh}
-              className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800"
+              className="p-2 text-[var(--ink-4)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--paper-sunk)]"
               title="Refresh"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -169,12 +169,12 @@ export default function FulfillmentProgress({
       <div className="p-4 space-y-4">
         {/* Progress Bar */}
         <div>
-          <div className="flex justify-between text-sm text-gray-400 mb-2">
+          <div className="flex justify-between text-sm text-[var(--ink-3)] mb-2">
             <span>{summary?.lines_ready || 0}/{summary?.lines_total || 0} lines ready</span>
             <span>{percent}%</span>
           </div>
           <div
-            className="w-full bg-gray-700 rounded-full h-3"
+            className="w-full bg-[var(--rule-hair)] rounded-full h-3"
             role="progressbar"
             aria-valuenow={percent}
             aria-valuemin={0}
@@ -194,20 +194,20 @@ export default function FulfillmentProgress({
             {lines.map((line) => {
               const isShortClosed = closedShort && !line.is_ready;
               const rowClass = line.is_ready
-                ? 'bg-green-500/10 border border-green-500/20'
+                ? 'bg-[var(--status-green-tint)] border border-[var(--status-green)]/20'
                 : isShortClosed
-                  ? 'bg-amber-500/10 border border-amber-500/20'
-                  : 'bg-red-500/10 border border-red-500/20';
+                  ? 'bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/20'
+                  : 'bg-[var(--status-red-tint)] border border-[var(--status-red)]/20';
               const iconClass = line.is_ready
-                ? 'w-5 h-5 text-green-400'
+                ? 'w-5 h-5 text-[var(--status-green)]'
                 : isShortClosed
-                  ? 'w-5 h-5 text-amber-400'
-                  : 'w-5 h-5 text-red-400';
+                  ? 'w-5 h-5 text-[var(--status-amber)]'
+                  : 'w-5 h-5 text-[var(--status-red)]';
               const labelClass = line.is_ready
-                ? 'text-sm font-medium text-green-400'
+                ? 'text-sm font-medium text-[var(--status-green)]'
                 : isShortClosed
-                  ? 'text-sm font-medium text-amber-400'
-                  : 'text-sm font-medium text-red-400';
+                  ? 'text-sm font-medium text-[var(--status-amber)]'
+                  : 'text-sm font-medium text-[var(--status-red)]';
               const label = line.is_ready
                 ? 'Ready'
                 : isShortClosed
@@ -225,10 +225,10 @@ export default function FulfillmentProgress({
                     ) : (
                       <XCircleIcon className={iconClass} />
                     )}
-                    <span className="text-sm text-white">
+                    <span className="text-sm text-[var(--ink)]">
                       <span className="font-medium">Line {line.line_number}:</span>{' '}
-                      <span className="text-gray-400">{line.product_sku}</span>{' '}
-                      <span className="text-gray-500">({line.quantity_remaining} units)</span>
+                      <span className="text-[var(--ink-3)]">{line.product_sku}</span>{' '}
+                      <span className="text-[var(--ink-4)]">({line.quantity_remaining} units)</span>
                     </span>
                   </div>
                   <span className={labelClass}>{label}</span>
@@ -246,10 +246,10 @@ export default function FulfillmentProgress({
             "Ship Partial" was removed — partial shipment isn't implemented
             anywhere (tracked as #726), so the control was a dead end. */}
         {onShip && canShip?.can_ship && (
-          <div className="pt-4 border-t border-gray-800">
+          <div className="pt-4 border-t border-[var(--rule-hair)]">
             <button
               onClick={() => onShip('complete')}
-              className="w-full px-4 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 bg-[var(--orange)] text-white font-medium rounded-lg hover:bg-[var(--orange-press)] transition-colors flex items-center justify-center gap-2"
             >
               Ship Complete Order
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,11 +260,11 @@ export default function FulfillmentProgress({
         )}
 
         {onShip && canShip && !canShip.can_ship && (
-          <div className="pt-4 border-t border-gray-800">
-            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5">
-              <p className="text-sm font-medium text-amber-400">Not ready to ship</p>
+          <div className="pt-4 border-t border-[var(--rule-hair)]">
+            <div className="rounded-lg bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/20 px-3 py-2.5">
+              <p className="text-sm font-medium text-[var(--status-amber)]">Not ready to ship</p>
               {canShip.reasons?.length > 0 && (
-                <ul className="mt-1 space-y-0.5 text-xs text-amber-300/90 list-disc list-inside">
+                <ul className="mt-1 space-y-0.5 text-xs text-[var(--status-amber)]/90 list-disc list-inside">
                   {canShip.reasons.map((reason, i) => (
                     <li key={i}>{reason}</li>
                   ))}

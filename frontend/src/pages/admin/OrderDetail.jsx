@@ -760,7 +760,7 @@ export default function OrderDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-white">Loading order...</div>
+        <div className="text-[var(--ink)]">Loading order...</div>
       </div>
     );
   }
@@ -768,7 +768,7 @@ export default function OrderDetail() {
   if (error || !order) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-red-400">Error: {error || "Order not found"}</div>
+        <div className="text-[var(--status-red)]">Error: {error || "Order not found"}</div>
       </div>
     );
   }
@@ -818,14 +818,14 @@ export default function OrderDetail() {
         <div>
           <button
             onClick={() => navigate("/admin/orders")}
-            className="text-gray-400 hover:text-white mb-2"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] mb-2"
           >
             &larr; Back to Orders
           </button>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-[var(--ink)]">
             Order: {order.order_number}
           </h1>
-          <p className="text-gray-400 mt-1">Order Command Center</p>
+          <p className="text-[var(--ink-3)] mt-1">Order Command Center</p>
         </div>
         <OrderHeaderActions
           orderId={order.id}
@@ -878,33 +878,33 @@ export default function OrderDetail() {
       />
 
       {/* Quick Actions \u2014 idempotent tools only (links + checks) */}
-      <div className="bg-gradient-to-r from-blue-900/20 to-cyan-900/20 border border-blue-500/30 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+        <h2 className="text-lg font-semibold text-[var(--ink)] mb-4 flex items-center gap-2">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
           Quick Actions
         </h2>
         {invoiceLoading && !orderInvoice && (
-          <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/70 px-4 py-3 text-sm text-gray-400">
+          <div className="mb-4 rounded-lg border border-[var(--rule-hair)] bg-[var(--paper-sunk)] px-4 py-3 text-sm text-[var(--ink-3)]">
             Checking invoice status...
           </div>
         )}
         {orderInvoice && (
-          <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-4 py-3">
+          <div className="mb-4 rounded-lg border border-[var(--status-green)]/30 bg-[var(--status-green-tint)] px-4 py-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="text-xs uppercase tracking-wide text-emerald-300">
+                <div className="text-xs uppercase tracking-wide text-[var(--status-green)]">
                   Invoice on this order
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-3">
-                  <span className="font-mono text-sm font-semibold text-white">
+                  <span className="font-mono text-sm font-semibold text-[var(--ink)]">
                     {orderInvoice.invoice_number}
                   </span>
-                  <span className="rounded-full bg-gray-900 px-2 py-1 text-xs text-gray-300">
+                  <span className="rounded-full bg-[var(--paper-sunk)] px-2 py-1 text-xs text-[var(--ink-2)]">
                     {orderInvoice.status?.replace(/_/g, " ") || "draft"}
                   </span>
-                  <span className="text-sm text-gray-300">
+                  <span className="text-sm text-[var(--ink-2)]">
                     Balance {formatMoney(getInvoiceBalanceDue(orderInvoice))}
                   </span>
                 </div>
@@ -912,13 +912,13 @@ export default function OrderDetail() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => navigate(`/admin/invoices?invoice=${orderInvoice.id}`)}
-                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-600"
+                  className="rounded-lg bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] px-3 py-2 text-sm hover:bg-[var(--rule-hair)]"
                 >
                   Open Invoice
                 </button>
                 <button
                   onClick={handleDownloadOrderInvoice}
-                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-600"
+                  className="rounded-lg bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] px-3 py-2 text-sm hover:bg-[var(--rule-hair)]"
                 >
                   Download PDF
                 </button>
@@ -930,7 +930,7 @@ export default function OrderDetail() {
           <button
             onClick={handleCheckAvailability}
             disabled={checkingAvailability || productionOrders.length === 0}
-            className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            className="px-4 py-3 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -940,7 +940,7 @@ export default function OrderDetail() {
           {productionOrders.length > 0 && (
             <button
               onClick={() => navigate(`/admin/production/${productionOrders[0].id}`)}
-              className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 transition-colors"
+              className="px-4 py-3 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded-lg hover:bg-[var(--rule-hair)] flex items-center justify-center gap-2 transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -957,13 +957,13 @@ export default function OrderDetail() {
                 key={idx}
                 className={`p-3 rounded-lg ${
                   avail.can_release
-                    ? "bg-green-900/20 border border-green-500/30"
-                    : "bg-red-900/20 border border-red-500/30"
+                    ? "bg-[var(--status-green-tint)] border border-[var(--status-green)]/30"
+                    : "bg-[var(--status-red-tint)] border border-[var(--status-red)]/30"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-white font-medium">{avail.order_code}</span>
-                  <span className={`text-sm ${avail.can_release ? "text-green-400" : "text-red-400"}`}>
+                  <span className="text-[var(--ink)] font-medium">{avail.order_code}</span>
+                  <span className={`text-sm ${avail.can_release ? "text-[var(--status-green)]" : "text-[var(--status-red)]"}`}>
                     {avail.can_release ? "\u2713 Materials Available" : `\u26A0 ${avail.shortage_count} Shortage${avail.shortage_count !== 1 ? "s" : ""}`}
                   </span>
                 </div>
@@ -1009,36 +1009,36 @@ export default function OrderDetail() {
       />
 
       {/* Order Summary */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+        <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Order Summary</h2>
         <div className="grid grid-cols-4 gap-4">
           <div>
-            <div className="text-sm text-gray-400">Product</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Product</div>
+            <div className="text-[var(--ink)] font-medium">
               {order.lines?.length > 1
                 ? `${order.lines.length} line items`
                 : order.product_name || order.lines?.[0]?.product_name || "N/A"}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">
+            <div className="text-sm text-[var(--ink-3)]">
               {order.lines?.length > 1 ? "Lines" : "Quantity"}
             </div>
-            <div className="text-white font-medium">
+            <div className="text-[var(--ink)] font-medium">
               {order.lines?.length > 1 ? order.lines.length : order.quantity}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Status</div>
-            <div className="text-white font-medium flex items-center gap-2 capitalize">
+            <div className="text-sm text-[var(--ink-3)]">Status</div>
+            <div className="text-[var(--ink)] font-medium flex items-center gap-2 capitalize">
               {order.status?.replace(/_/g, " ") || "unknown"}
               {order.closed_short && (
                 getProductionComplete() ? (
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-[var(--status-green-tint)] text-[var(--status-green)] border border-[var(--status-green)]/30">
                     Previously Closed Short — Fulfilled
                   </span>
                 ) : (
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-[var(--status-amber-tint)] text-[var(--status-amber)] border border-[var(--status-amber)]/30">
                     Closed Short
                   </span>
                 )
@@ -1046,8 +1046,8 @@ export default function OrderDetail() {
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Total</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Total</div>
+            <div className="text-[var(--ink)] font-medium">
               ${parseFloat(order.grand_total ?? order.total_price ?? 0).toFixed(2)}
             </div>
           </div>
@@ -1064,39 +1064,39 @@ export default function OrderDetail() {
       )}
 
       {/* Customer Information */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Customer</h2>
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+        <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Customer</h2>
         {order.customer_name || order.customer_email ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <div className="text-sm text-gray-400">Name</div>
-              <div className="text-white font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Name</div>
+              <div className="text-[var(--ink)] font-medium">
                 {order.customer_name || "\u2014"}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-400">Email</div>
-              <div className="text-white font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Email</div>
+              <div className="text-[var(--ink)] font-medium">
                 {order.customer_email ? (
-                  <a href={`mailto:${order.customer_email}`} className="text-blue-400 hover:underline">
+                  <a href={`mailto:${order.customer_email}`} className="text-[var(--orange)] hover:underline">
                     {order.customer_email}
                   </a>
                 ) : "\u2014"}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-400">Phone</div>
-              <div className="text-white font-medium">
+              <div className="text-sm text-[var(--ink-3)]">Phone</div>
+              <div className="text-[var(--ink)] font-medium">
                 {order.customer_phone || "\u2014"}
               </div>
             </div>
             {order.customer_id && (
               <div>
-                <div className="text-sm text-gray-400">Customer ID</div>
-                <div className="text-white font-medium">
+                <div className="text-sm text-[var(--ink-3)]">Customer ID</div>
+                <div className="text-[var(--ink)] font-medium">
                   <button
                     onClick={() => navigate(`/admin/customers/${order.customer_id}`)}
-                    className="text-blue-400 hover:underline"
+                    className="text-[var(--orange)] hover:underline"
                   >
                     #{order.customer_id}
                   </button>
@@ -1105,17 +1105,17 @@ export default function OrderDetail() {
             )}
           </div>
         ) : order.quote_id ? (
-          <div className="text-gray-400">
+          <div className="text-[var(--ink-3)]">
             Customer info available in linked quote.
             <button
               onClick={() => navigate(`/admin/quotes`)}
-              className="text-blue-400 hover:underline ml-2"
+              className="text-[var(--orange)] hover:underline ml-2"
             >
               View Quote
             </button>
           </div>
         ) : (
-          <div className="text-gray-400">No customer information on file.</div>
+          <div className="text-[var(--ink-3)]">No customer information on file.</div>
         )}
       </div>
 
@@ -1144,10 +1144,10 @@ export default function OrderDetail() {
 
       {/* Production Orders - Status Display */}
       {productionOrders.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
           <button
             onClick={() => toggleSection("productionOrders")}
-            className="flex items-center gap-2 text-lg font-semibold text-white hover:text-gray-300 mb-4"
+            className="flex items-center gap-2 text-lg font-semibold text-[var(--ink)] hover:text-[var(--ink-2)] mb-4"
           >
             <svg
               className={`w-5 h-5 transition-transform ${expandedSections.productionOrders ? "rotate-90" : ""}`}
@@ -1192,19 +1192,19 @@ export default function OrderDetail() {
       />
 
       {/* Activity Timeline */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Activity</h2>
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+        <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Activity</h2>
         <ActivityTimeline orderId={parseInt(orderId)} />
       </div>
 
       {/* Shipping Timeline - Show if order has been shipped */}
       {order?.tracking_number && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
           <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-[var(--ink-3)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
             </svg>
-            <h2 className="text-lg font-semibold text-white">Shipping Tracking</h2>
+            <h2 className="text-lg font-semibold text-[var(--ink)]">Shipping Tracking</h2>
           </div>
           <ShippingTimeline orderId={parseInt(orderId)} />
         </div>
@@ -1263,19 +1263,19 @@ export default function OrderDetail() {
       {/* Close Short Modal */}
       {showCloseShortModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setShowCloseShortModal(false); setCloseShortPreview(null); setCloseShortReason(""); }}>
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white mb-2">
+          <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto shadow-[var(--shadow-pop)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-[var(--ink)] mb-2">
               Close Order Short
             </h3>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-[var(--ink-3)] text-sm mb-4">
               This will adjust line quantities to match actual produced amounts and set the order to Ready to Ship.
             </p>
 
             {/* Unresolved PO warning */}
             {closeShortPreview && !closeShortPreview.all_pos_resolved && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
-                <p className="text-red-400 text-sm font-medium mb-1">Production orders still unresolved</p>
-                <p className="text-red-400/80 text-xs">
+              <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3 mb-4">
+                <p className="text-[var(--status-red)] text-sm font-medium mb-1">Production orders still unresolved</p>
+                <p className="text-[var(--status-red)]/80 text-xs">
                   Accept short on these POs first: {closeShortPreview.unresolved_pos.join(", ")}
                 </p>
               </div>
@@ -1283,27 +1283,27 @@ export default function OrderDetail() {
 
             {/* Preview table from backend */}
             {loadingPreview ? (
-              <div className="bg-gray-800 rounded-lg p-4 mb-4 text-center text-gray-400 text-sm">Loading preview...</div>
+              <div className="bg-[var(--paper-sunk)] rounded-lg p-4 mb-4 text-center text-[var(--ink-3)] text-sm">Loading preview...</div>
             ) : closeShortPreview?.lines ? (
-              <div className="bg-gray-800 rounded-lg p-3 mb-4">
+              <div className="bg-[var(--paper-sunk)] rounded-lg p-3 mb-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-gray-400 text-xs">
+                    <tr className="text-[var(--ink-3)] text-xs">
                       <th className="text-left py-1">Product</th>
                       <th className="text-right py-1">Ordered</th>
                       <th className="text-right py-1">Adjusted</th>
                       <th className="text-left py-1 pl-3">Reason</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-700">
+                  <tbody className="divide-y divide-[var(--rule-hair)]">
                     {closeShortPreview.lines.map((line) => (
                       <tr key={line.line_id}>
-                        <td className="py-1.5 text-white text-xs">{line.product_name || line.product_sku || "N/A"}</td>
-                        <td className="py-1.5 text-right text-white">{line.ordered_qty}</td>
-                        <td className={`py-1.5 text-right font-medium ${line.will_adjust ? "text-amber-400" : "text-green-400"}`}>
+                        <td className="py-1.5 text-[var(--ink)] text-xs">{line.product_name || line.product_sku || "N/A"}</td>
+                        <td className="py-1.5 text-right text-[var(--ink)]">{line.ordered_qty}</td>
+                        <td className={`py-1.5 text-right font-medium ${line.will_adjust ? "text-[var(--status-amber)]" : "text-[var(--status-green)]"}`}>
                           {line.achievable_qty}
                         </td>
-                        <td className="py-1.5 text-left pl-3 text-gray-400 text-xs max-w-[200px] truncate">{line.reason}</td>
+                        <td className="py-1.5 text-left pl-3 text-[var(--ink-3)] text-xs max-w-[200px] truncate">{line.reason}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1311,11 +1311,11 @@ export default function OrderDetail() {
 
                 {/* PO summary */}
                 {closeShortPreview.lines.some(l => l.linked_po_summary?.length > 0) && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <p className="text-xs text-gray-500 mb-1">Linked Production Orders:</p>
+                  <div className="mt-3 pt-3 border-t border-[var(--rule-hair)]">
+                    <p className="text-xs text-[var(--ink-4)] mb-1">Linked Production Orders:</p>
                     <div className="flex flex-wrap gap-2">
                       {[...new Map(closeShortPreview.lines.flatMap(l => l.linked_po_summary || []).map(po => [po.po_number, po])).values()].map(po => (
-                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${["complete", "completed", "closed", "cancelled"].includes(po.status) ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
+                        <span key={po.po_number} className={`px-2 py-0.5 rounded text-xs ${["complete", "completed", "closed", "cancelled"].includes(po.status) ? "bg-[var(--status-green-tint)] text-[var(--status-green)]" : "bg-[var(--status-amber-tint)] text-[var(--status-amber)]"}`}>
                           {po.po_number}: {po.completed}/{po.ordered} ({po.status})
                         </span>
                       ))}
@@ -1325,8 +1325,8 @@ export default function OrderDetail() {
               </div>
             ) : null}
 
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4">
-              <p className="text-amber-400 text-sm">
+            <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-3 mb-4">
+              <p className="text-[var(--status-amber)] text-sm">
                 This will adjust quantities and set the order to Ready to Ship. Ship through the normal flow after.
               </p>
             </div>
@@ -1335,20 +1335,20 @@ export default function OrderDetail() {
               value={closeShortReason}
               onChange={(e) => setCloseShortReason(e.target.value)}
               placeholder="Reason for closing short (required)..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 mb-4"
+              className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3 text-[var(--ink)] placeholder-[var(--ink-4)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] mb-4"
               rows={2}
             />
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => { setShowCloseShortModal(false); setCloseShortReason(""); setCloseShortPreview(null); }}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                className="px-4 py-2 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded-lg hover:bg-[var(--rule-hair)]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCloseShort}
                 disabled={!closeShortReason.trim() || closingShort || (closeShortPreview && !closeShortPreview.all_pos_resolved)}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {closingShort ? "Closing..." : "Close Order Short"}
               </button>
@@ -1360,18 +1360,18 @@ export default function OrderDetail() {
       {/* Reject Order Modal */}
       {showRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-white mb-4">
+          <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 max-w-md w-full mx-4 shadow-[var(--shadow-pop)]">
+            <h3 className="text-lg font-semibold text-[var(--ink)] mb-4">
               Reject Order {order.order_number}
             </h3>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-[var(--ink-3)] text-sm mb-4">
               This will cancel the order and notify the source system.
             </p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Reason for rejection..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 mb-4"
+              className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3 text-[var(--ink)] placeholder-[var(--ink-4)] focus:border-[var(--status-red)] focus:ring-1 focus:ring-[var(--status-red)] mb-4"
               rows={3}
             />
             <div className="flex justify-end gap-3">
@@ -1380,14 +1380,14 @@ export default function OrderDetail() {
                   setShowRejectModal(false);
                   setRejectReason("");
                 }}
-                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                className="px-4 py-2 bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded-lg hover:bg-[var(--rule-hair)]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRejectOrder}
                 disabled={!rejectReason.trim() || rejectingOrder}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-[var(--status-red)] text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {rejectingOrder ? "Rejecting..." : "Reject Order"}
               </button>
