@@ -88,9 +88,15 @@ export const PRINTER_COLORS = {
 export const PRODUCTION_ORDER_BADGE_CONFIGS = {
   draft: { bg: "bg-gray-500/20", text: "text-gray-400", label: "Draft" },
   released: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Released" },
+  scheduled: { bg: "bg-cyan-500/20", text: "text-cyan-400", label: "Scheduled" },
   in_progress: { bg: "bg-purple-500/20", text: "text-purple-400", label: "In Progress" },
   complete: { bg: "bg-green-500/20", text: "text-green-400", label: "Complete" },
+  completed: { bg: "bg-green-500/20", text: "text-green-400", label: "Complete" },
+  closed: { bg: "bg-green-700/20", text: "text-green-300", label: "Closed" },
   short: { bg: "bg-orange-500/20", text: "text-orange-400", label: "Short" },
+  qc_hold: { bg: "bg-amber-500/20", text: "text-amber-400", label: "QC Hold" },
+  on_hold: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "On Hold" },
+  scrapped: { bg: "bg-red-500/20", text: "text-red-400", label: "Scrapped" },
   cancelled: { bg: "bg-red-500/20", text: "text-red-400", label: "Cancelled" },
 };
 

@@ -1075,8 +1075,36 @@ def record_scrap(
     if not reason:
         raise HTTPException(status_code=400, detail=f"Invalid scrap reason: {reason_code}")
 
+    # Cap scrap at the quantity still unaccounted (ordered - completed -
+    # already-scrapped). The ScrapOrderModal enforces this client-side; enforce
+    # it server-side too so a direct API call can't drive quantity_scrapped past
+    # quantity_ordered.
+    already_scrapped = order.quantity_scrapped or 0
+    completed = order.quantity_completed or 0
+    remaining = order.quantity_ordered - completed - already_scrapped
+    if quantity_scrapped > remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot scrap {quantity_scrapped} units: only {remaining} "
+                f"remain unaccounted on {order.code}."
+            ),
+        )
+
     # Update order scrap quantity
     order.quantity_scrapped = (order.quantity_scrapped or 0) + quantity_scrapped
+
+    # If the whole order is now scrapped (nothing completed, everything accounted
+    # as scrap) move it to the terminal 'scrapped' state so it leaves the active
+    # queue. Orders with completed units are left untouched — partial completion
+    # plus scrap is a short-close decision handled elsewhere.
+    _active_statuses = ("draft", "released", "scheduled", "in_progress", "short", "on_hold")
+    if (
+        completed == 0
+        and order.quantity_scrapped >= order.quantity_ordered
+        and order.status in _active_statuses
+    ):
+        order.status = "scrapped"
 
     from app.models.user import User
     scrap_user = db.query(User).filter(User.email == user_email).first()
