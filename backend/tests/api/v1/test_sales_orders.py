@@ -241,6 +241,37 @@ class TestListSalesOrders:
         order_numbers = [o["order_number"] for o in data]
         assert so.order_number in order_numbers
 
+    def test_list_shipped_after_filters_by_ship_date(
+        self, client, db, make_product, make_sales_order
+    ):
+        """shipped_after must exclude orders shipped before the given date.
+
+        Backs the AdminShipping "Shipped Today" widget, which queries
+        ?status=shipped&shipped_after=<today>. Regression: the endpoint
+        previously declared no shipped_after param, so FastAPI dropped it and
+        the widget returned every shipped order instead of just today's.
+        """
+        from datetime import datetime, timedelta
+
+        product = make_product(selling_price=Decimal("10.00"))
+        today = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        recent = make_sales_order(
+            product_id=product.id, status="shipped", shipped_at=today
+        )
+        old = make_sales_order(
+            product_id=product.id,
+            status="shipped",
+            shipped_at=today - timedelta(days=10),
+        )
+        db.flush()
+
+        cutoff = today.date().isoformat()
+        response = client.get(f"{BASE_URL}?status=shipped&shipped_after={cutoff}")
+        assert response.status_code == 200
+        numbers = [o["order_number"] for o in response.json()]
+        assert recent.order_number in numbers
+        assert old.order_number not in numbers
+
 
 # =============================================================================
 # Get single order

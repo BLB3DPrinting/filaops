@@ -3,6 +3,7 @@ Sales Order Management Endpoints
 
 Handles converting quotes to sales orders and order lifecycle management.
 """
+from datetime import date
 from decimal import Decimal
 from typing import List, Optional
 
@@ -435,6 +436,9 @@ async def get_user_sales_orders(
     ),
     sort_by: str = Query("order_date", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
+    shipped_after: Optional[date] = Query(
+        None, description="Only orders shipped on or after this date (YYYY-MM-DD)"
+    ),
     source: Optional[str] = Query(None, description="Filter by source (manual, portal, api, squarespace, woocommerce)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -495,6 +499,7 @@ async def get_user_sales_orders(
             status_filter=status_filter,
             statuses=status,
             source=source,
+            shipped_after=shipped_after,
             skip=0,
             limit=10000,  # Get all for fulfillment filtering
             sort_by="order_date",
@@ -551,6 +556,7 @@ async def get_user_sales_orders(
         status_filter=status_filter,
         statuses=status,
         source=source,
+        shipped_after=shipped_after,
         skip=skip,
         limit=limit,
         sort_by=sort_by,

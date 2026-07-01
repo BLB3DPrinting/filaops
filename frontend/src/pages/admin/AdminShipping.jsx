@@ -395,15 +395,18 @@ export default function AdminShipping() {
 
       const orderList = data.items || data || [];
       if (requestId !== ordersReqRef.current) return;
+      setError(null); // clear any stale error from a prior failed refresh
       setOrders(orderList);
 
-      // Fetch production status for all orders in one batch call
-      fetchAllProductionStatuses(orderList, requestId);
-
-      // Await the can-ship preflight so loading stays true until eligibility is
-      // known — Ship rows must not be interactive before the preflight resolves
-      // (#845). This is the same gate ship_order() enforces.
-      await fetchCanShip();
+      // Await BOTH the production-status batch and the can-ship preflight before
+      // clearing loading. Production status drives tab classification
+      // (categorizeOrders); if loading cleared first, the initial render would
+      // mis-bucket orders whose WOs hadn't loaded yet. can-ship is awaited for
+      // the same reason ship_order() enforces it (#845). Run them in parallel.
+      await Promise.all([
+        fetchCanShip(),
+        fetchAllProductionStatuses(orderList, requestId),
+      ]);
 
       // Fetch shipped today for metrics
       fetchShippedToday(requestId);
