@@ -95,6 +95,13 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
       maximumFractionDigits: 1,
     }).format(value);
 
+  const formatFullCurrency = (value) =>
+    new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: currency_code,
+      maximumFractionDigits: 2,
+    }).format(value);
+
   const handleMouseMove = (e, index) => {
     if (chartRef.current) {
       const rect = chartRef.current.getBoundingClientRect();
@@ -228,7 +235,7 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-[var(--status-green)]">Value:</span>
-                        <span className="text-[var(--ink)] font-mono-data">${d.dailyValue.toFixed(2)}</span>
+                        <span className="text-[var(--ink)] font-mono-data">{formatFullCurrency(d.dailyValue)}</span>
                       </div>
                       <div className="border-t border-[var(--rule-hair)] my-1 pt-1">
                         <div className="flex justify-between gap-4">
@@ -237,7 +244,7 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
                         </div>
                         <div className="flex justify-between gap-4">
                           <span className="text-[var(--ink-3)]">Total Value:</span>
-                          <span className="text-[var(--ink)] font-mono-data">${d.cumulativeValue.toFixed(2)}</span>
+                          <span className="text-[var(--ink)] font-mono-data">{formatFullCurrency(d.cumulativeValue)}</span>
                         </div>
                       </div>
                     </div>
@@ -324,6 +331,7 @@ export default function AdminShipping() {
   const [canShip, setCanShip] = useState({}); // #845: order_id -> {can_ship, reasons[]}
   const [canShipUnavailable, setCanShipUnavailable] = useState(false); // preflight fetch failed — surfaced via a banner (fail-visible)
   const canShipReqRef = useRef(0); // monotonic guard: only the latest fetch writes state
+  const ordersReqRef = useRef(0); // monotonic guard for the orders + preflight refresh
   const [activeTab, setActiveTab] = useState("packaging"); // packaging, needs_label, ready_to_ship
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [trackingForm, setTrackingForm] = useState({ carrier: "USPS", tracking_number: "" });
@@ -374,6 +382,9 @@ export default function AdminShipping() {
   }, [orderIdParam, orders, productionStatus]);
 
   const fetchOrders = async () => {
+    // Only the newest refresh may write state or clear loading (initial load /
+    // manual refresh / post-ship reload can overlap).
+    const requestId = ++ordersReqRef.current;
     setLoading(true);
     try {
       // Fetch orders ready to ship. (qc_passed removed — not a SalesOrder
@@ -383,22 +394,23 @@ export default function AdminShipping() {
       );
 
       const orderList = data.items || data || [];
+      if (requestId !== ordersReqRef.current) return;
       setOrders(orderList);
 
       // Fetch production status for all orders in one batch call
       fetchAllProductionStatuses(orderList);
 
-      // Fetch the can-ship preflight for every ready_to_ship order in one
-      // batch call (#845) — this is the same gate ship_order() itself
-      // enforces, so the UI never disagrees with the backend.
-      fetchCanShip();
+      // Await the can-ship preflight so loading stays true until eligibility is
+      // known — Ship rows must not be interactive before the preflight resolves
+      // (#845). This is the same gate ship_order() enforces.
+      await fetchCanShip();
 
       // Fetch shipped today for metrics
       fetchShippedToday();
     } catch (err) {
-      setError(err.message);
+      if (requestId === ordersReqRef.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === ordersReqRef.current) setLoading(false);
     }
   };
 
