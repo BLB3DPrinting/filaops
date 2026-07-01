@@ -12,16 +12,16 @@ import { useBlockingIssues } from '../../hooks/useBlockingIssues';
 function StatusBadge({ canProceed, blockingCount }) {
   if (canProceed) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-green-500/20 text-green-400 border border-green-500/30">
-        <span className="w-2 h-2 rounded-full bg-green-400"></span>
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-[var(--status-green-tint)] text-[var(--status-green)] border border-[var(--status-green)]/30">
+        <span className="w-2 h-2 rounded-full bg-[var(--status-green)]"></span>
         Ready
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30">
-      <span className="w-2 h-2 rounded-full bg-red-400"></span>
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-[var(--status-red-tint)] text-[var(--status-red)] border border-[var(--status-red)]/30">
+      <span className="w-2 h-2 rounded-full bg-[var(--status-red)]"></span>
       {blockingCount} Blocking Issue{blockingCount !== 1 ? 's' : ''}
     </span>
   );
@@ -77,13 +77,13 @@ function IssueIcon({ type }) {
 function getSeverityColors(severity) {
   switch (severity) {
     case 'blocking':
-      return 'text-red-400 bg-red-500/10';
+      return 'text-[var(--status-red)] bg-[var(--status-red-tint)]';
     case 'warning':
-      return 'text-yellow-400 bg-yellow-500/10';
+      return 'text-[var(--status-amber)] bg-[var(--status-amber-tint)]';
     case 'info':
-      return 'text-blue-400 bg-blue-500/10';
+      return 'text-[var(--ink-3)] bg-[var(--paper-sunk)]';
     default:
-      return 'text-gray-400 bg-gray-500/10';
+      return 'text-[var(--ink-3)] bg-[var(--paper-sunk)]';
   }
 }
 
@@ -100,7 +100,7 @@ function BlockingIssueRow({ issue }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">{issue.message}</p>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-[var(--ink-4)] mt-1">
           {issue.reference_type}: {issue.reference_code}
         </p>
       </div>
@@ -118,20 +118,20 @@ function LineIssuesSection({ lineIssues }) {
 
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
+      <h4 className="text-sm font-medium text-[var(--ink-3)] uppercase tracking-wide">
         Line Issues
       </h4>
       {linesWithIssues.map((line) => (
-        <div key={line.line_number} className="bg-gray-800/50 rounded-lg p-3 space-y-2">
+        <div key={line.line_number} className="bg-[var(--paper-sunk)] rounded-lg p-3 space-y-2">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-sm font-medium text-white">
+              <p className="text-sm font-medium text-[var(--ink)]">
                 Line {line.line_number}: {line.product_sku}
               </p>
-              <p className="text-xs text-gray-500">{line.product_name}</p>
+              <p className="text-xs text-[var(--ink-4)]">{line.product_name}</p>
             </div>
             {line.quantity_short > 0 && (
-              <span className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400">
+              <span className="text-xs px-2 py-1 rounded bg-[var(--status-red-tint)] text-[var(--status-red)]">
                 Short: {line.quantity_short.toLocaleString()}
               </span>
             )}
@@ -155,14 +155,14 @@ function ShortageStateBadge({ mat }) {
   // covered_by_incoming: short on-hand but open PO(s) cover the full gap
   if (mat.covered_by_incoming) {
     return (
-      <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">
+      <span className="text-xs px-2 py-1 rounded bg-[var(--status-amber-tint)] text-[var(--status-amber)]">
         Covered by PO
       </span>
     );
   }
 
   return (
-    <span className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400">
+    <span className="text-xs px-2 py-1 rounded bg-[var(--status-red-tint)] text-[var(--status-red)]">
       Short: {Number(mat.quantity_short).toLocaleString()}
     </span>
   );
@@ -178,30 +178,30 @@ function MaterialIssuesSection({ materialIssues }) {
 
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
+      <h4 className="text-sm font-medium text-[var(--ink-3)] uppercase tracking-wide">
         Material Issues
       </h4>
       {issuesWithShortage.map((mat) => (
-        <div key={mat.product_id} className="bg-gray-800/50 rounded-lg p-3">
+        <div key={mat.product_id} className="bg-[var(--paper-sunk)] rounded-lg p-3">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-sm font-medium text-white">{mat.product_sku}</p>
-              <p className="text-xs text-gray-500">{mat.product_name}</p>
+              <p className="text-sm font-medium text-[var(--ink)]">{mat.product_sku}</p>
+              <p className="text-xs text-[var(--ink-4)]">{mat.product_name}</p>
             </div>
             <ShortageStateBadge mat={mat} />
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
             <div>
-              <span className="text-gray-500">Required:</span>
-              <span className="text-white ml-1">{Number(mat.quantity_required).toLocaleString()}</span>
+              <span className="text-[var(--ink-4)]">Required:</span>
+              <span className="text-[var(--ink)] ml-1">{Number(mat.quantity_required).toLocaleString()}</span>
             </div>
             <div>
-              <span className="text-gray-500">Available:</span>
-              <span className="text-white ml-1">{Number(mat.quantity_available).toLocaleString()}</span>
+              <span className="text-[var(--ink-4)]">Available:</span>
+              <span className="text-[var(--ink)] ml-1">{Number(mat.quantity_available).toLocaleString()}</span>
             </div>
             <div>
-              <span className="text-gray-500">Short:</span>
-              <span className={mat.covered_by_incoming ? 'text-yellow-400 ml-1' : 'text-red-400 ml-1'}>
+              <span className="text-[var(--ink-4)]">Short:</span>
+              <span className={mat.covered_by_incoming ? 'text-[var(--status-amber)] ml-1' : 'text-[var(--status-red)] ml-1'}>
                 {Number(mat.quantity_short).toLocaleString()}
               </span>
             </div>
@@ -209,19 +209,19 @@ function MaterialIssuesSection({ materialIssues }) {
           {mat.incoming_supply && (
             <div className={`mt-2 p-2 rounded text-xs ${
               mat.covered_by_incoming
-                ? 'bg-green-500/10 border border-green-500/20'
-                : 'bg-blue-500/10'
+                ? 'bg-[var(--status-green-tint)] border border-[var(--status-green)]/20'
+                : 'bg-[var(--paper-sunk)]'
             }`}>
               {mat.covered_by_incoming ? (
-                <span className="text-green-400 font-medium">Covered by incoming PO: </span>
+                <span className="text-[var(--status-green)] font-medium">Covered by incoming PO: </span>
               ) : (
-                <span className="text-blue-400">Incoming: </span>
+                <span className="text-[var(--ink-3)]">Incoming: </span>
               )}
-              <span className="text-white">
+              <span className="text-[var(--ink)]">
                 {Number(mat.incoming_supply.quantity).toLocaleString()} from {mat.incoming_supply.purchase_order_code}
               </span>
               {mat.incoming_supply.expected_date && (
-                <span className="text-gray-500 ml-1">
+                <span className="text-[var(--ink-4)] ml-1">
                   (ETA: {mat.incoming_supply.expected_date})
                 </span>
               )}
@@ -240,29 +240,29 @@ function ResolutionActionsSection({ actions, onActionClick }) {
   if (!actions || actions.length === 0) return null;
 
   const getPriorityColor = (priority) => {
-    if (priority === 1) return 'text-red-400 bg-red-500/10 border-red-500/30';
-    if (priority === 2) return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
-    return 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+    if (priority === 1) return 'text-[var(--status-red)] bg-[var(--status-red-tint)] border-[var(--status-red)]/30';
+    if (priority === 2) return 'text-[var(--status-amber)] bg-[var(--status-amber-tint)] border-[var(--status-amber)]/30';
+    return 'text-[var(--ink-3)] bg-[var(--paper-sunk)] border-[var(--rule-hair)]';
   };
 
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
+      <h4 className="text-sm font-medium text-[var(--ink-3)] uppercase tracking-wide">
         Suggested Actions
       </h4>
       {actions.map((action, idx) => (
         <button
           key={idx}
           onClick={() => onActionClick?.(action)}
-          className={`w-full text-left p-3 rounded-lg border transition-colors hover:bg-gray-800 ${getPriorityColor(action.priority)}`}
+          className={`w-full text-left p-3 rounded-lg border transition-colors hover:bg-[var(--paper-sunk)] ${getPriorityColor(action.priority)}`}
         >
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold">
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-[var(--paper-sunk)] flex items-center justify-center text-xs font-bold">
               {action.priority}
             </span>
             <div className="flex-1">
               <p className="text-sm font-medium">{action.action}</p>
-              <p className="text-xs text-gray-500 mt-1">{action.impact}</p>
+              <p className="text-xs text-[var(--ink-4)] mt-1">{action.impact}</p>
             </div>
             <svg className="w-4 h-4 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -282,16 +282,16 @@ function EstimatedReadyDate({ date, daysUntil }) {
 
   return (
     <div className="flex items-center gap-2 text-sm">
-      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4 text-[var(--ink-4)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
       </svg>
-      <span className="text-gray-400">Est. Ready:</span>
-      <span className="text-white">{date}</span>
+      <span className="text-[var(--ink-3)]">Est. Ready:</span>
+      <span className="text-[var(--ink)]">{date}</span>
       {daysUntil !== null && daysUntil !== undefined && (
         <span className={`text-xs px-2 py-0.5 rounded ${
-          daysUntil <= 0 ? 'bg-green-500/20 text-green-400' :
-          daysUntil <= 3 ? 'bg-yellow-500/20 text-yellow-400' :
-          'bg-gray-500/20 text-gray-400'
+          daysUntil <= 0 ? 'bg-[var(--status-green-tint)] text-[var(--status-green)]' :
+          daysUntil <= 3 ? 'bg-[var(--status-amber-tint)] text-[var(--status-amber)]' :
+          'bg-[var(--paper-sunk)] text-[var(--ink-3)]'
         }`}>
           {daysUntil <= 0 ? 'Ready now' : `${daysUntil} day${daysUntil !== 1 ? 's' : ''}`}
         </span>
@@ -314,11 +314,11 @@ export function BlockingIssuesPanel({
   // Loading state
   if (loading) {
     return (
-      <div className={`bg-gray-900 border border-gray-800 rounded-xl p-4 ${className}`}>
+      <div className={`bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)] ${className}`}>
         <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-800 rounded w-1/3"></div>
-          <div className="h-4 bg-gray-800 rounded w-2/3"></div>
-          <div className="h-20 bg-gray-800 rounded"></div>
+          <div className="h-6 bg-[var(--paper-sunk)] rounded w-1/3"></div>
+          <div className="h-4 bg-[var(--paper-sunk)] rounded w-2/3"></div>
+          <div className="h-20 bg-[var(--paper-sunk)] rounded"></div>
         </div>
       </div>
     );
@@ -327,18 +327,18 @@ export function BlockingIssuesPanel({
   // Error state
   if (error) {
     return (
-      <div className={`bg-gray-900 border border-red-500/30 rounded-xl p-4 ${className}`}>
+      <div className={`bg-[var(--paper)] border border-[var(--status-red)]/30 rounded-xl p-4 shadow-[var(--shadow-pop)] ${className}`}>
         <div className="flex items-center gap-3">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-[var(--status-red)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <p className="text-red-400 font-medium">Failed to load blocking issues</p>
-            <p className="text-sm text-gray-500">{error}</p>
+            <p className="text-[var(--status-red)] font-medium">Failed to load blocking issues</p>
+            <p className="text-sm text-[var(--ink-4)]">{error}</p>
           </div>
           <button
             onClick={refetch}
-            className="ml-auto px-3 py-1 text-sm bg-gray-800 text-gray-300 rounded hover:bg-gray-700"
+            className="ml-auto px-3 py-1 text-sm bg-[var(--paper-sunk)] text-[var(--ink-2)] rounded hover:bg-[var(--rule-hair)]"
           >
             Retry
           </button>
@@ -350,7 +350,7 @@ export function BlockingIssuesPanel({
   // No data state
   if (!data) {
     return (
-      <div className={`bg-gray-900 border border-gray-800 rounded-xl p-4 text-center text-gray-500 ${className}`}>
+      <div className={`bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 text-center text-[var(--ink-4)] shadow-[var(--shadow-pop)] ${className}`}>
         No blocking issues data available
       </div>
     );
@@ -363,19 +363,19 @@ export function BlockingIssuesPanel({
   const blockingCount = data.status_summary?.blocking_count || 0;
 
   return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-xl ${className}`}>
+    <div className={`bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl shadow-[var(--shadow-pop)] ${className}`}>
       {/* Header */}
-      <div className="p-4 border-b border-gray-800">
+      <div className="p-4 border-b border-[var(--rule-hair)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h3 className="text-lg font-semibold text-white">
+            <h3 className="text-lg font-semibold text-[var(--ink)]">
               {isSalesOrder ? 'Fulfillment Status' : 'Production Readiness'}
             </h3>
             <StatusBadge canProceed={canProceed} blockingCount={blockingCount} />
           </div>
           <button
             onClick={refetch}
-            className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800"
+            className="p-2 text-[var(--ink-4)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--paper-sunk)]"
             title="Refresh"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -397,16 +397,16 @@ export function BlockingIssuesPanel({
       <div className="p-4 space-y-4">
         {/* Ready message */}
         {canProceed && (
-          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+          <div className="p-4 bg-[var(--status-green-tint)] border border-[var(--status-green)]/30 rounded-lg">
             <div className="flex items-center gap-3">
-              <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 text-[var(--status-green)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-green-400 font-medium">
+                <p className="text-[var(--status-green)] font-medium">
                   {isSalesOrder ? 'Ready to fulfill' : 'Ready to produce'}
                 </p>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-[var(--ink-3)]">
                   {isSalesOrder
                     ? 'All items are available for shipping'
                     : 'All materials are available for production'}
@@ -418,13 +418,13 @@ export function BlockingIssuesPanel({
 
         {/* Linked sales order for production orders */}
         {!isSalesOrder && data.linked_sales_order && (
-          <div className="p-3 bg-gray-800/50 rounded-lg">
-            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Linked Sales Order</p>
-            <p className="text-sm text-white">
+          <div className="p-3 bg-[var(--paper-sunk)] rounded-lg">
+            <p className="text-xs text-[var(--ink-4)] uppercase tracking-wide mb-1">Linked Sales Order</p>
+            <p className="text-sm text-[var(--ink)]">
               {data.linked_sales_order.code} - {data.linked_sales_order.customer}
             </p>
             {data.linked_sales_order.requested_date && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-[var(--ink-4)] mt-1">
                 Requested: {data.linked_sales_order.requested_date}
               </p>
             )}
@@ -444,7 +444,7 @@ export function BlockingIssuesPanel({
         {/* Other issues for production orders */}
         {!isSalesOrder && data.other_issues && data.other_issues.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
+            <h4 className="text-sm font-medium text-[var(--ink-3)] uppercase tracking-wide">
               Other Issues
             </h4>
             {data.other_issues.map((issue, idx) => (

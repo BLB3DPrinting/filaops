@@ -17,8 +17,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
       </svg>
     ),
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/20",
+    color: "text-[var(--ink-2)]",
+    bgColor: "bg-[var(--paper-sunk)]",
   },
   note_added: {
     icon: (
@@ -26,8 +26,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
-    color: "text-gray-400",
-    bgColor: "bg-gray-500/20",
+    color: "text-[var(--ink-3)]",
+    bgColor: "bg-[var(--paper-sunk)]",
   },
   payment_received: {
     icon: (
@@ -35,8 +35,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    color: "text-green-400",
-    bgColor: "bg-green-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
   payment_refunded: {
     icon: (
@@ -44,8 +44,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
       </svg>
     ),
-    color: "text-red-400",
-    bgColor: "bg-red-500/20",
+    color: "text-[var(--status-red)]",
+    bgColor: "bg-[var(--status-red-tint)]",
   },
   production_started: {
     icon: (
@@ -54,8 +54,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    color: "text-purple-400",
-    bgColor: "bg-purple-500/20",
+    color: "text-[var(--ink-2)]",
+    bgColor: "bg-[var(--paper-sunk)]",
   },
   production_completed: {
     icon: (
@@ -63,8 +63,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    color: "text-green-400",
-    bgColor: "bg-green-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
   qc_passed: {
     icon: (
@@ -72,8 +72,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ),
-    color: "text-green-400",
-    bgColor: "bg-green-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
   qc_failed: {
     icon: (
@@ -81,8 +81,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
       </svg>
     ),
-    color: "text-red-400",
-    bgColor: "bg-red-500/20",
+    color: "text-[var(--status-red)]",
+    bgColor: "bg-[var(--status-red-tint)]",
   },
   shipped: {
     icon: (
@@ -90,8 +90,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
       </svg>
     ),
-    color: "text-cyan-400",
-    bgColor: "bg-cyan-500/20",
+    color: "text-[var(--ink-2)]",
+    bgColor: "bg-[var(--paper-sunk)]",
   },
   delivered: {
     icon: (
@@ -99,8 +99,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
       </svg>
     ),
-    color: "text-green-400",
-    bgColor: "bg-green-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
   address_updated: {
     icon: (
@@ -109,8 +109,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
-    color: "text-gray-400",
-    bgColor: "bg-gray-500/20",
+    color: "text-[var(--ink-3)]",
+    bgColor: "bg-[var(--paper-sunk)]",
   },
   cancelled: {
     icon: (
@@ -118,8 +118,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
       </svg>
     ),
-    color: "text-red-400",
-    bgColor: "bg-red-500/20",
+    color: "text-[var(--status-red)]",
+    bgColor: "bg-[var(--status-red-tint)]",
   },
   on_hold: {
     icon: (
@@ -127,8 +127,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    color: "text-yellow-400",
-    bgColor: "bg-yellow-500/20",
+    color: "text-[var(--status-amber)]",
+    bgColor: "bg-[var(--status-amber-tint)]",
   },
   resumed: {
     icon: (
@@ -137,8 +137,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    color: "text-green-400",
-    bgColor: "bg-green-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
   created: {
     icon: (
@@ -146,8 +146,8 @@ const eventConfig = {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
       </svg>
     ),
-    color: "text-emerald-400",
-    bgColor: "bg-emerald-500/20",
+    color: "text-[var(--status-green)]",
+    bgColor: "bg-[var(--status-green-tint)]",
   },
 };
 
@@ -157,8 +157,8 @@ const defaultConfig = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
-  color: "text-gray-400",
-  bgColor: "bg-gray-500/20",
+  color: "text-[var(--ink-3)]",
+  bgColor: "bg-[var(--paper-sunk)]",
 };
 
 export default function ActivityTimeline({ orderId, className = "" }) {
@@ -200,14 +200,14 @@ export default function ActivityTimeline({ orderId, className = "" }) {
   if (loading) {
     return (
       <div className={`flex items-center justify-center py-8 ${className}`}>
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className={`text-red-400 text-sm py-4 ${className}`}>
+      <div className={`text-[var(--status-red)] text-sm py-4 ${className}`}>
         Failed to load activity: {error}
       </div>
     );
@@ -215,7 +215,7 @@ export default function ActivityTimeline({ orderId, className = "" }) {
 
   if (events.length === 0) {
     return (
-      <div className={`text-gray-500 text-sm py-6 text-center ${className}`}>
+      <div className={`text-[var(--ink-4)] text-sm py-6 text-center ${className}`}>
         No activity recorded yet
       </div>
     );
@@ -237,7 +237,7 @@ export default function ActivityTimeline({ orderId, className = "" }) {
                 <span className={config.color}>{config.icon}</span>
               </div>
               {!isLast && (
-                <div className="w-0.5 flex-1 bg-gray-700 mt-2"></div>
+                <div className="w-0.5 flex-1 bg-[var(--rule-hair)] mt-2"></div>
               )}
             </div>
 
@@ -245,15 +245,15 @@ export default function ActivityTimeline({ orderId, className = "" }) {
             <div className="flex-1 pb-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-white font-medium text-sm">{event.title}</p>
+                  <p className="text-[var(--ink)] font-medium text-sm">{event.title}</p>
                   {event.description && (
-                    <p className="text-gray-400 text-sm mt-1">
+                    <p className="text-[var(--ink-3)] text-sm mt-1">
                       {event.description}
                     </p>
                   )}
                   {event.old_value && event.new_value && (
-                    <p className="text-gray-500 text-xs mt-1">
-                      <span className="text-gray-600">{event.old_value}</span>
+                    <p className="text-[var(--ink-4)] text-xs mt-1">
+                      <span className="text-[var(--ink-4)]">{event.old_value}</span>
                       <span className="mx-2">→</span>
                       <span className={config.color}>{event.new_value}</span>
                     </p>
@@ -262,10 +262,10 @@ export default function ActivityTimeline({ orderId, className = "" }) {
                 <div className="text-right flex-shrink-0 ml-4">
                   <RelativeDate
                     date={event.created_at}
-                    className="text-gray-500 text-xs"
+                    className="text-[var(--ink-4)] text-xs"
                   />
                   {event.user_name && (
-                    <p className="text-gray-600 text-xs mt-0.5">
+                    <p className="text-[var(--ink-4)] text-xs mt-0.5">
                       by {event.user_name}
                     </p>
                   )}
