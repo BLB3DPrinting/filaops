@@ -3,6 +3,7 @@ Tests for admin inventory transactions API endpoints.
 
 Endpoints under: /api/v1/admin/inventory/transactions
 """
+import pytest
 from decimal import Decimal
 
 
@@ -396,6 +397,30 @@ class TestValidation:
             "location_id": 1,
             "transaction_type": "receipt",
             "quantity": "-5",
+        })
+        assert resp.status_code == 400
+        assert "greater than zero" in resp.json()["detail"].lower()
+
+    @pytest.mark.parametrize("txn_type", ["issue", "consumption", "scrap"])
+    def test_negative_directional_quantity_rejected(self, client, finished_good, txn_type):
+        # issue/consumption/scrap share the same quantity <= 0 guard as receipt.
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": txn_type,
+            "quantity": "-5",
+        })
+        assert resp.status_code == 400
+        assert "greater than zero" in resp.json()["detail"].lower()
+
+    def test_negative_transfer_rejected(self, client, db, finished_good):
+        second_loc = _create_second_location(db)
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "transfer",
+            "quantity": "-5",
+            "to_location_id": second_loc.id,
         })
         assert resp.status_code == 400
         assert "greater than zero" in resp.json()["detail"].lower()
