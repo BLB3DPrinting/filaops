@@ -139,7 +139,7 @@ class TestLegacyWOCoverage:
         uncovered lines still get new WOs on a confirmed order."""
         p1 = make_product(selling_price=Decimal("10.00"))
         p2 = make_product(selling_price=Decimal("20.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         _make_order_line(db, so.id, p1.id, quantity=1)
         line2 = _make_order_line(db, so.id, p2.id, quantity=2)
         _make_legacy_wo(
@@ -163,7 +163,7 @@ class TestLegacyWOCoverage:
         """Cancelled WOs (linked or legacy NULL-linked) must not block
         regeneration — an order whose WOs were all cancelled gets new ones."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(status="confirmed", order_type="line_item")
+        so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")
         line = _make_order_line(db, so.id, product.id, quantity=2)
         _make_legacy_wo(
             db,
