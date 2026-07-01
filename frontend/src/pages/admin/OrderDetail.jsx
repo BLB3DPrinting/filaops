@@ -213,6 +213,11 @@ export default function OrderDetail() {
   // one state var previously held both shapes, so clicking Check overwrote the
   // summary object with an array and silently flipped the shortage footer.
   const [availabilityChecks, setAvailabilityChecks] = useState([]);
+  // #845/#846: single-order can-ship preflight — the authoritative ship gate
+  // (status + address + inventory), shared with ship_order(). Drives the
+  // FulfillmentProgress Ship button so it can't advertise a ship the backend
+  // would reject.
+  const [canShip, setCanShip] = useState(null);
 
   // Fulfillment status hook (UI-302)
   const {
@@ -438,6 +443,17 @@ export default function OrderDetail() {
     }
   };
 
+  const fetchCanShip = async ({ shouldApply = () => true } = {}) => {
+    if (!orderId) return;
+    try {
+      const data = await api.get(`/api/v1/sales-orders/${orderId}/can-ship`);
+      if (shouldApply()) setCanShip(data);
+    } catch {
+      // Advisory only — ship_order() still enforces the gate server-side.
+      if (shouldApply()) setCanShip(null);
+    }
+  };
+
   useEffect(() => {
     if (!orderId) return undefined;
     let cancelled = false;
@@ -450,6 +466,7 @@ export default function OrderDetail() {
           fetchProductionOrders(),
           fetchPaymentData(),
           fetchOrderInvoice({ shouldApply }),
+          fetchCanShip({ shouldApply }),
         ]);
       } catch {
         // Individual fetchers own user-visible error state.
@@ -497,6 +514,7 @@ export default function OrderDetail() {
         fetchProductionOrders(),
         fetchPaymentData(),
         fetchOrderInvoice(),
+        fetchCanShip(),
       ]);
       toast.success("Data refreshed");
     } catch {
@@ -961,7 +979,8 @@ export default function OrderDetail() {
         loading={fulfillmentLoading}
         error={fulfillmentError}
         onRefresh={refetchFulfillment}
-        onShip={(type) => navigate(`/admin/shipping?orderId=${order.id}&mode=${type}`)}
+        canShip={canShip}
+        onShip={() => navigate(`/admin/shipping?orderId=${order.id}`)}
         closedShort={order?.closed_short === true}
       />
 

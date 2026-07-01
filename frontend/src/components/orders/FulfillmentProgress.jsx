@@ -81,6 +81,7 @@ export default function FulfillmentProgress({
   error,
   onRefresh,
   onShip,
+  canShip = null,
   closedShort = false,
 }) {
   // Loading state
@@ -237,8 +238,14 @@ export default function FulfillmentProgress({
           </div>
         )}
 
-        {/* Action Buttons */}
-        {summary?.can_ship_complete && onShip && (
+        {/* Ship action — gated on the authoritative can_ship_reasons()
+            preflight (status + address + inventory), the same gate ship_order()
+            enforces, NOT the per-line inventory readiness. This is the #845
+            fix: the button can no longer light up for an order the backend
+            would refuse to ship (missing address, not yet ready_to_ship, …).
+            "Ship Partial" was removed — partial shipment isn't implemented
+            anywhere (tracked as #726), so the control was a dead end. */}
+        {onShip && canShip?.can_ship && (
           <div className="pt-4 border-t border-gray-800">
             <button
               onClick={() => onShip('complete')}
@@ -252,17 +259,18 @@ export default function FulfillmentProgress({
           </div>
         )}
 
-        {!summary?.can_ship_complete && summary?.can_ship_partial && onShip && (
+        {onShip && canShip && !canShip.can_ship && (
           <div className="pt-4 border-t border-gray-800">
-            <button
-              onClick={() => onShip('partial')}
-              className="w-full px-4 py-2.5 bg-yellow-600 text-white font-medium rounded-lg hover:bg-yellow-700 transition-colors flex items-center justify-center gap-2"
-            >
-              Ship Partial ({summary.lines_ready} lines)
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            </button>
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5">
+              <p className="text-sm font-medium text-amber-400">Not ready to ship</p>
+              {canShip.reasons?.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs text-amber-300/90 list-disc list-inside">
+                  {canShip.reasons.map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
       </div>
