@@ -60,7 +60,7 @@ describe('AdminShipping — deep-link banner', () => {
     renderWithParam()
     await waitFor(() => expect(mocks.get).toHaveBeenCalled())
     expect(
-      screen.queryByText(/isn't ready to ship yet/),
+      screen.queryByText(/isn't in an active shipping stage/),
     ).not.toBeInTheDocument()
   })
 
@@ -68,7 +68,7 @@ describe('AdminShipping — deep-link banner', () => {
     renderWithParam('?orderId=999')
     await waitFor(() =>
       expect(
-        screen.getByText(/isn't ready to ship yet — production must complete/),
+        screen.getByText(/isn't in an active shipping stage/),
       ).toBeInTheDocument(),
     )
   })
