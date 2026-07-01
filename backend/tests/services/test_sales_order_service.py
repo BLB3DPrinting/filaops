@@ -1795,6 +1795,50 @@ class TestGenerateProductionOrders:
         result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
         assert len(result["created_orders"]) == 1
 
+    def test_allows_release_with_completed_payment(self, db, make_sales_order, make_product):
+        """Prepay path via the payment ledger: a completed Payment (not merely
+        payment_status='paid') satisfies billing."""
+        from app.models.payment import Payment
+
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        _make_order_line(db, so.id, product.id, quantity=1)
+        db.add(Payment(
+            payment_number=f"PAY-BILL-{so.id}",
+            sales_order_id=so.id,
+            amount=Decimal("10.00"),
+            payment_method="cash",
+            status="completed",
+        ))
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert len(result["created_orders"]) == 1
+
+    def test_service_only_order_no_op_not_billing_gated(self, db, make_sales_order):
+        """A confirmed line_item order with only non-producible (service) lines
+        creates zero production orders — a no-op that must NOT be turned into a
+        billing 400, even with no payment or invoice (CodeRabbit #853)."""
+        so = make_sales_order(
+            status="confirmed", payment_status="pending", order_type="line_item"
+        )
+        db.add(SalesOrderLine(
+            sales_order_id=so.id,
+            line_type="service",
+            product_id=None,
+            material_inventory_id=None,
+            description="Design service",
+            quantity=Decimal("1"),
+            unit_price=Decimal("5.00"),
+            total=Decimal("5.00"),
+        ))
+        db.flush()
+
+        result = sales_order_service.generate_production_orders(db, so.id, "test@filaops.dev")
+        assert result["created_orders"] == []
+
     def test_rejects_line_item_order_with_no_lines(self, db, make_sales_order):
         """line_item order with no lines raises 400."""
         so = make_sales_order(status="confirmed", payment_status="paid", order_type="line_item")

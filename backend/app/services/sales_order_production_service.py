@@ -406,7 +406,17 @@ def generate_production_orders(
             )
         )
 
-    if not billing_release_satisfied(db, order):
+    # Only enforce the billing gate when this call will actually release work.
+    # A confirmed line_item order whose lines are all material-only (or already
+    # covered) creates zero production orders — that no-op must not be turned
+    # into a 400. (quote_based always creates a PO here, or 400s on a missing
+    # quote further down.)
+    if order.order_type == "line_item":
+        will_release_work = bool(set(producible_line_ids) - covered_line_ids)
+    else:
+        will_release_work = True
+
+    if will_release_work and not billing_release_satisfied(db, order):
         raise HTTPException(
             status_code=400,
             detail=(
