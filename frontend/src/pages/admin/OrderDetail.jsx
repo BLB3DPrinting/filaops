@@ -205,7 +205,14 @@ export default function OrderDetail() {
 
   // Material availability check state
   const [checkingAvailability, setCheckingAvailability] = useState(false);
-  const [materialAvailability, setMaterialAvailability] = useState(null);
+  // Material requirements SUMMARY (object: has_shortages/materials_short/…) —
+  // drives the requirements section's shortage footer + historical badge.
+  const [materialSummary, setMaterialSummary] = useState(null);
+  // Per-production-order availability CHECKS (array) — drives the "Check
+  // Material Availability" result list. Kept separate from the summary above:
+  // one state var previously held both shapes, so clicking Check overwrote the
+  // summary object with an array and silently flipped the shortage footer.
+  const [availabilityChecks, setAvailabilityChecks] = useState([]);
 
   // Fulfillment status hook (UI-302)
   const {
@@ -240,7 +247,7 @@ export default function OrderDetail() {
           incoming_supply_details: req.incoming_supply_details || null,
         }));
         setMaterialRequirements(requirements);
-        setMaterialAvailability(matReqData.summary);
+        setMaterialSummary(matReqData.summary);
       } catch {
         // FALLBACK: Use the MRP requirements endpoint
         try {
@@ -526,8 +533,13 @@ export default function OrderDetail() {
   };
 
   const handleCreatePurchaseOrder = async (materialReq) => {
+    // AdminPurchasing opens the pre-filled PO modal only for the
+    // create_po=true + product_id + quantity contract. The old material_id/qty
+    // keys were never read, so the modal never opened and nothing pre-filled.
+    const qty = materialReq.net_shortage;
     navigate(
-      `/admin/purchasing?material_id=${materialReq.product_id}&qty=${materialReq.net_shortage}`
+      `/admin/purchasing?create_po=true&product_id=${materialReq.product_id}` +
+        (qty ? `&quantity=${qty}` : "")
     );
   };
 
@@ -752,7 +764,7 @@ export default function OrderDetail() {
     setCheckingAvailability(true);
     try {
       if (productionOrders.length > 0) {
-        const availabilityChecks = await Promise.all(
+        const checks = await Promise.all(
           productionOrders.map(async (po) => {
             try {
               return await api.get(
@@ -763,7 +775,7 @@ export default function OrderDetail() {
             }
           })
         );
-        setMaterialAvailability(availabilityChecks.filter(Boolean));
+        setAvailabilityChecks(checks.filter(Boolean));
       } else {
         toast.info("Create a production order first to check material availability");
       }
@@ -920,9 +932,9 @@ export default function OrderDetail() {
             </button>
           )}
         </div>
-        {materialAvailability && materialAvailability.length > 0 && (
+        {availabilityChecks.length > 0 && (
           <div className="mt-4 space-y-2">
-            {materialAvailability.map((avail, idx) => (
+            {availabilityChecks.map((avail, idx) => (
               <div
                 key={idx}
                 className={`p-3 rounded-lg ${
@@ -1094,7 +1106,7 @@ export default function OrderDetail() {
       {/* Material Requirements */}
       <MaterialRequirementsSection
         materialRequirements={materialRequirements}
-        materialAvailability={materialAvailability}
+        materialAvailability={materialSummary}
         expandedSections={expandedSections}
         onToggle={toggleSection}
         exploding={exploding}
