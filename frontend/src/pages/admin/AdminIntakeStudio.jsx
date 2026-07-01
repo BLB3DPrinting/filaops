@@ -1101,7 +1101,8 @@ export default function AdminIntakeStudio() {
     }
   };
 
-  // Shared upload → /parse. When a mesh profile is supplied, append the
+  // Shared upload → sync /parse (.gcode.3mf) or async /parse-async + poll
+  // (anything that slices). When a mesh profile is supplied, append the
   // material/printer/quality form fields the server uses to slice the bare mesh.
   // `seedCatalogItem` (unified flow, bare mesh): the purchasable catalog material
   // chosen at staging; when present, every resulting slot is pre-seeded with it
@@ -1145,40 +1146,176 @@ export default function AdminIntakeStudio() {
       if (plateIndex != null) {
         formData.append("plate_index", String(plateIndex));
       }
-      const res = await fetch(`${API_URL}/api/v1/pro/intake/parse`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
-      }
-      // A new file or a reset superseded this upload while it was in flight —
-      // drop the response so it can't re-apply stale parse/seed state or toast.
-      if (isStaleUpload()) return;
-      if (!res.ok) {
-        // A large/complex plate can exceed the worker's slice-time limit. The
-        // backend maps that to 504 (SlicerWorkerTimeoutError); an edge proxy can
-        // surface the same slow-slice cause as 524. The raw detail isn't
-        // actionable, so for the timeout case point the operator at the reliable
-        // path — slice locally in Bambu Studio and drop the exported .gcode.3mf,
-        // which imports without any server slice. Longer toast so it stays
-        // readable; `willSlice` scopes this to runs that actually sliced (a
-        // pre-sliced .gcode.3mf parse never hits the slice timeout).
-        if (willSlice && (res.status === 504 || res.status === 524)) {
-          toast.error(
-            "This file is too large or complex to slice on the server — it timed " +
-              "out. Slice it in Bambu Studio and drop the exported .gcode.3mf (it " +
-              "imports instantly), or pick a lighter plate.",
-            14000,
-          );
-        } else {
-          toast.error(data.detail || `Parse failed (${res.status})`);
+      // Slice-timeout guidance (Core #844): the raw detail isn't actionable,
+      // so point the operator at the reliable path — slice locally in Bambu
+      // Studio and drop the exported .gcode.3mf, which imports without any
+      // server slice. Longer toast so it stays readable. Shared by the sync
+      // 504/524 branch, the async job-timeout (504) poll status, and the
+      // client-side polling cap below.
+      const sliceTimeoutToast = () =>
+        toast.error(
+          "This file is too large or complex to slice on the server — it timed " +
+            "out. Slice it in Bambu Studio and drop the exported .gcode.3mf (it " +
+            "imports instantly), or pick a lighter plate.",
+          14000,
+        );
+      // Single sync POST /parse — the original one-request path. Returns the
+      // parse-contract body on success, or null after handling any error /
+      // staleness (identical to the pre-async behavior). Kept for the fast
+      // .gcode.3mf parse AND as the deploy-ordering fallback when
+      // /parse-async 404s (an old wheel without the async slice routes).
+      const syncParse = async () => {
+        const res = await fetch(`${API_URL}/api/v1/pro/intake/parse`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        let body;
+        try {
+          body = await res.json();
+        } catch {
+          body = {};
         }
-        return;
+        // A new file or a reset superseded this upload while it was in flight —
+        // drop the response so it can't re-apply stale parse/seed state or toast.
+        if (isStaleUpload()) return null;
+        if (!res.ok) {
+          // A large/complex plate can exceed the worker's slice-time limit. The
+          // backend maps that to 504 (SlicerWorkerTimeoutError); an edge proxy can
+          // surface the same slow-slice cause as 524. `willSlice` scopes the
+          // guidance to runs that actually sliced (a pre-sliced .gcode.3mf parse
+          // never hits the slice timeout).
+          if (willSlice && (res.status === 504 || res.status === 524)) {
+            sliceTimeoutToast();
+          } else {
+            toast.error(body.detail || `Parse failed (${res.status})`);
+          }
+          return null;
+        }
+        return body;
+      };
+      // Poll GET /slice-status/{job_id} until the async slice job resolves.
+      // Returns the parse-contract body on success (keys byte-identical to a
+      // sync /parse — slots, plates, plate_count, model_name, artifact ids),
+      // or null after handling any stop condition. An awaited-setTimeout loop
+      // (NOT setInterval) so isStaleUpload() is re-checked every cycle — a
+      // superseded upload stops SILENTLY, with no toast and no state write,
+      // and the `finally` ownership rule below keeps the busy spinner with
+      // whichever upload replaced it.
+      const pollSliceJob = async (jobId) => {
+        // plate_index + filename let the status route shape the done body the
+        // same way sync /parse would for the same form fields (single-plate
+        // contract + original model name).
+        const params = new URLSearchParams({ filename: f.name });
+        if (plateIndex != null) params.set("plate_index", String(plateIndex));
+        const statusUrl =
+          `${API_URL}/api/v1/pro/intake/slice-status/` +
+          `${encodeURIComponent(jobId)}?${params.toString()}`;
+        // Client-side cap: the server kills the job at 1200s (20 min); ~22 min
+        // of polling outlasts that with margin, so tripping this cap means the
+        // job (or the status route) is truly wedged — surface the same #844
+        // timeout guidance and stop rather than polling forever.
+        const POLL_INTERVAL_MS = 3500;
+        const MAX_POLL_MS = 22 * 60 * 1000;
+        const startedAt = Date.now();
+        for (;;) {
+          if (isStaleUpload()) return null;
+          const res = await fetch(statusUrl, { credentials: "include" });
+          let body;
+          try {
+            body = await res.json();
+          } catch {
+            body = {};
+          }
+          // Re-check after the await: a new file / reset that landed during
+          // the request must not toast or write state from this dead poll.
+          if (isStaleUpload()) return null;
+          if (!res.ok) {
+            // Job errors surface as HTTP errors on the status poll:
+            //   504 → slicer/job timeout → same #844 guidance as the sync path;
+            //   404 → job unknown/expired (e.g. worker restart) → ask to retry;
+            //   422 → real input detail; 503/500 → sanitized detail or generic.
+            if (res.status === 504) {
+              sliceTimeoutToast();
+            } else if (res.status === 404) {
+              toast.error("Slice job expired — please retry.");
+            } else {
+              toast.error(body.detail || `Slice failed (${res.status})`);
+            }
+            return null;
+          }
+          if (body.state === "done") {
+            // The done body IS the sync parse contract plus an extra `state`
+            // key — strip it so parseResult stays byte-identical to /parse.
+            const parsed = { ...body };
+            delete parsed.state;
+            return parsed;
+          }
+          // state queued/running → wait out the interval and poll again,
+          // unless the client-side cap tripped while we were waiting.
+          if (Date.now() - startedAt >= MAX_POLL_MS) {
+            sliceTimeoutToast();
+            return null;
+          }
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        }
+      };
+
+      let data;
+      if (!willSlice) {
+        // Pre-sliced .gcode.3mf parses in-request (fast, no slicer run) — the
+        // original single sync request stays as-is.
+        data = await syncParse();
+        if (data == null) return;
+      } else {
+        // Slicing can outlive a proxy's per-request window: the old single
+        // long-held POST /parse hit the worker's 300s sync limit on large
+        // plates → 504/524 with only a toast (Core #844). Submit the job and
+        // poll instead — no long-held request, and the server gives the job a
+        // much more generous 1200s budget.
+        const submitRes = await fetch(
+          `${API_URL}/api/v1/pro/intake/parse-async`,
+          {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          },
+        );
+        let submitBody;
+        try {
+          submitBody = await submitRes.json();
+        } catch {
+          submitBody = {};
+        }
+        if (isStaleUpload()) return;
+        if (submitRes.status === 404) {
+          // Deploy-ordering compat: the FE can ship ahead of the worker+wheel.
+          // An old wheel has no /parse-async route → 404 on submit. Fall back
+          // to the previous single sync /parse (full existing behavior,
+          // including the 504/524 guidance) so intake keeps working until the
+          // backend is updated. Remove once the async wheel is everywhere.
+          data = await syncParse();
+          if (data == null) return;
+        } else if (submitRes.status === 429) {
+          // Worker busy — the slice queue is full. Retryable: leave the
+          // picker/staged state intact (same early-return semantics as any
+          // other parse failure) so the operator can simply try again.
+          toast.error(
+            "Slice queue is full — the server is busy. Try again in a minute.",
+            8000,
+          );
+          return;
+        } else if (submitRes.status !== 202 || !submitBody.job_id) {
+          // Other submit errors mirror /parse (415 unsupported, 422 bad
+          // input, …) — surface the detail exactly like the sync path does.
+          toast.error(
+            submitBody.detail || `Parse failed (${submitRes.status})`,
+          );
+          return;
+        } else {
+          data = await pollSliceJob(submitBody.job_id);
+          if (data == null) return;
+        }
       }
       setPendingMesh(null);
       setParseResult(data);
@@ -1897,7 +2034,7 @@ export default function AdminIntakeStudio() {
                 <>
                   <p className="text-gray-400">Slicing your model…</p>
                   <p className="text-gray-600 text-sm">
-                    This can take a minute or two — Bambu Studio is slicing on the server.
+                    Bambu Studio is slicing on the server — large files can take several minutes.
                   </p>
                 </>
               ) : (
