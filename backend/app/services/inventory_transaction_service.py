@@ -392,6 +392,8 @@ def create_transaction(
     # signed Decimal deltas, transaction row + on_hand updated together.
     # Handle transfers (two ledger rows: issue out, receipt in)
     if transaction_type == "transfer":
+        if quantity <= 0:
+            raise ValueError("Transfer quantity must be greater than zero")
         if on_hand < quantity:
             raise ValueError(
                 f"Insufficient inventory for transfer. "
@@ -429,21 +431,39 @@ def create_transaction(
             reason_code=reason_code,
         )
     else:
-        if transaction_type == "receipt":
+        if transaction_type == "adjustment":
+            # Adjustment is a SIGNED DELTA: a positive value adds stock, a
+            # negative value removes it. Setting an exact absolute count is the
+            # reconciliation /count endpoint's job, not this one. This is the
+            # only caller-facing quantity whose sign carries meaning, so the
+            # form labels it "(+/-)" — historically this branch treated the
+            # value as a new ABSOLUTE on-hand, which silently wiped stock when
+            # an operator typed a magnitude expecting a delta.
+            if quantity == 0:
+                raise ValueError("Adjustment quantity must be non-zero")
+            if on_hand + quantity < 0:
+                raise ValueError(
+                    f"Adjustment would drive on-hand below zero. "
+                    f"On hand: {inventory.on_hand_quantity}, adjustment: {quantity}"
+                )
             quantity_delta = quantity
-        elif transaction_type in ["issue", "consumption", "scrap"]:
-            if on_hand < quantity:
+        else:
+            # receipt / issue / consumption / scrap take a positive magnitude;
+            # the direction is implied by the type, so a non-positive value is
+            # always an error (it would silently reverse the intended movement).
+            if quantity <= 0:
                 raise ValueError(
-                    f"Insufficient inventory. "
-                    f"On hand: {inventory.on_hand_quantity}, requested: {quantity}"
+                    f"{transaction_type} quantity must be greater than zero"
                 )
-            quantity_delta = -quantity
-        else:  # adjustment — caller passes the new ABSOLUTE quantity (set-style)
-            quantity_delta = quantity - on_hand
-            if quantity_delta == 0:
-                raise ValueError(
-                    "Adjustment results in no change to on-hand quantity"
-                )
+            if transaction_type == "receipt":
+                quantity_delta = quantity
+            else:  # issue, consumption, scrap
+                if on_hand < quantity:
+                    raise ValueError(
+                        f"Insufficient inventory. "
+                        f"On hand: {inventory.on_hand_quantity}, requested: {quantity}"
+                    )
+                quantity_delta = -quantity
 
         transaction = inventory_ledger.post(
             db,

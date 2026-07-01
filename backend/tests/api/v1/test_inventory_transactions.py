@@ -195,18 +195,99 @@ class TestCreateIssue:
 
 
 class TestCreateAdjustment:
-    """Adjustment transactions set on-hand to the specified quantity."""
+    """Adjustment applies a SIGNED DELTA to on-hand (+adds / -removes).
 
-    def test_adjustment_sets_quantity(self, client, finished_good):
+    Regression guard for the audit critical: a positive value must ADD to
+    on-hand, NOT set on-hand to that number — the old set-style behavior
+    silently wiped stock when an operator typed a magnitude expecting a delta.
+    """
+
+    @staticmethod
+    def _on_hand(db, product_id, location_id=1):
+        from app.models.inventory import Inventory
+        db.expire_all()
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == product_id,
+            Inventory.location_id == location_id,
+        ).first()
+        return Decimal(str(inv.on_hand_quantity)) if inv else Decimal("0")
+
+    def test_positive_adjustment_adds_not_sets(self, client, db, finished_good):
+        _create_receipt(client, finished_good.id, 200)
+        before = self._on_hand(db, finished_good.id)
+
         resp = client.post(BASE_URL, json={
             "product_id": finished_good.id,
             "location_id": 1,
             "transaction_type": "adjustment",
-            "quantity": "42",
+            "quantity": "5",
         })
         assert resp.status_code == 201
-        assert resp.json()["transaction_type"] == "adjustment"
-        assert Decimal(resp.json()["quantity"]) == Decimal("42")
+        # +5 ADDS to the existing on-hand; it must NOT collapse on-hand to 5.
+        assert self._on_hand(db, finished_good.id) == before + Decimal("5")
+
+    def test_negative_adjustment_removes(self, client, db, finished_good):
+        _create_receipt(client, finished_good.id, 200)
+        before = self._on_hand(db, finished_good.id)
+
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "adjustment",
+            "quantity": "-5",
+        })
+        assert resp.status_code == 201
+        assert self._on_hand(db, finished_good.id) == before - Decimal("5")
+
+    def test_adjustment_cannot_drive_on_hand_negative(self, client, db, finished_good):
+        _create_receipt(client, finished_good.id, 10)
+        before = self._on_hand(db, finished_good.id)
+
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "adjustment",
+            "quantity": str(-(before + Decimal("5"))),
+        })
+        assert resp.status_code == 400
+        assert "below zero" in resp.json()["detail"].lower()
+
+    def test_zero_adjustment_rejected(self, client, finished_good):
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "adjustment",
+            "quantity": "0",
+        })
+        assert resp.status_code == 400
+        assert "non-zero" in resp.json()["detail"].lower()
+
+    def test_adjustment_persists_reason_code(self, client, db, finished_good):
+        _create_receipt(client, finished_good.id, 50)
+
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "adjustment",
+            "quantity": "-3",
+            "reason_code": "DAMAGED",
+        })
+        assert resp.status_code == 201
+
+        from app.models.inventory import InventoryTransaction
+        db.expire_all()
+        txn = (
+            db.query(InventoryTransaction)
+            .filter(
+                InventoryTransaction.product_id == finished_good.id,
+                InventoryTransaction.transaction_type == "adjustment",
+            )
+            .order_by(InventoryTransaction.id.desc())
+            .first()
+        )
+        assert txn is not None
+        # The admin schema previously omitted reason_code, so it never persisted.
+        assert txn.reason_code == "DAMAGED"
 
 
 class TestCreateTransfer:
@@ -307,6 +388,42 @@ class TestValidation:
         })
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()
+
+    def test_negative_receipt_rejected(self, client, finished_good):
+        # A non-positive magnitude on a directional type would silently reverse
+        # the movement (a negative "receipt" removing stock), so it's rejected.
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "receipt",
+            "quantity": "-5",
+        })
+        assert resp.status_code == 400
+        assert "greater than zero" in resp.json()["detail"].lower()
+
+    @pytest.mark.parametrize("txn_type", ["issue", "consumption", "scrap"])
+    def test_negative_directional_quantity_rejected(self, client, finished_good, txn_type):
+        # issue/consumption/scrap share the same quantity <= 0 guard as receipt.
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": txn_type,
+            "quantity": "-5",
+        })
+        assert resp.status_code == 400
+        assert "greater than zero" in resp.json()["detail"].lower()
+
+    def test_negative_transfer_rejected(self, client, db, finished_good):
+        second_loc = _create_second_location(db)
+        resp = client.post(BASE_URL, json={
+            "product_id": finished_good.id,
+            "location_id": 1,
+            "transaction_type": "transfer",
+            "quantity": "-5",
+            "to_location_id": second_loc.id,
+        })
+        assert resp.status_code == 400
+        assert "greater than zero" in resp.json()["detail"].lower()
 
     def test_location_not_found(self, client, finished_good):
         resp = client.post(BASE_URL, json={

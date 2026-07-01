@@ -41,6 +41,7 @@ class TransactionCreate(BaseModel):
     serial_number: Optional[str] = None
     notes: Optional[str] = None
     to_location_id: Optional[int] = None
+    reason_code: Optional[str] = None
 
 
 class TransactionResponse(BaseModel):
@@ -193,6 +194,7 @@ async def create_transaction(
             serial_number=request.serial_number,
             notes=request.notes,
             to_location_id=request.to_location_id,
+            reason_code=request.reason_code,
         )
     except ValueError as e:
         detail = str(e)
