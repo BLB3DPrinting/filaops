@@ -581,6 +581,18 @@ export default function AdminProduction() {
           setSelectedOrderForScrap(order);
           setShowScrapModal(true);
         }}
+        onSplit={(order) => {
+          setSelectedOrderForSplit(order);
+          setShowSplitModal(true);
+        }}
+        onComplete={(order) => {
+          setSelectedOrderForComplete(order);
+          setShowCompleteModal(true);
+        }}
+        onQC={(order) => {
+          setSelectedOrderForQC(order);
+          setShowQCModal(true);
+        }}
       />
         </>
       )}
