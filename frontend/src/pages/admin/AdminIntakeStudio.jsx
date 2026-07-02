@@ -9,6 +9,7 @@ import {
 } from "../../config/intakeFlags";
 import SearchableSelect from "../../components/SearchableSelect";
 import OperationMaterialModal from "../../components/OperationMaterialModal";
+import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -727,6 +728,20 @@ export default function AdminIntakeStudio() {
   // when no plate is selected yet / the file is single-plate. Sent to /parse as
   // the `plate_index` form field. Inert when the gate is off or plate_count<=1.
   const [selectedPlateIndex, setSelectedPlateIndex] = useState(null);
+  // Assembly intake (unified flow, raw multi-plate only). `intakeMode` is the
+  // operator's choice at the PlatePicker: "plate" (today's single-plate flow,
+  // default) or "assembly" (slice ALL plates in one async job → one component
+  // per plate + a parent assembly BOM via POST /assembly). `assemblyParse`
+  // holds the slice-all parse contract (its plates[] carries every plate's
+  // grams/time/slots); non-null switches Step 1 to the AssemblyIntakePanel.
+  // `assemblyContext` is the /context payload (work centers) fetched for the
+  // panel once the slice-all completes — the parent fetches it (no effects in
+  // this file's components) and the panel offers a retry on failure. All inert
+  // when the gate is off or the file isn't a raw multi-plate .3mf.
+  const [intakeMode, setIntakeMode] = useState("plate");
+  const [assemblyParse, setAssemblyParse] = useState(null);
+  const [assemblyContext, setAssemblyContext] = useState(null);
+  const [assemblyContextBusy, setAssemblyContextBusy] = useState(false);
   const [bomMaterials, setBomMaterials] = useState([]); // /materials/for-bom items
   // Drop-time catalog fetch state for the bare-mesh staging picker. Distinguishes
   // in-flight ("loading") from a resolved-but-unusable catalog ("empty"/"failed")
@@ -803,6 +818,11 @@ export default function AdminIntakeStudio() {
   // so the PlatePicker can drive the /parse once the operator chooses a plate.
   // Cleared by reset and once the parse is dispatched.
   const pendingPlateFileRef = useRef(null);
+  // Monotonic token for the active /context fetch feeding the assembly panel.
+  // A new file or a reset bumps it; a response whose token no longer matches
+  // is stale (it belongs to a prior assembly run) and is dropped so a slow
+  // fetch can't clobber a newer run's work-center list. Mirrors previewRequestIdRef.
+  const assemblyContextRequestIdRef = useRef(0);
 
   // Step 5 — Result
   const [skuResult, setSkuResult] = useState(null);
@@ -916,6 +936,14 @@ export default function AdminIntakeStudio() {
     // so a stale pre-parse/plate-pick can't dispatch a parse for the old file.
     setSelectedPlateIndex(null);
     pendingPlateFileRef.current = null;
+    // Assembly intake: back to the default per-plate mode and drop any prior
+    // run's slice-all result + context so the panel can't render stale plates.
+    setIntakeMode("plate");
+    setAssemblyParse(null);
+    setAssemblyContext(null);
+    setAssemblyContextBusy(false);
+    // Invalidate any /context fetch still in flight for a prior assembly run.
+    assemblyContextRequestIdRef.current += 1;
     // Invalidate any pre-parse still in flight so its response is ignored.
     preparseRequestIdRef.current += 1;
     // Invalidate any catalog fetch still in flight so a stale /for-bom response
@@ -1440,6 +1468,211 @@ export default function AdminIntakeStudio() {
     uploadIntakeFile(pending, null, null, selectedPlateIndex);
   };
 
+  // ---------------------------------------------------------------------------
+  // Assembly intake (unified flow, raw multi-plate only)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * GET /context for the assembly panel's work-center pickers. Fetched by the
+   * parent right after the slice-all completes (this file's components use no
+   * effects, so the panel can't self-fetch on mount) and re-invoked by the
+   * panel's retry button. Non-fatal: a failure leaves assemblyContext null and
+   * the panel renders a retry banner — it must NOT discard a multi-minute
+   * slice-all result. Stale-guarded so a slow response from a prior run can't
+   * clobber a newer run's work-center list.
+   * @returns {Promise<void>}
+   */
+  const loadAssemblyContext = async () => {
+    const requestId = ++assemblyContextRequestIdRef.current;
+    setAssemblyContextBusy(true);
+    try {
+      const data = await api.get("/api/v1/pro/intake/context");
+      if (requestId !== assemblyContextRequestIdRef.current) return;
+      setAssemblyContext(data);
+    } catch {
+      if (requestId !== assemblyContextRequestIdRef.current) return;
+      // Leave null — the panel shows an explicit retry instead of dead pickers.
+      setAssemblyContext(null);
+    } finally {
+      if (requestId === assemblyContextRequestIdRef.current) {
+        setAssemblyContextBusy(false);
+      }
+    }
+  };
+
+  /**
+   * Assembly path upload: slice EVERY plate of a raw multi-plate .3mf in one
+   * async job, then hand the result to the AssemblyIntakePanel. Mirrors
+   * uploadIntakeFile's async submit+poll machinery (same stale-guard token,
+   * same 3.5s interval / 22min cap / #844 timeout guidance / 429 + 404-expired
+   * handling) with two deliberate differences:
+   *   - NO plate_index form field → the worker's --slice 0 default slices ALL
+   *     plates in the one job, and the done contract's plates[] carries every
+   *     plate's grams/time/slots for the component table.
+   *   - NO sync-/parse fallback on submit 404: an old wheel without
+   *     /parse-async also lacks POST /assembly (both ship in the async/assembly
+   *     wheels), so falling back would slice for minutes only to dead-end at
+   *     the create step. Surface the deploy hint instead.
+   * @param {File} f - the held raw multi-plate .3mf.
+   * @returns {Promise<void>}
+   */
+  const uploadAssemblyFile = async (f) => {
+    // Same token as uploadIntakeFile: a new file or a reset bumps
+    // uploadRequestIdRef, marking this slice-all stale so a slow response can't
+    // re-open the assembly panel (or toast) after the operator moved on.
+    const requestId = ++uploadRequestIdRef.current;
+    const isStaleUpload = () => requestId !== uploadRequestIdRef.current;
+    setBusyMode("slicing-all");
+    setUploadBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", f);
+      // Intentionally NO plate_index: omitted → worker default 0 = slice ALL.
+      // Same #844 guidance as the single-plate path — shared by the poll's 504
+      // status and the client-side polling cap below.
+      const sliceTimeoutToast = () =>
+        toast.error(
+          "This file is too large or complex to slice on the server — it timed " +
+            "out. Slice it in Bambu Studio and drop the exported .gcode.3mf (it " +
+            "imports instantly), or intake plates individually.",
+          14000,
+        );
+      const submitRes = await fetch(
+        `${API_URL}/api/v1/pro/intake/parse-async`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        },
+      );
+      let submitBody;
+      try {
+        submitBody = await submitRes.json();
+      } catch {
+        submitBody = {};
+      }
+      if (isStaleUpload()) return;
+      if (submitRes.status === 404) {
+        // Old wheel without the async routes → it lacks POST /assembly too.
+        // Don't fall back to a multi-minute sync slice-all that would dead-end
+        // at the create step; the picker stays intact (early return) so the
+        // operator can intake per plate or retry after the deploy.
+        toast.error(
+          "Assembly intake needs the updated backend — deploy the latest wheel.",
+          10000,
+        );
+        return;
+      }
+      if (submitRes.status === 429) {
+        // Worker busy — the slice queue is full. Retryable: picker state stays
+        // intact so the operator can simply try again.
+        toast.error(
+          "Slice queue is full — the server is busy. Try again in a minute.",
+          8000,
+        );
+        return;
+      }
+      if (submitRes.status !== 202 || !submitBody.job_id) {
+        toast.error(submitBody.detail || `Slice failed (${submitRes.status})`);
+        return;
+      }
+      // Poll GET /slice-status/{job_id} to done — identical loop shape to
+      // uploadIntakeFile's pollSliceJob, minus plate_index (slice-all job).
+      const params = new URLSearchParams({ filename: f.name });
+      const statusUrl =
+        `${API_URL}/api/v1/pro/intake/slice-status/` +
+        `${encodeURIComponent(submitBody.job_id)}?${params.toString()}`;
+      const POLL_INTERVAL_MS = 3500;
+      const MAX_POLL_MS = 22 * 60 * 1000;
+      const startedAt = Date.now();
+      let data = null;
+      for (;;) {
+        if (isStaleUpload()) return;
+        const res = await fetch(statusUrl, { credentials: "include" });
+        let body;
+        try {
+          body = await res.json();
+        } catch {
+          body = {};
+        }
+        // Re-check after the await: a new file / reset that landed during the
+        // request must not toast or write state from this dead poll.
+        if (isStaleUpload()) return;
+        if (!res.ok) {
+          if (res.status === 504) {
+            sliceTimeoutToast();
+          } else if (res.status === 404) {
+            toast.error("Slice job expired — please retry.");
+          } else {
+            toast.error(body.detail || `Slice failed (${res.status})`);
+          }
+          return;
+        }
+        if (body.state === "done") {
+          // The done body IS the parse contract plus an extra `state` key.
+          data = { ...body };
+          delete data.state;
+          break;
+        }
+        if (Date.now() - startedAt >= MAX_POLL_MS) {
+          sliceTimeoutToast();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      // The panel is unusable without plates[] (nothing to build components
+      // from), and everything downstream — component rows, {SKU}-Pnn suffixes,
+      // the /assembly payload — keys off plates[].plate_index round-tripped
+      // verbatim. Reject the result unless EVERY plate carries a usable
+      // numeric plate_index; treat it like a failed slice (early return keeps
+      // the mode chooser + held file intact for retry).
+      const platesUsable =
+        Array.isArray(data.plates) &&
+        data.plates.length > 0 &&
+        data.plates.every(
+          (p) =>
+            typeof p?.plate_index === "number" &&
+            Number.isFinite(p.plate_index)
+        );
+      if (!platesUsable) {
+        toast.error("Slicing returned no usable plate data — please retry.");
+        return;
+      }
+      // Work centers for the panel's pickers. Awaited here (not fire-and-
+      // forget) so the panel opens with them in hand; a failure is non-fatal —
+      // the panel renders a retry banner instead.
+      await loadAssemblyContext();
+      if (isStaleUpload()) return;
+      setAssemblyParse(data);
+      // Slice-all succeeded — now it's safe to clear the held file and picker
+      // state (mirrors uploadIntakeFile's plateIndex success path; a failure
+      // above returned early, leaving the picker intact for retry).
+      pendingPlateFileRef.current = null;
+      setPreparseResult(null);
+      preparseResultRef.current = null;
+      setSelectedPlateIndex(null);
+    } catch (err) {
+      // Suppress a stale upload's error toast (already superseded).
+      if (isStaleUpload()) return;
+      toast.error(err.message || "Upload failed");
+    } finally {
+      // Only the live upload owns the busy spinner (same rule as uploadIntakeFile).
+      if (!isStaleUpload()) {
+        setUploadBusy(false);
+      }
+    }
+  };
+
+  // The operator chose "intake as an assembly" and clicked slice-all. No-op
+  // without a held file (the button only renders while one is held).
+  const continueWithAssembly = () => {
+    const pending = pendingPlateFileRef.current;
+    if (!pending) return;
+    // Keep pendingPlateFileRef held so a slice failure leaves the mode chooser
+    // intact for retry — cleared in uploadAssemblyFile's success path.
+    uploadAssemblyFile(pending);
+  };
+
   const sliceAndContinue = () => {
     if (!pendingMesh) return;
     if (unifiedFlow) {
@@ -1912,6 +2145,14 @@ export default function AdminIntakeStudio() {
     // Multi-plate: clear the chosen plate and any file held for the picker.
     setSelectedPlateIndex(null);
     pendingPlateFileRef.current = null;
+    // Assembly intake: default mode + drop any slice-all result/context, and
+    // invalidate an in-flight /context fetch (same pattern as
+    // resetDerivedStateForNewFile).
+    setIntakeMode("plate");
+    setAssemblyParse(null);
+    setAssemblyContext(null);
+    setAssemblyContextBusy(false);
+    assemblyContextRequestIdRef.current += 1;
     setMaterialsError(null);
     setBomMaterialsLoading(false);
     setBomMaterialsError(null);
@@ -2025,12 +2266,35 @@ export default function AdminIntakeStudio() {
       {/* ------------------------------------------------------------------ */}
       {step === 1 && (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-          <StepHeader step={1} total={5} label="Upload file" />
+          {/* Assembly intake is a 2-step branch (slice all → create), not the
+              5-step single-plate wizard — reflect that in the header so the
+              progress bar doesn't promise steps that never come. */}
+          {unifiedFlow && assemblyParse ? (
+            <StepHeader step={2} total={2} label="Create assembly" />
+          ) : unifiedFlow &&
+            intakeMode === "assembly" &&
+            isMultiPlatePending ? (
+            <StepHeader step={1} total={2} label="Slice all plates" />
+          ) : (
+            <StepHeader step={1} total={5} label="Upload file" />
+          )}
 
           {uploadBusy ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
               <Spinner />
-              {busyMode === "slicing" ? (
+              {busyMode === "slicing-all" ? (
+                <>
+                  <p className="text-gray-400">
+                    {preparseResult?.plate_count
+                      ? `Slicing all ${preparseResult.plate_count} plates — this can take several minutes.`
+                      : "Slicing all plates — this can take several minutes."}
+                  </p>
+                  <p className="text-gray-600 text-sm">
+                    Every plate is sliced in one server job; the assembly form
+                    opens when it finishes.
+                  </p>
+                </>
+              ) : busyMode === "slicing" ? (
                 <>
                   <p className="text-gray-400">Slicing your model…</p>
                   <p className="text-gray-600 text-sm">
@@ -2285,6 +2549,30 @@ export default function AdminIntakeStudio() {
                 </button>
               </div>
             </div>
+          ) : unifiedFlow && assemblyParse ? (
+            /* Assembly intake: the slice-all job finished — the panel builds
+               one component per sliced plate + the parent assembly form and
+               POSTs /assembly. Fresh-mounted per run (assemblyParse is nulled
+               by every reset/new-file path), so its useState initializers can
+               safely seed from the parse contract. */
+            <AssemblyIntakePanel
+              parse={assemblyParse}
+              context={assemblyContext}
+              contextLoading={assemblyContextBusy}
+              onRetryContext={loadAssemblyContext}
+              materials={bomMaterials}
+              materialsLoading={bomMaterialsLoading}
+              materialsError={bomMaterialsError}
+              onRetryMaterials={() => {
+                // Same retry mechanics as the bare-mesh staging banner: bump
+                // the token so a stale in-flight response is ignored once the
+                // retry's response arrives.
+                bomMaterialsRequestIdRef.current += 1;
+                setBomMaterials([]);
+                loadBomMaterials();
+              }}
+              onStartOver={handleReset}
+            />
           ) : isMultiPlatePending ? (
             /* Multi-plate file: pick a single plate before parsing/slicing.
                No PreParsePanel here — its top-level slot_count/multi-material
@@ -2293,32 +2581,111 @@ export default function AdminIntakeStudio() {
                above the chooser would misrepresent the default plate's slots as
                file-wide. The PlatePicker shows the correct per-plate detail. */
             <div className="space-y-5">
-              <PlatePicker
-                plates={preparseResult?.plates || []}
-                isRaw={isRawPreparse}
-                selectedPlateIndex={selectedPlateIndex}
-                onSelect={setSelectedPlateIndex}
-              />
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  onClick={continueWithSelectedPlate}
-                  disabled={selectedPlateIndex == null}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition-colors"
-                >
-                  {isRawPreparse ? "Slice & continue" : "Continue"}
-                </button>
-                {selectedPlateIndex == null && (
-                  <span className="text-gray-500 text-sm">
-                    Pick a plate to continue
-                  </span>
-                )}
-                <button
-                  onClick={handleReset}
-                  className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
-                >
-                  Choose a different file
-                </button>
-              </div>
+              {/* Assembly mode choice — RAW multi-plate only. A sliced
+                  .gcode.3mf stays on the untouched single-plate path (assembly
+                  needs the async slice-all pipeline, which only raw files
+                  take), and single-plate files never reach this branch. */}
+              {isRawPreparse && (
+                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                  <h2 className="text-base font-semibold text-white mb-3">
+                    How do you want to intake this file?
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIntakeMode("plate")}
+                      aria-pressed={intakeMode === "plate"}
+                      className={`text-left rounded-lg border px-4 py-3 transition-colors ${
+                        intakeMode === "plate"
+                          ? "border-blue-500 bg-blue-500/10"
+                          : "border-gray-700 bg-gray-800 hover:border-gray-600"
+                      }`}
+                    >
+                      <span className="block text-white font-medium">
+                        Intake one plate
+                      </span>
+                      <span className="block text-gray-500 text-sm mt-1">
+                        Pick a single plate below — it&apos;s sliced and becomes
+                        one SKU.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIntakeMode("assembly")}
+                      aria-pressed={intakeMode === "assembly"}
+                      className={`text-left rounded-lg border px-4 py-3 transition-colors ${
+                        intakeMode === "assembly"
+                          ? "border-blue-500 bg-blue-500/10"
+                          : "border-gray-700 bg-gray-800 hover:border-gray-600"
+                      }`}
+                    >
+                      <span className="block text-white font-medium">
+                        Intake whole model as an assembly (
+                        {preparseResult?.plate_count} plates)
+                      </span>
+                      <span className="block text-gray-500 text-sm mt-1">
+                        Slice every plate, create one component per plate plus
+                        an assembly BOM — all in one flow.
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isRawPreparse && intakeMode === "assembly" ? (
+                /* Assembly path: no per-plate picker — every plate is sliced
+                   in ONE async job (no plate_index → worker --slice 0). */
+                <>
+                  <p className="text-gray-400 text-sm">
+                    All {preparseResult?.plate_count} plates will be sliced in
+                    one job using the file&apos;s embedded settings. You&apos;ll
+                    then pick a material and work center, review the per-plate
+                    components, and create everything in one step.
+                  </p>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={continueWithAssembly}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                    >
+                      Slice all {preparseResult?.plate_count} plates
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+                    >
+                      Choose a different file
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <PlatePicker
+                    plates={preparseResult?.plates || []}
+                    isRaw={isRawPreparse}
+                    selectedPlateIndex={selectedPlateIndex}
+                    onSelect={setSelectedPlateIndex}
+                  />
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={continueWithSelectedPlate}
+                      disabled={selectedPlateIndex == null}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                    >
+                      {isRawPreparse ? "Slice & continue" : "Continue"}
+                    </button>
+                    {selectedPlateIndex == null && (
+                      <span className="text-gray-500 text-sm">
+                        Pick a plate to continue
+                      </span>
+                    )}
+                    <button
+                      onClick={handleReset}
+                      className="border border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+                    >
+                      Choose a different file
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div

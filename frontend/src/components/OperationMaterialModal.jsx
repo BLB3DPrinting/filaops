@@ -15,6 +15,13 @@ export default function OperationMaterialModal({
   operation: _operation = null, // Operation context (for title/label)
   defaultTypeFilter = 'all', // Smart default computed by parent from operation name
   material = null,           // If provided, editing existing material
+  // Hide the op-material-only fields (Per, Scrap Factor, flags, Notes) for
+  // consumers whose downstream contract carries only component + quantity +
+  // unit — e.g. Intake's assembly packaging lines (PackagingIn mirrors the
+  // /sku packaging shape, which has no quantity_per/scrap_factor). Keeping
+  // those inputs visible would let the operator set values that get silently
+  // dropped at submit. Default false → existing usages render unchanged.
+  simpleFields = false,
   onSave,
 }) {
   const [loading, setLoading] = useState(false);
@@ -331,6 +338,7 @@ export default function OperationMaterialModal({
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>
+              {!simpleFields && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Per
@@ -345,6 +353,7 @@ export default function OperationMaterialModal({
                   <option value="order">Per Order</option>
                 </select>
               </div>
+              )}
             </div>
 
             {/* Unit and Scrap Factor */}
@@ -360,6 +369,7 @@ export default function OperationMaterialModal({
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>
+              {!simpleFields && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Scrap Factor %
@@ -374,9 +384,11 @@ export default function OperationMaterialModal({
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                 />
               </div>
+              )}
             </div>
 
             {/* Options */}
+            {!simpleFields && (
             <div className="flex flex-wrap gap-6">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -407,8 +419,10 @@ export default function OperationMaterialModal({
                 <span className="text-xs text-gray-500">(swap this material per variant)</span>
               </label>
             </div>
+            )}
 
             {/* Notes */}
+            {!simpleFields && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Notes
@@ -420,6 +434,7 @@ export default function OperationMaterialModal({
                 placeholder="Optional notes about this material..."
               />
             </div>
+            )}
           </div>
 
           {/* Actions */}
