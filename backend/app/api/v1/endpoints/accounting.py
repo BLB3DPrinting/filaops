@@ -15,12 +15,24 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from app.core.licensing_gate import require_feature
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_admin_user
 from app.models.user import User
 from app.services import accounting_service
 
-router = APIRouter()
+# PRO gate (PR-D1): GL reporting + fiscal period close/reopen require the
+# "accounting" feature entitlement. Community installs have no features → 403.
+# Auth runs FIRST so an anonymous request gets 401 (not authenticated) — it
+# must not learn that this is a PRO-gated feature. FastAPI caches identical
+# sub-dependencies per request, so also declaring get_current_admin_user on a
+# route does not re-execute it.
+router = APIRouter(
+    dependencies=[
+        Depends(get_current_admin_user),
+        Depends(require_feature("accounting")),
+    ]
+)
 
 
 # =============================================================================

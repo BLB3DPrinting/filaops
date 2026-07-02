@@ -2,9 +2,11 @@
 MQTT Telemetry API Endpoints
 
 Provides REST access to live printer telemetry for:
-- AI workers (Otto, Sam, Ada) via API key auth
+- AI workers (Otto, Sam, Ada)
 - Admin UI for monitoring
 - Frontend command center
+
+All endpoints authenticate via the standard JWT dependency (get_current_user).
 """
 
 from datetime import datetime, timezone

@@ -1,13 +1,15 @@
 """
 Feature Flag System for FilaOps
 
-Controls access to features based on subscription tier.
-Set LICENSING_ENABLED = False to give everyone all features (current mode).
-Set LICENSING_ENABLED = True to enforce license checking.
+Historically this module also housed a ``require_tier`` decorator used as an
+API gate. That gate was a no-op (it short-circuited whenever
+``LICENSING_ENABLED`` was False) and has been RETIRED — live PRO feature
+gating now lives in ``app.core.licensing_gate.require_feature``, which reads
+the plugin registry and fails closed. This module retains only the resource
+LIMIT helpers (seats/printers/sites), still guarded by ``LICENSING_ENABLED``.
 """
 from enum import Enum
-from typing import Dict, List, Callable
-from functools import wraps
+from typing import Dict, List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -261,56 +263,9 @@ def get_available_features(tier: FeatureTier) -> List[str]:
     """
     return get_features_for_tier(tier.value)
 
-def require_tier(minimum_tier: FeatureTier) -> Callable:
-    """
-    Decorator to require a minimum subscription tier.
-    
-    Usage:
-        @router.get("/advanced-analytics")
-        @require_tier(Tier.PROFESSIONAL)
-        async def advanced_analytics(...):
-            ...
-    
-    Args:
-        minimum_tier: Minimum tier required
-    
-    Returns:
-        Decorator function
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # If licensing is disabled, allow everything
-            if not LICENSING_ENABLED:
-                return await func(*args, **kwargs)
-            
-            # Extract user and db from kwargs (injected by FastAPI)
-            user = kwargs.get("current_user")
-            db = kwargs.get("db")
-            
-            if not user or not db:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Missing authentication dependencies"
-                )
-            
-            # Check user's tier
-            user_tier = get_current_tier(db, user)
-            tier_order = ["community", "professional", "enterprise"]
-            
-            required_index = tier_order.index(minimum_tier.value)
-            user_index = tier_order.index(user_tier.value)
-            
-            if user_index < required_index:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"This feature requires {minimum_tier.value.title()} tier or higher"
-                )
-            
-            return await func(*args, **kwargs)
-
-        return wrapper
-    return decorator
+# NOTE: ``require_tier`` (a decorator-based API gate) was removed in PR-D1.
+# It short-circuited whenever LICENSING_ENABLED was False, so every use was a
+# silent no-op. Live PRO gating is now ``app.core.licensing_gate.require_feature``.
 
 
 # ============================================================================
