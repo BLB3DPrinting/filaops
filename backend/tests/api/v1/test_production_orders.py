@@ -747,6 +747,149 @@ class TestSplitProductionOrder:
         assert response.status_code == 422
 
 
+class TestOperationScrapEndpoints:
+    """Test the operation-level scrap routes (#858 B1).
+
+    ScrapEntryModal and OperationCompletionModal called
+    /{po}/operations/{op}/scrap and .../scrap-cascade, but neither route
+    existed — the scrap_service functions were built (and covered by
+    tests/services/test_scrap_service.py, incl. GL balance) yet never routed.
+    """
+
+    def _setup(self, db, make_product, make_production_order, make_work_center):
+        """PO in progress with one complete operation (10 good units) that
+        consumed a material, plus an active scrap reason."""
+        from app.models.production_order import (
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial,
+        )
+        from app.models.scrap_reason import ScrapReason
+
+        fg = make_product(item_type="finished_good", standard_cost=Decimal("10.00"))
+        material = make_product(item_type="supply", is_raw_material=True,
+                                standard_cost=Decimal("2.50"))
+        wc = make_work_center()
+        po = make_production_order(
+            product_id=fg.id, status="in_progress", quantity=10,
+        )
+        op = ProductionOrderOperation(
+            production_order_id=po.id,
+            work_center_id=wc.id,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            status="complete",
+            quantity_completed=Decimal("10"),
+            quantity_scrapped=Decimal("0"),
+            planned_setup_minutes=Decimal("0"),
+            planned_run_minutes=Decimal("30"),
+        )
+        db.add(op)
+        db.flush()
+        db.add(ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=material.id,
+            quantity_required=Decimal("10"),
+            quantity_allocated=Decimal("0"),
+            quantity_consumed=Decimal("0"),
+            unit="EA",
+            status="pending",
+        ))
+        reason = db.query(ScrapReason).filter(ScrapReason.code == "op-scrap-test").first()
+        if not reason:
+            db.add(ScrapReason(code="op-scrap-test", name="Op Scrap Test", active=True))
+        db.flush()
+        return po, op
+
+    def test_cascade_preview_returns_costs(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        po, op = self._setup(db, make_product, make_production_order, make_work_center)
+
+        response = client.get(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/scrap-cascade",
+            params={"quantity": 2},
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["production_order_id"] == po.id
+        assert data["operation_id"] == op.id
+        assert data["quantity_scrapped"] == 2
+        # 2 units × (10 EA / 10 ordered) × $2.50 material + labor share
+        assert data["total_cost"] > 0
+        assert len(data["materials_consumed"]) == 1
+
+    def test_scrap_records_and_updates_quantities(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        po, op = self._setup(db, make_product, make_production_order, make_work_center)
+
+        response = client.post(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/scrap",
+            json={
+                "quantity_scrapped": 2,
+                "scrap_reason_code": "op-scrap-test",
+                "create_replacement": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["success"] is True
+        assert data["scrap_records_created"] >= 1
+        assert data["replacement_order"] is None
+
+        db.refresh(po)
+        db.refresh(op)
+        assert int(po.quantity_scrapped) == 2
+        assert int(op.quantity_scrapped) == 2
+
+    def test_scrap_invalid_reason_returns_400(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        po, op = self._setup(db, make_product, make_production_order, make_work_center)
+
+        response = client.post(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/scrap",
+            json={
+                "quantity_scrapped": 1,
+                "scrap_reason_code": "no-such-reason",
+                "create_replacement": False,
+            },
+        )
+        assert response.status_code == 400
+        assert "scrap reason" in response.json()["detail"].lower()
+
+    def test_scrap_over_available_returns_400(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        po, op = self._setup(db, make_product, make_production_order, make_work_center)
+
+        response = client.post(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/scrap",
+            json={
+                "quantity_scrapped": 11,  # only 10 completed
+                "scrap_reason_code": "op-scrap-test",
+                "create_replacement": False,
+            },
+        )
+        assert response.status_code == 400
+
+    def test_cascade_op_not_in_po_returns_400(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        po, op = self._setup(db, make_product, make_production_order, make_work_center)
+        other_po = make_production_order(
+            product_id=make_product().id, status="in_progress", quantity=5,
+        )
+        db.flush()
+
+        response = client.get(
+            f"{BASE_URL}/{other_po.id}/operations/{op.id}/scrap-cascade",
+            params={"quantity": 1},
+        )
+        assert response.status_code == 400
+
+
 # =============================================================================
 # Cancel -- POST /api/v1/production-orders/{id}/cancel
 # =============================================================================
