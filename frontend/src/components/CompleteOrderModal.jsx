@@ -107,17 +107,17 @@ export default function CompleteOrderModal({
 
     setSubmitting(true);
     try {
-      const params = new URLSearchParams({
-        quantity_completed: quantityCompleted.toString(),
-      });
-
-      // If closing short and user acknowledged, add force flag
+      // The endpoint binds ProductionOrderCompleteRequest from the JSON body.
+      // quantity_completed/force_close_short were previously sent as query
+      // params, which FastAPI silently dropped — the backend then recorded a
+      // FULL-quantity completion regardless of the entered value, and closing
+      // short was impossible (the force flag never arrived).
+      const requestBody = {
+        quantity_completed: quantityCompleted,
+      };
       if (isClosingShort && acknowledgeShort) {
-        params.append("force_close_short", "true");
+        requestBody.force_close_short = true;
       }
-
-      // Prepare request body with optional notes and spool selections
-      const requestBody = {};
       if (notes.trim()) {
         requestBody.notes = notes.trim();
       }
@@ -129,7 +129,7 @@ export default function CompleteOrderModal({
       }
 
       const res = await fetch(
-        `${API_URL}/api/v1/production-orders/${productionOrder.id}/complete?${params}`,
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/complete`,
         {
           method: "POST",
           credentials: "include",

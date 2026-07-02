@@ -108,7 +108,7 @@ function calculateTotalTime(operations) {
  * held for QC) show a "Scrap" affordance that calls onScrap(order) so the parent
  * can open the ScrapOrderModal — previously the modal was mounted but unreachable.
  */
-function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap }) {
+function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap, onSplit, onComplete, onQC }) {
   const totalMinutes = calculateTotalTime(operations);
 
   // Gather all materials from all operations
@@ -124,6 +124,16 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
   // progress, finished goods received at completion, or goods held after a QC
   // failure.  draft/released have nothing made yet; scrapped/cancelled are done.
   const canScrap = ['in_progress', 'complete', 'qc_hold', 'short'].includes(order.status);
+
+  // #858: Split/Complete/QC modals were mounted on the page but nothing ever
+  // opened them. Split follows the service guard (draft/scheduled/released,
+  // >1 unit); Complete is the bulk order-level action for WIP; QC uses the
+  // backend-computed guard (is_ready_for_qc) plus held orders awaiting
+  // re-inspection.
+  const canSplit = ['draft', 'scheduled', 'released'].includes(order.status)
+    && (order.quantity_ordered || 0) > 1;
+  const canComplete = order.status === 'in_progress';
+  const canQC = order.status === 'qc_hold' || order.is_ready_for_qc === true;
 
   return (
     <tr
@@ -191,33 +201,76 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
         )}
       </td>
 
-      {/* SCHED-3: dispatch affordance on released orders; #781: scrap affordance once units exist */}
+      {/* Row actions: Dispatch (SCHED-3), Split/Complete/QC (#858), Scrap (#781).
+          Status-gating keeps this to at most two buttons per row. */}
       <td className="px-4 py-3 text-right">
-        {order.status === 'released' && firstPendingOp && onDispatch ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDispatch(order, firstPendingOp);
-            }}
-            className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 rounded px-2 py-1 transition-colors"
-            title="Open scheduler for this order's next pending operation"
-          >
-            Dispatch →
-          </button>
-        ) : canScrap && onScrap ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onScrap(order);
-            }}
-            className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded px-2 py-1 transition-colors"
-            title="Record scrap for this order"
-          >
-            Scrap
-          </button>
-        ) : null}
+        <div className="flex items-center justify-end gap-1">
+          {order.status === 'released' && firstPendingOp && onDispatch && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDispatch(order, firstPendingOp);
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 rounded px-2 py-1 transition-colors"
+              title="Open scheduler for this order's next pending operation"
+            >
+              Dispatch →
+            </button>
+          )}
+          {canSplit && onSplit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSplit(order);
+              }}
+              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-400/50 rounded px-2 py-1 transition-colors"
+              title="Split this order into multiple orders"
+            >
+              Split
+            </button>
+          )}
+          {canComplete && onComplete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onComplete(order);
+              }}
+              className="text-xs text-green-400 hover:text-green-300 border border-green-500/30 hover:border-green-400/50 rounded px-2 py-1 transition-colors"
+              title="Complete this order"
+            >
+              Complete
+            </button>
+          )}
+          {canQC && onQC && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQC(order);
+              }}
+              className="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-400/50 rounded px-2 py-1 transition-colors"
+              title="Record a QC inspection for this order"
+            >
+              QC
+            </button>
+          )}
+          {canScrap && onScrap && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onScrap(order);
+              }}
+              className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded px-2 py-1 transition-colors"
+              title="Record scrap for this order"
+            >
+              Scrap
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -235,6 +288,9 @@ export default function ProductionQueueList({
   onCreateOrder,
   onDispatch,
   onScrap,
+  onSplit,
+  onComplete,
+  onQC,
 }) {
   const [operationsMap, setOperationsMap] = useState({});
   const [loadingOps, setLoadingOps] = useState(false);
@@ -449,6 +505,9 @@ export default function ProductionQueueList({
                   onRowClick={onOrderClick}
                   onDispatch={onDispatch}
                   onScrap={onScrap}
+                  onSplit={onSplit}
+                  onComplete={onComplete}
+                  onQC={onQC}
                 />
               ))
             )}

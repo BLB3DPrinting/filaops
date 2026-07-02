@@ -1432,23 +1432,49 @@ async def split_production_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ProductionOrderSplitResponse:
-    """Split a production order into two."""
-    original, new_order = production_order_service.split_production_order(
-        db,
-        order_id,
-        split_quantity=request.split_quantity,
-        user_email=current_user.email,
-        reason=request.reason,
-    )
+    """Split a production order into multiple orders.
+
+    The first split quantity stays on the parent; each remaining quantity
+    becomes a new child order (source="split"). The quantities must total
+    the parent's current ordered quantity (the UI enforces the same rule).
+    """
+    order = production_order_service.get_production_order(db, order_id)
+
+    total = sum(s.quantity for s in request.splits)
+    if total != order.quantity_ordered:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Split quantities must total the ordered quantity "
+                f"({total} != {order.quantity_ordered})"
+            ),
+        )
+
+    # The service splits ONE child off the parent per call, reducing the
+    # parent's quantity each time. The first split is what remains on the
+    # parent, so loop over the rest.
+    children = []
+    original = order
+    for split in request.splits[1:]:
+        original, child = production_order_service.split_production_order(
+            db,
+            order_id,
+            split_quantity=split.quantity,
+            user_email=current_user.email,
+        )
+        children.append(child)
 
     db.commit()
     db.refresh(original)
-    db.refresh(new_order)
+    for child in children:
+        db.refresh(child)
 
     return ProductionOrderSplitResponse(
-        original_order=build_production_order_response(original, db),
-        new_order=build_production_order_response(new_order, db),
-        message=f"Split {request.split_quantity} units to {new_order.code}",
+        parent_order_id=original.id,
+        parent_order_code=original.code,
+        parent_status=original.status,
+        child_orders=[build_list_response(c, db) for c in children],
+        message=f"Split {original.code} into {len(request.splits)} orders",
     )
 
 

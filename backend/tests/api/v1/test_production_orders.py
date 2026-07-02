@@ -680,6 +680,73 @@ class TestQCInspectionEndpoint:
         assert response.status_code == 200, response.text
 
 
+class TestSplitProductionOrder:
+    """Test POST /api/v1/production-orders/{id}/split (#858 A3).
+
+    The endpoint previously read request.split_quantity/request.reason —
+    fields that don't exist on ProductionOrderSplitRequest (which carries
+    splits: List[SplitQuantity]) — and built the response with kwargs that
+    don't match ProductionOrderSplitResponse, so every split 500'd twice.
+    """
+
+    def test_split_two_ways(self, client, db, make_product, make_bom):
+        fg, _, _ = _create_product_with_bom(make_product, make_bom, db)
+        order_data = _create_draft_order(client, fg.id)  # qty 10
+
+        response = client.post(
+            f"{BASE_URL}/{order_data['id']}/split",
+            json={"splits": [{"quantity": 6}, {"quantity": 4}]},
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["parent_order_id"] == order_data["id"]
+        assert data["parent_order_code"] == order_data["code"]
+        assert len(data["child_orders"]) == 1
+        child = data["child_orders"][0]
+        assert Decimal(str(child["quantity_ordered"])) == Decimal("4")
+        assert child["code"] != order_data["code"]
+
+        # Parent keeps the first split quantity.
+        parent = client.get(f"{BASE_URL}/{order_data['id']}").json()
+        assert Decimal(str(parent["quantity_ordered"])) == Decimal("6")
+
+    def test_split_three_ways(self, client, db, make_product, make_bom):
+        fg, _, _ = _create_product_with_bom(make_product, make_bom, db)
+        order_data = _create_draft_order(client, fg.id)  # qty 10
+
+        response = client.post(
+            f"{BASE_URL}/{order_data['id']}/split",
+            json={"splits": [{"quantity": 4}, {"quantity": 3}, {"quantity": 3}]},
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert len(data["child_orders"]) == 2
+        parent = client.get(f"{BASE_URL}/{order_data['id']}").json()
+        assert Decimal(str(parent["quantity_ordered"])) == Decimal("4")
+
+    def test_split_sum_mismatch_returns_400(self, client, db, make_product, make_bom):
+        fg, _, _ = _create_product_with_bom(make_product, make_bom, db)
+        order_data = _create_draft_order(client, fg.id)  # qty 10
+
+        response = client.post(
+            f"{BASE_URL}/{order_data['id']}/split",
+            json={"splits": [{"quantity": 5}, {"quantity": 4}]},
+        )
+        assert response.status_code == 400
+        assert "total" in response.json()["detail"].lower()
+
+    def test_split_single_entry_rejected(self, client, db, make_product, make_bom):
+        """The schema requires at least 2 splits."""
+        fg, _, _ = _create_product_with_bom(make_product, make_bom, db)
+        order_data = _create_draft_order(client, fg.id)
+
+        response = client.post(
+            f"{BASE_URL}/{order_data['id']}/split",
+            json={"splits": [{"quantity": 10}]},
+        )
+        assert response.status_code == 422
+
+
 # =============================================================================
 # Cancel -- POST /api/v1/production-orders/{id}/cancel
 # =============================================================================
