@@ -93,6 +93,87 @@ class TestNextAvailableSlotEndpoint:
         assert response.status_code == 401
 
 
+class TestOperationsListMachineResolution:
+    """GET /{po}/operations must show the machine for BOTH scheduling lanes.
+
+    schedule_operation stores printers in printer_id (resource_id=None) and
+    resources in resource_id — the list previously resolved only resource_id,
+    so printer-scheduled ops rendered a blank machine column (#857 G2).
+    """
+
+    def test_printer_scheduled_op_resolves_machine(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        work_center = make_work_center()
+        printer = _make_printer(db, work_center.id)
+        product = make_product()
+        po = make_production_order(product_id=product.id)
+        _make_operation(
+            db, po.id, work_center.id,
+            status="queued",
+            printer_id=printer.id,  # modern printer lane: resource_id stays None
+        )
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{po.id}/operations")
+        assert response.status_code == 200
+        op = response.json()[0]
+        assert op["printer_id"] == printer.id
+        assert op["resource_code"] == printer.code
+        assert op["resource_name"] == printer.name
+
+    def test_resource_scheduled_op_still_resolves(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        """Regression guard: the resource lane keeps working unchanged."""
+        from app.models.manufacturing import Resource
+
+        work_center = make_work_center()
+        resource = Resource(
+            work_center_id=work_center.id,
+            code=f"RES-{_uid()}",
+            name="Test Resource",
+        )
+        db.add(resource)
+        db.flush()
+        product = make_product()
+        po = make_production_order(product_id=product.id)
+        _make_operation(
+            db, po.id, work_center.id,
+            status="queued",
+            resource_id=resource.id,
+        )
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{po.id}/operations")
+        assert response.status_code == 200
+        op = response.json()[0]
+        assert op["resource_code"] == resource.code
+        assert op["resource_name"] == resource.name
+
+    def test_start_response_resolves_printer_machine(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        """build_operation_response (start/complete/skip) must also resolve the
+        printer lane — it previously had no printer handling at all."""
+        work_center = make_work_center()
+        printer = _make_printer(db, work_center.id)
+        product = make_product()
+        po = make_production_order(product_id=product.id, status="released")
+        op = _make_operation(
+            db, po.id, work_center.id,
+            status="queued",
+            printer_id=printer.id,
+        )
+        db.flush()
+
+        response = client.post(
+            f"{BASE_URL}/{po.id}/operations/{op.id}/start", json={}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["resource_code"] == printer.code
+
+
 class TestScheduleOperationPredecessorResponse:
     """Verify predecessor violation returns earliest_valid_start >= predecessor end.
 
