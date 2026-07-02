@@ -121,11 +121,17 @@ export default function CompleteOrderModal({
       if (notes.trim()) {
         requestBody.notes = notes.trim();
       }
-      if (Object.keys(selectedSpools).length > 0) {
-        requestBody.spools_used = Object.entries(selectedSpools).map(([productId, spoolId]) => ({
+      // A selection cleared back to "No spool selected" is stored as null;
+      // SpoolUsage.spool_id is a required int, so a null entry would 422 the
+      // whole completion. Send only real selections.
+      const spoolsUsed = Object.entries(selectedSpools)
+        .filter(([, spoolId]) => spoolId != null)
+        .map(([productId, spoolId]) => ({
           product_id: parseInt(productId),
           spool_id: spoolId,
         }));
+      if (spoolsUsed.length > 0) {
+        requestBody.spools_used = spoolsUsed;
       }
 
       const res = await fetch(

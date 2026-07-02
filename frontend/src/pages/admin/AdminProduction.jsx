@@ -492,7 +492,7 @@ export default function AdminProduction() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
             <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
               <p className="text-[var(--ink-3)] text-sm">Draft</p>
-              <p className="text-2xl font-bold text-[var(--ink-3)]">
+              <p className="text-2xl font-bold text-[var(--ink)]">
                 {groupedOrders.draft.length}
               </p>
             </div>
