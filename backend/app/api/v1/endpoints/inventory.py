@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc, or_
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
 from app.api.v1.deps import get_current_staff_user
 from app.models import User, InventoryTransaction, Inventory, Product
 from app.services import inventory_ledger
@@ -30,7 +29,7 @@ async def approve_negative_inventory(
     transaction_id: int,
     approval_reason: str = Query(..., description="Reason for approving negative inventory"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Approve a negative inventory transaction that requires approval.
@@ -158,7 +157,7 @@ async def get_negative_inventory_report(
     include_approved: bool = Query(True, description="Include approved transactions"),
     include_pending: bool = Query(True, description="Include pending approvals"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Generate negative inventory report showing all negative inventory occurrences.
@@ -277,7 +276,7 @@ async def validate_inventory_consistency_endpoint(
     location_id: Optional[int] = Query(None, description="Filter by location ID"),
     auto_fix: bool = Query(False, description="Automatically fix inconsistencies"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Validate inventory consistency: check that allocated doesn't exceed on_hand.
@@ -311,7 +310,7 @@ async def adjust_inventory_quantity(
     cost_per_unit: Optional[float] = Query(None, description="Cost per unit for accounting (optional, defaults to product's effective cost)"),
     notes: Optional[str] = Query(None, description="Additional notes"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Adjust inventory on-hand quantity and create an adjustment transaction.
