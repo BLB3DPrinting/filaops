@@ -235,6 +235,19 @@ export default function AssemblyIntakePanel({
     componentRows.every(
       (r) => r.name.trim() && Number(r.quantity) >= 0.001
     );
+  // Labor minutes: empty means 0 (fine), but a typed/pasted negative or
+  // non-numeric value must not reach handleCreate — the inputs' min="0" only
+  // constrains the spinner, not keyboard input. Only gated when an assembly
+  // work center is chosen (without one the inputs are disabled and the
+  // payload omits the labor fields entirely).
+  const minutesValid = (v) => {
+    if (v === "") return true;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0;
+  };
+  const assemblyLaborValid =
+    !assemblyWorkCenterId ||
+    (minutesValid(assemblyRunMinutes) && minutesValid(assemblySetupMinutes));
   const canCreate =
     !createBusy &&
     context != null &&
@@ -242,6 +255,7 @@ export default function AssemblyIntakePanel({
     printWorkCenterId !== "" &&
     assemblyName.trim() !== "" &&
     Number(actualPrice) > 0 &&
+    assemblyLaborValid &&
     rowsValid;
 
   // ---------------------------------------------------------------------------
@@ -286,7 +300,7 @@ export default function AssemblyIntakePanel({
   const handleCreate = async () => {
     if (!canCreate) {
       toast.error(
-        "Pick a material, a print work center, a selling price, and give every component a name and a quantity of at least 0.001."
+        "Pick a material, a print work center, a selling price, and give every component a name and a quantity of at least 0.001. Assembly minutes must be zero or more."
       );
       return;
     }
@@ -306,6 +320,12 @@ export default function AssemblyIntakePanel({
             quantity_per: m.quantity_per || "unit",
             scrap_factor: Number(m.scrap_factor) || 0,
           })),
+          // PackagingIn intentionally mirrors the existing /sku packaging
+          // shape: component + quantity + unit ONLY (no quantity_per /
+          // scrap_factor — packaging is a plain BOM line, not an op material).
+          // The modal is opened with simpleFields for packaging, so those
+          // inputs are hidden and the operator can never set values this
+          // mapper would drop.
           packaging: packagingLines.map((m) => ({
             component_product_id: m.component_id,
             quantity: Number(m.quantity) || 0,
@@ -884,7 +904,11 @@ export default function AssemblyIntakePanel({
       <div className="flex justify-between">
         <button
           onClick={onStartOver}
-          className="border border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300 px-4 py-2 rounded-lg transition-colors"
+          // Disabled while the (non-idempotent) create POST is pending — a
+          // reset mid-flight would blank the panel while the backend may still
+          // create the products, leaving the operator unsure what happened.
+          disabled={createBusy}
+          className="border border-gray-700 text-gray-500 hover:bg-gray-800 hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors"
         >
           Start over
         </button>
@@ -901,12 +925,17 @@ export default function AssemblyIntakePanel({
         </button>
       </div>
 
-      {/* Shared add-material modal (same component Step 4's finishing ops use) */}
+      {/* Shared add-material modal (same component Step 4's finishing ops use).
+          Packaging lines only carry component + quantity + unit (PackagingIn
+          mirrors /sku's packaging shape), so simpleFields hides the Per/Scrap/
+          flags/Notes inputs for them — glue lines are OpMaterialIn and keep
+          the full form. */}
       <OperationMaterialModal
         isOpen={modalTarget !== null}
         operationId={null}
         material={null}
         defaultTypeFilter={modalTarget === "packaging" ? "packaging" : "all"}
+        simpleFields={modalTarget === "packaging"}
         onClose={() => setModalTarget(null)}
         onSave={(mat) => {
           if (mat) {

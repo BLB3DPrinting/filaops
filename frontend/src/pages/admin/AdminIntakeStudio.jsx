@@ -1621,9 +1621,21 @@ export default function AdminIntakeStudio() {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
       // The panel is unusable without plates[] (nothing to build components
-      // from) — treat it like a failed slice and keep the picker for retry.
-      if (!Array.isArray(data.plates) || data.plates.length === 0) {
-        toast.error("Slicing returned no plate data — please retry.");
+      // from), and everything downstream — component rows, {SKU}-Pnn suffixes,
+      // the /assembly payload — keys off plates[].plate_index round-tripped
+      // verbatim. Reject the result unless EVERY plate carries a usable
+      // numeric plate_index; treat it like a failed slice (early return keeps
+      // the mode chooser + held file intact for retry).
+      const platesUsable =
+        Array.isArray(data.plates) &&
+        data.plates.length > 0 &&
+        data.plates.every(
+          (p) =>
+            typeof p?.plate_index === "number" &&
+            Number.isFinite(p.plate_index)
+        );
+      if (!platesUsable) {
+        toast.error("Slicing returned no usable plate data — please retry.");
         return;
       }
       // Work centers for the panel's pickers. Awaited here (not fire-and-
