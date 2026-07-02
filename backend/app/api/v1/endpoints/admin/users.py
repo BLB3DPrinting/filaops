@@ -67,7 +67,7 @@ async def list_admin_users(
     Admin only.
     """
     query = db.query(User).filter(
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     )
     
     # Filter by account type
@@ -125,7 +125,7 @@ async def get_user_stats(
     ).count()
 
     total_inactive = db.query(User).filter(
-        User.account_type.in_(["admin", "operator"]),
+        User.account_type.in_(STAFF_ACCOUNT_TYPES),
         User.status != "active"
     ).count()
 
@@ -154,7 +154,7 @@ async def get_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -202,7 +202,7 @@ async def create_admin_user(
     # Legacy tier-limit hook (dormant unless features.LICENSING_ENABLED is on;
     # owned by a separate change). Kept for continuity — real enforcement above.
     current_user_count = db.query(User).filter(
-        User.account_type.in_(list(STAFF_ACCOUNT_TYPES)),
+        User.account_type.in_(STAFF_ACCOUNT_TYPES),
         User.status == "active"
     ).count()
 
@@ -282,7 +282,7 @@ async def update_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -389,7 +389,7 @@ async def reset_user_password(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -445,7 +445,7 @@ async def deactivate_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -520,7 +520,7 @@ async def reactivate_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:

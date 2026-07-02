@@ -828,6 +828,100 @@ class TestMultiUserSeatCaps:
 
 
 # =============================================================================
+# 10b. TestSeatCapAdvisoryLock — TOCTOU serialization (no DB required)
+# =============================================================================
+
+class _FakeDialect:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeBind:
+    def __init__(self, dialect_name):
+        self.dialect = _FakeDialect(dialect_name)
+
+
+class _FakeQuery:
+    def __init__(self, count):
+        self._count = count
+
+    def filter(self, *a, **k):
+        return self
+
+    def count(self):
+        return self._count
+
+
+class _SpyDB:
+    """Minimal stand-in for a Session that records execute() calls and reports a
+    chosen SQL dialect, so we can assert the advisory-lock SQL is issued on the
+    seat-check path without needing a live database."""
+
+    def __init__(self, dialect_name="postgresql", active_staff=0):
+        self.bind = _FakeBind(dialect_name)
+        self._active_staff = active_staff
+        self.executed = []  # list of (sql_text, params)
+
+    def execute(self, statement, params=None):
+        self.executed.append((str(statement), params))
+        return None
+
+    def query(self, *a, **k):
+        return _FakeQuery(self._active_staff)
+
+
+@pytest.mark.seat_caps
+class TestSeatCapAdvisoryLock:
+    """The seat check must serialize itself with a transaction-scoped advisory
+    lock on Postgres to close the check-then-write TOCTOU window."""
+
+    def test_advisory_lock_issued_on_postgres(self, set_tier):
+        from app.core import seat_limits
+
+        set_tier("community")
+        spy = _SpyDB(dialect_name="postgresql", active_staff=0)
+        # active_staff=0 under community cap of 1 -> allowed, no raise.
+        seat_limits.enforce_seat_cap(spy)
+
+        lock_calls = [sql for sql, _ in spy.executed if "pg_advisory_xact_lock" in sql]
+        assert lock_calls, "expected a pg_advisory_xact_lock on the seat-check path"
+
+    def test_advisory_lock_uses_module_key(self, set_tier):
+        from app.core import seat_limits
+
+        set_tier("community")
+        spy = _SpyDB(dialect_name="postgresql", active_staff=0)
+        seat_limits.enforce_seat_cap(spy)
+
+        lock_params = [
+            params for sql, params in spy.executed
+            if "pg_advisory_xact_lock" in sql
+        ]
+        assert lock_params and lock_params[0]["key"] == seat_limits._SEAT_LOCK_KEY
+
+    def test_no_advisory_lock_on_non_postgres(self, set_tier):
+        """The lock is Postgres-only; other dialects must no-op (not error)."""
+        from app.core import seat_limits
+
+        set_tier("community")
+        spy = _SpyDB(dialect_name="sqlite", active_staff=0)
+        seat_limits.enforce_seat_cap(spy)
+
+        lock_calls = [sql for sql, _ in spy.executed if "pg_advisory_xact_lock" in sql]
+        assert not lock_calls, "advisory lock must not be issued on non-Postgres"
+
+    def test_no_lock_when_tier_unlimited(self, set_tier):
+        """Uncapped tiers short-circuit before any DB work — no lock taken."""
+        from app.core import seat_limits
+
+        set_tier("professional")
+        spy = _SpyDB(dialect_name="postgresql", active_staff=99)
+        seat_limits.enforce_seat_cap(spy)
+
+        assert spy.executed == [], "unlimited tier must not touch the DB"
+
+
+# =============================================================================
 # 9. TestAdminUserAuth — 401 tests
 # =============================================================================
 

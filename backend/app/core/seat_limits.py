@@ -24,6 +24,7 @@ staff member until it upgrades. There is no startup- or login-time enforcement.
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.plugin_registry import get_tier
@@ -32,6 +33,12 @@ from app.models.user import User
 # Account types that count as a staff/team "seat". Customers/portal accounts
 # (account_type == "customer") are intentionally excluded.
 STAFF_ACCOUNT_TYPES = ("admin", "operator")
+
+# Fixed, arbitrary key for the transaction-scoped Postgres advisory lock that
+# serializes seat-cap enforcement across concurrent requests (see
+# enforce_seat_cap). Any stable int works; this private constant means only
+# seat enforcement contends on it.
+_SEAT_LOCK_KEY = 848_293_001
 
 # Tier -> maximum concurrent active staff seats.
 # ``None`` means unlimited. Any tier not listed here falls back to the community
@@ -87,6 +94,17 @@ def enforce_seat_cap(db: Session, exclude_user_id: Optional[int] = None) -> None
     deactivates existing users; installs already over the cap keep working and
     are simply prevented from adding more.
 
+    CONCURRENCY (TOCTOU): the count-then-insert/activate performed by the caller
+    is check-then-act. Two concurrent create/activate requests could each read
+    a below-cap count and both proceed, overshooting the cap. To close that gap
+    we take a transaction-scoped Postgres advisory lock at the top of the check.
+    ``enforce_seat_cap`` runs inside the request's DB session/transaction and the
+    caller commits the insert/activation on that SAME session with no
+    intermediate commit, so the xact lock is held until that commit. A second
+    concurrent request therefore blocks here until the first commits, then its
+    count reflects the newly-added seat and it correctly 403s. The lock
+    auto-releases at commit/rollback — no explicit unlock needed.
+
     Args:
         db: Database session.
         exclude_user_id: When activating/reactivating an existing user, pass its
@@ -98,6 +116,16 @@ def enforce_seat_cap(db: Session, exclude_user_id: Optional[int] = None) -> None
     cap = seat_cap_for_tier(get_tier())
     if cap is None:
         return  # unlimited — nothing to enforce
+
+    # Serialize concurrent seat checks+writes. pg_advisory_xact_lock is
+    # Postgres-only; guard by dialect so sqlite / other backends no-op (the
+    # lock is a safety net, not a correctness requirement for single-writer
+    # test backends).
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _SEAT_LOCK_KEY},
+        )
 
     current_active_staff = count_active_staff(db, exclude_user_id=exclude_user_id)
 
