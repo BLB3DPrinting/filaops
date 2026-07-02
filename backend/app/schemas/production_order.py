@@ -641,7 +641,7 @@ class QCInspectionRequest(BaseModel):
     """Request to perform QC inspection on a production order"""
     result: QCStatus = Field(
         ...,
-        description="QC result: 'passed' or 'failed'"
+        description="QC result: 'passed', 'failed', 'waived', or 'conditional'"
     )
     quantity_passed: Optional[int] = Field(
         None,

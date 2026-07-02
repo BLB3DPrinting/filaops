@@ -813,6 +813,15 @@ def record_qc_inspection(
         # order back to 'complete' so it can proceed to fulfillment. Without this
         # the WO stays stuck in qc_hold forever even after the defect is cleared.
         order.status = "complete"
+        # Re-sync the parent sales order: a sibling WO may have completed while
+        # this one was held, so the earlier completion sync saw this WO as
+        # qc_hold and left the SO in in_production. Releasing it can be what
+        # makes the SO fully complete. Idempotent — a no-op unless all WOs done.
+        try:
+            from app.services.status_sync_service import sync_on_production_complete
+            sync_on_production_complete(db, order)
+        except Exception as e:
+            logger.error("Failed to sync sales order for %s: %s", order.code, e)
 
     # #783: append an immutable inspection record so re-inspections keep a
     # history and true first-pass yield is derivable. The order.qc_* fields

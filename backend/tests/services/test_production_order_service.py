@@ -2837,23 +2837,34 @@ class TestRecordQCInspection:
         assert reloaded.qc_notes == "All checks passed"
         assert reloaded.qc_inspected_at is not None
 
-    def test_passing_reinspection_releases_qc_hold(self, db, finished_good):
-        """A qc_hold order that later passes re-inspection returns to 'complete'
-        so it can proceed to fulfillment instead of staying stuck on hold (A4)."""
-        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+    @pytest.mark.parametrize("release_result", ["passed", "waived", "conditional"])
+    def test_reinspection_releases_qc_hold_and_syncs_so(
+        self, db, finished_good, make_sales_order, release_result
+    ):
+        """A non-failed re-inspection releases a qc_hold WO back to 'complete' AND
+        re-syncs the parent SO — a sibling may have completed while this WO was
+        held, so releasing it is what makes the SO shippable (A4)."""
+        so = make_sales_order(
+            product_id=finished_good.id, quantity=10, status="in_production",
+        )
+        order = _make_production_order(
+            db, finished_good, status="in_progress", quantity=10, sales_order_id=so.id,
+        )
         order.quantity_completed = 10
         db.flush()
-        # First inspection fails -> qc_hold
+        # Fail QC -> qc_hold; the parent SO is not advanced.
         svc.record_qc_inspection(
             db, order.id, inspector="Insp", qc_status="failed", quantity_failed=10,
         )
         assert order.status == "qc_hold"
-        # Re-inspection passes -> released back to complete
+        assert so.status == "in_production"
+        # A non-failed re-inspection releases the WO and advances the SO.
         svc.record_qc_inspection(
-            db, order.id, inspector="Insp", qc_status="passed", quantity_passed=10,
+            db, order.id, inspector="Insp", qc_status=release_result, quantity_passed=10,
         )
         assert order.status == "complete"
-        assert order.qc_status == "passed"
+        assert order.qc_status == release_result
+        assert so.status == "ready_to_ship"
 
     def test_record_failed_inspection_holds_order_without_autoscrap(self, db, finished_good):
         """A failed inspection holds the order for disposition but does NOT
