@@ -67,12 +67,15 @@ export const STATUS_DESCRIPTORS = {
     status: {
       draft: { label: "Draft", tone: "neutral" },
       released: { label: "Released", tone: "info" },
+      scheduled: { label: "Scheduled", tone: "info" },
       in_progress: { label: "In Progress", tone: "purple" },
       on_hold: { label: "On Hold", tone: "warning" },
       short: { label: "Short", tone: "warning" },
       complete: { label: "Complete", tone: "success", terminal: true },
       // alias of `complete` (legacy / sales-order spelling) — see PR-0.
       completed: { label: "Complete", tone: "success", terminal: true },
+      // `closed` is written by the WO disposition machine (order_status.py).
+      closed: { label: "Closed", tone: "success", terminal: true },
       qc_hold: { label: "QC Hold", tone: "warning" },
       scrapped: { label: "Scrapped", tone: "danger", terminal: true },
       cancelled: { label: "Cancelled", tone: "danger", terminal: true },

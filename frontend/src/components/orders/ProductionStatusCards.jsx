@@ -46,10 +46,15 @@ export function ProductionProgressSummary({ orders }) {
 const STATUS_CONFIG = {
   draft: { color: "bg-[var(--ink-3)]", text: "Draft" },
   released: { color: "bg-[var(--status-amber)]", text: "Released" },
+  scheduled: { color: "bg-[var(--status-amber)]", text: "Scheduled" },
   in_progress: { color: "bg-[var(--status-amber)]", text: "In Progress" },
   short: { color: "bg-[var(--status-amber)]", text: "Short" },
+  qc_hold: { color: "bg-[var(--status-amber)]", text: "QC Hold" },
+  on_hold: { color: "bg-[var(--status-amber)]", text: "On Hold" },
   complete: { color: "bg-[var(--status-green)]", text: "Complete" },
+  completed: { color: "bg-[var(--status-green)]", text: "Complete" },
   scrapped: { color: "bg-[var(--status-red)]", text: "Scrapped" },
+  cancelled: { color: "bg-[var(--ink-4)]", text: "Cancelled" },
   closed: { color: "bg-[var(--ink-4)]", text: "Closed" },
 };
 

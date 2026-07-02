@@ -2474,6 +2474,102 @@ class TestRecordScrap:
         assert exc_info.value.status_code == 400
         assert "Invalid scrap reason" in str(exc_info.value.detail)
 
+    def test_record_scrap_over_remaining_rejected(self, db, finished_good):
+        """Should reject scrapping more units than remain unaccounted (cap guard)."""
+        _make_scrap_reason(db, code="scrap-cap-test", name="Cap Test")
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=5)
+        with pytest.raises(HTTPException) as exc_info:
+            svc.record_scrap(
+                db, order.id,
+                quantity_scrapped=6,  # only 5 remain
+                reason_code="scrap-cap-test",
+                user_email="test@filaops.dev",
+            )
+        assert exc_info.value.status_code == 400
+        assert "remain unaccounted" in str(exc_info.value.detail)
+
+    def test_record_scrap_full_scrap_marks_order_scrapped(self, db, finished_good):
+        """Scrapping the entire outstanding qty (nothing completed) should move
+        the order to the terminal 'scrapped' state so it leaves the active queue."""
+        reason = _make_scrap_reason(db, code="scrap-full-test", name="Full Scrap")
+        reason.requires_remake = False  # service expects this attribute
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=4)
+
+        mock_record = MagicMock()
+        mock_record.id = 2001
+
+        real_add = db.add
+        real_flush = db.flush
+
+        def _safe_add(obj):
+            if isinstance(obj, MagicMock):
+                return
+            real_add(obj)
+
+        def _safe_flush(*a, **kw):
+            try:
+                real_flush(*a, **kw)
+            except Exception:
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
+
+        with patch(
+            "app.services.production_order_service.ScrapRecord",
+            return_value=mock_record,
+        ), patch.object(db, "add", side_effect=_safe_add), \
+             patch.object(db, "flush", side_effect=_safe_flush):
+            svc.record_scrap(
+                db, order.id,
+                quantity_scrapped=4,  # all remaining
+                reason_code="scrap-full-test",
+                user_email="test@filaops.dev",
+                create_remake=False,
+            )
+
+        assert order.status == "scrapped"
+        assert int(order.quantity_scrapped) == 4
+
+    def test_record_scrap_partial_leaves_status_active(self, db, finished_good):
+        """A partial scrap must NOT terminate the order — it stays in progress."""
+        reason = _make_scrap_reason(db, code="scrap-partial-test", name="Partial Scrap")
+        reason.requires_remake = False
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+
+        mock_record = MagicMock()
+        mock_record.id = 2002
+
+        real_add = db.add
+        real_flush = db.flush
+
+        def _safe_add(obj):
+            if isinstance(obj, MagicMock):
+                return
+            real_add(obj)
+
+        def _safe_flush(*a, **kw):
+            try:
+                real_flush(*a, **kw)
+            except Exception:
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
+
+        with patch(
+            "app.services.production_order_service.ScrapRecord",
+            return_value=mock_record,
+        ), patch.object(db, "add", side_effect=_safe_add), \
+             patch.object(db, "flush", side_effect=_safe_flush):
+            svc.record_scrap(
+                db, order.id,
+                quantity_scrapped=3,  # 7 remain
+                reason_code="scrap-partial-test",
+                user_email="test@filaops.dev",
+                create_remake=False,
+            )
+
+        assert order.status == "in_progress"
+
     def test_record_scrap_nonexistent_order(self, db):
         """Should raise 404 for nonexistent order."""
         with pytest.raises(HTTPException) as exc_info:
@@ -2519,7 +2615,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2560,7 +2658,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2650,7 +2750,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",

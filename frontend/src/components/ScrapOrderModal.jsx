@@ -66,23 +66,28 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
 
     setSubmitting(true);
     try {
-      const params = new URLSearchParams({
-        scrap_reason: scrapReason,
-        quantity_scrapped: quantityScrapped.toString(),
-        create_remake: createRemake.toString(),
-      });
+      // The endpoint binds an OperationScrapRequest from the JSON body. Sent as
+      // query params these were silently dropped, so every scrap 422'd on the
+      // missing required fields. Match the schema field names exactly
+      // (scrap_reason_code, create_replacement).
+      const body = {
+        quantity_scrapped: quantityScrapped,
+        scrap_reason_code: scrapReason,
+        create_replacement: createRemake,
+      };
       if (notes.trim()) {
-        params.append("notes", notes.trim());
+        body.notes = notes.trim();
       }
 
       const res = await fetch(
-        `${API_URL}/api/v1/production-orders/${productionOrder.id}/scrap?${params}`,
+        `${API_URL}/api/v1/production-orders/${productionOrder.id}/scrap`,
         {
           method: "POST",
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
+          body: JSON.stringify(body),
         }
       );
 
