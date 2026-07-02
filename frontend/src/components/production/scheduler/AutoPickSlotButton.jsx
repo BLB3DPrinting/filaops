@@ -12,8 +12,10 @@
  */
 import { useState, useEffect } from "react";
 import { API_URL } from "../../../config/api";
+import { useFeatureFlags } from "../../../hooks/useFeatureFlags";
 
 export default function AutoPickSlotButton({ operationId, productionOrderId, onSlotPicked, disabled }) {
+  const { isPro } = useFeatureFlags();
   const [running, setRunning] = useState(false);
   const [proUnavailable, setProUnavailable] = useState(false);
   const [pickError, setPickError] = useState(null);
@@ -21,6 +23,7 @@ export default function AutoPickSlotButton({ operationId, productionOrderId, onS
   // PRO availability is per-install, but reset on operation change so a
   // transient 403 (e.g. session blip) doesn't stick for the whole session.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional reset of local availability/error state when the target operation changes.
     setProUnavailable(false);
     setPickError(null);
   }, [operationId]);
@@ -62,7 +65,12 @@ export default function AutoPickSlotButton({ operationId, productionOrderId, onS
     }
   };
 
-  if (proUnavailable) {
+  // Proactively gate on tier: the /auto-schedule endpoint is PRO-only
+  // (require_feature("production_advanced")), so on community show the upsell
+  // note up front instead of firing a request that would only 403. The
+  // proUnavailable branch below still covers a PRO tier whose install lacks
+  // the endpoint (older wheel / feature not loaded).
+  if (!isPro || proUnavailable) {
     return (
       <span className="text-xs text-gray-500 italic">
         Auto-pick requires FilaOps PRO

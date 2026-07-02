@@ -10,7 +10,7 @@ import PeriodsTab from "../../components/accounting/PeriodsTab";
 
 export default function AdminAccounting() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const { isPro, isEnterprise } = useFeatureFlags();
+  const { hasFeature, isEnterprise } = useFeatureFlags();
 
   const tabs = [
     { id: "dashboard", label: "Dashboard", icon: "chart-bar", tier: "community" },
@@ -22,10 +22,13 @@ export default function AdminAccounting() {
     { id: "periods", label: "Periods", icon: "calendar", tier: "pro" },
   ];
 
-  // Check if user can access a tab based on their tier
+  // Check if user can access a tab based on their tier. The GL/period tabs
+  // back the PRO-gated accounting endpoints (require_feature("accounting")
+  // keystone #861), so route the pro check through hasFeature("accounting")
+  // rather than the raw tier — matches the backend gate exactly.
   const canAccessTab = (tier) => {
     if (tier === "community") return true;
-    if (tier === "pro") return isPro || isEnterprise;
+    if (tier === "pro") return hasFeature("accounting");
     if (tier === "enterprise") return isEnterprise;
     return false;
   };
@@ -195,8 +198,57 @@ export default function AdminAccounting() {
       {activeTab === "payments" && <PaymentsTab />}
       {activeTab === "cogs" && <COGSTab />}
       {activeTab === "tax" && <TaxCenterTab />}
-      {activeTab === "glreports" && <GLReportsTab />}
-      {activeTab === "periods" && <PeriodsTab />}
+      {/* GL Reports / Periods back the PRO-gated accounting endpoints. Render
+          a locked panel (not the tab component) when the accounting feature is
+          absent, so a non-PRO user who reaches the tab sees the upsell rather
+          than a 402-driven error state. Disabled tab buttons already block the
+          click path; this guards direct/state edge cases too. */}
+      {activeTab === "glreports" &&
+        (canAccessTab("pro") ? (
+          <GLReportsTab />
+        ) : (
+          <LockedAccountingPanel label="GL Reports" />
+        ))}
+      {activeTab === "periods" &&
+        (canAccessTab("pro") ? (
+          <PeriodsTab />
+        ) : (
+          <LockedAccountingPanel label="Accounting Periods" />
+        ))}
+    </div>
+  );
+}
+
+// Locked panel for PRO-gated accounting tabs (GL Reports / Periods). Mirrors
+// the AdminIntakeStudio PRO upsell shape.
+function LockedAccountingPanel({ label }) {
+  return (
+    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6 text-center">
+      <svg
+        className="w-12 h-12 text-blue-400 mx-auto mb-3"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+        />
+      </svg>
+      <h3 className="text-lg font-semibold text-white mb-2">PRO Feature</h3>
+      <p className="text-gray-400 mb-4">
+        {label} is part of FilaOps PRO accounting — general-ledger reporting and
+        period close on top of your community sales journal, payments, and tax
+        center.
+      </p>
+      <a
+        href="/pricing"
+        className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+      >
+        Upgrade to PRO
+      </a>
     </div>
   );
 }
