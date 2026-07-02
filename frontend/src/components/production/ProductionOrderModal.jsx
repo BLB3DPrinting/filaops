@@ -706,27 +706,28 @@ export default function ProductionOrderModal({
       isOpen={true}
       onClose={onClose}
       title={`Production Order ${productionOrder.code}`}
+      variant="workbench"
       className="w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col"
     >
       {/* Header */}
-      <div className="flex justify-between items-start p-6 border-b border-gray-800">
+      <div className="flex justify-between items-start p-6 border-b border-[var(--rule-hair)]">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-white">
+            <h2 className="text-xl font-bold text-[var(--ink)]">
               {productionOrder.code}
             </h2>
             <StatusBadge status={productionOrder.status} />
           </div>
-          <p className="text-gray-400 mt-1">
+          <p className="text-[var(--ink-3)] mt-1">
             {productionOrder.product_name ||
               productionOrder.product?.name ||
               "Unknown Product"}
-            <span className="text-gray-500"> × </span>
-            <span className="text-white font-mono">
+            <span className="text-[var(--ink-4)]"> × </span>
+            <span className="text-[var(--ink)] font-mono">
               {productionOrder.quantity_ordered}
             </span>
             {productionOrder.due_date && (
-              <span className="text-gray-500 ml-3">
+              <span className="text-[var(--ink-4)] ml-3">
                 Due: {formatDate(productionOrder.due_date)}
               </span>
             )}
@@ -734,7 +735,7 @@ export default function ProductionOrderModal({
         </div>
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-white text-2xl leading-none"
+          className="text-[var(--ink-3)] hover:text-[var(--ink)] text-2xl leading-none"
         >
           ×
         </button>
@@ -742,7 +743,7 @@ export default function ProductionOrderModal({
 
       {/* Error */}
       {error && (
-        <div className="mx-6 mt-4 bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+        <div className="mx-6 mt-4 bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3 text-[var(--status-red)] text-sm">
           {error}
         </div>
       )}
@@ -751,26 +752,26 @@ export default function ProductionOrderModal({
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Summary stats */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-500 text-xs">Operations</div>
-              <div className="text-white font-medium">
+            <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+              <div className="text-[var(--ink-4)] text-xs">Operations</div>
+              <div className="text-[var(--ink)] font-medium">
                 {completedOps}/{operations.length} complete
                 {runningOps > 0 && (
-                  <span className="text-purple-400 ml-1">({runningOps} running)</span>
+                  <span className="text-[var(--status-amber)] ml-1">({runningOps} running)</span>
                 )}
               </div>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-500 text-xs">Est. Duration</div>
-              <div className="text-white font-medium font-mono">
+            <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+              <div className="text-[var(--ink-4)] text-xs">Est. Duration</div>
+              <div className="text-[var(--ink)] font-medium font-mono">
                 {formatDuration(totalMinutes)}
               </div>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3">
-              <div className="text-gray-500 text-xs">Materials</div>
+            <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+              <div className="text-[var(--ink-4)] text-xs">Materials</div>
               <div
                 className={`font-medium ${
-                  materialsBlocking.length > 0 ? 'text-red-400' : 'text-green-400'
+                  materialsBlocking.length > 0 ? 'text-[var(--status-red)]' : 'text-[var(--status-green)]'
                 }`}
               >
                 {allMaterials.length > 0
@@ -783,26 +784,26 @@ export default function ProductionOrderModal({
           {/* Cost Summary */}
           {(productionOrder.estimated_material_cost != null || productionOrder.actual_material_cost != null) && (
             <div>
-              <h3 className="text-gray-400 text-sm font-medium mb-3">COST</h3>
+              <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">COST</h3>
               <div className="grid grid-cols-2 gap-3">
                 {productionOrder.estimated_material_cost != null && (
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <div className="text-gray-500 text-xs mb-1">Estimated</div>
-                    <div className="text-white font-mono text-sm">
+                  <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+                    <div className="text-[var(--ink-4)] text-xs mb-1">Estimated</div>
+                    <div className="text-[var(--ink)] font-mono text-sm">
                       ${(parseFloat(productionOrder.estimated_material_cost) + parseFloat(productionOrder.estimated_labor_cost || 0)).toFixed(2)}
                     </div>
-                    <div className="text-gray-500 text-xs mt-1">
+                    <div className="text-[var(--ink-4)] text-xs mt-1">
                       Mat: ${parseFloat(productionOrder.estimated_material_cost).toFixed(2)} · Labor: ${parseFloat(productionOrder.estimated_labor_cost || 0).toFixed(2)}
                     </div>
                   </div>
                 )}
                 {productionOrder.actual_material_cost != null && (
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <div className="text-gray-500 text-xs mb-1">Actual</div>
-                    <div className="text-white font-mono text-sm">
+                  <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+                    <div className="text-[var(--ink-4)] text-xs mb-1">Actual</div>
+                    <div className="text-[var(--ink)] font-mono text-sm">
                       ${(parseFloat(productionOrder.actual_material_cost) + parseFloat(productionOrder.actual_labor_cost || 0)).toFixed(2)}
                     </div>
-                    <div className="text-gray-500 text-xs mt-1">
+                    <div className="text-[var(--ink-4)] text-xs mt-1">
                       Mat: ${parseFloat(productionOrder.actual_material_cost).toFixed(2)} · Labor: ${parseFloat(productionOrder.actual_labor_cost || 0).toFixed(2)}
                     </div>
                   </div>
@@ -813,19 +814,19 @@ export default function ProductionOrderModal({
 
           {/* Operations */}
           <div>
-            <h3 className="text-gray-400 text-sm font-medium mb-3">OPERATIONS</h3>
+            <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">OPERATIONS</h3>
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
               </div>
             ) : operations.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-3">No operations defined for this order</p>
+                <p className="text-[var(--ink-4)] mb-3">No operations defined for this order</p>
                 {canRefreshRouting && (
                   <button
                     onClick={handleRefreshRouting}
                     disabled={refreshRoutingLoading}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg transition-colors text-sm"
+                    className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] disabled:opacity-50 text-white rounded-lg transition-colors text-sm"
                   >
                     {refreshRoutingLoading ? 'Refreshing…' : 'Apply Routing Now'}
                   </button>
@@ -856,8 +857,8 @@ export default function ProductionOrderModal({
           {/* Materials */}
           {allMaterials.length > 0 && (
             <div>
-              <h3 className="text-gray-400 text-sm font-medium mb-3">MATERIALS</h3>
-              <div className="bg-gray-800/30 rounded-lg p-4 space-y-2">
+              <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">MATERIALS</h3>
+              <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 space-y-2">
                 {allMaterials.slice(0, 5).map((mat, idx) => {
                   const matSpool = assignedSpools.find(
                     (s) => s.product_id === mat.component_id
@@ -865,9 +866,9 @@ export default function ProductionOrderModal({
                   return (
                     <div key={idx} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-300">
+                        <span className="text-[var(--ink-2)]">
                           {mat.component_name || mat.component_sku || 'Unknown'}
-                          <span className="text-gray-500 ml-2">
+                          <span className="text-[var(--ink-4)] ml-2">
                             × {mat.quantity_required} {mat.unit || ''}
                           </span>
                         </span>
@@ -875,10 +876,10 @@ export default function ProductionOrderModal({
                           <span
                             className={
                               mat.status === 'consumed'
-                                ? 'text-green-400'
+                                ? 'text-[var(--status-green)]'
                                 : mat.status === 'allocated'
-                                ? 'text-blue-400'
-                                : 'text-red-400'
+                                ? 'text-[var(--status-green)]'
+                                : 'text-[var(--status-red)]'
                             }
                           >
                             {mat.status}
@@ -886,7 +887,7 @@ export default function ProductionOrderModal({
                           {mat.component_id && mat.component_is_template && mat.status === "pending" && (
                             <button
                               onClick={() => openVariantPicker(mat.id, mat.component_id)}
-                              className="text-xs px-2 py-0.5 rounded bg-blue-700/50 hover:bg-blue-700 text-blue-200 transition-colors"
+                              className="text-xs px-2 py-0.5 rounded bg-[var(--paper)] border border-[var(--rule-hair)] hover:bg-[var(--rule-hair)] text-[var(--ink-2)] transition-colors"
                               title={`${mat.component_sku || 'Component'} is a template — pick a variant to consume from instead`}
                               aria-label={`Swap ${mat.component_sku || 'component'} to a variant`}
                             >
@@ -896,7 +897,7 @@ export default function ProductionOrderModal({
                           {mat.component_id && (
                             <button
                               onClick={() => openSpoolPicker(mat.component_id)}
-                              className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                              className="text-xs px-2 py-0.5 rounded bg-[var(--paper)] border border-[var(--rule-hair)] hover:bg-[var(--rule-hair)] text-[var(--ink-2)] transition-colors"
                               title="Assign spool for traceability (optional)"
                             >
                               {matSpool ? '🔗 ' + matSpool.spool_code : 'Assign Spool'}
@@ -908,7 +909,7 @@ export default function ProductionOrderModal({
                   );
                 })}
                 {allMaterials.length > 5 && (
-                  <div className="text-gray-500 text-xs">
+                  <div className="text-[var(--ink-4)] text-xs">
                     +{allMaterials.length - 5} more materials
                   </div>
                 )}
@@ -918,20 +919,20 @@ export default function ProductionOrderModal({
 
           {/* Spool Picker Dropdown */}
           {spoolPickerFor && (
-            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg p-4 shadow-[var(--shadow-pop)]">
               <div className="flex justify-between items-center mb-3">
-                <h4 className="text-sm font-medium text-white">Select Spool</h4>
+                <h4 className="text-sm font-medium text-[var(--ink)]">Select Spool</h4>
                 <button
                   onClick={() => setSpoolPickerFor(null)}
-                  className="text-gray-400 hover:text-white text-sm"
+                  className="text-[var(--ink-3)] hover:text-[var(--ink)] text-sm"
                 >
                   ✕
                 </button>
               </div>
               {spoolLoading ? (
-                <div className="text-gray-400 text-sm">Loading spools…</div>
+                <div className="text-[var(--ink-3)] text-sm">Loading spools…</div>
               ) : availableSpools.length === 0 ? (
-                <div className="text-gray-500 text-sm">No active spools found for this material.</div>
+                <div className="text-[var(--ink-4)] text-sm">No active spools found for this material.</div>
               ) : (
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {availableSpools.map((spool) => (
@@ -939,13 +940,13 @@ export default function ProductionOrderModal({
                       key={spool.id}
                       onClick={() => assignSpool(spool.id)}
                       disabled={spoolLoading}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-700 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[var(--paper-sunk)] text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="text-white">{spool.spool_number}</span>
-                      <span className="text-gray-400">
+                      <span className="text-[var(--ink)]">{spool.spool_number}</span>
+                      <span className="text-[var(--ink-3)]">
                         {(spool.current_weight_kg ?? 0).toFixed(2)} kg
                         {spool.supplier_lot_number && (
-                          <span className="ml-2 text-gray-500">Lot: {spool.supplier_lot_number}</span>
+                          <span className="ml-2 text-[var(--ink-4)]">Lot: {spool.supplier_lot_number}</span>
                         )}
                       </span>
                     </button>
@@ -957,11 +958,11 @@ export default function ProductionOrderModal({
 
           {/* Variant Picker (Workstream B0) */}
           {variantPickerFor && (
-            <div className="bg-gray-800 border border-blue-700/40 rounded-lg p-4">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg p-4 shadow-[var(--shadow-pop)]">
               <div className="flex justify-between items-center mb-3">
-                <h4 className="text-sm font-medium text-white">
+                <h4 className="text-sm font-medium text-[var(--ink)]">
                   Pick variant to consume
-                  <span className="ml-2 text-xs text-gray-400 font-normal">
+                  <span className="ml-2 text-xs text-[var(--ink-3)] font-normal">
                     (overrides the BOM template for this PO only)
                   </span>
                 </h4>
@@ -976,7 +977,7 @@ export default function ProductionOrderModal({
                     setVariantPickerFor(null);
                     setVariantSwapReason("");
                   }}
-                  className="text-gray-400 hover:text-white text-sm"
+                  className="text-[var(--ink-3)] hover:text-[var(--ink)] text-sm"
                   aria-label="Cancel variant swap"
                 >
                   ✕
@@ -988,12 +989,12 @@ export default function ProductionOrderModal({
                 onChange={(e) => setVariantSwapReason(e.target.value)}
                 maxLength={500}
                 placeholder="Reason (optional, logged for audit)"
-                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink)] placeholder-[var(--ink-4)] focus:outline-none focus:border-[var(--orange)]"
               />
               {variantLoading ? (
-                <div className="text-gray-400 text-sm">Loading variants…</div>
+                <div className="text-[var(--ink-3)] text-sm">Loading variants…</div>
               ) : availableVariants.length === 0 ? (
-                <div className="text-gray-500 text-sm">
+                <div className="text-[var(--ink-4)] text-sm">
                   This template has no variants yet. Create some via the items page first.
                 </div>
               ) : (
@@ -1003,13 +1004,13 @@ export default function ProductionOrderModal({
                       key={v.id}
                       onClick={() => swapVariant(v.id)}
                       disabled={variantLoading || !v.active}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-700 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[var(--paper-sunk)] text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="text-white text-left">
+                      <span className="text-[var(--ink)] text-left">
                         {v.sku}
-                        <span className="text-gray-500 ml-2">{v.name}</span>
+                        <span className="text-[var(--ink-4)] ml-2">{v.name}</span>
                       </span>
-                      <span className={(v.on_hand_qty ?? 0) > 0 ? "text-green-400" : "text-red-400"}>
+                      <span className={(v.on_hand_qty ?? 0) > 0 ? "text-[var(--status-green)]" : "text-[var(--status-red)]"}>
                         {(v.on_hand_qty ?? 0).toFixed(0)} on hand
                       </span>
                     </button>
@@ -1022,15 +1023,15 @@ export default function ProductionOrderModal({
           {/* Assigned Spools Summary */}
           {assignedSpools.length > 0 && (
             <div>
-              <h3 className="text-gray-400 text-sm font-medium mb-3">ASSIGNED SPOOLS</h3>
-              <div className="bg-gray-800/30 rounded-lg p-4 space-y-1">
+              <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">ASSIGNED SPOOLS</h3>
+              <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 space-y-1">
                 {assignedSpools.map((s, idx) => (
                   <div key={idx} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-300">
+                    <span className="text-[var(--ink-2)]">
                       {s.spool_code}
-                      <span className="text-gray-500 ml-2">— {s.product_name}</span>
+                      <span className="text-[var(--ink-4)] ml-2">— {s.product_name}</span>
                     </span>
-                    <span className="text-gray-400 text-xs">
+                    <span className="text-[var(--ink-3)] text-xs">
                       {s.quantity_remaining != null ? `${s.quantity_remaining} kg remaining` : ''}
                     </span>
                   </div>
@@ -1041,27 +1042,27 @@ export default function ProductionOrderModal({
 
           {/* Notes */}
           <div>
-            <h3 className="text-gray-400 text-sm font-medium mb-3">NOTES</h3>
+            <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">NOTES</h3>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               onBlur={saveNotes}
               rows={3}
               placeholder="Add production notes..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 resize-none focus:border-blue-500 focus:outline-none"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] resize-none focus:border-[var(--orange)] focus:outline-none"
             />
             {notesSaving && (
-              <div className="text-gray-500 text-xs mt-1">Saving...</div>
+              <div className="text-[var(--ink-4)] text-xs mt-1">Saving...</div>
             )}
           </div>
         </div>
 
       {/* Footer */}
-      <div className="flex justify-between items-center p-6 border-t border-gray-800">
+      <div className="flex justify-between items-center p-6 border-t border-[var(--rule-hair)]">
         <div className="flex gap-2">
           <button
             onClick={handleClaim}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+            className="px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] hover:text-[var(--ink)] text-[var(--ink-2)] rounded-lg transition-colors"
           >
             Claim for Me
           </button>
@@ -1069,7 +1070,7 @@ export default function ProductionOrderModal({
             <button
               onClick={handleRefreshRouting}
               disabled={refreshRoutingLoading}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg transition-colors text-sm"
+              className="px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] hover:text-[var(--ink)] disabled:opacity-50 rounded-lg transition-colors text-sm"
               title="Re-apply the product's current active routing to this order"
             >
               {refreshRoutingLoading ? "Refreshing…" : "Refresh Routing"}
@@ -1078,7 +1079,7 @@ export default function ProductionOrderModal({
         </div>
         <button
           onClick={onClose}
-          className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+          className="px-6 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] hover:text-[var(--ink)] text-[var(--ink-2)] rounded-lg transition-colors"
         >
           Close
         </button>
@@ -1103,23 +1104,23 @@ export default function ProductionOrderModal({
             className="absolute inset-0 bg-black/60"
             onClick={() => setScheduleModalOpen(false)}
           />
-          <div className="relative bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-white">
+          <div className="relative bg-[var(--paper)] border border-[var(--rule-hair)] shadow-[var(--shadow-pop)] rounded-xl w-full max-w-md mx-4 p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-[var(--ink)]">
               Schedule Operation
             </h3>
-            <p className="text-gray-400 text-sm">
+            <p className="text-[var(--ink-3)] text-sm">
               {operationToSchedule.operation_code ||
                 `Op ${operationToSchedule.sequence}`}
             </p>
 
             {/* Work Center */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Work Center
               </label>
               {operationToSchedule.work_center_id ? (
                 // Operation has a defined work center - lock it
-                <div className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white">
+                <div className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]">
                   {workCenters.find(
                     (wc) => wc.id === operationToSchedule.work_center_id,
                   )?.name ||
@@ -1135,7 +1136,7 @@ export default function ProductionOrderModal({
                       e.target.value ? parseInt(e.target.value) : null,
                     )
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 >
                   <option value="">Select work center...</option>
                   {workCenters.map((wc) => (
@@ -1150,7 +1151,7 @@ export default function ProductionOrderModal({
             {/* Resource */}
             {selectedWorkCenter && (
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Machine/Printer
                 </label>
                 <select
@@ -1161,7 +1162,7 @@ export default function ProductionOrderModal({
                     );
                     setSelectedResource(res || null);
                   }}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 >
                   <option value="">Select machine...</option>
                   {resources.map((res) => (
@@ -1176,27 +1177,27 @@ export default function ProductionOrderModal({
 
             {/* Start Time */}
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-sm text-[var(--ink-3)] mb-1">
                 Start Time
               </label>
               <input
                 type="datetime-local"
                 value={scheduledStart}
                 onChange={(e) => setScheduledStart(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
               />
             </div>
 
             {/* Suggested Slot (shown after conflict) */}
             {suggestedSlot && (
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-                <p className="text-blue-300 text-sm mb-2">
+              <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
+                <p className="text-[var(--ink-2)] text-sm mb-2">
                   Next available slot:{" "}
                   {parseDateTime(suggestedSlot.start).toLocaleString()}
                 </p>
                 <button
                   onClick={applySuggestedSlot}
-                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                  className="px-3 py-1 bg-[var(--paper)] border border-[var(--rule-hair)] text-[var(--ink-2)] text-sm rounded hover:text-[var(--ink)] transition-colors"
                 >
                   Use This Time
                 </button>
@@ -1207,14 +1208,14 @@ export default function ProductionOrderModal({
             <div className="flex justify-end gap-3 pt-2">
               <button
                 onClick={() => setScheduleModalOpen(false)}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                className="px-4 py-2 text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={submitSchedule}
                 disabled={actionLoading || !selectedResource}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {actionLoading ? "Scheduling..." : "Schedule"}
               </button>

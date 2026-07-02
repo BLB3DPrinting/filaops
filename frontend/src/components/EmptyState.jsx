@@ -146,6 +146,32 @@ const icons = {
   ),
 };
 
+// Color treatment per design system. "dark" is the legacy default; "workbench"
+// is the Industrial Workbench paper treatment (#846) — opt-in per consumer so
+// un-migrated dark pages keep their current look (same pattern as Modal's
+// variant prop).
+const TONES = {
+  dark: {
+    surface: "bg-gray-900 border border-gray-700",
+    surfaceCompact: "bg-gray-900",
+    icon: "text-white",
+    title: "text-white",
+    text: "text-white",
+    cta: "bg-emerald-600 hover:bg-emerald-500 text-white",
+    clear: "bg-gray-700 hover:bg-gray-600 text-white",
+  },
+  workbench: {
+    surface: "bg-[var(--paper-sunk)] border border-[var(--rule-hair)]",
+    surfaceCompact: "bg-[var(--paper-sunk)]",
+    icon: "text-[var(--ink-4)]",
+    title: "text-[var(--ink)]",
+    text: "text-[var(--ink-3)]",
+    cta: "bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white",
+    clear:
+      "bg-[var(--paper)] border border-[var(--rule-hair)] text-[var(--ink-2)] hover:text-[var(--ink)]",
+  },
+};
+
 export default function EmptyState({
   icon = "default",
   title = "No items found",
@@ -155,18 +181,19 @@ export default function EmptyState({
   onAction,
   customIcon,
   variant = "default", // default, compact, inline
+  tone = "dark", // dark (legacy), workbench (#846)
   // "No matches" / filter-clear variant — when provided, replaces the action button
   onClearFilters,
 }) {
   // Use custom icon if provided, otherwise use predefined
   const iconElement = customIcon || icons[icon] || icons.default;
 
-  // Render action button inline (not as component to avoid React fast refresh issues)
-  const buttonClasses =
-    "inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors text-sm font-medium";
+  const T = TONES[tone] ?? TONES.dark;
 
-  const clearFiltersClasses =
-    "inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium";
+  // Render action button inline (not as component to avoid React fast refresh issues)
+  const buttonClasses = `inline-flex items-center gap-2 px-4 py-2 ${T.cta} rounded-lg transition-colors text-sm font-medium`;
+
+  const clearFiltersClasses = `inline-flex items-center gap-2 px-4 py-2 ${T.clear} rounded-lg transition-colors text-sm font-medium`;
 
   const renderActionButton = () => {
     // "Clear filters" variant takes precedence over create CTA
@@ -233,11 +260,11 @@ export default function EmptyState({
   // Compact variant for smaller spaces
   if (variant === "compact") {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center bg-gray-900">
-        <div className="text-white mb-3">{iconElement}</div>
-        <h3 className="text-white font-medium">{title}</h3>
+      <div className={`flex flex-col items-center justify-center py-8 text-center ${T.surfaceCompact}`}>
+        <div className={`${T.icon} mb-3`}>{iconElement}</div>
+        <h3 className={`${T.title} font-medium`}>{title}</h3>
         {description && (
-          <p className="text-white text-sm mt-1 max-w-xs">{description}</p>
+          <p className={`${T.text} text-sm mt-1 max-w-xs`}>{description}</p>
         )}
         {actionLabel && <div className="mt-4">{renderActionButton()}</div>}
       </div>
@@ -247,14 +274,14 @@ export default function EmptyState({
   // Inline variant for table rows or narrow spaces
   if (variant === "inline") {
     return (
-      <div className="flex items-center justify-center gap-4 py-6 bg-gray-900 border border-gray-700">
-        <div className="text-white w-8 h-8 [&>svg]:w-8 [&>svg]:h-8">
+      <div className={`flex items-center justify-center gap-4 py-6 ${T.surface}`}>
+        <div className={`${T.icon} w-8 h-8 [&>svg]:w-8 [&>svg]:h-8`}>
           {iconElement}
         </div>
         <div>
-          <span className="text-white">{title}</span>
+          <span className={T.title}>{title}</span>
           {description && (
-            <span className="text-white ml-2">{description}</span>
+            <span className={`${T.text} ml-2`}>{description}</span>
           )}
         </div>
         {actionLabel && renderActionButton()}
@@ -264,11 +291,11 @@ export default function EmptyState({
 
   // Default variant - full empty state
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center bg-gray-900 border border-gray-700">
-      <div className="text-white mb-4">{iconElement}</div>
-      <h3 className="text-lg font-medium text-white mb-2">{title}</h3>
+    <div className={`flex flex-col items-center justify-center py-16 text-center ${T.surface}`}>
+      <div className={`${T.icon} mb-4`}>{iconElement}</div>
+      <h3 className={`text-lg font-medium ${T.title} mb-2`}>{title}</h3>
       {description && (
-        <p className="text-white text-sm max-w-md mb-6">{description}</p>
+        <p className={`${T.text} text-sm max-w-md mb-6`}>{description}</p>
       )}
       {renderActionButton()}
     </div>

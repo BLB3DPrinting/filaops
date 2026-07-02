@@ -98,7 +98,7 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
           toast.success(
             <div>
               <p>Scrapped {quantityScrapped} units.</p>
-              <p className="mt-1 text-green-300">
+              <p className="mt-1 text-[var(--status-green)]">
                 Remake order <strong>{data.remake_order_code}</strong> created and ready for scheduling.
               </p>
             </div>,
@@ -122,43 +122,43 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Scrap Production Order" className="w-full max-w-lg p-6">
+    <Modal isOpen={true} onClose={onClose} title="Scrap Production Order" variant="workbench" className="w-full max-w-lg p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">Scrap Production Order</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-[var(--ink)]">Scrap Production Order</h2>
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               {productionOrder.code} - {productionOrder.product_name || productionOrder.product_sku}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl"
           >
             &times;
           </button>
         </div>
 
         {/* Order Details */}
-        <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+        <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-6">
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
-              <span className="text-gray-400">Ordered:</span>
-              <span className="text-white font-medium ml-2">{productionOrder.quantity_ordered}</span>
+              <span className="text-[var(--ink-3)]">Ordered:</span>
+              <span className="text-[var(--ink)] font-medium ml-2">{productionOrder.quantity_ordered}</span>
             </div>
             <div>
-              <span className="text-gray-400">Completed:</span>
-              <span className="text-green-400 font-medium ml-2">{productionOrder.quantity_completed || 0}</span>
+              <span className="text-[var(--ink-3)]">Completed:</span>
+              <span className="text-[var(--status-green)] font-medium ml-2">{productionOrder.quantity_completed || 0}</span>
             </div>
             <div>
-              <span className="text-gray-400">Remaining:</span>
-              <span className="text-white font-medium ml-2">{remainingQty}</span>
+              <span className="text-[var(--ink-3)]">Remaining:</span>
+              <span className="text-[var(--ink)] font-medium ml-2">{remainingQty}</span>
             </div>
           </div>
         </div>
 
         {/* Quantity to Scrap */}
         <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-[var(--ink-3)] mb-2">
             Quantity to Scrap *
           </label>
           <input
@@ -167,23 +167,23 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
             onChange={(e) => setQuantityScrapped(parseInt(e.target.value) || 0)}
             min="1"
             max={remainingQty}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-lg"
+            className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] text-lg"
           />
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="text-[var(--ink-4)] text-sm mt-1">
             How many units failed? (max: {remainingQty})
           </p>
         </div>
 
         {/* Partial Scrap Info */}
         {isPartialScrap && (
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
+          <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-4">
             <div className="flex gap-3">
-              <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-[var(--ink-2)] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-blue-400 font-medium">Partial Scrap</p>
-                <p className="text-blue-400/80 text-sm">
+                <p className="text-[var(--ink-2)] font-medium">Partial Scrap</p>
+                <p className="text-[var(--ink-3)] text-sm">
                   Scrapping {quantityScrapped} of {remainingQty} remaining units.
                   Order will stay in progress for the remaining {remainingQty - quantityScrapped} units.
                 </p>
@@ -194,18 +194,18 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
 
         {/* Scrap Reason */}
         <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-[var(--ink-3)] mb-2">
             Failure Reason *
           </label>
           {loading ? (
-            <div className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-gray-500">
+            <div className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink-4)]">
               Loading reasons...
             </div>
           ) : (
             <select
               value={scrapReason}
               onChange={(e) => setScrapReason(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)]"
               required
             >
               <option value="">Select reason...</option>
@@ -217,7 +217,7 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
             </select>
           )}
           {scrapReason && (
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-[var(--ink-4)] text-sm mt-1">
               {scrapReasons.find(r => r.code === scrapReason)?.description}
             </p>
           )}
@@ -225,30 +225,30 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
 
         {/* Notes */}
         <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-[var(--ink-3)] mb-2">
             Additional Notes
           </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white h-24 resize-none"
+            className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] h-24 resize-none"
             placeholder="Describe what happened, approximate failure point, etc..."
           />
         </div>
 
         {/* Create Remake Toggle - only show for full scrap */}
         {!isPartialScrap && (
-          <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+          <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-6">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={createRemake}
                 onChange={(e) => setCreateRemake(e.target.checked)}
-                className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
               />
               <div>
-                <span className="text-white font-medium">Create Remake Order</span>
-                <p className="text-gray-400 text-sm">
+                <span className="text-[var(--ink)] font-medium">Create Remake Order</span>
+                <p className="text-[var(--ink-3)] text-sm">
                   Automatically create a new production order to replace this failed print
                 </p>
               </div>
@@ -257,8 +257,8 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
         )}
 
         {/* Material Cost Warning */}
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-6">
-          <p className="text-yellow-400 text-sm">
+        <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-3 mb-6">
+          <p className="text-[var(--status-amber)] text-sm">
             Material costs for {quantityScrapped} scrapped unit{quantityScrapped > 1 ? "s" : ""} will be added to the order's total COGS.
             {createRemake && !isPartialScrap && " The remake order will use additional material."}
           </p>
@@ -268,14 +268,14 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={!scrapReason || quantityScrapped <= 0 || quantityScrapped > remainingQty || submitting}
-            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-[var(--status-red)] text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Processing..." : `Scrap ${quantityScrapped} Unit${quantityScrapped > 1 ? "s" : ""}`}
           </button>

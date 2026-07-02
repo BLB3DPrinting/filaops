@@ -26,25 +26,25 @@ function parseDateTime(datetime) {
  */
 const STATUS_CONFIG = {
   pending: {
-    nodeClass: 'border-2 border-gray-600 bg-gray-900',
-    labelClass: 'text-gray-500',
+    nodeClass: 'border-2 border-[var(--rule-hair)] bg-[var(--paper-sunk)]',
+    labelClass: 'text-[var(--ink-4)]',
     icon: null
   },
   queued: {
-    nodeClass: 'border-2 border-blue-500 bg-gray-900',
-    labelClass: 'text-blue-400',
+    nodeClass: 'border-2 border-[var(--ink-3)] bg-[var(--paper-sunk)]',
+    labelClass: 'text-[var(--ink-3)]',
     icon: null
   },
   running: {
-    nodeClass: 'border-2 border-purple-500 bg-purple-500/20 animate-pulse',
-    labelClass: 'text-purple-400',
+    nodeClass: 'border-2 border-[var(--status-amber)] bg-[var(--status-amber-tint)] animate-pulse',
+    labelClass: 'text-[var(--status-amber)]',
     icon: (
-      <div className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+      <div className="w-2 h-2 rounded-full bg-[var(--status-amber)] animate-ping" />
     )
   },
   complete: {
-    nodeClass: 'border-2 border-green-500 bg-green-500',
-    labelClass: 'text-green-400',
+    nodeClass: 'border-2 border-[var(--status-green)] bg-[var(--status-green)]',
+    labelClass: 'text-[var(--status-green)]',
     icon: (
       <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -52,10 +52,10 @@ const STATUS_CONFIG = {
     )
   },
   skipped: {
-    nodeClass: 'border-2 border-yellow-500 bg-yellow-500/20',
-    labelClass: 'text-yellow-400 line-through',
+    nodeClass: 'border-2 border-[var(--status-amber)] bg-[var(--status-amber-tint)]',
+    labelClass: 'text-[var(--status-amber)] line-through',
     icon: (
-      <svg className="w-3 h-3 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-3 h-3 text-[var(--status-amber)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
       </svg>
     )
@@ -125,12 +125,12 @@ function TimelineConnector({ prevStatus }) {
   // Use the "more complete" status for coloring
   const getConnectorClass = () => {
     if (prevStatus === 'complete' || prevStatus === 'skipped') {
-      return 'bg-green-500';
+      return 'bg-[var(--status-green)]';
     }
     if (prevStatus === 'running') {
-      return 'bg-gradient-to-r from-purple-500 to-gray-700';
+      return 'bg-gradient-to-r from-[var(--status-amber)] to-[var(--rule-hair)]';
     }
-    return 'bg-gray-700';
+    return 'bg-[var(--rule-hair)]';
   };
 
   return (
@@ -153,8 +153,8 @@ function ProgressSummary({ operations }) {
 
   return (
     <div className="flex items-center justify-between mb-4">
-      <span className="text-sm text-gray-400">Operations Progress</span>
-      <span className="text-sm font-medium text-white">{percentage}%</span>
+      <span className="text-sm text-[var(--ink-3)]">Operations Progress</span>
+      <span className="text-sm font-medium text-[var(--ink)]">{percentage}%</span>
     </div>
   );
 }
@@ -176,20 +176,20 @@ function ProgressBar({ operations }) {
 
   return (
     <div className="mt-4">
-      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden flex">
+      <div className="h-1.5 bg-[var(--rule-hair)] rounded-full overflow-hidden flex">
         {/* Completed */}
         <div
-          className="bg-green-500 transition-all duration-500"
+          className="bg-[var(--status-green)] transition-all duration-500"
           style={{ width: `${completedPct}%` }}
         />
         {/* Running */}
         <div
-          className="bg-purple-500 animate-pulse transition-all duration-500"
+          className="bg-[var(--status-amber)] animate-pulse transition-all duration-500"
           style={{ width: `${runningPct}%` }}
         />
         {/* Skipped */}
         <div
-          className="bg-yellow-500/50 transition-all duration-500"
+          className="bg-[var(--status-amber)]/50 transition-all duration-500"
           style={{ width: `${skippedPct}%` }}
         />
       </div>
@@ -209,7 +209,7 @@ export default function OperationsTimeline({ operations }) {
   const sortedOps = [...operations].sort((a, b) => a.sequence - b.sequence);
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
       <ProgressSummary operations={sortedOps} />
 
       {/* Timeline */}

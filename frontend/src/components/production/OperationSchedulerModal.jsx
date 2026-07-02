@@ -434,14 +434,15 @@ export default function OperationSchedulerModal({
       onClose={handleAutoClose}
       title={modalTitle}
       disableClose={submitting}
+      variant="workbench"
       className="w-full max-w-lg mx-4"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-gray-800">
-        <h2 className="text-xl font-semibold text-white">{modalTitle}</h2>
+      <div className="flex items-center justify-between p-6 border-b border-[var(--rule-hair)]">
+        <h2 className="text-xl font-semibold text-[var(--ink)]">{modalTitle}</h2>
         <button
           onClick={handleClose}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors"
         >
           <svg
             className="w-6 h-6"
@@ -481,12 +482,12 @@ export default function OperationSchedulerModal({
 
         {/* Wizard maintenance warning (SCHED-3b) */}
         {wizardMode && wizardSuggestion?.maintenanceWarning && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+          <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-3">
             <div className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-[var(--status-amber)] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <p className="text-sm text-amber-400">{wizardSuggestion.maintenanceWarning}</p>
+              <p className="text-sm text-[var(--status-amber)]">{wizardSuggestion.maintenanceWarning}</p>
             </div>
           </div>
         )}
@@ -496,19 +497,19 @@ export default function OperationSchedulerModal({
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Operation info */}
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-white">
+              <div className="flex items-center gap-2 text-[var(--ink)]">
                 <span className="font-medium">{currentOp.sequence}:</span>
                 <span>{currentOp.operation_code}</span>
                 {currentOp.operation_name && (
-                  <span className="text-gray-400">
+                  <span className="text-[var(--ink-3)]">
                     ({currentOp.operation_name})
                   </span>
                 )}
               </div>
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-[var(--ink-4)]">
                 Production Order: {productionOrder?.code}
               </div>
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-[var(--ink-4)]">
                 {estimatedMinutes > 0 ? (
                   <>Estimated Duration: {formatDuration(estimatedMinutes)}</>
                 ) : (
@@ -519,13 +520,13 @@ export default function OperationSchedulerModal({
               </div>
             </div>
 
-            <hr className="border-gray-800" />
+            <hr className="border-[var(--rule-hair)]" />
 
             {/* Resource selector */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-400">
-                  Resource <span className="text-red-400">*</span>
+                <label className="block text-sm font-medium text-[var(--ink-3)]">
+                  Resource <span className="text-[var(--status-red)]">*</span>
                 </label>
                 {/* SCHED-3: Auto-pick slot — PRO-gated, only shown when not in edit mode */}
                 {!isEditMode && currentOp?.id && productionOrder?.id && (
@@ -551,7 +552,7 @@ export default function OperationSchedulerModal({
                 value={resourceId}
                 onChange={(e) => setResourceId(e.target.value)}
                 disabled={loadingResources}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
               >
                 <option value="">
                   {loadingResources ? "Loading..." : "Select a resource..."}
@@ -563,7 +564,7 @@ export default function OperationSchedulerModal({
                 ))}
               </select>
               {resources.length === 0 && !loadingResources && (
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-[var(--ink-4)] mt-1">
                   No resources available for this work center
                 </p>
               )}
@@ -571,22 +572,22 @@ export default function OperationSchedulerModal({
 
             {/* Start time */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                Start Time <span className="text-red-400">*</span>
+              <label className="block text-sm font-medium text-[var(--ink-3)] mb-2">
+                Start Time <span className="text-[var(--status-red)]">*</span>
               </label>
               <input
                 type="datetime-local"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
               />
             </div>
 
             {/* End time (auto-calculated or manual when duration is unknown) */}
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                End Time <span className="text-red-400">*</span>
-                <span className="text-gray-600 font-normal ml-2">
+              <label className="block text-sm font-medium text-[var(--ink-3)] mb-2">
+                End Time <span className="text-[var(--status-red)]">*</span>
+                <span className="text-[var(--ink-4)] font-normal ml-2">
                   {estimatedMinutes > 0 ? "(auto-calculated)" : "(enter manually)"}
                 </span>
               </label>
@@ -594,7 +595,7 @@ export default function OperationSchedulerModal({
                 type="datetime-local"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink-3)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
               />
             </div>
 
@@ -620,8 +621,8 @@ export default function OperationSchedulerModal({
             {/* Resource conflict alert (live check or server response) */}
             {!predecessorConflict && successorConflicts.length === 0 && (
               checking ? (
-                <div className="text-sm text-gray-500 flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                <div className="text-sm text-[var(--ink-4)] flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--orange)]"></div>
                   Checking for conflicts...
                 </div>
               ) : (
@@ -636,8 +637,8 @@ export default function OperationSchedulerModal({
 
             {/* Error message (only for non-conflict errors) */}
             {error && !predecessorConflict && !serverConflicts.length && successorConflicts.length === 0 && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-                <p className="text-red-400 text-sm">{error}</p>
+              <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3">
+                <p className="text-[var(--status-red)] text-sm">{error}</p>
               </div>
             )}
 
@@ -650,7 +651,7 @@ export default function OperationSchedulerModal({
               />
             )}
 
-            <hr className="border-gray-800" />
+            <hr className="border-[var(--rule-hair)]" />
 
             {/* Actions */}
             <div className="flex justify-between gap-3">
@@ -661,7 +662,7 @@ export default function OperationSchedulerModal({
                     type="button"
                     onClick={() => setShowUnscheduleConfirm(true)}
                     disabled={submitting}
-                    className="px-4 py-2 text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-[var(--status-amber)] hover:opacity-80 transition-colors disabled:opacity-50"
                   >
                     Unschedule
                   </button>
@@ -675,7 +676,7 @@ export default function OperationSchedulerModal({
                     type="button"
                     onClick={onWizardSkip}
                     disabled={submitting}
-                    className="px-4 py-2 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors disabled:opacity-50"
                   >
                     Skip
                   </button>
@@ -683,7 +684,7 @@ export default function OperationSchedulerModal({
                   <button
                     type="button"
                     onClick={handleClose}
-                    className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                    className="px-4 py-2 text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors"
                   >
                     Done
                   </button>
@@ -698,7 +699,7 @@ export default function OperationSchedulerModal({
                       !resourceId ||
                       !startTime
                     }
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {submitting
                       ? isEditMode ? "Rescheduling..." : "Scheduling..."
@@ -716,7 +717,7 @@ export default function OperationSchedulerModal({
             <button
               type="button"
               onClick={handleClose}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] transition-colors"
             >
               Done
             </button>

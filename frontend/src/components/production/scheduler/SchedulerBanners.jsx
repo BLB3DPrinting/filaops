@@ -14,10 +14,10 @@ export function CompatibilityWarning({ reason }) {
   if (!reason) return null;
 
   return (
-    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+    <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-3">
       <div className="flex items-start gap-2">
         <svg
-          className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5"
+          className="w-5 h-5 text-[var(--status-amber)] flex-shrink-0 mt-0.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -30,10 +30,10 @@ export function CompatibilityWarning({ reason }) {
           />
         </svg>
         <div>
-          <h4 className="text-yellow-400 font-medium text-sm">
+          <h4 className="text-[var(--status-amber)] font-medium text-sm">
             Incompatible Resource
           </h4>
-          <p className="text-sm text-yellow-400/70 mt-1">{reason}</p>
+          <p className="text-sm text-[var(--status-amber)]/70 mt-1">{reason}</p>
         </div>
       </div>
     </div>
@@ -45,10 +45,10 @@ export function CompatibilityWarning({ reason }) {
  */
 export function ScheduleSuccess({ operationCode, nextOperation, onNext }) {
   return (
-    <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+    <div className="bg-[var(--status-green-tint)] border border-[var(--status-green)]/30 rounded-lg p-4">
       <div className="flex items-start gap-3">
         <svg
-          className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5"
+          className="w-5 h-5 text-[var(--status-green)] flex-shrink-0 mt-0.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -61,24 +61,24 @@ export function ScheduleSuccess({ operationCode, nextOperation, onNext }) {
           />
         </svg>
         <div className="flex-1">
-          <h4 className="text-green-400 font-medium">
+          <h4 className="text-[var(--status-green)] font-medium">
             {operationCode} scheduled
           </h4>
           {nextOperation ? (
             <div className="mt-2 flex items-center gap-3">
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-[var(--ink-3)]">
                 Next: {nextOperation.sequence} — {nextOperation.operation_code}
               </p>
               <button
                 type="button"
                 onClick={onNext}
-                className="text-sm text-blue-400 hover:text-blue-300 underline"
+                className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] underline"
               >
                 Schedule it now
               </button>
             </div>
           ) : (
-            <p className="text-sm text-gray-400 mt-1">
+            <p className="text-sm text-[var(--ink-3)] mt-1">
               All operations scheduled.
             </p>
           )}
@@ -93,11 +93,11 @@ export function ScheduleSuccess({ operationCode, nextOperation, onNext }) {
  */
 export function UnscheduleConfirm({ onConfirm, onCancel, submitting }) {
   return (
-    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-      <p className="text-amber-300 font-medium text-sm">
+    <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-4">
+      <p className="text-[var(--status-amber)] font-medium text-sm">
         Unschedule this operation?
       </p>
-      <p className="text-amber-400/70 text-sm mt-1">
+      <p className="text-[var(--status-amber)]/70 text-sm mt-1">
         The operation will return to pending and its time slot will be freed.
       </p>
       <div className="flex gap-3 mt-3">
@@ -105,14 +105,14 @@ export function UnscheduleConfirm({ onConfirm, onCancel, submitting }) {
           type="button"
           onClick={onConfirm}
           disabled={submitting}
-          className="px-4 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-1.5 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? "Unscheduling..." : "Confirm Unschedule"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-1.5 text-gray-400 hover:text-white text-sm transition-colors"
+          className="px-4 py-1.5 text-[var(--ink-3)] hover:text-[var(--ink)] text-sm transition-colors"
         >
           Cancel
         </button>
@@ -126,12 +126,12 @@ export function UnscheduleConfirm({ onConfirm, onCancel, submitting }) {
  */
 export function WizardStepHeader({ step, total, onSkipAll }) {
   return (
-    <div className="flex items-center justify-between px-6 py-3 bg-blue-950/30 border-b border-blue-800/30">
+    <div className="flex items-center justify-between px-6 py-3 bg-[var(--paper-sunk)] border-b border-[var(--rule-hair)]">
       <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-blue-300 uppercase tracking-wide">
+        <span className="text-xs font-medium text-[var(--ink-2)] uppercase tracking-wide">
           Schedule Wizard
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-[var(--ink-4)]">
           Step {step} of {total}
         </span>
         {/* Progress dots */}
@@ -140,7 +140,7 @@ export function WizardStepHeader({ step, total, onSkipAll }) {
             <span
               key={i}
               className={`w-1.5 h-1.5 rounded-full ${
-                i < step ? "bg-blue-400" : "bg-gray-700"
+                i < step ? "bg-[var(--ink)]" : "bg-[var(--rule-hair)]"
               }`}
             />
           ))}
@@ -149,7 +149,7 @@ export function WizardStepHeader({ step, total, onSkipAll }) {
       <button
         type="button"
         onClick={onSkipAll}
-        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        className="text-xs text-[var(--ink-4)] hover:text-[var(--ink-2)] transition-colors"
       >
         Skip all / later
       </button>

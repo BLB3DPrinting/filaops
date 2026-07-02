@@ -14,15 +14,15 @@ import { formatTime } from "../../../utils/formatting";
 export function SlotSuggestion({ label, nextAvailableStart, nextAvailableEnd, onUseSlot }) {
   if (!nextAvailableStart) return null;
   return (
-    <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded">
-      <p className="text-sm text-blue-300">
+    <div className="mt-3 p-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded">
+      <p className="text-sm text-[var(--ink-2)]">
         {label}: {formatTime(nextAvailableStart)}
         {nextAvailableEnd ? ` – ${formatTime(nextAvailableEnd)}` : ""}
       </p>
       <button
         type="button"
         onClick={() => onUseSlot(nextAvailableStart, nextAvailableEnd)}
-        className="mt-1 text-sm text-blue-400 hover:text-blue-300 underline"
+        className="mt-1 text-sm text-[var(--ink-2)] hover:text-[var(--ink)] underline"
       >
         Use this time
       </button>
@@ -42,10 +42,10 @@ export function ConflictAlert({
   if (!conflicts || conflicts.length === 0) return null;
 
   return (
-    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+    <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-4">
       <div className="flex items-start gap-3">
         <svg
-          className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"
+          className="w-5 h-5 text-[var(--status-red)] flex-shrink-0 mt-0.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -58,17 +58,17 @@ export function ConflictAlert({
           />
         </svg>
         <div className="flex-1">
-          <h4 className="text-red-400 font-medium">Resource Conflict</h4>
-          <p className="text-sm text-red-400/70 mt-1">
+          <h4 className="text-[var(--status-red)] font-medium">Resource Conflict</h4>
+          <p className="text-sm text-[var(--status-red)]/70 mt-1">
             This time slot overlaps with:
           </p>
           <ul className="mt-2 space-y-1">
             {conflicts.map((conflict, idx) => (
-              <li key={idx} className="text-sm text-red-300">
+              <li key={idx} className="text-sm text-[var(--status-red)]">
                 - {conflict.production_order_code || conflict.po_code} -{" "}
                 {conflict.operation_code || "Operation"}
                 {conflict.scheduled_start && (
-                  <span className="text-red-400/50">
+                  <span className="text-[var(--status-red)]/50">
                     {" "}
                     ({formatTime(conflict.scheduled_start)} –{" "}
                     {formatTime(conflict.scheduled_end)})
@@ -84,7 +84,7 @@ export function ConflictAlert({
             onUseSlot={onUseSlot}
           />
           {!nextAvailableStart && (
-            <p className="text-xs text-red-400/50 mt-2">
+            <p className="text-xs text-[var(--status-red)]/50 mt-2">
               Adjust the start time or select a different resource.
             </p>
           )}
@@ -107,10 +107,10 @@ export function PredecessorAlert({
   if (!message) return null;
 
   return (
-    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+    <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-4">
       <div className="flex items-start gap-3">
         <svg
-          className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5"
+          className="w-5 h-5 text-[var(--status-amber)] flex-shrink-0 mt-0.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -123,10 +123,10 @@ export function PredecessorAlert({
           />
         </svg>
         <div className="flex-1">
-          <h4 className="text-amber-400 font-medium">Sequence Constraint</h4>
-          <p className="text-sm text-amber-400/70 mt-1">{message}</p>
+          <h4 className="text-[var(--status-amber)] font-medium">Sequence Constraint</h4>
+          <p className="text-sm text-[var(--status-amber)]/70 mt-1">{message}</p>
           {earliestValidStart && (
-            <p className="text-sm text-amber-300 mt-1">
+            <p className="text-sm text-[var(--status-amber)] mt-1">
               Predecessor finishes:{" "}
               <span className="font-medium">{formatTime(earliestValidStart)}</span>
             </p>
@@ -139,7 +139,7 @@ export function PredecessorAlert({
               onUseSlot={onUseSlot}
             />
           ) : (
-            <p className="text-xs text-amber-400/50 mt-2">
+            <p className="text-xs text-[var(--status-amber)]/50 mt-2">
               Schedule the predecessor operation first, then retry.
             </p>
           )}
@@ -156,10 +156,10 @@ export function PredecessorAlert({
 export function SuccessorConflictAlert({ successorConflicts }) {
   if (!successorConflicts || successorConflicts.length === 0) return null;
   return (
-    <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-4">
+    <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-4">
       <div className="flex items-start gap-3">
         <svg
-          className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5"
+          className="w-5 h-5 text-[var(--status-amber)] flex-shrink-0 mt-0.5"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -172,28 +172,28 @@ export function SuccessorConflictAlert({ successorConflicts }) {
           />
         </svg>
         <div className="flex-1">
-          <h4 className="text-orange-400 font-medium">Successor Conflict</h4>
-          <p className="text-sm text-orange-400/70 mt-1">
+          <h4 className="text-[var(--status-amber)] font-medium">Successor Conflict</h4>
+          <p className="text-sm text-[var(--status-amber)]/70 mt-1">
             Moving this operation would violate existing schedules of:
           </p>
           <ul className="mt-2 space-y-1">
             {successorConflicts.map((sc, idx) => (
-              <li key={idx} className="text-sm text-orange-300">
+              <li key={idx} className="text-sm text-[var(--status-amber)]">
                 - Seq {sc.sequence} ({sc.operation_code || "Operation"})
                 {sc.scheduled_start && (
-                  <span className="text-orange-400/50">
+                  <span className="text-[var(--status-amber)]/50">
                     {" "}currently at {formatTime(sc.scheduled_start)}
                   </span>
                 )}
                 {sc.earliest_valid_start && (
-                  <span className="text-orange-300">
+                  <span className="text-[var(--status-amber)]">
                     {" "}— earliest valid start: {formatTime(sc.earliest_valid_start)}
                   </span>
                 )}
               </li>
             ))}
           </ul>
-          <p className="text-xs text-orange-400/50 mt-2">
+          <p className="text-xs text-[var(--status-amber)]/50 mt-2">
             Reschedule the successor operations first, or choose an earlier end time.
           </p>
         </div>

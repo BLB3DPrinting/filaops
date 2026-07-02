@@ -60,7 +60,7 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
   if (loading) {
     return (
       <div className="h-32 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
       </div>
     );
   }
@@ -121,7 +121,7 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
               key={p.key}
               onClick={() => onPeriodChange(p.key)}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                period === p.key ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                period === p.key ? "bg-[var(--ink)] text-[var(--paper)]" : "bg-[var(--paper-sunk)] text-[var(--ink-3)] hover:text-[var(--ink)]"
               }`}
             >
               {p.label}
@@ -130,17 +130,17 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
         </div>
         <div className="flex gap-4 text-right">
           <div>
-            <p className="text-sm font-semibold text-purple-400">{data?.total_completed || 0}</p>
-            <p className="text-xs text-gray-500">orders</p>
+            <p className="text-sm font-semibold text-[var(--ink)]">{data?.total_completed || 0}</p>
+            <p className="text-xs text-[var(--ink-4)]">orders</p>
           </div>
           <div>
-            <p className="text-sm font-semibold text-green-400">{data?.total_units || 0}</p>
-            <p className="text-xs text-gray-500">units</p>
+            <p className="text-sm font-semibold text-[var(--status-green)]">{data?.total_units || 0}</p>
+            <p className="text-xs text-[var(--ink-4)]">units</p>
           </div>
           {(data?.pipeline_in_progress > 0 || data?.pipeline_scheduled > 0) && (
             <div>
-              <p className="text-sm font-semibold text-yellow-400">{(data?.pipeline_in_progress || 0) + (data?.pipeline_scheduled || 0)}</p>
-              <p className="text-xs text-gray-500">in pipeline</p>
+              <p className="text-sm font-semibold text-[var(--status-amber)]">{(data?.pipeline_in_progress || 0) + (data?.pipeline_scheduled || 0)}</p>
+              <p className="text-xs text-[var(--ink-4)]">in pipeline</p>
             </div>
           )}
         </div>
@@ -148,19 +148,19 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
 
       <div className="flex gap-4 mb-2 text-xs">
         <div className="flex items-center gap-1">
-          <div className="w-2 h-3 bg-purple-500/30 rounded-sm"></div>
-          <span className="text-gray-500">Daily Completed</span>
+          <div className="w-2 h-3 bg-[var(--orange-tint)] rounded-sm"></div>
+          <span className="text-[var(--ink-4)]">Daily Completed</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-3 h-0.5 bg-green-500"></div>
-          <span className="text-gray-400">Cumulative Units</span>
+          <div className="w-3 h-0.5 bg-[var(--status-green)]"></div>
+          <span className="text-[var(--ink-3)]">Cumulative Units</span>
         </div>
       </div>
 
       {dataPoints.length > 0 ? (
         <div ref={chartRef} className="relative" style={{ height: chartHeight }} onMouseLeave={() => setHoveredIndex(null)}>
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-            <line x1="0" y1="50" x2="100" y2="50" stroke="#374151" strokeWidth="0.5" />
+            <line x1="0" y1="50" x2="100" y2="50" stroke="var(--rule-hair)" strokeWidth="0.5" />
             {dataPoints.map((d, i) => {
               const barWidth = 100 / Math.max(dataPoints.length, 1) * 0.6;
               const x = (i / Math.max(dataPoints.length - 1, 1)) * 100 - barWidth / 2;
@@ -169,34 +169,34 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
                 <rect key={`bar-${i}`} x={Math.max(0, x)} y={100 - barHeight} width={barWidth} height={barHeight} fill="url(#productionBarGradient)" opacity="0.4" />
               );
             })}
-            <path d={generateUnitsPath()} fill="none" stroke="#22c55e" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            <path d={generateUnitsPath()} fill="none" stroke="var(--status-green)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
             {dataPoints.map((_, i) => {
               const sliceWidth = 100 / dataPoints.length;
               return <rect key={`hover-${i}`} x={i * sliceWidth} y={0} width={sliceWidth} height={100} fill="transparent" onMouseMove={(e) => handleMouseMove(e, i)} style={{ cursor: 'crosshair' }} />;
             })}
             {hoveredIndex !== null && cumulativeData[hoveredIndex] && (
-              <circle cx={(hoveredIndex / Math.max(cumulativeData.length - 1, 1)) * 100} cy={100 - (cumulativeData[hoveredIndex].cumulativeUnits / Math.max(maxCumulativeUnits, 1)) * 100} r="3" fill="#22c55e" stroke="white" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+              <circle cx={(hoveredIndex / Math.max(cumulativeData.length - 1, 1)) * 100} cy={100 - (cumulativeData[hoveredIndex].cumulativeUnits / Math.max(maxCumulativeUnits, 1)) * 100} r="3" fill="var(--status-green)" stroke="var(--paper)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
             )}
             <defs>
               <linearGradient id="productionBarGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#a855f7" />
-                <stop offset="100%" stopColor="#a855f7" stopOpacity="0.2" />
+                <stop offset="0%" stopColor="var(--orange)" />
+                <stop offset="100%" stopColor="var(--orange)" stopOpacity="0.2" />
               </linearGradient>
             </defs>
           </svg>
           {hoveredIndex !== null && getHoveredData() && (
-            <div className="absolute z-10 bg-gray-800 border border-gray-700 rounded-lg shadow-lg p-3 pointer-events-none" style={{ left: Math.min(mousePos.x + 10, chartWidth - 150), top: Math.max(mousePos.y - 70, 0), minWidth: '140px' }}>
+            <div className="absolute z-10 bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg shadow-[var(--shadow-pop)] p-3 pointer-events-none" style={{ left: Math.min(mousePos.x + 10, chartWidth - 150), top: Math.max(mousePos.y - 70, 0), minWidth: '140px' }}>
               {(() => {
                 const d = getHoveredData();
                 return (
                   <>
-                    <div className="text-white font-medium text-sm mb-2">{d.date}</div>
+                    <div className="text-[var(--ink)] font-medium text-sm mb-2">{d.date}</div>
                     <div className="space-y-1 text-xs">
-                      <div className="flex justify-between gap-4"><span className="text-purple-400">Completed:</span><span className="text-white font-medium">{d.completed}</span></div>
-                      <div className="flex justify-between gap-4"><span className="text-green-400">Units:</span><span className="text-white">{d.dailyUnits}</span></div>
-                      <div className="border-t border-gray-700 my-1 pt-1">
-                        <div className="flex justify-between gap-4"><span className="text-gray-400">Total Orders:</span><span className="text-white">{d.cumulativeCompleted}</span></div>
-                        <div className="flex justify-between gap-4"><span className="text-gray-400">Total Units:</span><span className="text-white">{d.cumulativeUnits}</span></div>
+                      <div className="flex justify-between gap-4"><span className="text-[var(--ink-3)]">Completed:</span><span className="text-[var(--ink)] font-medium">{d.completed}</span></div>
+                      <div className="flex justify-between gap-4"><span className="text-[var(--status-green)]">Units:</span><span className="text-[var(--ink)]">{d.dailyUnits}</span></div>
+                      <div className="border-t border-[var(--rule-hair)] my-1 pt-1">
+                        <div className="flex justify-between gap-4"><span className="text-[var(--ink-3)]">Total Orders:</span><span className="text-[var(--ink)]">{d.cumulativeCompleted}</span></div>
+                        <div className="flex justify-between gap-4"><span className="text-[var(--ink-3)]">Total Units:</span><span className="text-[var(--ink)]">{d.cumulativeUnits}</span></div>
                       </div>
                     </div>
                   </>
@@ -206,11 +206,11 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
           )}
         </div>
       ) : (
-        <div className="h-24 flex items-center justify-center text-gray-500 text-sm">No production completions for this period</div>
+        <div className="h-24 flex items-center justify-center text-[var(--ink-4)] text-sm">No production completions for this period</div>
       )}
 
       {dataPoints.length > 0 && (
-        <div className="flex justify-between text-xs text-gray-500 mt-2">
+        <div className="flex justify-between text-xs text-[var(--ink-4)] mt-2">
           <span>{dataPoints[0]?.date ? parseLocalDate(dataPoints[0].date)?.toLocaleDateString() : ""}</span>
           <span>{dataPoints[dataPoints.length - 1]?.date ? parseLocalDate(dataPoints[dataPoints.length - 1].date)?.toLocaleDateString() : ""}</span>
         </div>
@@ -223,13 +223,13 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
 const SoLinkBadge = ({ order }) => {
   if (order.sales_order_code) {
     return (
-      <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+      <span className="text-xs px-1.5 py-0.5 bg-[var(--paper-sunk)] text-[var(--ink-2)] rounded">
         {order.sales_order_code}
       </span>
     );
   }
   return (
-    <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
+    <span className="text-xs px-1.5 py-0.5 bg-[var(--paper-sunk)] text-[var(--ink-3)] rounded">
       STOCK
     </span>
   );
@@ -424,23 +424,23 @@ export default function AdminProduction() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)] flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Production</h1>
-          <p className="text-gray-400 mt-1">
+          <h1 className="text-2xl font-bold text-[var(--ink)]">Production</h1>
+          <p className="text-[var(--ink-3)] mt-1">
             Track print jobs and production orders
           </p>
         </div>
         <div className="flex items-center gap-3">
           {/* SCHED-5: view toggle */}
-          <div className="flex rounded-lg border border-gray-700 overflow-hidden">
+          <div className="flex rounded-lg border border-[var(--rule-hair)] overflow-hidden">
             <button
               type="button"
               onClick={() => setPageView("queue")}
               className={`px-3 py-2 text-sm transition-colors ${
                 pageView === "queue"
-                  ? "bg-gray-700 text-white"
-                  : "bg-gray-900 text-gray-400 hover:text-white"
+                  ? "bg-[var(--ink)] text-[var(--paper)]"
+                  : "bg-[var(--paper-sunk)] text-[var(--ink-3)] hover:text-[var(--ink)]"
               }`}
             >
               Queue
@@ -450,8 +450,8 @@ export default function AdminProduction() {
               onClick={() => setPageView("scheduler")}
               className={`px-3 py-2 text-sm transition-colors ${
                 pageView === "scheduler"
-                  ? "bg-gray-700 text-white"
-                  : "bg-gray-900 text-gray-400 hover:text-white"
+                  ? "bg-[var(--ink)] text-[var(--paper)]"
+                  : "bg-[var(--paper-sunk)] text-[var(--ink-3)] hover:text-[var(--ink)]"
               }`}
             >
               Scheduler
@@ -459,7 +459,7 @@ export default function AdminProduction() {
           </div>
           <button
             onClick={() => { setShowCreateModal(true); setCreateError(null); }}
-            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500"
+            className="px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)]"
           >
             + Create Production Order
           </button>
@@ -479,7 +479,7 @@ export default function AdminProduction() {
       {pageView === "queue" && (
         <>
       {/* Production Trend Chart */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
         <ProductionChart
           data={productionTrend}
           period={trendPeriod}
@@ -490,27 +490,27 @@ export default function AdminProduction() {
 
       {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">Draft</p>
-              <p className="text-2xl font-bold text-gray-400">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">Draft</p>
+              <p className="text-2xl font-bold text-[var(--ink)]">
                 {groupedOrders.draft.length}
               </p>
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">Released</p>
-              <p className="text-2xl font-bold text-blue-400">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">Released</p>
+              <p className="text-2xl font-bold text-[var(--status-amber)]">
                 {groupedOrders.released.length}
               </p>
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">In Progress</p>
-              <p className="text-2xl font-bold text-purple-400">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">In Progress</p>
+              <p className="text-2xl font-bold text-[var(--status-amber)]">
                 {groupedOrders.in_progress.length}
               </p>
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">Completed Today</p>
-              <p className="text-2xl font-bold text-green-400">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">Completed Today</p>
+              <p className="text-2xl font-bold text-[var(--status-green)]">
                 {
                   groupedOrders.complete.filter((o) => {
                     const today = new Date().toDateString();
@@ -522,9 +522,9 @@ export default function AdminProduction() {
                 }
               </p>
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">Scrapped Today</p>
-              <p className="text-2xl font-bold text-red-400">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">Scrapped Today</p>
+              <p className="text-2xl font-bold text-[var(--status-red)]">
                 {
                   groupedOrders.scrapped.filter((o) => {
                     const today = new Date().toDateString();
@@ -536,9 +536,9 @@ export default function AdminProduction() {
                 }
               </p>
             </div>
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <p className="text-gray-400 text-sm">Total Active</p>
-              <p className="text-2xl font-bold text-white">
+            <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+              <p className="text-[var(--ink-3)] text-sm">Total Active</p>
+              <p className="text-2xl font-bold text-[var(--ink)]">
                 {groupedOrders.released.length +
                   groupedOrders.in_progress.length}
               </p>
@@ -547,7 +547,7 @@ export default function AdminProduction() {
 
           {/* Error */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400">
+            <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-xl p-4 text-[var(--status-red)]">
               {error}
             </div>
           )}
@@ -555,7 +555,7 @@ export default function AdminProduction() {
           {/* Loading */}
           {loading && (
             <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
             </div>
           )}
 
@@ -699,19 +699,20 @@ export default function AdminProduction() {
         title="Create Production Order"
         className="w-full max-w-md"
         disableClose={creating}
+        variant="workbench"
       >
         <div className="p-6">
-            <h2 className="text-xl font-bold text-white mb-4">Create Production Order</h2>
+            <h2 className="text-xl font-bold text-[var(--ink)] mb-4">Create Production Order</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               {/* In-modal error feedback (POST failure stays here so the modal remains open) */}
               {createError && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3 text-[var(--status-red)] text-sm">
                   {createError}
                 </div>
               )}
               {/* Product Selection */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Product *
                 </label>
                 <select
@@ -719,7 +720,7 @@ export default function AdminProduction() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, product_id: e.target.value })
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                   required
                 >
                   <option value="">Select a product...</option>
@@ -733,7 +734,7 @@ export default function AdminProduction() {
 
               {/* Quantity */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Quantity *
                 </label>
                 <input
@@ -746,14 +747,14 @@ export default function AdminProduction() {
                       quantity_ordered: e.target.value,
                     })
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                   required
                 />
               </div>
 
               {/* Priority */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Priority
                 </label>
                 <select
@@ -761,7 +762,7 @@ export default function AdminProduction() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, priority: e.target.value })
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                 >
                   <option value="1">1 - Urgent</option>
                   <option value="2">2 - High</option>
@@ -773,7 +774,7 @@ export default function AdminProduction() {
 
               {/* Due Date */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Due Date
                 </label>
                 <input
@@ -782,7 +783,7 @@ export default function AdminProduction() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, due_date: e.target.value })
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
                   min={new Date().toISOString().split("T")[0]}
                   max="2099-12-31"
                 />
@@ -790,7 +791,7 @@ export default function AdminProduction() {
 
               {/* Notes */}
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-sm text-[var(--ink-3)] mb-1">
                   Notes
                 </label>
                 <textarea
@@ -798,7 +799,7 @@ export default function AdminProduction() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, notes: e.target.value })
                   }
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white h-20"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)] placeholder-[var(--ink-4)] h-20"
                   placeholder="Optional notes..."
                 />
               </div>
@@ -808,14 +809,14 @@ export default function AdminProduction() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                  className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creating}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50"
                 >
                   {creating ? "Creating..." : "Create Order"}
                 </button>

@@ -43,8 +43,8 @@ describe('statusColors', () => {
       expect(PRODUCTION_ORDER_BADGE_CONFIGS.cancelled.label).toBe('Cancelled')
     })
 
-    it('uses appropriate color classes', () => {
-      expect(PRODUCTION_ORDER_BADGE_CONFIGS.draft.bg).toContain('gray')
+    it('uses appropriate color classes (Workbench tokens, #846)', () => {
+      expect(PRODUCTION_ORDER_BADGE_CONFIGS.draft.bg).toContain('paper-sunk')
       expect(PRODUCTION_ORDER_BADGE_CONFIGS.complete.text).toContain('green')
       expect(PRODUCTION_ORDER_BADGE_CONFIGS.cancelled.text).toContain('red')
     })
@@ -62,7 +62,8 @@ describe('statusColors', () => {
   describe('getStatusColor', () => {
     it('returns the correct color for a known status', () => {
       const result = getStatusColor(PRODUCTION_ORDER_COLORS, 'draft')
-      expect(result).toBe(BASE_COLORS.gray)
+      expect(result).toBe(PRODUCTION_ORDER_COLORS.draft)
+      expect(result).toContain('paper-sunk')
     })
 
     it('returns fallback for unknown status', () => {
