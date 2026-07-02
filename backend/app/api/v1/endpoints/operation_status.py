@@ -186,26 +186,19 @@ def get_operations(
                 status=mat.status,
             ))
 
-        # Resolve the machine display. Modern writers (schedule_operation)
-        # store printers in printer_id with resource_id=None and resources in
-        # resource_id; legacy rows encoded printers as a negative resource_id.
+        # Resolve the machine display. schedule_operation stores printers in
+        # printer_id with resource_id=None and resources in resource_id. (A
+        # legacy negative-resource_id printer encoding was decoded here, but
+        # resource_id has been FK-constrained to resources.id its whole life —
+        # migration 032 validated existing rows — so such rows cannot exist.)
         resource_code = None
         resource_name = None
         if op.printer_id and op.printer:
             resource_code = op.printer.code
             resource_name = op.printer.name
-        elif op.resource_id:
-            if op.resource_id < 0:
-                # Legacy encoding: printer stored as -printer_id
-                printer = db.get(Printer, abs(op.resource_id))
-                if printer:
-                    resource_code = printer.code
-                    resource_name = printer.name
-            else:
-                # Positive ID = resource
-                if op.resource:
-                    resource_code = op.resource.code
-                    resource_name = op.resource.name
+        elif op.resource:
+            resource_code = op.resource.code
+            resource_name = op.resource.name
 
         result.append(OperationListItem(
             id=op.id,
