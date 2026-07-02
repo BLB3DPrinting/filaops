@@ -7,19 +7,21 @@ Provides endpoints for:
 - Auto-scheduling production orders
 """
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from math import ceil
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 
 from app.db.session import get_db
 from app.models.production_order import ProductionOrder
 from app.models.manufacturing import Resource
+from app.models.printer import Printer
 from app.models.work_center import WorkCenter
-from app.models.print_job import PrintJob
 from app.schemas.scheduling import (
     CapacityCheckRequest,
     CapacityCheckResponse,
+    ConflictInfo,
     AvailableSlotResponse,
     MachineAvailabilityResponse,
 )
@@ -29,8 +31,85 @@ from app.models.user import User
 from app.services.resource_compatibility_service import (
     is_machine_compatible,
 )
+from app.services.resource_scheduling import (
+    TERMINAL_STATUSES,
+    MaintenanceWindowConflictError,
+    SequenceError,
+    find_conflicts,
+    find_next_available_slot,
+    find_window_conflicts,
+    get_resource_schedule,
+    schedule_operation,
+)
 
 router = APIRouter()
+
+
+def _naive_utc(dt: datetime) -> datetime:
+    """Normalize to naive UTC — scheduling columns are TIMESTAMP WITHOUT TIME
+    ZONE holding UTC, so aware request datetimes must be converted before any
+    Python-side comparison (naive-vs-aware comparison raises TypeError)."""
+    if dt is not None and dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _resolve_machine(db: Session, machine_id: int, is_printer: bool):
+    """Fetch the Resource or Printer a capacity question is about (404 if absent).
+
+    Resources and Printers are distinct models with separate ID spaces — they
+    must never be cross-compared (the old capacity queries joined
+    PrintJob.printer_id against Resource.id, matching only on coincidence)."""
+    if is_printer:
+        machine = db.query(Printer).filter(Printer.id == machine_id).first()
+        if not machine:
+            raise HTTPException(status_code=404, detail="Printer not found")
+    else:
+        machine = db.query(Resource).filter(Resource.id == machine_id).first()
+        if not machine:
+            raise HTTPException(status_code=404, detail="Resource not found")
+    return machine
+
+
+def _busy_intervals(
+    db: Session,
+    machine_id: int,
+    start: datetime,
+    end: datetime,
+    is_printer: bool,
+) -> List[Tuple[datetime, datetime]]:
+    """All busy time on a machine in [start, end): scheduled operations plus
+    blocking maintenance windows, as naive-UTC (start, end) pairs sorted by
+    start. Interval-overlap windowing, so work already running at `start` is
+    included (a start-based filter would hide it and allow double-booking)."""
+    intervals: List[Tuple[datetime, datetime]] = []
+    for op in get_resource_schedule(
+        db, machine_id, start_date=start, end_date=end, is_printer=is_printer
+    ):
+        intervals.append(
+            (_naive_utc(op.scheduled_start), _naive_utc(op.scheduled_end))
+        )
+    for w in find_window_conflicts(
+        db, resource_id=machine_id, start_time=start, end_time=end, is_printer=is_printer
+    ):
+        intervals.append((_naive_utc(w.starts_at), _naive_utc(w.ends_at)))
+    intervals.sort(key=lambda pair: pair[0])
+    return intervals
+
+
+def _merged_hours(intervals: List[Tuple[datetime, datetime]]) -> float:
+    """Total hours covered by the union of (start, end) intervals (overlaps
+    counted once). Input must be sorted by start."""
+    total = 0.0
+    cursor: Optional[datetime] = None
+    for s, e in intervals:
+        if cursor is None or s > cursor:
+            total += (e - s).total_seconds() / 3600
+            cursor = e
+        elif e > cursor:
+            total += (e - cursor).total_seconds() / 3600
+            cursor = e
+    return total
 
 
 @router.get("/board")
@@ -300,54 +379,58 @@ async def check_capacity(
 ):
     """
     Check if a machine has capacity for a production order at a given time.
-    
-    Returns conflicts if any exist.
+
+    Busy time is what the scheduler actually books: ProductionOrderOperation
+    rows (the modal/dispatch write path) plus blocking maintenance windows —
+    NOT the order-level scheduled_* columns, which the operation path never
+    populates (#857 G1).
     """
-    resource = db.query(Resource).filter(Resource.id == request.resource_id).first()
-    if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+    machine = _resolve_machine(db, request.resource_id, request.is_printer)
+    start_time = _naive_utc(request.start_time)
+    end_time = _naive_utc(request.end_time)
+    if end_time <= start_time:
+        raise HTTPException(status_code=422, detail="end_time must be after start_time")
 
-    start_time = request.start_time
-    end_time = request.end_time
+    conflicts: List[ConflictInfo] = []
+    for op in find_conflicts(
+        db,
+        resource_id=request.resource_id,
+        start_time=start_time,
+        end_time=end_time,
+        is_printer=request.is_printer,
+    ):
+        po = op.production_order
+        conflicts.append(ConflictInfo(
+            type="operation",
+            order_id=po.id if po else None,
+            order_code=po.code if po else None,
+            operation_id=op.id,
+            operation_code=op.operation_code,
+            start_time=op.scheduled_start.isoformat(),
+            end_time=op.scheduled_end.isoformat(),
+            product_name=po.product.name if po and po.product else "N/A",
+        ))
 
-    # Get all scheduled orders for this resource
-    # Find orders assigned to this resource via print_jobs or assigned_to
-    scheduled_orders = db.query(ProductionOrder).join(
-        PrintJob, ProductionOrder.id == PrintJob.production_order_id, isouter=True
-    ).filter(
-        and_(
-            or_(
-                PrintJob.printer_id == request.resource_id,
-                ProductionOrder.assigned_to == resource.code,
-            ),
-            ProductionOrder.status.in_(["released", "in_progress"]),
-            ProductionOrder.scheduled_start.isnot(None),
-            ProductionOrder.scheduled_end.isnot(None),
-        )
-    ).all()
-
-    conflicts = []
-    for order in scheduled_orders:
-        if not order.scheduled_start or not order.scheduled_end:
-            continue
-        
-        order_start = order.scheduled_start
-        order_end = order.scheduled_end
-        
-        # Check for overlap
-        if start_time < order_end and end_time > order_start:
-            conflicts.append({
-                "order_id": order.id,
-                "order_code": order.code,
-                "start_time": order_start.isoformat(),
-                "end_time": order_end.isoformat(),
-                "product_name": order.product.name if order.product else "N/A",
-            })
+    for w in find_window_conflicts(
+        db,
+        resource_id=request.resource_id,
+        start_time=start_time,
+        end_time=end_time,
+        is_printer=request.is_printer,
+    ):
+        conflicts.append(ConflictInfo(
+            type="maintenance",
+            order_id=None,
+            order_code=None,
+            start_time=w.starts_at.isoformat(),
+            end_time=w.ends_at.isoformat(),
+            product_name=w.reason or "Scheduled downtime",
+        ))
 
     return CapacityCheckResponse(
         resource_id=request.resource_id,
-        resource_code=resource.code,
-        resource_name=resource.name,
+        resource_code=machine.code,
+        resource_name=machine.name,
         start_time=start_time.isoformat(),
         end_time=end_time.isoformat(),
         has_capacity=len(conflicts) == 0,
@@ -357,51 +440,32 @@ async def check_capacity(
 
 @router.get("/capacity/available-slots", response_model=List[AvailableSlotResponse])
 async def get_available_slots(
-    resource_id: int = Query(..., description="Resource ID"),
+    resource_id: int = Query(..., description="Resource or printer ID"),
     start_date: datetime = Query(..., description="Start date for search"),
     end_date: datetime = Query(..., description="End date for search"),
     duration_hours: float = Query(2.0, description="Required duration in hours"),
+    is_printer: bool = Query(False, description="True if resource_id is a printer"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Find available time slots for a resource within a date range.
-    
-    Returns list of available slots that can accommodate the required duration.
+    Find available time slots for a machine within a date range.
+
+    Gaps are computed against real bookings — scheduled operations plus
+    blocking maintenance windows (#857 G1) — not the vestigial order-level
+    scheduled_* columns.
     """
-    resource = db.query(Resource).filter(Resource.id == resource_id).first()
-    if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+    _resolve_machine(db, resource_id, is_printer)
+    start_date = _naive_utc(start_date)
+    end_date = _naive_utc(end_date)
+    if end_date <= start_date:
+        raise HTTPException(status_code=422, detail="end_date must be after start_date")
 
-    # Get all scheduled orders for this resource
-    scheduled_orders = db.query(ProductionOrder).join(
-        PrintJob, ProductionOrder.id == PrintJob.production_order_id, isouter=True
-    ).filter(
-        and_(
-            or_(
-                PrintJob.printer_id == resource_id,
-                ProductionOrder.assigned_to == resource.code,
-            ),
-            ProductionOrder.status.in_(["released", "in_progress"]),
-            ProductionOrder.scheduled_start.isnot(None),
-            ProductionOrder.scheduled_end.isnot(None),
-            ProductionOrder.scheduled_start >= start_date,
-            ProductionOrder.scheduled_start <= end_date,
-        )
-    ).order_by(ProductionOrder.scheduled_start).all()
-
-    # Build list of busy periods
-    busy_periods = []
-    for order in scheduled_orders:
-        if order.scheduled_start and order.scheduled_end:
-            busy_periods.append((order.scheduled_start, order.scheduled_end))
+    busy_periods = _busy_intervals(db, resource_id, start_date, end_date, is_printer)
 
     # Find gaps between busy periods
     available_slots = []
     current_time = start_date
-
-    # Sort busy periods by start time
-    busy_periods.sort(key=lambda x: x[0])
 
     for busy_start, busy_end in busy_periods:
         # Check if there's a gap before this busy period
@@ -443,11 +507,18 @@ async def get_machine_availability(
 ):
     """
     Get availability status for all machines in a date range.
-    
-    Shows capacity utilization and available time for each machine.
+
+    Utilization is derived from real bookings — scheduled operations, clipped
+    to the window (#857 G1) — and available time additionally excludes
+    blocking maintenance windows.
     """
+    start_date = _naive_utc(start_date)
+    end_date = _naive_utc(end_date)
+    if end_date <= start_date:
+        raise HTTPException(status_code=422, detail="end_date must be after start_date")
+
     query = db.query(Resource).filter(Resource.is_active == True)  # noqa: E712
-    
+
     if work_center_id:
         query = query.filter(Resource.work_center_id == work_center_id)
     else:
@@ -456,35 +527,39 @@ async def get_machine_availability(
 
     resources = query.all()
 
+    total_hours = (end_date - start_date).total_seconds() / 3600
+
     result = []
     for resource in resources:
-        # Get scheduled orders for this resource
-        scheduled_orders = db.query(ProductionOrder).join(
-            PrintJob, ProductionOrder.id == PrintJob.production_order_id, isouter=True
-        ).filter(
-            and_(
-                or_(
-                    PrintJob.printer_id == resource.id,
-                    ProductionOrder.assigned_to == resource.code,
-                ),
-                ProductionOrder.status.in_(["released", "in_progress"]),
-                ProductionOrder.scheduled_start.isnot(None),
-                ProductionOrder.scheduled_end.isnot(None),
-                ProductionOrder.scheduled_start >= start_date,
-                ProductionOrder.scheduled_start <= end_date,
-            )
-        ).all()
+        ops = get_resource_schedule(
+            db, resource.id, start_date=start_date, end_date=end_date, is_printer=False
+        )
 
-        # Calculate total scheduled time
-        total_scheduled_hours = 0
-        for order in scheduled_orders:
-            if order.scheduled_start and order.scheduled_end:
-                duration = (order.scheduled_end - order.scheduled_start).total_seconds() / 3600
-                total_scheduled_hours += duration
+        # Clip each booking to the window (an op overlapping the boundary only
+        # consumes the in-window part — mirrors the board's utilization math).
+        op_intervals = []
+        for op in ops:
+            clip_start = max(_naive_utc(op.scheduled_start), start_date)
+            clip_end = min(_naive_utc(op.scheduled_end), end_date)
+            if clip_end > clip_start:
+                op_intervals.append((clip_start, clip_end))
+        op_intervals.sort(key=lambda pair: pair[0])
+        total_scheduled_hours = _merged_hours(op_intervals)
 
-        # Calculate total available time
-        total_hours = (end_date - start_date).total_seconds() / 3600
-        available_hours = total_hours - total_scheduled_hours
+        # Available time also excludes blocking maintenance windows — a machine
+        # in maintenance is not available even though no work is scheduled.
+        window_intervals = []
+        for w in find_window_conflicts(
+            db, resource_id=resource.id, start_time=start_date, end_time=end_date,
+            is_printer=False,
+        ):
+            clip_start = max(_naive_utc(w.starts_at), start_date)
+            clip_end = min(_naive_utc(w.ends_at), end_date)
+            if clip_end > clip_start:
+                window_intervals.append((clip_start, clip_end))
+        busy_union = sorted(op_intervals + window_intervals, key=lambda pair: pair[0])
+        available_hours = total_hours - _merged_hours(busy_union)
+
         utilization_percent = (total_scheduled_hours / total_hours * 100) if total_hours > 0 else 0
 
         result.append({
@@ -498,7 +573,7 @@ async def get_machine_availability(
             "scheduled_hours": total_scheduled_hours,
             "available_hours": max(0, available_hours),
             "utilization_percent": round(utilization_percent, 1),
-            "scheduled_order_count": len(scheduled_orders),
+            "scheduled_order_count": len({op.production_order_id for op in ops}),
         })
 
     return result
@@ -540,12 +615,31 @@ async def auto_schedule_order(
     if not order:
         raise HTTPException(status_code=404, detail="Production order not found")
 
-    # Estimate duration
-    estimated_hours = order.estimated_time_minutes / 60 if order.estimated_time_minutes else 2.0
+    # Estimate duration: quote-derived estimate when present, else the routing's
+    # planned minutes (already quantity-scaled by copy_routing_to_operations) —
+    # WOs generated from sales orders never set estimated_time_minutes, so the
+    # bare 2h default sized every routing-driven job wrong (#857 G3).
+    if order.estimated_time_minutes:
+        estimated_hours = order.estimated_time_minutes / 60
+    else:
+        planned_minutes = sum(
+            float(op.planned_setup_minutes or 0) + float(op.planned_run_minutes or 0)
+            for op in order.operations
+            if op.status not in TERMINAL_STATUSES
+        )
+        estimated_hours = planned_minutes / 60 if planned_minutes > 0 else 2.0
 
-    # Determine search window
-    search_start = preferred_start if preferred_start else datetime.now(timezone.utc)
-    search_start = search_start.replace(minute=0, second=0, microsecond=0)
+    # Determine search window. Naive UTC throughout — the scheduling columns
+    # are naive UTC and mixing aware/naive datetimes raises TypeError (#857 G5).
+    search_start = _naive_utc(preferred_start) if preferred_start else _naive_utc(
+        datetime.now(timezone.utc)
+    )
+    # Round UP to the next whole hour — flooring would move the search (and the
+    # resulting booking) earlier than the requested/current time.
+    rounded_start = search_start.replace(minute=0, second=0, microsecond=0)
+    if rounded_start != search_start:
+        rounded_start += timedelta(hours=1)
+    search_start = rounded_start
     search_end = search_start + timedelta(days=7)  # Search 7 days ahead
 
     # If order has due date, limit search to before due date
@@ -575,56 +669,32 @@ async def auto_schedule_order(
         if not is_compatible:
             # Skip incompatible machines (e.g., ABS/ASA on non-enclosed printers)
             continue
-        
-        # Get scheduled orders for this resource
-        scheduled_orders = db.query(ProductionOrder).join(
-            PrintJob, ProductionOrder.id == PrintJob.production_order_id, isouter=True
-        ).filter(
-            and_(
-                or_(
-                    PrintJob.printer_id == resource.id,
-                    ProductionOrder.assigned_to == resource.code,
-                ),
-                ProductionOrder.status.in_(["released", "in_progress"]),
-                ProductionOrder.scheduled_start.isnot(None),
-                ProductionOrder.scheduled_end.isnot(None),
-                ProductionOrder.scheduled_start >= search_start,
-                ProductionOrder.scheduled_start <= search_end,
-            )
-        ).order_by(ProductionOrder.scheduled_start).all()
 
-        # Build busy periods
-        busy_periods = []
-        for scheduled_order in scheduled_orders:
-            if scheduled_order.scheduled_start and scheduled_order.scheduled_end:
-                busy_periods.append((scheduled_order.scheduled_start, scheduled_order.scheduled_end))
+        # Delegate the gap search to the same engine the scheduler modal uses:
+        # busy time = scheduled operations + blocking maintenance windows, with
+        # interval-overlap semantics and a monotonic cursor. The previous
+        # hand-rolled loop read order-level columns nothing populates, ignored
+        # maintenance windows, hid already-running work behind a start-based
+        # filter, and could walk its cursor backward on nested busy periods —
+        # all double-booking paths (#857 G1/G5).
+        slot = find_next_available_slot(
+            db,
+            resource_id=resource.id,
+            # Round UP: truncating would accept a gap shorter than the actual
+            # scheduled duration (candidate_end uses the exact hours).
+            duration_minutes=ceil(estimated_hours * 60),
+            after=search_start,
+            is_printer=False,
+        )
+        candidate_end = slot + timedelta(hours=estimated_hours)
+        if candidate_end > search_end:
+            continue  # No fit inside the window on this machine
 
-        # Find first available slot
-        candidate_start = search_start
-        for busy_start, busy_end in sorted(busy_periods):
-            # Check if candidate fits before this busy period
-            candidate_end = candidate_start + timedelta(hours=estimated_hours)
-            if candidate_end <= busy_start:
-                # Found a slot!
-                score = (candidate_start - search_start).total_seconds() / 3600  # Hours from preferred start
-                if score < best_score:
-                    best_slot = candidate_start
-                    best_resource = resource
-                    best_score = score
-                break
-
-            # Move candidate to after this busy period
-            candidate_start = busy_end + timedelta(minutes=15)  # 15 min buffer
-
-        # Check if slot exists after all busy periods
-        if candidate_start < search_end:
-            candidate_end = candidate_start + timedelta(hours=estimated_hours)
-            if candidate_end <= search_end:
-                score = (candidate_start - search_start).total_seconds() / 3600
-                if score < best_score:
-                    best_slot = candidate_start
-                    best_resource = resource
-                    best_score = score
+        score = (slot - search_start).total_seconds() / 3600
+        if score < best_score:
+            best_slot = slot
+            best_resource = resource
+            best_score = score
 
     if not best_slot or not best_resource:
         # Check if it's a compatibility issue
@@ -638,14 +708,66 @@ async def auto_schedule_order(
             detail = f"No compatible machines found. Material requirements: {', '.join(incompatible_machines)}"
         else:
             detail = "No available slots found. All compatible machines are fully scheduled."
-        
+
+        # 409, not 404: the order exists — there is no slot. 404 is reserved for
+        # missing routes/entities and the frontend treats it as "PRO plugin not
+        # installed" (#857 G8).
         raise HTTPException(
-            status_code=404,
+            status_code=409,
             detail=detail
         )
 
-    # Schedule the order
     scheduled_end = best_slot + timedelta(hours=estimated_hours)
+
+    # Persist the booking on the operation plane — the plane every conflict /
+    # capacity read uses. Writing only the order-level columns would leave this
+    # booking invisible to the next capacity check or auto-schedule call
+    # (self-double-booking). Ops are placed back-to-back in sequence order
+    # inside the validated gap; schedule_operation re-validates conflicts,
+    # maintenance windows, and predecessor sequencing per op.
+    schedulable_ops = [
+        op for op in sorted(order.operations, key=lambda o: o.sequence)
+        if op.status not in TERMINAL_STATUSES and op.scheduled_start is None
+    ]
+    if schedulable_ops:
+        # Per-op share of the whole-order estimate, proportional to planned
+        # minutes (identical to planned minutes when the estimate came from
+        # them); an even split when no op carries planned time. Totals exactly
+        # estimated_hours, the size find_next_available_slot validated.
+        total_planned = sum(
+            float(op.planned_setup_minutes or 0) + float(op.planned_run_minutes or 0)
+            for op in schedulable_ops
+        )
+        cursor = best_slot
+        try:
+            for op in schedulable_ops:
+                planned = float(op.planned_setup_minutes or 0) + float(op.planned_run_minutes or 0)
+                if total_planned > 0:
+                    share_hours = estimated_hours * (planned / total_planned)
+                else:
+                    share_hours = estimated_hours / len(schedulable_ops)
+                op_end = cursor + timedelta(hours=share_hours)
+                ok, op_conflicts = schedule_operation(
+                    db, op, best_resource.id, cursor, op_end, is_printer=False
+                )
+                if not ok:
+                    codes = ", ".join(
+                        c.production_order.code if c.production_order else str(c.id)
+                        for c in op_conflicts
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Slot was taken while scheduling: conflicts with {codes}",
+                    )
+                cursor = op_end
+        except (SequenceError, MaintenanceWindowConflictError) as e:
+            raise HTTPException(status_code=409, detail=str(e))
+    # else: routing-less order — no operation rows exist to book; the order-
+    # level columns below are the only representation (matching how such
+    # orders are scheduled everywhere else).
+
+    # Order-level envelope kept for legacy readers (PO detail/list responses,
+    # CompleteOrderModal display).
     order.scheduled_start = best_slot
     order.scheduled_end = scheduled_end
     order.assigned_to = best_resource.code

@@ -11,12 +11,20 @@ class CapacityCheckRequest(BaseModel):
     resource_id: int
     start_time: datetime
     end_time: datetime
+    # Resources and Printers are distinct models with separate ID spaces
+    # (see /scheduling/board); set True to check a printer lane.
+    is_printer: bool = False
 
 
 class ConflictInfo(BaseModel):
     """Information about a scheduling conflict"""
-    order_id: int
-    order_code: str
+    # "operation" or "maintenance" — maintenance-window conflicts carry no
+    # order, so the order fields are all optional.
+    type: str = "operation"
+    order_id: Optional[int] = None
+    order_code: Optional[str] = None
+    operation_id: Optional[int] = None
+    operation_code: Optional[str] = None
     start_time: str
     end_time: str
     product_name: str
