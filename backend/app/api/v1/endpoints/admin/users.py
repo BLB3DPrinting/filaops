@@ -194,13 +194,9 @@ async def create_admin_user(
 
     Note: Subject to tier limits. Community tier allows 1 user (the initial admin).
     """
-    # Multi-user seat cap: community allows 1 active staff seat, PRO/enterprise
-    # unlimited. Reads the live tier from plugin_registry. Blocks only the NEW
-    # seat over the cap — never affects existing users (grandfathered).
-    enforce_seat_cap(db)
-
     # Legacy tier-limit hook (dormant unless features.LICENSING_ENABLED is on;
-    # owned by a separate change). Kept for continuity — real enforcement above.
+    # owned by a separate change). Kept for continuity — real enforcement is
+    # enforce_seat_cap() just before db.add() below.
     current_user_count = db.query(User).filter(
         User.account_type.in_(STAFF_ACCOUNT_TYPES),
         User.status == "active"
@@ -216,12 +212,23 @@ async def create_admin_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     # Hash password
     password_hashed = hash_password(request.password)
-    
+
     now = datetime.now(timezone.utc)
-    
+
+    # Multi-user seat cap: community allows 1 active staff seat, PRO/enterprise
+    # unlimited. Reads the live tier from plugin_registry. Blocks only the NEW
+    # seat over the cap — never affects existing users (grandfathered).
+    # Placed LAST before db.add() (CodeRabbit #862): on capped tiers this takes
+    # a transaction-scoped advisory lock held until commit, so it must not sit
+    # above the email lookup / bcrypt hashing — that would serialize concurrent
+    # creates through the slowest part of the handler. It must still run BEFORE
+    # db.add(): the session would autoflush the pending user into the seat
+    # count and off-by-one every create.
+    enforce_seat_cap(db)
+
     user = User(
         email=request.email,
         password_hash=password_hashed,
