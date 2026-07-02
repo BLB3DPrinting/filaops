@@ -108,7 +108,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=30, description="JWT token expiration in minutes"
     )
-    API_KEY: Optional[str] = Field(default=None, description="API key for integrations")
     COOKIE_SECURE: bool = Field(
         default=False,
         description="Set Secure flag on auth cookies (requires HTTPS). Must be true in production.",

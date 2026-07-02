@@ -24,7 +24,7 @@ from app.schemas.scheduling import (
     MachineAvailabilityResponse,
 )
 from app.api.v1.deps import get_current_user
-from app.core.features import require_tier, Tier
+from app.core.licensing_gate import require_feature
 from app.models.user import User
 from app.services.resource_compatibility_service import (
     is_machine_compatible,
@@ -504,8 +504,10 @@ async def get_machine_availability(
     return result
 
 
-@router.post("/auto-schedule")
-@require_tier(Tier.PRO)
+@router.post(
+    "/auto-schedule",
+    dependencies=[Depends(require_feature("production_advanced"))],
+)
 async def auto_schedule_order(
     order_id: int = Query(..., description="Production order ID"),
     preferred_start: Optional[datetime] = Query(None, description="Preferred start time"),

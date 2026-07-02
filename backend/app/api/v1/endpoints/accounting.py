@@ -15,12 +15,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from app.core.licensing_gate import require_feature
 from app.db.session import get_db
 from app.api.v1.endpoints.auth import get_current_admin_user
 from app.models.user import User
 from app.services import accounting_service
 
-router = APIRouter()
+# PRO gate (PR-D1): GL reporting + fiscal period close/reopen require the
+# "accounting" feature entitlement. Community installs have no features → 403.
+router = APIRouter(dependencies=[Depends(require_feature("accounting"))])
 
 
 # =============================================================================

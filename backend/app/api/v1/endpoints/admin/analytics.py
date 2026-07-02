@@ -10,12 +10,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.auth import get_current_admin_user
-from app.core.features import Tier, require_tier
+from app.core.licensing_gate import require_feature
 from app.db.session import get_db
 from app.models.user import User
 from app.services import analytics_service
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+# PRO gate (PR-D1): advanced analytics require the "reports_advanced" feature
+# entitlement. Replaces the dormant @require_tier decorator (a no-op while
+# LICENSING_ENABLED was False). Community installs have no features → 403.
+router = APIRouter(
+    prefix="/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(require_feature("reports_advanced"))],
+)
 
 
 class RevenueMetrics(BaseModel):
@@ -61,7 +68,6 @@ class AnalyticsDashboard(BaseModel):
 
 
 @router.get("/dashboard", response_model=AnalyticsDashboard)
-@require_tier(Tier.PRO)
 async def get_analytics_dashboard(
     days: int = 30,
     current_user: User = Depends(get_current_admin_user),
