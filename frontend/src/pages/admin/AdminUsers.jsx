@@ -208,7 +208,7 @@ export default function AdminUsers() {
           disabled={atSeatCap}
           title={
             atSeatCap
-              ? "Your plan allows 1 user. Upgrade to PRO to add team members."
+              ? `Your plan allows ${COMMUNITY_SEAT_CAP} user${COMMUNITY_SEAT_CAP === 1 ? "" : "s"}. Upgrade to PRO to add team members.`
               : undefined
           }
           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:from-blue-600 disabled:hover:to-purple-600"
