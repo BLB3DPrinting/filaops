@@ -55,19 +55,55 @@ const componentSkuFor = (parentSku, plateIndex) => {
 };
 
 /**
- * One catalog material pick for the WHOLE assembly (type → color, sourced
- * from /materials/for-bom). Mirrors AdminIntakeStudio's BareMeshMaterialPicker
- * (not exported there — page module, and importing the page here would be a
- * cycle). A raw .3mf slices with its EMBEDDED settings, so this pick does not
- * drive the slice — it only prices the filament: the chosen purchasable item
- * becomes spool_product_id on every slot of every plate component.
+ * Stable key for a unique (filament_type, color_hex) material signature found
+ * across all plates' slots. Null color_hex groups under the type alone (an
+ * "unspecified color" bucket per type); both null falls into one shared
+ * bucket so slots with no slicer metadata at all still get exactly one row.
+ * @param {string|null} filamentType - the slot's slicer material/type string.
+ * @param {string|null} colorHex - the slot's #RRGGBB color, or null/empty.
+ * @returns {string} a stable, unique key for this (type, color) pairing.
+ */
+const materialSignatureKey = (filamentType, colorHex) =>
+  `${filamentType || "_"}::${colorHex || "_"}`;
+
+/**
+ * Per-signature catalog material selector — one row per UNIQUE
+ * (filament_type, color_hex) found across every plate's slots. Same
+ * type→color, /materials/for-bom-sourced UX as AdminIntakeStudio's
+ * MaterialSelectRow (not exported there — page module, and importing the
+ * page here would create a page↔panel import cycle), but keyed by material
+ * signature instead of a single slot_id: a signature spans every plate that
+ * uses that exact color, so one pick here maps ALL of them at once.
+ *
+ * Type→color staging: picking a TYPE alone does NOT commit a mapping (an
+ * auto-committed "first color of the type" would be an arbitrary spool) —
+ * the type is staged locally and any prior pick for this signature is
+ * cleared, so the signature only counts as mapped after an EXPLICIT color
+ * selection. The one exception: a type with exactly ONE purchasable color
+ * is committed immediately, since that pick is unambiguous.
  * @param {object} props
+ * @param {string|null} props.filamentType - the signature's slicer type.
+ * @param {string|null} props.colorHex - the signature's #RRGGBB color.
  * @param {Array<object>} props.items - the purchasable catalog (/materials/for-bom).
- * @param {object|null} props.chosen - the currently-chosen catalog item, or null.
- * @param {(item: object) => void} props.onPick - called with the picked catalog item.
+ * @param {object|undefined} props.chosen - the currently-mapped catalog item
+ *   for this signature (the raw /materials/for-bom item, null/undefined when
+ *   unmapped or a multi-color type is staged awaiting its color pick).
+ * @param {(item: object|null) => void} props.onPick - called with the picked
+ *   catalog item, or null to clear the mapping while a type is staged.
  * @returns {JSX.Element}
  */
-function AssemblyMaterialPicker({ items, chosen, onPick }) {
+function MaterialSignatureRow({
+  filamentType,
+  colorHex,
+  items,
+  chosen,
+  onPick,
+}) {
+  // The type the operator picked but hasn't confirmed with a color yet.
+  // Only meaningful while `chosen` is null — a committed pick's own
+  // material_code takes over as soon as a color is selected.
+  const [stagedType, setStagedType] = useState("");
+
   // Distinct material types present in the catalog.
   const typeOptions = [];
   const seenTypes = new Set();
@@ -78,7 +114,11 @@ function AssemblyMaterialPicker({ items, chosen, onPick }) {
     }
   }
 
-  const selectedType = chosen?.material_code || "";
+  // `chosen` IS a catalog item (materialMap stores the picked item directly,
+  // unlike matchChoices' { product_id, sku, name } shape), so its own
+  // material_code drives the selected type once a pick is committed; before
+  // that, the locally-staged type drives the color dropdown.
+  const selectedType = chosen?.material_code || stagedType;
 
   // Colors available for the selected type.
   const colorOptions = items
@@ -90,51 +130,86 @@ function AssemblyMaterialPicker({ items, chosen, onPick }) {
       color_hex: it.color_hex,
     }));
 
-  const pickFirstColorForType = (typeCode) => {
-    const first = items.find((it) => it.material_code === typeCode);
-    if (first) onPick(first);
+  const handleTypePick = (typeCode) => {
+    // Re-selecting the committed pick's own type is a no-op — don't throw
+    // away an explicit color choice the operator already made.
+    if (chosen && chosen.material_code === typeCode) {
+      setStagedType("");
+      return;
+    }
+    const typeItems = items.filter((it) => it.material_code === typeCode);
+    if (typeItems.length === 1) {
+      // Exactly one purchasable color for this type — unambiguous, commit.
+      setStagedType("");
+      onPick(typeItems[0]);
+      return;
+    }
+    // Multiple colors: stage the type and CLEAR any prior pick, so the
+    // signature can't count as mapped (and Create can't enable) until the
+    // operator explicitly chooses which color/spool this signature means.
+    setStagedType(typeCode);
+    onPick(null);
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Material
-        </label>
-        <SearchableSelect
-          options={typeOptions}
-          value={selectedType}
-          onChange={(val) => pickFirstColorForType(val)}
-          placeholder="Select material…"
-          displayKey="name"
-          valueKey="id"
-          formatOption={(opt) => opt.name}
+    <div className="bg-gray-800/50 rounded-lg p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          className="inline-block w-5 h-5 rounded border border-gray-600 flex-shrink-0"
+          style={{ backgroundColor: colorHex || "#888" }}
         />
+        <span className="text-white font-medium">
+          {filamentType || "Unspecified material"}
+        </span>
+        {colorHex && (
+          <span className="ml-auto text-gray-500 font-mono text-xs">
+            {colorHex}
+          </span>
+        )}
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1">
-          Color
-        </label>
-        <SearchableSelect
-          options={colorOptions}
-          value={chosen?.id != null ? String(chosen.id) : ""}
-          onChange={(val) => {
-            const it = items.find((x) => String(x.id) === val);
-            if (it) onPick(it);
-          }}
-          placeholder={selectedType ? "Select color…" : "Pick a material first"}
-          displayKey="name"
-          valueKey="id"
-          formatOption={(opt) => (
-            <span className="flex items-center gap-2">
-              <span
-                className="inline-block w-3 h-3 rounded border border-gray-600 flex-shrink-0"
-                style={{ backgroundColor: opt.color_hex || "#888" }}
-              />
-              {opt.name}
-            </span>
-          )}
-        />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Material</label>
+          <SearchableSelect
+            options={typeOptions}
+            value={selectedType}
+            onChange={(val) => handleTypePick(val)}
+            placeholder="Select material…"
+            displayKey="name"
+            valueKey="id"
+            formatOption={(opt) => opt.name}
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Color</label>
+          <SearchableSelect
+            options={colorOptions}
+            value={chosen?.id != null ? String(chosen.id) : ""}
+            onChange={(val) => {
+              const it = items.find((x) => String(x.id) === val);
+              if (it) {
+                // The explicit color pick — THIS is what commits the mapping;
+                // the committed item's material_code takes over from the
+                // staged type from here on.
+                setStagedType("");
+                onPick(it);
+              }
+            }}
+            placeholder={selectedType ? "Select color…" : "Pick a material first"}
+            displayKey="name"
+            valueKey="id"
+            formatOption={(opt) => (
+              <span className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 rounded border border-gray-600 flex-shrink-0"
+                  style={{ backgroundColor: opt.color_hex || "#888" }}
+                />
+                {opt.name}
+              </span>
+            )}
+          />
+        </div>
       </div>
     </div>
   );
@@ -156,7 +231,7 @@ function AssemblyMaterialPicker({ items, chosen, onPick }) {
  * @param {boolean} props.contextLoading - true while /context is being fetched.
  * @param {() => void} props.onRetryContext - re-fetch /context.
  * @param {Array<object>} props.materials - the purchasable catalog
- *   (/materials/for-bom items) backing the single material pick.
+ *   (/materials/for-bom items) backing the per-signature material mapping.
  * @param {boolean} props.materialsLoading - true while the catalog fetch is in flight.
  * @param {string|null} props.materialsError - "empty" | "failed" | null.
  * @param {() => void} props.onRetryMaterials - re-fetch the catalog.
@@ -197,8 +272,18 @@ export default function AssemblyIntakePanel({
   // Once the operator edits the SKU by hand it stops tracking the name
   // (same skuEdited pattern as Step 4's SKU field).
   const [skuEdited, setSkuEdited] = useState(false);
+  // The margin suggestion is surfaced as a placeholder (shown only while
+  // empty) plus an explicit "Use" button below — never a background
+  // overwrite of what the operator typed, so unlike Step 4's actualPrice
+  // (which an async /preview response can repopulate) this field needs no
+  // edited-flag to guard against being clobbered.
   const [actualPrice, setActualPrice] = useState("");
-  const [pickedMaterial, setPickedMaterial] = useState(null);
+  // Per-signature material mapping: materialSignatureKey(type, color) → the
+  // picked /materials/for-bom catalog item (id, sku, name, standard_cost,
+  // material_code, color_hex…). Replaces the old single pickedMaterial —
+  // every unique (filament_type, color_hex) across ALL plates gets its own
+  // pick, so multi-color plates are no longer collapsed to one material.
+  const [materialMap, setMaterialMap] = useState({});
   const [printWorkCenterId, setPrintWorkCenterId] = useState("");
   const [assemblyWorkCenterId, setAssemblyWorkCenterId] = useState("");
   const [assemblyRunMinutes, setAssemblyRunMinutes] = useState("");
@@ -227,6 +312,43 @@ export default function AssemblyIntakePanel({
   };
 
   // ---------------------------------------------------------------------------
+  // Unique material signatures — scanned across EVERY plate's slots (not just
+  // the default plate), keyed by (filament_type, color_hex) so a color reused
+  // across several plates/slots maps once and applies everywhere. A plate
+  // whose slots[] is empty contributes one synthetic (null, null) signature
+  // here, matching handleCreate's synthetic fallback slot so its material
+  // cost and spool_product_id still resolve against this same map.
+  // ---------------------------------------------------------------------------
+
+  const materialSignatures = (() => {
+    const seen = new Map();
+    for (const plate of plates) {
+      const slots =
+        Array.isArray(plate?.slots) && plate.slots.length > 0
+          ? plate.slots
+          : [
+              {
+                slot_id: 0,
+                filament_type: null,
+                color_hex: null,
+                used_g: plate?.total_weight_g ?? 0,
+              },
+            ];
+      for (const s of slots) {
+        const key = materialSignatureKey(s.filament_type, s.color_hex);
+        if (!seen.has(key)) {
+          seen.set(key, {
+            key,
+            filament_type: s.filament_type ?? null,
+            color_hex: s.color_hex ?? null,
+          });
+        }
+      }
+    }
+    return Array.from(seen.values());
+  })();
+
+  // ---------------------------------------------------------------------------
   // Validation (drives both the disabled state and the pre-submit toasts)
   // ---------------------------------------------------------------------------
 
@@ -235,6 +357,16 @@ export default function AssemblyIntakePanel({
     componentRows.every(
       (r) => r.name.trim() && Number(r.quantity) >= 0.001
     );
+  // Every unique material signature must be mapped to a catalog item before
+  // the assembly can be created — a gap here would leave some slot's
+  // spool_product_id undefined in the /assembly payload. An entry only lands
+  // in materialMap on an EXPLICIT color pick (or a single-color type, which
+  // is unambiguous) — MaterialSignatureRow stages a multi-color type pick
+  // locally and writes null here, so a type-only selection can't enable
+  // Create with an arbitrary first-color spool.
+  const allSignaturesMapped =
+    materialSignatures.length > 0 &&
+    materialSignatures.every((sig) => materialMap[sig.key] != null);
   // Labor minutes: empty means 0 (fine), but a typed/pasted negative or
   // non-numeric value must not reach handleCreate — the inputs' min="0" only
   // constrains the spinner, not keyboard input. Only gated when an assembly
@@ -251,7 +383,7 @@ export default function AssemblyIntakePanel({
   const canCreate =
     !createBusy &&
     context != null &&
-    pickedMaterial != null &&
+    allSignaturesMapped &&
     printWorkCenterId !== "" &&
     assemblyName.trim() !== "" &&
     Number(actualPrice) > 0 &&
@@ -259,28 +391,47 @@ export default function AssemblyIntakePanel({
     rowsValid;
 
   // ---------------------------------------------------------------------------
-  // Client-side cost estimate — cheap and purely informational. Sums per-plate
-  // material (grams × picked material $/kg) + machine time (hours × print WC
-  // rate), each × the row quantity, plus optional assembly labor. Glue and
-  // packaging are NOT included (no client-side unit costs); the BOM rollup
-  // after creation is authoritative.
+  // Client-side cost estimate — cheap and purely informational. Sums PER-SLOT
+  // material (each slot's grams × ITS mapped material's $/kg, resolved via
+  // materialSignatureKey — not one material for the whole assembly) + machine
+  // time (hours × print WC rate), each × the row quantity, plus optional
+  // assembly labor. Glue and packaging are NOT included (no client-side unit
+  // costs); the BOM rollup after creation is authoritative.
   // ---------------------------------------------------------------------------
 
   const estimatedCost = (() => {
-    if (!pickedMaterial || !printWorkCenterId || !context) return null;
+    if (!allSignaturesMapped || !printWorkCenterId || !context) return null;
     const wcById = new Map(
       (context.work_centers || []).map((wc) => [String(wc.id), wc])
     );
     const printRate =
       Number(wcById.get(String(printWorkCenterId))?.total_rate_per_hour) || 0;
-    const costPerKg = Number(pickedMaterial.standard_cost) || 0;
+    const costPerKgFor = (filamentType, colorHex) => {
+      const mapped = materialMap[materialSignatureKey(filamentType, colorHex)];
+      return Number(mapped?.standard_cost) || 0;
+    };
     let total = 0;
     for (const row of componentRows) {
       const plate = plateByIndex(row.plate_index);
       const qty = Number(row.quantity) || 0;
-      const grams = Number(plate?.total_weight_g) || 0;
       const hours = (Number(plate?.print_time_seconds) || 0) / 3600;
-      total += qty * ((grams * costPerKg) / 1000 + hours * printRate);
+      const slots =
+        Array.isArray(plate?.slots) && plate.slots.length > 0
+          ? plate.slots
+          : [
+              {
+                filament_type: null,
+                color_hex: null,
+                used_g: plate?.total_weight_g ?? 0,
+              },
+            ];
+      let materialCost = 0;
+      for (const s of slots) {
+        const grams = Number(s.used_g) || 0;
+        materialCost +=
+          (grams * costPerKgFor(s.filament_type, s.color_hex)) / 1000;
+      }
+      total += qty * (materialCost + hours * printRate);
     }
     if (assemblyWorkCenterId) {
       const aRate =
@@ -293,6 +444,19 @@ export default function AssemblyIntakePanel({
     return total;
   })();
 
+  // Suggested selling price at the company's default margin tier — same
+  // cost / (1 - margin/100) formula as AdminIntakeStudio's Step 4 retail box.
+  // A hint only: it prefills the Selling price placeholder (visible while the
+  // field is empty) and the "Use" button below sets it explicitly; it never
+  // overwrites a value the operator already typed.
+  const suggestedRetail =
+    estimatedCost != null &&
+    estimatedCost > 0 &&
+    context?.default_margin_percent != null &&
+    context.default_margin_percent < 100
+      ? estimatedCost / (1 - context.default_margin_percent / 100)
+      : null;
+
   // ---------------------------------------------------------------------------
   // Create → POST /assembly
   // ---------------------------------------------------------------------------
@@ -300,7 +464,7 @@ export default function AssemblyIntakePanel({
   const handleCreate = async () => {
     if (!canCreate) {
       toast.error(
-        "Pick a material, a print work center, a selling price, and give every component a name and a quantity of at least 0.001. Assembly minutes must be zero or more."
+        "Map a catalog material to every color used, pick a print work center, set a selling price, and give every component a name and a quantity of at least 0.001. Assembly minutes must be zero or more."
       );
       return;
     }
@@ -346,12 +510,14 @@ export default function AssemblyIntakePanel({
           const plate = plateByIndex(row.plate_index);
           // Full per-plate slot fan-out: the contract's plates[] carries each
           // plate's real slot breakdown (slot_id/filament_type/color_hex/
-          // used_g), so every component gets its true multi-material grams —
-          // the ONE picked purchasable material is applied as spool_product_id
-          // on every slot (single material pick for the whole assembly).
+          // used_g), so every component gets its true multi-material grams.
+          // Each slot's spool_product_id is resolved from materialMap by ITS
+          // OWN (filament_type, color_hex) signature — not one global
+          // material — so multi-color plates keep their distinct materials.
           // Defensive fallback: a plate whose slots[] is somehow empty fans its
           // total grams into one synthetic slot so its material cost isn't
-          // silently dropped.
+          // silently dropped; that synthetic slot's (null, null) signature is
+          // scanned into materialSignatures the same way, so it still resolves.
           const plateSlots =
             Array.isArray(plate?.slots) && plate.slots.length > 0
               ? plate.slots
@@ -372,13 +538,16 @@ export default function AssemblyIntakePanel({
             print_time_seconds: plate?.print_time_seconds ?? 0,
             parts_on_plate: 1,
             // Same SkuSlotMap shape the single-plate /sku payload builds
-            // (AdminIntakeStudio buildSlotsPayload).
+            // (AdminIntakeStudio buildSlotsPayload), except spool_product_id
+            // now comes from the per-signature mapping instead of one pick.
             slots: plateSlots.map((s) => ({
               slot_id: s.slot_id,
               filament_type: s.filament_type,
               color_hex: s.color_hex,
               used_g: s.used_g,
-              spool_product_id: pickedMaterial.id,
+              spool_product_id:
+                materialMap[materialSignatureKey(s.filament_type, s.color_hex)]
+                  ?.id,
             })),
           };
         }),
@@ -513,13 +682,17 @@ export default function AssemblyIntakePanel({
         <span className="text-gray-400 text-sm ml-1 truncate">{modelName}</span>
       </div>
 
-      {/* Material pick — ONE purchasable material for the whole assembly */}
+      {/* Materials used — one row per UNIQUE (filament_type, color_hex) found
+          across EVERY plate's slots, so multi-color plates aren't collapsed
+          to one material. A single-material assembly just shows one row. */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-        <h2 className="text-base font-semibold text-white mb-1">Material</h2>
+        <h2 className="text-base font-semibold text-white mb-1">
+          Materials used ({materialSignatures.length})
+        </h2>
         <p className="text-gray-500 text-sm mb-4">
-          The plates were sliced with the file&apos;s embedded settings — this
-          one pick prices the filament and becomes the material BOM line on
-          every component.
+          The plates were sliced with the file&apos;s embedded settings — map
+          each color to a purchasable catalog material. Every slot that uses
+          that color, on any plate, gets this pick as its material BOM line.
         </p>
         {materials.length === 0 ? (
           materialsLoading ? (
@@ -543,11 +716,23 @@ export default function AssemblyIntakePanel({
             </div>
           )
         ) : (
-          <AssemblyMaterialPicker
-            items={materials}
-            chosen={pickedMaterial}
-            onPick={setPickedMaterial}
-          />
+          <div className="space-y-3">
+            {materialSignatures.map((sig) => (
+              <MaterialSignatureRow
+                key={sig.key}
+                filamentType={sig.filament_type}
+                colorHex={sig.color_hex}
+                items={materials}
+                chosen={materialMap[sig.key]}
+                // item is null while the row stages a multi-color type pick —
+                // storing the null clears the mapping so allSignaturesMapped
+                // (a != null check) keeps Create gated until the color pick.
+                onPick={(item) =>
+                  setMaterialMap((prev) => ({ ...prev, [sig.key]: item }))
+                }
+              />
+            ))}
+          </div>
         )}
       </div>
 
@@ -688,7 +873,9 @@ export default function AssemblyIntakePanel({
               step="0.01"
               value={actualPrice}
               onChange={(e) => setActualPrice(e.target.value)}
-              placeholder="0.00"
+              placeholder={
+                suggestedRetail != null ? suggestedRetail.toFixed(2) : "0.00"
+              }
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -874,30 +1061,108 @@ export default function AssemblyIntakePanel({
         </div>
       </div>
 
-      {/* Estimated cost — client-side, informational only */}
+      {/* Estimated cost + suggested retail by margin — client-side,
+          informational only. Mirrors AdminIntakeStudio's Step 4 retail box
+          (same context.margin_tiers / default_margin_percent source, same
+          cost / (1 - margin/100) formula) — here `cost` is this panel's own
+          client-side estimatedCost total instead of a server /preview
+          per_unit_cost, since the assembly panel has no /preview call. */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
         {estimatedCost == null ? (
           <p className="text-gray-500 text-sm">
-            Pick a material and a print work center to estimate cost.
+            Map every material and pick a print work center to estimate cost.
           </p>
-        ) : (
-          <>
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl font-bold text-white">
-                ${estimatedCost.toFixed(2)}
-              </span>
-              <span className="text-gray-400 text-sm">
-                estimated assembly cost
-              </span>
-            </div>
-            <p className="text-gray-600 text-xs mt-1">
-              Client-side estimate (print material + machine time
-              {assemblyWorkCenterId ? " + assembly labor" : ""}); glue and
-              packaging excluded. The BOM cost rollup after creation is
-              authoritative.
-            </p>
-          </>
-        )}
+        ) : (() => {
+          const cost = estimatedCost;
+          const tiers = context?.margin_tiers || [];
+          const defaultMargin = context?.default_margin_percent;
+          // Retail price for a given margin % (identical formula to Step 4;
+          // the default-tier price is the outer suggestedRetail computed
+          // above, reused here so the placeholder and this table agree).
+          const retailFor = (m) =>
+            cost > 0 && m < 100 ? cost / (1 - m / 100) : null;
+
+          return (
+            <>
+              <div className="flex items-baseline gap-3">
+                <span className="text-2xl font-bold text-white">
+                  ${cost.toFixed(2)}
+                </span>
+                <span className="text-gray-400 text-sm">
+                  estimated assembly cost
+                </span>
+              </div>
+              <p className="text-gray-600 text-xs mt-1 mb-3">
+                Client-side estimate (per-slot print material + machine time
+                {assemblyWorkCenterId ? " + assembly labor" : ""}); glue and
+                packaging excluded. The BOM cost rollup after creation is
+                authoritative.
+              </p>
+
+              {tiers.length > 0 && (
+                <div className="border border-gray-700 rounded-lg overflow-hidden text-sm">
+                  <div className="px-4 py-2 bg-gray-800/30">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                      Retail
+                      <span className="font-normal normal-case ml-1 text-gray-600">
+                        (suggested by margin)
+                      </span>
+                    </span>
+                  </div>
+                  {tiers.map((m) => {
+                    const price = retailFor(m);
+                    const isDefault = m === defaultMargin;
+                    return (
+                      <div
+                        key={m}
+                        className={`flex items-center justify-between px-4 py-2 border-t border-gray-700/60 ${
+                          isDefault ? "bg-blue-500/10" : "hover:bg-gray-800/30"
+                        } transition-colors`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              isDefault ? "text-blue-300" : "text-gray-400"
+                            }
+                          >
+                            {m}% margin
+                          </span>
+                          {isDefault && (
+                            <span className="text-yellow-400 text-xs" title="default">
+                              ★
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {price != null ? (
+                            <span
+                              className={`font-semibold ${
+                                isDefault ? "text-green-400" : "text-white"
+                              }`}
+                            >
+                              ${price.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600 italic text-xs">—</span>
+                          )}
+                          {price != null && (
+                            <button
+                              type="button"
+                              onClick={() => setActualPrice(price.toFixed(2))}
+                              className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/40 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
+                            >
+                              Use
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Actions */}
