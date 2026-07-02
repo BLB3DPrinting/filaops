@@ -128,31 +128,31 @@ function WorkflowStepCard({ step, onAction, updating }) {
   const Icon = step.icon || Circle;
   const statusStyles = {
     done: {
-      container: "border-emerald-500/50 bg-emerald-950/20",
-      icon: "bg-emerald-500/20 text-emerald-300",
-      label: "text-emerald-300",
-      badge: "bg-emerald-500/20 text-emerald-200",
+      container: "border-[var(--status-green)]/30 bg-[var(--status-green-tint)]",
+      icon: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
+      label: "text-[var(--status-green)]",
+      badge: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
       badgeText: "Done",
     },
     current: {
-      container: "border-blue-500/60 bg-blue-950/20",
-      icon: "bg-blue-500/20 text-blue-300",
-      label: "text-blue-300",
-      badge: "bg-blue-500/20 text-blue-200",
+      container: "border-[var(--status-amber)]/30 bg-[var(--status-amber-tint)]",
+      icon: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+      label: "text-[var(--status-amber)]",
+      badge: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
       badgeText: "Current",
     },
     waiting: {
-      container: "border-yellow-500/60 bg-yellow-950/20",
-      icon: "bg-yellow-500/20 text-yellow-300",
-      label: "text-yellow-300",
-      badge: "bg-yellow-500/20 text-yellow-200",
+      container: "border-[var(--rule-hair)] bg-[var(--paper-sunk)]",
+      icon: "bg-[var(--paper-sunk)] text-[var(--ink-3)]",
+      label: "text-[var(--ink-3)]",
+      badge: "bg-[var(--paper-sunk)] text-[var(--ink-3)]",
       badgeText: "Waiting",
     },
     blocked: {
-      container: "border-gray-700 bg-gray-950/30",
-      icon: "bg-gray-800 text-gray-400",
-      label: "text-gray-400",
-      badge: "bg-gray-800 text-gray-400",
+      container: "border-[var(--rule-hair)] bg-[var(--paper-sunk)]",
+      icon: "bg-[var(--rule-hair)] text-[var(--ink-4)]",
+      label: "text-[var(--ink-4)]",
+      badge: "bg-[var(--rule-hair)] text-[var(--ink-4)]",
       badgeText: "Blocked",
     },
   };
@@ -166,8 +166,8 @@ function WorkflowStepCard({ step, onAction, updating }) {
             <Icon className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <div className="text-xs uppercase text-gray-500">{step.step}</div>
-            <div className="text-sm font-semibold text-white">{step.title}</div>
+            <div className="text-xs uppercase text-[var(--ink-4)]">{step.step}</div>
+            <div className="text-sm font-semibold text-[var(--ink)]">{step.title}</div>
           </div>
         </div>
         <span className={`rounded-full px-2 py-1 text-xs ${styles.badge}`}>
@@ -177,13 +177,13 @@ function WorkflowStepCard({ step, onAction, updating }) {
       <div className={`mt-4 text-sm font-semibold ${styles.label}`}>
         {step.headline}
       </div>
-      <p className="mt-2 min-h-10 text-sm text-gray-300">{step.detail}</p>
+      <p className="mt-2 min-h-10 text-sm text-[var(--ink-2)]">{step.detail}</p>
       {step.action && (
         <button
           type="button"
           onClick={() => onAction(step.action)}
           disabled={updating}
-          className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="mt-4 w-full rounded-lg bg-[var(--orange)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
         >
           {step.actionLabel}
         </button>
@@ -290,7 +290,7 @@ export default function ProductionOrderDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
       </div>
     );
   }
@@ -298,11 +298,11 @@ export default function ProductionOrderDetail() {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
-          <p className="text-red-400 mb-4">{error}</p>
+        <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-xl p-6 text-center">
+          <p className="text-[var(--status-red)] mb-4">{error}</p>
           <button
             onClick={() => navigate("/admin/production")}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            className="px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
           >
             Back to Production
           </button>
@@ -314,11 +314,11 @@ export default function ProductionOrderDetail() {
   if (!order) {
     return (
       <div className="p-6">
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
-          <p className="text-gray-400 mb-4">Production order not found</p>
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 text-center shadow-[var(--shadow-pop)]">
+          <p className="text-[var(--ink-3)] mb-4">Production order not found</p>
           <button
             onClick={() => navigate("/admin/production")}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            className="px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
           >
             Back to Production
           </button>
@@ -337,28 +337,30 @@ export default function ProductionOrderDetail() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* Header — own paper card: the AdminLayout shell behind this page is
+          still the un-migrated dark background (a later #846 slice), so
+          ink-toned text needs its own light surface here. */}
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)] flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <button
             onClick={() => navigate("/admin/production")}
-            className="mb-2 inline-flex items-center gap-2 text-gray-400 hover:text-white"
+            className="mb-2 inline-flex items-center gap-2 text-[var(--ink-3)] hover:text-[var(--ink)]"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Back to Production
           </button>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-[var(--ink)]">
             Production Order: {order.code}
           </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-400">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--ink-3)]">
             <span>Production Command Center</span>
             {hasLinkedSalesOrder && (
               <>
-                <span className="text-gray-600">-</span>
+                <span className="text-[var(--ink-4)]">-</span>
                 <button
                   type="button"
                   onClick={() => navigate(`/admin/orders/${order.sales_order_id}`)}
-                  className="inline-flex items-center gap-1 text-blue-300 hover:text-blue-200"
+                  className="inline-flex items-center gap-1 text-[var(--ink-2)] hover:text-[var(--ink)]"
                 >
                   <FileText className="h-4 w-4" aria-hidden="true" />
                   {order.sales_order_code || `SO-${order.sales_order_id}`}
@@ -370,7 +372,7 @@ export default function ProductionOrderDetail() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={fetchOrder}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 text-white hover:bg-gray-600"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--paper-sunk)] border border-[var(--rule-hair)] px-4 py-2 text-[var(--ink-2)] hover:text-[var(--ink)]"
           >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             Refresh
@@ -379,7 +381,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("release")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
               Release to Floor
@@ -389,7 +391,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("start")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
             >
               <PlayCircle className="h-4 w-4" aria-hidden="true" />
               Start Production
@@ -399,7 +401,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("complete")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
             >
               <PackageCheck className="h-4 w-4" aria-hidden="true" />
               Complete Production
@@ -409,18 +411,18 @@ export default function ProductionOrderDetail() {
       </div>
 
       {/* Production Workflow */}
-      <div className="rounded-xl border border-blue-700/40 bg-blue-950/20 p-6">
+      <div className="rounded-xl border border-[var(--rule-hair)] bg-[var(--paper)] p-6 shadow-[var(--shadow-pop)]">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
-              <Factory className="h-5 w-5 text-blue-300" aria-hidden="true" />
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--ink)]">
+              <Factory className="h-5 w-5 text-[var(--ink-3)]" aria-hidden="true" />
               Production Workflow
             </h2>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-[var(--ink-3)]">
               Draft, release, run, then complete the work order.
             </p>
           </div>
-          <span className="inline-flex w-fit items-center gap-2 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-300">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[var(--paper-sunk)] px-3 py-1 text-sm text-[var(--ink-2)]">
             <Clock3 className="h-4 w-4" aria-hidden="true" />
             {formatStatusLabel(order.status)}
           </span>
@@ -438,23 +440,23 @@ export default function ProductionOrderDetail() {
       </div>
 
       {/* Order Summary */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+        <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Order Summary</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div>
-            <div className="text-sm text-gray-400">Product</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Product</div>
+            <div className="text-[var(--ink)] font-medium">
               {order.product_name || order.product_sku || "N/A"}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Quantity</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Quantity</div>
+            <div className="text-[var(--ink)] font-medium">
               {order.quantity_completed || 0} / {order.quantity_ordered}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Status</div>
+            <div className="text-sm text-[var(--ink-3)]">Status</div>
             <span
               className={`inline-block px-2 py-1 rounded-full text-sm ${getProductionStatusColor(order.status)}`}
             >
@@ -462,14 +464,14 @@ export default function ProductionOrderDetail() {
             </span>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Priority</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Priority</div>
+            <div className="text-[var(--ink)] font-medium">
               {order.priority || "Normal"}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-400">Due Date</div>
-            <div className="text-white font-medium">
+            <div className="text-sm text-[var(--ink-3)]">Due Date</div>
+            <div className="text-[var(--ink)] font-medium">
               {order.due_date
                 ? new Date(order.due_date).toLocaleDateString()
                 : "Not set"}
@@ -480,12 +482,12 @@ export default function ProductionOrderDetail() {
         {/* Progress Bar */}
         <div className="mt-4">
           <div className="flex justify-between text-sm mb-1">
-            <span className="text-gray-400">Progress</span>
-            <span className="text-white">{progress}%</span>
+            <span className="text-[var(--ink-3)]">Progress</span>
+            <span className="text-[var(--ink)]">{progress}%</span>
           </div>
-          <div className="w-full bg-gray-800 rounded-full h-2">
+          <div className="w-full bg-[var(--rule-hair)] rounded-full h-2">
             <div
-              className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all"
+              className="bg-[var(--status-green)] h-2 rounded-full transition-all"
               style={{ width: `${progress}%` }}
             ></div>
           </div>
@@ -534,10 +536,10 @@ export default function ProductionOrderDetail() {
 
       {/* Order Lineage - Show if this is a remake */}
       {order.remake_of_id && (
-        <div className="bg-gray-900 border border-yellow-600/30 rounded-xl p-6">
+        <div className="bg-[var(--paper)] border border-[var(--status-amber)]/30 rounded-xl p-6 shadow-[var(--shadow-pop)]">
           <div className="flex items-center gap-2 mb-4">
             <svg
-              className="w-5 h-5 text-yellow-500"
+              className="w-5 h-5 text-[var(--status-amber)]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -549,20 +551,20 @@ export default function ProductionOrderDetail() {
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               />
             </svg>
-            <h2 className="text-lg font-semibold text-yellow-400">
+            <h2 className="text-lg font-semibold text-[var(--status-amber)]">
               Remake Order
             </h2>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-sm mb-1">
+              <p className="text-[var(--ink-3)] text-sm mb-1">
                 This order is a remake of:
               </p>
-              <p className="text-white font-medium">
+              <p className="text-[var(--ink)] font-medium">
                 {order.remake_of_code || `PO-${order.remake_of_id}`}
               </p>
               {order.remake_reason && (
-                <p className="text-yellow-400/80 text-sm mt-1">
+                <p className="text-[var(--status-amber)]/80 text-sm mt-1">
                   Reason: {order.remake_reason}
                 </p>
               )}
@@ -571,7 +573,7 @@ export default function ProductionOrderDetail() {
               onClick={() =>
                 navigate(`/admin/production/${order.remake_of_id}`)
               }
-              className="px-4 py-2 bg-yellow-600/20 text-yellow-400 rounded-lg hover:bg-yellow-600/30"
+              className="px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
             >
               View Original
             </button>
@@ -581,26 +583,26 @@ export default function ProductionOrderDetail() {
 
       {/* Linked Sales Order */}
       {order.sales_order_id && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
           <div className="mb-4 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-blue-300" aria-hidden="true" />
-            <h2 className="text-lg font-semibold text-white">
+            <FileText className="h-5 w-5 text-[var(--ink-3)]" aria-hidden="true" />
+            <h2 className="text-lg font-semibold text-[var(--ink)]">
               Linked Sales Order
             </h2>
           </div>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-white font-medium">
+              <p className="text-[var(--ink)] font-medium">
                 {order.sales_order_code || `SO-${order.sales_order_id}`}
               </p>
-              <p className="text-gray-400 text-sm">
+              <p className="text-[var(--ink-3)] text-sm">
                 {order.customer_name || "Customer"} - Open the sales order for
                 invoice, payment, and shipment controls.
               </p>
             </div>
             <button
               onClick={() => navigate(`/admin/orders/${order.sales_order_id}`)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600/20 px-4 py-2 text-blue-300 hover:bg-blue-600/30"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--paper-sunk)] border border-[var(--rule-hair)] px-4 py-2 text-[var(--ink-2)] hover:text-[var(--ink)]"
             >
               <ArrowLeft className="h-4 w-4 rotate-180" aria-hidden="true" />
               View Sales Order
@@ -611,9 +613,9 @@ export default function ProductionOrderDetail() {
 
       {/* Notes */}
       {order.notes && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Notes</h2>
-          <p className="text-gray-300">{order.notes}</p>
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
+          <h2 className="text-lg font-semibold text-[var(--ink)] mb-4">Notes</h2>
+          <p className="text-[var(--ink-2)]">{order.notes}</p>
         </div>
       )}
 

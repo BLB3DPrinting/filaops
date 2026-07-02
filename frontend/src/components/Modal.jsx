@@ -11,6 +11,14 @@
  */
 import { useEffect, useRef, useId } from "react";
 
+// Shell styling per design system. "dark" is the legacy default; "workbench"
+// is the Industrial Workbench paper shell (#846) — opt-in per modal so
+// un-migrated consumers keep their current look.
+const VARIANT_SHELL = {
+  dark: "bg-gray-900 border border-gray-700",
+  workbench: "bg-[var(--paper)] border border-[var(--rule-hair)]",
+};
+
 export default function Modal({
   isOpen,
   onClose,
@@ -18,6 +26,7 @@ export default function Modal({
   children,
   className = "w-full max-w-lg",
   disableClose = false,
+  variant = "dark",
 }) {
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
@@ -114,7 +123,7 @@ export default function Modal({
     >
       <div
         ref={dialogRef}
-        className={`bg-gray-900 border border-gray-700 rounded-xl shadow-xl ${className}`}
+        className={`${VARIANT_SHELL[variant] ?? VARIANT_SHELL.dark} rounded-xl shadow-xl ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}

@@ -83,7 +83,7 @@ export default function AutoPickSlotButton({ operationId, productionOrderId, onS
   // resolve the locked vs. active state once flags are known.
   if (!flagsLoading && (!isPro || proUnavailable)) {
     return (
-      <span className="text-xs text-gray-500 italic">
+      <span className="text-xs text-[var(--ink-4)] italic">
         Auto-pick requires FilaOps PRO
       </span>
     );
@@ -95,13 +95,13 @@ export default function AutoPickSlotButton({ operationId, productionOrderId, onS
         type="button"
         onClick={handleClick}
         disabled={disabled || running || !productionOrderId || flagsLoading}
-        className="text-xs text-purple-400 hover:text-purple-300 border border-purple-500/30 hover:border-purple-400/50 rounded px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="text-xs text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--rule-hair)] hover:border-[var(--ink-4)] rounded px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         title="Use the PRO auto-scheduler to find the optimal slot"
       >
         {running ? "Finding slot…" : "Auto-pick slot ✦"}
       </button>
       {pickError && (
-        <span className="text-xs text-amber-400">{pickError}</span>
+        <span className="text-xs text-[var(--status-amber)]">{pickError}</span>
       )}
     </span>
   );

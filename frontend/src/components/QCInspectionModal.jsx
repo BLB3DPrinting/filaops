@@ -9,13 +9,13 @@ import QCInspectionPhotos from "./QCInspectionPhotos";
 // defect, attributed to the operator) and Conditional are the full-QMS additions.
 const RESULTS = [
   { value: "passed", label: "Pass", hint: "Quality acceptable",
-    sel: "border-green-500 bg-green-500/10", txt: "text-green-400", fade: "text-green-400/70", btn: "bg-green-600 hover:bg-green-500" },
+    sel: "border-[var(--status-green)] bg-[var(--status-green-tint)]", txt: "text-[var(--status-green)]", fade: "text-[var(--status-green)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
   { value: "failed", label: "Fail", hint: "Quality issues found",
-    sel: "border-red-500 bg-red-500/10", txt: "text-red-400", fade: "text-red-400/70", btn: "bg-red-600 hover:bg-red-500" },
+    sel: "border-[var(--status-red)] bg-[var(--status-red-tint)]", txt: "text-[var(--status-red)]", fade: "text-[var(--status-red)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
   { value: "waived", label: "Waive", hint: "Accept despite a defect",
-    sel: "border-amber-500 bg-amber-500/10", txt: "text-amber-400", fade: "text-amber-400/70", btn: "bg-amber-600 hover:bg-amber-500" },
+    sel: "border-[var(--status-amber)] bg-[var(--status-amber-tint)]", txt: "text-[var(--status-amber)]", fade: "text-[var(--status-amber)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
   { value: "conditional", label: "Conditional", hint: "Accept with conditions",
-    sel: "border-blue-500 bg-blue-500/10", txt: "text-blue-400", fade: "text-blue-400/70", btn: "bg-blue-600 hover:bg-blue-500" },
+    sel: "border-[var(--ink-3)] bg-[var(--paper-sunk)]", txt: "text-[var(--ink)]", fade: "text-[var(--ink-3)]", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
 ];
 
 const emptyMeasurement = () => ({
@@ -222,7 +222,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   };
 
   const inputCls =
-    "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm";
+    "w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-3 py-2 text-[var(--ink)] text-sm";
 
   // After recording, switch to an optional photo-attachment step for the new
   // inspection (photos need the inspection_id the POST just returned).
@@ -230,15 +230,15 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
     // The inspection is already saved, so ANY exit here (Done, header ×, backdrop,
     // Escape) must run onComplete so the parent refetches and shows fresh QC state.
     return (
-      <Modal isOpen={true} onClose={onComplete} title="QC Inspection" className="w-full max-w-2xl p-6">
+      <Modal isOpen={true} onClose={onComplete} title="QC Inspection" variant="workbench" className="w-full max-w-2xl p-6">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">Inspection recorded</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-[var(--ink)]">Inspection recorded</h2>
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               {productionOrder.code} — attach photos (optional)
             </p>
           </div>
-          <button onClick={onComplete} className="text-gray-400 hover:text-white text-xl">
+          <button onClick={onComplete} className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl">
             &times;
           </button>
         </div>
@@ -246,7 +246,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         <div className="flex justify-end mt-6">
           <button
             onClick={onComplete}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg"
+            className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg"
           >
             Done
           </button>
@@ -256,37 +256,37 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
   }
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="QC Inspection" className="w-full max-w-2xl p-6">
+    <Modal isOpen={true} onClose={onClose} title="QC Inspection" variant="workbench" className="w-full max-w-2xl p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-xl font-bold text-white">QC Inspection</h2>
-          <p className="text-gray-400 text-sm mt-1">
+          <h2 className="text-xl font-bold text-[var(--ink)]">QC Inspection</h2>
+          <p className="text-[var(--ink-3)] text-sm mt-1">
             {productionOrder.code} -{" "}
             {productionOrder.product_name || productionOrder.product_sku}
           </p>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">
+        <button onClick={onClose} className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl">
           &times;
         </button>
       </div>
 
       {/* Order details */}
-      <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+      <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-6">
         <div className="flex justify-between text-sm mb-2">
-          <span className="text-gray-400">Quantity Completed:</span>
-          <span className="text-white font-medium">
+          <span className="text-[var(--ink-3)]">Quantity Completed:</span>
+          <span className="text-[var(--ink)] font-medium">
             {productionOrder.quantity_completed || productionOrder.quantity_ordered} units
           </span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Status:</span>
-          <span className="text-green-400 font-medium">{productionOrder.status}</span>
+          <span className="text-[var(--ink-3)]">Status:</span>
+          <span className="text-[var(--status-green)] font-medium">{productionOrder.status}</span>
         </div>
       </div>
 
       {/* Result selection */}
       <div className="mb-6">
-        <label className="block text-sm text-gray-400 mb-3">Inspection Result *</label>
+        <label className="block text-sm text-[var(--ink-3)] mb-3">Inspection Result *</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {RESULTS.map((r) => (
             <button
@@ -294,13 +294,13 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
               type="button"
               onClick={() => setResult(r.value)}
               className={`p-3 rounded-lg border-2 transition-all text-center ${
-                result === r.value ? r.sel : "border-gray-700 bg-gray-800 hover:border-gray-600"
+                result === r.value ? r.sel : "border-[var(--rule-hair)] bg-[var(--paper-sunk)] hover:border-[var(--ink-4)]"
               }`}
             >
-              <span className={`font-medium ${result === r.value ? r.txt : "text-gray-300"}`}>
+              <span className={`font-medium ${result === r.value ? r.txt : "text-[var(--ink-2)]"}`}>
                 {r.label}
               </span>
-              <p className={`text-xs mt-1 ${result === r.value ? r.fade : "text-gray-500"}`}>
+              <p className={`text-xs mt-1 ${result === r.value ? r.fade : "text-[var(--ink-4)]"}`}>
                 {r.hint}
               </p>
             </button>
@@ -311,18 +311,18 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
       {/* Quantities (optional) */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Quantity Passed</label>
+          <label className="block text-sm text-[var(--ink-3)] mb-1">Quantity Passed</label>
           <input type="number" min="0" value={quantityPassed}
             onChange={(e) => setQuantityPassed(e.target.value)}
             placeholder="(whole order)" className={inputCls} />
         </div>
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Quantity Failed</label>
+          <label className="block text-sm text-[var(--ink-3)] mb-1">Quantity Failed</label>
           <input type="number" min="0" value={quantityFailed}
             onChange={(e) => setQuantityFailed(e.target.value)}
             placeholder="(whole order)" className={inputCls} />
         </div>
-        <p className="col-span-2 text-xs text-gray-500 -mt-2">
+        <p className="col-span-2 text-xs text-[var(--ink-4)] -mt-2">
           Leave blank for a whole-order result; the unspecified side is derived.
         </p>
       </div>
@@ -330,7 +330,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
       {/* Operation (optional) */}
       {operations.length > 0 && (
         <div className="mb-6">
-          <label className="block text-sm text-gray-400 mb-1">Operation inspected</label>
+          <label className="block text-sm text-[var(--ink-3)] mb-1">Operation inspected</label>
           <select value={operationId} onChange={(e) => setOperationId(e.target.value)} className={inputCls}>
             <option value="">Default (the order&apos;s QC step)</option>
             {operations.map((op) => (
@@ -345,7 +345,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
       {/* Defect reason (when not a clean pass) */}
       {needsDefect && (
         <div className="mb-6">
-          <label className="block text-sm text-gray-400 mb-1">
+          <label className="block text-sm text-[var(--ink-3)] mb-1">
             Defect Reason {result === "failed" ? "(recommended)" : "(optional)"}
           </label>
           <select value={defectReasonId} onChange={(e) => setDefectReasonId(e.target.value)} className={inputCls}>
@@ -362,21 +362,21 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
       {/* Measurements grid */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm text-gray-400">
+          <label className="block text-sm text-[var(--ink-3)]">
             {seededPlan ? "Characteristics (from plan)" : "Measurements (SPC)"}
           </label>
           <button type="button" onClick={addMeasurement}
-            className="text-sm text-blue-400 hover:text-blue-300">+ Add measurement</button>
+            className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)]">+ Add measurement</button>
         </div>
         {seededPlan && (
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-[var(--ink-3)] mb-2">
             Seeded from plan{" "}
-            <span className="font-mono text-gray-300">{seededPlan.code}</span>
+            <span className="font-mono text-[var(--ink-2)]">{seededPlan.code}</span>
             {seededPlan.name ? ` — ${seededPlan.name}` : ""}. Record a reading for each characteristic.
           </p>
         )}
         {measurements.length === 0 ? (
-          <p className="text-xs text-gray-500">No measurements. Add one to record a dimensional/SPC reading.</p>
+          <p className="text-xs text-[var(--ink-4)]">No measurements. Add one to record a dimensional/SPC reading.</p>
         ) : (
           <div className="space-y-2">
             {measurements.map((m, idx) => {
@@ -385,11 +385,11 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
                 return (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                     <div className="col-span-5">
-                      <div className="px-3 py-2 text-sm text-white truncate" title={m.characteristic}>
+                      <div className="px-3 py-2 text-sm text-[var(--ink)] truncate" title={m.characteristic}>
                         {m.characteristic}
                       </div>
                       {m.acceptance_criteria && (
-                        <p className="text-xs text-gray-500 px-3 -mt-1">{m.acceptance_criteria}</p>
+                        <p className="text-xs text-[var(--ink-4)] px-3 -mt-1">{m.acceptance_criteria}</p>
                       )}
                     </div>
                     <div className="col-span-6 flex gap-2" role="group"
@@ -398,16 +398,16 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
                         aria-label={`${m.characteristic}: pass`}
                         onClick={() => setMeasurement(idx, "conforms", m.conforms === true ? null : true)}
                         className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
-                          m.conforms === true ? "border-green-500 bg-green-500/10 text-green-400"
-                            : "border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600"}`}>
+                          m.conforms === true ? "border-[var(--status-green)] bg-[var(--status-green-tint)] text-[var(--status-green)]"
+                            : "border-[var(--rule-hair)] bg-[var(--paper-sunk)] text-[var(--ink-2)] hover:border-[var(--ink-4)]"}`}>
                         Pass
                       </button>
                       <button type="button" aria-pressed={m.conforms === false}
                         aria-label={`${m.characteristic}: fail`}
                         onClick={() => setMeasurement(idx, "conforms", m.conforms === false ? null : false)}
                         className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
-                          m.conforms === false ? "border-red-500 bg-red-500/10 text-red-400"
-                            : "border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600"}`}>
+                          m.conforms === false ? "border-[var(--status-red)] bg-[var(--status-red-tint)] text-[var(--status-red)]"
+                            : "border-[var(--rule-hair)] bg-[var(--paper-sunk)] text-[var(--ink-2)] hover:border-[var(--ink-4)]"}`}>
                         Fail
                       </button>
                     </div>
@@ -418,7 +418,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
               // Variable row: locked spec (from plan) is read-only, only the
               // measured value is editable; a manual row is fully editable.
               const ok = withinSpec(m);
-              const ro = m.locked ? "bg-gray-800/40 text-gray-400 cursor-default" : "";
+              const ro = m.locked ? "bg-[var(--paper-sunk)] text-[var(--ink-3)] cursor-default" : "";
               return (
                 <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                   <input className={`${inputCls} col-span-3 ${ro}`} placeholder="Characteristic"
@@ -446,12 +446,12 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
                     onChange={(e) => setMeasurement(idx, "unit", e.target.value)} />
                   <div className="col-span-1 flex items-center justify-end gap-1">
                     {ok === true && <span role="img" aria-label="In spec"
-                      className="w-2.5 h-2.5 rounded-full bg-green-500" title="In spec" />}
+                      className="w-2.5 h-2.5 rounded-full bg-[var(--status-green)]" title="In spec" />}
                     {ok === false && <span role="img" aria-label="Out of spec"
-                      className="w-2.5 h-2.5 rounded-full bg-red-500" title="Out of spec" />}
+                      className="w-2.5 h-2.5 rounded-full bg-[var(--status-red)]" title="Out of spec" />}
                     {!m.locked && (
                       <button type="button" onClick={() => removeMeasurement(idx)}
-                        className="text-gray-500 hover:text-red-400" title="Remove">&times;</button>
+                        className="text-[var(--ink-4)] hover:text-[var(--status-red)]" title="Remove">&times;</button>
                     )}
                   </div>
                 </div>
@@ -463,20 +463,20 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
 
       {/* Notes */}
       <div className="mb-6">
-        <label className="block text-sm text-gray-400 mb-2">
+        <label className="block text-sm text-[var(--ink-3)] mb-2">
           Inspection Notes {result === "failed" ? "(recommended)" : "(optional)"}
         </label>
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
           placeholder={result === "failed"
             ? "Describe the quality issues found"
             : "Add any notes about the inspection"}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-sm resize-none" />
+          className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] text-sm resize-none" />
       </div>
 
       {/* Actions */}
       <div className="flex gap-3">
         <button onClick={onClose}
-          className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600">
+          className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]">
           Cancel
         </button>
         <button onClick={handleSubmit} disabled={submitting}

@@ -36,15 +36,22 @@ export const SALES_ORDER_COLORS = {
 };
 
 // ── Production order statuses ───────────────────────────────────────
+// Industrial Workbench tokens (#846): consumed ONLY by the re-skinned
+// ProductionOrderDetail page (verified) — the other maps in this file still
+// serve un-migrated dark pages and keep the legacy palette.
 export const PRODUCTION_ORDER_COLORS = {
-  draft: BASE_COLORS.gray,
-  released: BASE_COLORS.blue,
-  in_progress: BASE_COLORS.purple,
-  complete: BASE_COLORS.green,
-  scrapped: BASE_COLORS.red,
-  on_hold: BASE_COLORS.yellow,
-  short: BASE_COLORS.orange,
-  cancelled: BASE_COLORS.gray,
+  draft: "bg-[var(--paper-sunk)] text-[var(--ink-3)]",
+  released: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  scheduled: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  in_progress: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  complete: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
+  completed: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
+  closed: "bg-[var(--status-green-tint)] text-[var(--status-green)]",
+  qc_hold: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  scrapped: "bg-[var(--status-red-tint)] text-[var(--status-red)]",
+  on_hold: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  short: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
+  cancelled: "bg-[var(--paper-sunk)] text-[var(--ink-4)]",
 };
 
 // ── Purchase order statuses ─────────────────────────────────────────
@@ -85,19 +92,24 @@ export const PRINTER_COLORS = {
 
 // ── Production order badge configs (with labels) ────────────────────
 // Used by StatusBadge components that need both class and display text.
+// Industrial Workbench tokens (#846): consumed ONLY by the re-skinned
+// production components (ProductionQueueList, ProductionOrderModal) —
+// verified before tokenizing, since the rest of this file still serves
+// un-migrated dark pages. Mapping follows ProductionStatusCards:
+// active-ish → amber, done → green, destroyed → red, inert → neutral.
 export const PRODUCTION_ORDER_BADGE_CONFIGS = {
-  draft: { bg: "bg-gray-500/20", text: "text-gray-400", label: "Draft" },
-  released: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Released" },
-  scheduled: { bg: "bg-cyan-500/20", text: "text-cyan-400", label: "Scheduled" },
-  in_progress: { bg: "bg-purple-500/20", text: "text-purple-400", label: "In Progress" },
-  complete: { bg: "bg-green-500/20", text: "text-green-400", label: "Complete" },
-  completed: { bg: "bg-green-500/20", text: "text-green-400", label: "Complete" },
-  closed: { bg: "bg-green-700/20", text: "text-green-300", label: "Closed" },
-  short: { bg: "bg-orange-500/20", text: "text-orange-400", label: "Short" },
-  qc_hold: { bg: "bg-amber-500/20", text: "text-amber-400", label: "QC Hold" },
-  on_hold: { bg: "bg-yellow-500/20", text: "text-yellow-400", label: "On Hold" },
-  scrapped: { bg: "bg-red-500/20", text: "text-red-400", label: "Scrapped" },
-  cancelled: { bg: "bg-red-500/20", text: "text-red-400", label: "Cancelled" },
+  draft: { bg: "bg-[var(--paper-sunk)]", text: "text-[var(--ink-3)]", label: "Draft" },
+  released: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "Released" },
+  scheduled: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "Scheduled" },
+  in_progress: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "In Progress" },
+  complete: { bg: "bg-[var(--status-green-tint)]", text: "text-[var(--status-green)]", label: "Complete" },
+  completed: { bg: "bg-[var(--status-green-tint)]", text: "text-[var(--status-green)]", label: "Complete" },
+  closed: { bg: "bg-[var(--status-green-tint)]", text: "text-[var(--status-green)]", label: "Closed" },
+  short: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "Short" },
+  qc_hold: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "QC Hold" },
+  on_hold: { bg: "bg-[var(--status-amber-tint)]", text: "text-[var(--status-amber)]", label: "On Hold" },
+  scrapped: { bg: "bg-[var(--status-red-tint)]", text: "text-[var(--status-red)]", label: "Scrapped" },
+  cancelled: { bg: "bg-[var(--status-red-tint)]", text: "text-[var(--status-red)]", label: "Cancelled" },
 };
 
 // ── Helper ──────────────────────────────────────────────────────────

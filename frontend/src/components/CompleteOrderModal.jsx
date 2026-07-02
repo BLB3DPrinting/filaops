@@ -177,7 +177,7 @@ export default function CompleteOrderModal({
           toast.success(
             <div>
               <p>Order completed (short by {shortfall} units).</p>
-              <p className="mt-1 text-green-300">
+              <p className="mt-1 text-[var(--status-green)]">
                 Remake order <strong>{remakeOrderCode}</strong> created for remaining {shortfall} units.
               </p>
             </div>,
@@ -209,20 +209,20 @@ export default function CompleteOrderModal({
   };
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Complete Production Order" className="w-full max-w-lg p-6" disableClose={submitting}>
+    <Modal isOpen={true} onClose={onClose} title="Complete Production Order" variant="workbench" className="w-full max-w-lg p-6" disableClose={submitting}>
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">
+            <h2 className="text-xl font-bold text-[var(--ink)]">
               Complete Production Order
             </h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               {productionOrder.code} -{" "}
               {productionOrder.product_name || productionOrder.product_sku}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl"
             disabled={submitting}
           >
             &times;
@@ -230,17 +230,17 @@ export default function CompleteOrderModal({
         </div>
 
         {/* Order Details */}
-        <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+        <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-6">
           <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-400">Quantity Ordered:</span>
-            <span className="text-white font-medium">
+            <span className="text-[var(--ink-3)]">Quantity Ordered:</span>
+            <span className="text-[var(--ink)] font-medium">
               {quantityOrdered} units
             </span>
           </div>
           {productionOrder.scheduled_start && (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Scheduled:</span>
-              <span className="text-white">
+              <span className="text-[var(--ink-3)]">Scheduled:</span>
+              <span className="text-[var(--ink)]">
                 {new Date(productionOrder.scheduled_start).toLocaleDateString()}
               </span>
             </div>
@@ -249,7 +249,7 @@ export default function CompleteOrderModal({
 
         {/* Quantity Completed */}
         <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-[var(--ink-3)] mb-2">
             Quantity Completed *
           </label>
           <input
@@ -259,9 +259,9 @@ export default function CompleteOrderModal({
               setQuantityCompleted(parseInt(e.target.value) || 0)
             }
             min="1"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-lg"
+            className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] text-lg"
           />
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="text-[var(--ink-4)] text-sm mt-1">
             Enter actual quantity produced (can exceed ordered qty for MTS
             overruns)
           </p>
@@ -270,25 +270,25 @@ export default function CompleteOrderModal({
         {/* Spool Selection */}
         {bomMaterials.length > 0 && (
           <div className="mb-4">
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-[var(--ink-3)] mb-2">
               Material Spools Used (Optional)
             </label>
-            <div className="space-y-3 bg-gray-800/50 rounded-lg p-3">
+            <div className="space-y-3 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
               {loadingMaterials ? (
-                <div className="text-gray-500 text-sm">Loading materials...</div>
+                <div className="text-[var(--ink-4)] text-sm">Loading materials...</div>
               ) : (
                 bomMaterials.map((material) => {
                   const availableSpools = availableSpoolsByMaterial[material.component_id] || [];
                   const requiredWeight = material.quantity * quantityCompleted;
                   
                   return (
-                    <div key={material.component_id} className="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
+                    <div key={material.component_id} className="border-b border-[var(--rule-hair)] pb-3 last:border-0 last:pb-0">
                       <div className="flex justify-between items-start mb-2">
                         <div>
-                          <div className="text-white text-sm font-medium">
+                          <div className="text-[var(--ink)] text-sm font-medium">
                             {material.component_name || material.component_sku}
                           </div>
-                          <div className="text-gray-500 text-xs">
+                          <div className="text-[var(--ink-4)] text-xs">
                             Required: {requiredWeight.toFixed(3)} {material.unit}
                           </div>
                         </div>
@@ -302,7 +302,7 @@ export default function CompleteOrderModal({
                               [material.component_id]: e.target.value ? parseInt(e.target.value) : null,
                             }));
                           }}
-                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm"
+                          className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-3 py-2 text-[var(--ink)] text-sm"
                         >
                           <option value="">No spool selected</option>
                           {availableSpools.map((spool) => (
@@ -312,14 +312,14 @@ export default function CompleteOrderModal({
                           ))}
                         </select>
                       ) : (
-                        <div className="text-gray-500 text-xs">No active spools available</div>
+                        <div className="text-[var(--ink-4)] text-xs">No active spools available</div>
                       )}
                     </div>
                   );
                 })
               )}
             </div>
-            <p className="text-gray-500 text-xs mt-2">
+            <p className="text-[var(--ink-4)] text-xs mt-2">
               Select spools to track material consumption and weight remaining
             </p>
           </div>
@@ -327,7 +327,7 @@ export default function CompleteOrderModal({
 
         {/* Notes */}
         <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">
+          <label className="block text-sm text-[var(--ink-3)] mb-2">
             Completion Notes (Optional)
           </label>
           <textarea
@@ -335,16 +335,16 @@ export default function CompleteOrderModal({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Add any notes about the completion (e.g., quality issues, early completion, etc.)"
             rows={3}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white resize-none"
+            className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] resize-none"
           />
         </div>
 
         {/* Overrun Info Banner */}
         {isOverrun && (
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6">
+          <div className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-4 mb-6">
             <div className="flex gap-3">
               <svg
-                className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5"
+                className="w-5 h-5 text-[var(--ink-2)] flex-shrink-0 mt-0.5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -357,8 +357,8 @@ export default function CompleteOrderModal({
                 />
               </svg>
               <div>
-                <p className="text-blue-400 font-medium">MTS Overrun</p>
-                <p className="text-blue-400/80 text-sm">
+                <p className="text-[var(--ink-2)] font-medium">MTS Overrun</p>
+                <p className="text-[var(--ink-3)] text-sm">
                   {quantityCompleted - quantityOrdered} extra unit
                   {quantityCompleted - quantityOrdered > 1 ? "s" : ""} will be
                   added to inventory as Make-to-Stock.
@@ -370,19 +370,19 @@ export default function CompleteOrderModal({
 
         {/* Closing Short Warning - requires acknowledgment */}
         {isClosingShort && quantityCompleted > 0 && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6 space-y-4">
+          <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-4 mb-6 space-y-4">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={acknowledgeShort}
                 onChange={(e) => setAcknowledgeShort(e.target.checked)}
-                className="mt-1 w-5 h-5 rounded bg-gray-700 border-gray-600 text-red-500 focus:ring-red-500 focus:ring-offset-0"
+                className="mt-1 w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--status-red)] focus:ring-[var(--status-red)] focus:ring-offset-0"
               />
               <div>
-                <p className="text-red-400 font-medium">
+                <p className="text-[var(--status-red)] font-medium">
                   Closing Order Short ({shortfall} units unaccounted)
                 </p>
-                <p className="text-red-400/80 text-sm">
+                <p className="text-[var(--status-red)]/80 text-sm">
                   Ordered: {quantityOrdered}, Completing: {quantityCompleted}, Already Scrapped: {quantityScrapped}.
                   <br />
                   <strong>{shortfall} units</strong> were neither completed nor scrapped.
@@ -393,22 +393,22 @@ export default function CompleteOrderModal({
 
             {/* Create Remake Order Toggle */}
             {acknowledgeShort && (
-              <div className="border-t border-red-500/20 pt-4">
+              <div className="border-t border-[var(--status-red)]/20 pt-4">
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={createRemakeForShortfall}
                     onChange={(e) => setCreateRemakeForShortfall(e.target.checked)}
-                    className="mt-1 w-5 h-5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                    className="mt-1 w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
                   />
                   <div>
-                    <p className="text-white font-medium">
+                    <p className="text-[var(--ink)] font-medium">
                       Create Remake Order for {shortfall} units
                     </p>
-                    <p className="text-gray-400 text-sm">
+                    <p className="text-[var(--ink-3)] text-sm">
                       Automatically create a new production order for the shortfall
                       {productionOrder.sales_order_id && (
-                        <span className="text-blue-400"> (linked to same Sales Order)</span>
+                        <span className="text-[var(--ink-2)]"> (linked to same Sales Order)</span>
                       )}
                     </p>
                   </div>
@@ -423,14 +423,14 @@ export default function CompleteOrderModal({
           <button
             onClick={onClose}
             disabled={submitting}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={quantityCompleted < 1 || submitting || (isClosingShort && !acknowledgeShort)}
-            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Processing..." : isClosingShort ? "Complete Order (Short)" : "Complete Order"}
           </button>

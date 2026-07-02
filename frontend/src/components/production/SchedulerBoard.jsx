@@ -92,20 +92,20 @@ export function getTicks(start, end, viewMode) {
 }
 
 const BLOCK_STYLES = {
-  in_progress: "bg-green-600/80 border-green-400 text-white",
-  queued: "bg-blue-600/70 border-blue-400 text-white",
-  scheduled: "bg-blue-600/70 border-blue-400 text-white",
-  pending: "bg-gray-600/70 border-gray-500 text-gray-200",
-  on_hold: "bg-amber-600/70 border-amber-400 text-white",
+  in_progress: "bg-[var(--status-green-tint)] border-[var(--status-green)] text-[var(--status-green)]",
+  queued: "bg-[var(--paper-sunk)] border-[var(--rule-hair)] text-[var(--ink-2)]",
+  scheduled: "bg-[var(--paper-sunk)] border-[var(--rule-hair)] text-[var(--ink-2)]",
+  pending: "bg-[var(--paper-sunk)] border-[var(--rule-hair)] text-[var(--ink-3)]",
+  on_hold: "bg-[var(--status-amber-tint)] border-[var(--status-amber)] text-[var(--status-amber)]",
 };
 
 const LANE_STATUS_STYLES = {
-  maintenance: "text-amber-400",
-  offline: "text-gray-500",
-  busy: "text-green-400",
-  printing: "text-green-400",
-  available: "text-blue-300",
-  idle: "text-blue-300",
+  maintenance: "text-[var(--status-amber)]",
+  offline: "text-[var(--ink-4)]",
+  busy: "text-[var(--status-green)]",
+  printing: "text-[var(--status-green)]",
+  available: "text-[var(--ink-3)]",
+  idle: "text-[var(--ink-3)]",
 };
 
 function toLocalDateInput(d) {
@@ -141,7 +141,7 @@ function OperationBlock({ op, windowStart, windowEnd, onClick }) {
       title={`${op.production_order_code} · ${op.operation_name || op.operation_code}\n${
         op.product_name || ""
       }\n${fmt(start)} → ${fmt(end)} · ${op.status.replace(/_/g, " ")}`}
-      className={`absolute top-1.5 bottom-1.5 rounded border px-1 overflow-hidden text-left transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-white/60 ${style}`}
+      className={`absolute top-1.5 bottom-1.5 rounded border px-1 overflow-hidden text-left transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-[var(--ink)]/60 ${style}`}
       style={{ left: `${left}%`, width: `${width}%` }}
     >
       <span className="block text-[10px] font-medium leading-tight truncate">
@@ -156,7 +156,7 @@ function OperationBlock({ op, windowStart, windowEnd, onClick }) {
 
 // SCHED-7: shared stripe pattern for maintenance blocks (amber diagonal).
 const MAINTENANCE_STRIPES =
-  "repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.28) 0 6px, rgba(245, 158, 11, 0.08) 6px 12px)";
+  "repeating-linear-gradient(135deg, color-mix(in srgb, var(--status-amber) 28%, transparent) 0 6px, color-mix(in srgb, var(--status-amber) 8%, transparent) 6px 12px)";
 
 function MaintenanceWindowBlock({ win, windowStart, windowEnd }) {
   // Same naive-UTC convention as OperationBlock.
@@ -180,7 +180,7 @@ function MaintenanceWindowBlock({ win, windowStart, windowEnd }) {
       title={`Maintenance — ${win.reason || "scheduled downtime"}\n${fmt(start)} → ${fmt(
         end
       )} · ${win.status.replace(/_/g, " ")}`}
-      className={`absolute top-0 bottom-0 rounded-sm border-x border-amber-500/50 ${
+      className={`absolute top-0 bottom-0 rounded-sm border-x border-[var(--status-amber)]/50 ${
         win.status === "completed" ? "opacity-40" : ""
       }`}
       style={{
@@ -277,12 +277,12 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
     <div className="space-y-4" data-testid="scheduler-board">
       {/* Header: title + controls */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <h2 className="text-xl font-semibold text-white">Production Scheduler</h2>
+        <h2 className="text-xl font-semibold text-[var(--ink)]">Production Scheduler</h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={viewMode}
             onChange={(e) => setViewMode(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-1.5"
+            className="bg-[var(--paper)] border border-[var(--rule-hair)] text-[var(--ink)] text-sm rounded-lg px-3 py-1.5"
             aria-label="View mode"
           >
             <option value="day">Day View</option>
@@ -293,7 +293,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
             <button
               type="button"
               onClick={() => shift(-1)}
-              className="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white text-sm"
+              className="px-2 py-1.5 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg text-[var(--ink-2)] hover:text-[var(--ink)] text-sm"
               aria-label="Previous"
             >
               ‹
@@ -305,12 +305,12 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                 const [y, m, d] = e.target.value.split("-").map(Number);
                 if (y && m && d) setAnchor(new Date(y, m - 1, d));
               }}
-              className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-2 py-1.5"
+              className="bg-[var(--paper)] border border-[var(--rule-hair)] text-[var(--ink)] text-sm rounded-lg px-2 py-1.5"
             />
             <button
               type="button"
               onClick={() => shift(1)}
-              className="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white text-sm"
+              className="px-2 py-1.5 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg text-[var(--ink-2)] hover:text-[var(--ink)] text-sm"
               aria-label="Next"
             >
               ›
@@ -319,7 +319,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
           <button
             type="button"
             onClick={() => setAnchor(new Date())}
-            className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:text-white text-sm"
+            className="px-3 py-1.5 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg text-[var(--ink-2)] hover:text-[var(--ink)] text-sm"
           >
             Today
           </button>
@@ -327,55 +327,55 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+      <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--ink-3)]">
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-blue-600/70 border border-blue-400" />
+          <span className="w-3 h-3 rounded-sm bg-[var(--paper-sunk)] border border-[var(--rule-hair)]" />
           Scheduled
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-green-600/80 border border-green-400" />
+          <span className="w-3 h-3 rounded-sm bg-[var(--status-green-tint)] border border-[var(--status-green)]" />
           Running
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-amber-600/70 border border-amber-400" />
+          <span className="w-3 h-3 rounded-sm bg-[var(--status-amber-tint)] border border-[var(--status-amber)]" />
           On hold
         </span>
         <span className="flex items-center gap-1.5">
           <span
-            className="w-3 h-3 rounded-sm border border-amber-500/50"
+            className="w-3 h-3 rounded-sm border border-[var(--status-amber)]/50"
             style={{ backgroundImage: MAINTENANCE_STRIPES }}
           />
           Maintenance
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-0.5 h-3 bg-red-500" />
+          <span className="w-0.5 h-3 bg-[var(--status-red)]" />
           Now
         </span>
       </div>
 
       {error && (
-        <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+        <div className="p-3 bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg text-[var(--status-red)] text-sm">
           {error}
         </div>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* Gantt table */}
-        <div className="xl:col-span-3 bg-gray-900 border border-gray-800 rounded-xl overflow-x-auto">
+        <div className="xl:col-span-3 bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl overflow-x-auto shadow-[var(--shadow-pop)]">
           {loading && !board ? (
             <div className="h-48 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500" />
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]" />
             </div>
           ) : lanes.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 text-sm">
+            <div className="p-8 text-center text-[var(--ink-4)] text-sm">
               No machines found. Add printers or machine work-center resources to
               see the schedule.
             </div>
           ) : (
             <table className="w-full min-w-[640px]">
               <thead>
-                <tr className="border-b border-gray-800">
-                  <th className="text-left p-3 text-xs font-semibold text-gray-400 uppercase tracking-wider w-44">
+                <tr className="border-b border-[var(--rule-hair)]">
+                  <th className="text-left p-3 text-xs font-semibold text-[var(--ink-3)] uppercase tracking-wider w-44">
                     Machine
                   </th>
                   <th className="p-0 relative h-8">
@@ -384,7 +384,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                       {ticks.map((t, i) => (
                         <span
                           key={i}
-                          className="absolute top-1/2 -translate-y-1/2 text-[10px] font-normal text-gray-500 whitespace-nowrap"
+                          className="absolute top-1/2 -translate-y-1/2 text-[10px] font-normal text-[var(--ink-4)] whitespace-nowrap"
                           style={{ left: `${t.pct}%` }}
                         >
                           {t.label}
@@ -397,21 +397,21 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
               <tbody>
                 {lanes.map((lane) => {
                   const laneStatus =
-                    LANE_STATUS_STYLES[lane.status] || "text-gray-400";
+                    LANE_STATUS_STYLES[lane.status] || "text-[var(--ink-3)]";
                   const laneTint =
                     lane.status === "maintenance"
-                      ? "bg-amber-950/20"
+                      ? "bg-[var(--status-amber-tint)]"
                       : lane.status === "offline"
-                      ? "bg-gray-950/40"
+                      ? "bg-[var(--paper-sunk)]"
                       : "";
                   return (
                     <tr
                       key={lane.key}
-                      className={`border-b border-gray-800/60 ${laneTint}`}
+                      className={`border-b border-[var(--rule-hair)] ${laneTint}`}
                       data-testid={`gantt-lane-${lane.key}`}
                     >
                       <td className="p-3 align-middle">
-                        <div className="text-sm text-white font-medium truncate">
+                        <div className="text-sm text-[var(--ink)] font-medium truncate">
                           {lane.code}
                         </div>
                         <div className="flex items-center gap-2">
@@ -419,23 +419,23 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                             {lane.status}
                           </span>
                           {lane.work_center_code && (
-                            <span className="text-[10px] text-gray-600">
+                            <span className="text-[10px] text-[var(--ink-4)]">
                               {lane.work_center_code}
                             </span>
                           )}
                         </div>
                         {/* Utilization bar */}
                         <div
-                          className="mt-1.5 h-1 bg-gray-800 rounded overflow-hidden"
+                          className="mt-1.5 h-1 bg-[var(--rule-hair)] rounded overflow-hidden"
                           title={`${lane.utilization_percent}% booked in window`}
                         >
                           <div
                             className={`h-full ${
                               lane.utilization_percent > 85
-                                ? "bg-red-500/80"
+                                ? "bg-[var(--status-red)]"
                                 : lane.utilization_percent > 60
-                                ? "bg-amber-500/80"
-                                : "bg-blue-500/70"
+                                ? "bg-[var(--status-amber)]"
+                                : "bg-[var(--status-green)]"
                             }`}
                             style={{ width: `${lane.utilization_percent}%` }}
                           />
@@ -446,14 +446,14 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                         {ticks.map((t, i) => (
                           <div
                             key={i}
-                            className="absolute top-0 bottom-0 w-px bg-gray-800/70"
+                            className="absolute top-0 bottom-0 w-px bg-[var(--rule-hair)]"
                             style={{ left: `${t.pct}%` }}
                           />
                         ))}
                         {/* Now line */}
                         {nowPct !== null && (
                           <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-500/80 z-10 pointer-events-none"
+                            className="absolute top-0 bottom-0 w-0.5 bg-[var(--status-red)] z-10 pointer-events-none"
                             style={{ left: `${nowPct}%` }}
                             data-testid="now-line"
                           />
@@ -490,17 +490,17 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
         </div>
 
         {/* Unscheduled orders work queue */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-white mb-3">
+        <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-4 shadow-[var(--shadow-pop)]">
+          <h3 className="text-sm font-semibold text-[var(--ink)] mb-3">
             Unscheduled Orders
             {unscheduled.length > 0 && (
-              <span className="ml-2 px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full">
+              <span className="ml-2 px-2 py-0.5 bg-[var(--status-amber-tint)] text-[var(--status-amber)] text-xs rounded-full">
                 {unscheduled.length}
               </span>
             )}
           </h3>
           {unscheduled.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[var(--ink-4)]">
               Everything released is on the board. Nice.
             </p>
           ) : (
@@ -508,17 +508,17 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
               {unscheduled.map((item) => (
                 <div
                   key={item.production_order_id}
-                  className="bg-gray-800 rounded-lg p-2.5 flex items-start justify-between gap-2"
+                  className="bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-2.5 flex items-start justify-between gap-2"
                   data-testid={`unscheduled-${item.production_order_code}`}
                 >
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-white truncate">
+                    <div className="text-xs font-medium text-[var(--ink)] truncate">
                       {item.production_order_code}
                     </div>
-                    <div className="text-[11px] text-gray-400 truncate">
+                    <div className="text-[11px] text-[var(--ink-3)] truncate">
                       {item.product_name}
                     </div>
-                    <div className="text-[10px] text-gray-500">
+                    <div className="text-[10px] text-[var(--ink-4)]">
                       Qty {item.quantity}
                       {item.due_date &&
                         ` · due ${new Date(item.due_date).toLocaleDateString()}`}
@@ -531,7 +531,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                     type="button"
                     title="Auto-schedule — pick a slot for the next operation"
                     onClick={() => handleUnscheduledClick(item)}
-                    className="shrink-0 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                    className="shrink-0 px-2 py-1 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white text-xs rounded transition-colors"
                   >
                     ⚡ Schedule
                   </button>

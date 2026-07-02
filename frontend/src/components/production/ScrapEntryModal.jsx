@@ -16,7 +16,7 @@ import { formatCurrency } from '../../lib/number';
 function CascadeMaterialsTable({ materials, totalCost }) {
   if (!materials || materials.length === 0) {
     return (
-      <div className="text-center py-4 text-gray-500">
+      <div className="text-center py-4 text-[var(--ink-4)]">
         No materials to display
       </div>
     );
@@ -43,12 +43,12 @@ function CascadeMaterialsTable({ materials, totalCost }) {
   return (
     <div className="space-y-3">
       {sortedOps.map((op) => (
-        <div key={op.sequence} className="bg-gray-800/30 rounded-lg p-3">
+        <div key={op.sequence} className="bg-[var(--paper-sunk)] rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-white">
+            <span className="text-sm font-medium text-[var(--ink)]">
               Op {op.sequence}: {op.operation_name}
             </span>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-[var(--ink-3)]">
               {formatCurrency(op.subtotal)}
             </span>
           </div>
@@ -56,18 +56,18 @@ function CascadeMaterialsTable({ materials, totalCost }) {
             {op.materials.map((mat, idx) => (
               <div key={idx} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400">{mat.component_sku}</span>
-                  <span className="text-gray-600">-</span>
-                  <span className="text-gray-500">{mat.component_name}</span>
+                  <span className="text-[var(--ink-3)]">{mat.component_sku}</span>
+                  <span className="text-[var(--ink-4)]">-</span>
+                  <span className="text-[var(--ink-4)]">{mat.component_name}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-gray-400">
+                  <span className="text-[var(--ink-3)]">
                     {mat.quantity.toFixed(2)} {mat.unit}
                   </span>
-                  <span className="text-gray-400">
+                  <span className="text-[var(--ink-3)]">
                     @ {formatCurrency(mat.unit_cost)}/{mat.unit}
                   </span>
-                  <span className="text-white font-medium w-20 text-right">
+                  <span className="text-[var(--ink)] font-medium w-20 text-right">
                     {formatCurrency(mat.cost)}
                   </span>
                 </div>
@@ -78,9 +78,9 @@ function CascadeMaterialsTable({ materials, totalCost }) {
       ))}
 
       {/* Total */}
-      <div className="flex items-center justify-between pt-2 border-t border-gray-700">
-        <span className="text-sm font-medium text-white">Total Scrap Cost</span>
-        <span className="text-lg font-bold text-red-400">
+      <div className="flex items-center justify-between pt-2 border-t border-[var(--rule-hair)]">
+        <span className="text-sm font-medium text-[var(--ink)]">Total Scrap Cost</span>
+        <span className="text-lg font-bold text-[var(--status-red)]">
           {formatCurrency(totalCost)}
         </span>
       </div>
@@ -229,7 +229,7 @@ export default function ScrapEntryModal({
           toast.success(
             <div>
               <p>{message}</p>
-              <p className="mt-1 text-green-300">
+              <p className="mt-1 text-[var(--status-green)]">
                 Replacement order{' '}
                 <strong>{data.replacement_order.code}</strong> created
               </p>
@@ -258,19 +258,19 @@ export default function ScrapEntryModal({
   const selectedReason = scrapReasons.find((r) => r.code === scrapReason);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Scrap at Operation" disableClose={submitting} className="w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={onClose} title="Scrap at Operation" variant="workbench" disableClose={submitting} className="w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-800">
+        <div className="flex justify-between items-center p-6 border-b border-[var(--rule-hair)]">
           <div>
-            <h2 className="text-xl font-bold text-white">Scrap at Operation</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-[var(--ink)]">Scrap at Operation</h2>
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               {productionOrder?.code} - Op {operation?.sequence}:{' '}
               {operation?.operation_name || operation?.operation_code}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl"
           >
             &times;
           </button>
@@ -280,7 +280,7 @@ export default function ScrapEntryModal({
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Quantity Input */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-[var(--ink-3)] mb-2">
               Quantity to Scrap *
             </label>
             <input
@@ -289,22 +289,22 @@ export default function ScrapEntryModal({
               onChange={(e) => setQuantity(Math.max(1, Math.min(maxQuantity, parseInt(e.target.value) || 0)))}
               min="1"
               max={maxQuantity}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-lg"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] text-lg"
             />
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-[var(--ink-4)] text-sm mt-1">
               Max: {maxQuantity} unit{maxQuantity !== 1 ? 's' : ''}
             </p>
           </div>
 
           {/* Scrap Reason */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-[var(--ink-3)] mb-2">
               Scrap Reason *
             </label>
             <select
               value={scrapReason}
               onChange={(e) => setScrapReason(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)]"
             >
               <option value="">Select reason...</option>
               {scrapReasons.map((reason) => (
@@ -314,7 +314,7 @@ export default function ScrapEntryModal({
               ))}
             </select>
             {selectedReason?.description && (
-              <p className="text-gray-500 text-sm mt-1">
+              <p className="text-[var(--ink-4)] text-sm mt-1">
                 {selectedReason.description}
               </p>
             )}
@@ -322,13 +322,13 @@ export default function ScrapEntryModal({
 
           {/* Notes */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-[var(--ink-3)] mb-2">
               Additional Notes
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white h-20 resize-none"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] h-20 resize-none"
               placeholder="Describe what happened..."
             />
           </div>
@@ -336,17 +336,17 @@ export default function ScrapEntryModal({
           {/* Cascading Materials Preview */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="block text-sm text-gray-400">
+              <label className="block text-sm text-[var(--ink-3)]">
                 Cascading Material Costs
               </label>
               {loading && (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--orange)]"></div>
               )}
             </div>
 
             {cascadeData ? (
-              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                <div className="text-xs text-gray-500 mb-3">
+              <div className="bg-[var(--paper-sunk)] rounded-lg p-4 border border-[var(--rule-hair)]">
+                <div className="text-xs text-[var(--ink-4)] mb-3">
                   Materials from {cascadeData.operations_affected} operation
                   {cascadeData.operations_affected !== 1 ? 's' : ''} will be
                   recorded as scrap
@@ -357,26 +357,26 @@ export default function ScrapEntryModal({
                 />
               </div>
             ) : (
-              <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700 text-center text-gray-500">
+              <div className="bg-[var(--paper-sunk)] rounded-lg p-4 border border-[var(--rule-hair)] text-center text-[var(--ink-4)]">
                 {loading ? 'Loading cascade preview...' : 'Enter quantity to see material costs'}
               </div>
             )}
           </div>
 
           {/* Create Replacement Toggle */}
-          <div className="bg-gray-800/50 rounded-lg p-4">
+          <div className="bg-[var(--paper-sunk)] rounded-lg p-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={createReplacement}
                 onChange={(e) => setCreateReplacement(e.target.checked)}
-                className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
               />
               <div>
-                <span className="text-white font-medium">
+                <span className="text-[var(--ink)] font-medium">
                   Create Replacement Order
                 </span>
-                <p className="text-gray-400 text-sm">
+                <p className="text-[var(--ink-3)] text-sm">
                   Automatically create a new production order for the scrapped
                   quantity
                 </p>
@@ -385,10 +385,10 @@ export default function ScrapEntryModal({
           </div>
 
           {/* GL Warning */}
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+          <div className="bg-[var(--status-amber-tint)] border border-[var(--status-amber)]/30 rounded-lg p-3">
             <div className="flex gap-2">
               <svg
-                className="w-5 h-5 text-yellow-400 flex-shrink-0"
+                className="w-5 h-5 text-[var(--status-amber)] flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -401,10 +401,10 @@ export default function ScrapEntryModal({
                 />
               </svg>
               <div>
-                <p className="text-yellow-400 text-sm font-medium">
+                <p className="text-[var(--status-amber)] text-sm font-medium">
                   GL Journal Entry
                 </p>
-                <p className="text-yellow-400/80 text-sm">
+                <p className="text-[var(--status-amber)]/80 text-sm">
                   DR: Scrap Expense (5020)
                   {cascadeData?.total_cost
                     ? ` ${formatCurrency(cascadeData.total_cost)}`
@@ -417,17 +417,17 @@ export default function ScrapEntryModal({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-6 border-t border-gray-800">
+        <div className="flex gap-3 p-6 border-t border-[var(--rule-hair)]">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={!scrapReason || quantity <= 0 || submitting}
-            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-[var(--status-red)] text-white rounded-lg hover:bg-[var(--status-red)]/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting
               ? 'Processing...'

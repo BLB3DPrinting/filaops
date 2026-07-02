@@ -163,9 +163,9 @@ function OfferPrompt({ orderCode, pendingCount, loading, onAccept, onDismiss }) 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-start gap-4">
-        <div className="flex-shrink-0 w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+        <div className="flex-shrink-0 w-10 h-10 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-full flex items-center justify-center">
           <svg
-            className="w-5 h-5 text-blue-400"
+            className="w-5 h-5 text-[var(--ink-2)]"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -179,22 +179,22 @@ function OfferPrompt({ orderCode, pendingCount, loading, onAccept, onDismiss }) 
           </svg>
         </div>
         <div className="flex-1">
-          <h3 className="text-white font-semibold">
+          <h3 className="text-[var(--ink)] font-semibold">
             {orderCode} released to floor
           </h3>
           {loading ? (
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               Checking schedulable operations…
             </p>
           ) : pendingCount > 0 ? (
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               {pendingCount === 1
                 ? "This order has 1 operation ready to schedule."
                 : `This order has ${pendingCount} operations ready to schedule.`}{" "}
               Schedule them now to assign resources and time slots.
             </p>
           ) : (
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               No schedulable operations found — you can schedule them later
               from the operations panel.
             </p>
@@ -206,7 +206,7 @@ function OfferPrompt({ orderCode, pendingCount, loading, onAccept, onDismiss }) 
         <button
           type="button"
           onClick={onDismiss}
-          className="px-4 py-2 text-gray-400 hover:text-white text-sm transition-colors"
+          className="px-4 py-2 text-[var(--ink-3)] hover:text-[var(--ink)] text-sm transition-colors"
         >
           Later
         </button>
@@ -214,7 +214,7 @@ function OfferPrompt({ orderCode, pendingCount, loading, onAccept, onDismiss }) 
           <button
             type="button"
             onClick={onAccept}
-            className="px-5 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-5 py-2 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] transition-colors"
           >
             Schedule now
           </button>
@@ -236,7 +236,7 @@ function WizardSummary({ scheduled, skipped, productionOrderId, onClose, onOpenS
       <div className="space-y-3">
         {hasScheduled ? (
           <>
-            <h3 className="text-green-400 font-semibold flex items-center gap-2">
+            <h3 className="text-[var(--status-green)] font-semibold flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
@@ -246,13 +246,13 @@ function WizardSummary({ scheduled, skipped, productionOrderId, onClose, onOpenS
             </h3>
             <ul className="space-y-1 text-sm">
               {scheduled.map((s, idx) => (
-                <li key={idx} className="text-gray-300">
+                <li key={idx} className="text-[var(--ink-2)]">
                   <span className="font-medium">{s.operationLabel}</span>
                   {s.resourceName && (
-                    <span className="text-gray-400"> — {s.resourceName}</span>
+                    <span className="text-[var(--ink-3)]"> — {s.resourceName}</span>
                   )}
                   {s.startTime && (
-                    <span className="text-gray-500 ml-1">
+                    <span className="text-[var(--ink-4)] ml-1">
                       @ {new Date(s.startTime).toLocaleString(undefined, {
                         month: "short", day: "numeric",
                         hour: "2-digit", minute: "2-digit",
@@ -264,25 +264,25 @@ function WizardSummary({ scheduled, skipped, productionOrderId, onClose, onOpenS
             </ul>
           </>
         ) : (
-          <p className="text-gray-400 text-sm">
+          <p className="text-[var(--ink-3)] text-sm">
             No operations were scheduled. You can schedule them anytime from
             the operations panel.
           </p>
         )}
 
         {skipped.length > 0 && (
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-[var(--ink-4)]">
             Skipped: {skipped.join(", ")}
           </div>
         )}
       </div>
 
       {hasScheduled && (
-        <div className="pt-2 border-t border-gray-800">
+        <div className="pt-2 border-t border-[var(--rule-hair)]">
           <button
             type="button"
             onClick={onOpenScheduler}
-            className="text-sm text-blue-400 hover:text-blue-300 underline"
+            className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] underline"
           >
             Open scheduler for adjustments
           </button>
@@ -293,7 +293,7 @@ function WizardSummary({ scheduled, skipped, productionOrderId, onClose, onOpenS
         <button
           type="button"
           onClick={onClose}
-          className="px-5 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-5 py-2 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] transition-colors"
         >
           Done
         </button>
@@ -495,13 +495,14 @@ export default function ReleaseScheduleWizard({
         isOpen={true}
         onClose={handleDismiss}
         title="Order Released"
+        variant="workbench"
         className="w-full max-w-md mx-4"
       >
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 className="text-xl font-semibold text-white">Order Released</h2>
+        <div className="flex items-center justify-between p-6 border-b border-[var(--rule-hair)]">
+          <h2 className="text-xl font-semibold text-[var(--ink)]">Order Released</h2>
           <button
             onClick={handleDismiss}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -526,13 +527,14 @@ export default function ReleaseScheduleWizard({
         isOpen={true}
         onClose={handleSummaryClose}
         title="Schedule Summary"
+        variant="workbench"
         className="w-full max-w-md mx-4"
       >
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
-          <h2 className="text-xl font-semibold text-white">Schedule Summary</h2>
+        <div className="flex items-center justify-between p-6 border-b border-[var(--rule-hair)]">
+          <h2 className="text-xl font-semibold text-[var(--ink)]">Schedule Summary</h2>
           <button
             onClick={handleSummaryClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
