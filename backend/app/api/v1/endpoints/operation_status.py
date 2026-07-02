@@ -2,7 +2,7 @@
 API endpoints for operation status transitions.
 """
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_db, get_current_user
@@ -16,6 +16,7 @@ from app.schemas.operation_status import (
     ProductionOrderSummary,
     NextOperationInfo,
 )
+from app.schemas.production_order import OperationScrapRequest
 from app.schemas.operation_blocking import (
     CanStartResponse,
     OperationBlockingResponse,
@@ -224,6 +225,71 @@ def get_operations(
             materials=op_materials,
         ))
 
+    return result
+
+
+@router.get(
+    "/{po_id}/operations/{op_id}/scrap-cascade",
+    summary="Preview cascading scrap cost for an operation",
+)
+def get_scrap_cascade_preview(
+    po_id: int,
+    op_id: int,
+    quantity: int = Query(..., ge=1, description="Units being scrapped"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Read-only preview of the material + labor cost cascade of scrapping
+    ``quantity`` units at this operation (materials from this AND all prior
+    operations were consumed to reach it). Backs the live cost preview in
+    ScrapEntryModal and OperationCompletionModal, which previously 404'd —
+    the service existed but was never routed (#858 B1).
+    """
+    from app.services.scrap_service import ScrapError, calculate_scrap_cascade
+
+    try:
+        return calculate_scrap_cascade(db, po_id, op_id, quantity)
+    except ScrapError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post(
+    "/{po_id}/operations/{op_id}/scrap",
+    summary="Record scrap at an operation",
+)
+def record_operation_scrap(
+    po_id: int,
+    op_id: int,
+    request: OperationScrapRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Record operation-level scrap with cascading material accounting:
+    ScrapRecords for materials consumed at this + prior operations, a balanced
+    GL entry (DR Scrap Expense / CR WIP), quantity updates, downstream
+    auto-skip when no good pieces remain, and an optional replacement order.
+
+    Same engine complete_operation uses for its bad-quantity path
+    (process_operation_scrap); this route serves the standalone Scrap button
+    on a running/complete operation, which previously 404'd (#858 B1).
+    """
+    from app.services.scrap_service import ScrapError, process_operation_scrap
+
+    try:
+        result = process_operation_scrap(
+            db,
+            po_id,
+            op_id,
+            quantity_scrapped=request.quantity_scrapped,
+            scrap_reason_code=request.scrap_reason_code,
+            notes=request.notes,
+            create_replacement=request.create_replacement,
+            user_id=current_user.id,
+        )
+    except ScrapError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    db.commit()
     return result
 
 
