@@ -39,37 +39,37 @@ function CascadeSummary({ materials, totalCost, operationsAffected }) {
   const sortedOps = Object.values(byOperation).sort((a, b) => a.sequence - b.sequence);
 
   return (
-    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+    <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3">
       <div
         className="flex items-center justify-between cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
           <svg
-            className={`w-4 h-4 text-red-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            className={`w-4 h-4 text-[var(--status-red)] transition-transform ${expanded ? 'rotate-90' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-          <span className="text-red-400 text-sm font-medium">
+          <span className="text-[var(--status-red)] text-sm font-medium">
             Scrap Cost: {formatCurrency(totalCost)}
           </span>
         </div>
-        <span className="text-red-400/70 text-xs">
+        <span className="text-[var(--status-red)]/70 text-xs">
           {operationsAffected} operation{operationsAffected !== 1 ? 's' : ''} affected
         </span>
       </div>
 
       {expanded && (
-        <div className="mt-3 pt-3 border-t border-red-500/20 space-y-2">
+        <div className="mt-3 pt-3 border-t border-[var(--status-red)]/20 space-y-2">
           {sortedOps.map((op) => (
             <div key={op.sequence} className="flex items-center justify-between text-xs">
-              <span className="text-gray-400">
+              <span className="text-[var(--ink-3)]">
                 Op {op.sequence}: {op.name}
               </span>
-              <span className="text-red-400">{formatCurrency(op.subtotal)}</span>
+              <span className="text-[var(--status-red)]">{formatCurrency(op.subtotal)}</span>
             </div>
           ))}
         </div>
@@ -252,7 +252,7 @@ export default function OperationCompletionModal({
           toast.success(
             <div>
               <p>{message}</p>
-              <p className="mt-1 text-green-300">
+              <p className="mt-1 text-[var(--status-green)]">
                 Replacement order{' '}
                 <strong>{data.scrap_result.replacement_order.code}</strong> created
               </p>
@@ -281,18 +281,18 @@ export default function OperationCompletionModal({
   const selectedReason = scrapReasons.find((r) => r.code === scrapReason);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Complete Operation" disableClose={submitting} className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+    <Modal isOpen={isOpen} onClose={onClose} title="Complete Operation" variant="workbench" disableClose={submitting} className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-800">
+        <div className="flex justify-between items-center p-6 border-b border-[var(--rule-hair)]">
           <div>
-            <h2 className="text-xl font-bold text-white">Complete Operation</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-[var(--ink)]">Complete Operation</h2>
+            <p className="text-[var(--ink-3)] text-sm mt-1">
               Op {operation.sequence}: {operation.operation_name || operation.operation_code}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl"
+            className="text-[var(--ink-3)] hover:text-[var(--ink)] text-xl"
           >
             &times;
           </button>
@@ -301,14 +301,14 @@ export default function OperationCompletionModal({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Input quantity summary */}
-          <div className="bg-gray-800/50 rounded-lg p-4">
+          <div className="bg-[var(--paper-sunk)] rounded-lg p-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-400">Input Quantity:</span>
-              <span className="text-white font-medium">{maxQty} units</span>
+              <span className="text-[var(--ink-3)]">Input Quantity:</span>
+              <span className="text-[var(--ink)] font-medium">{maxQty} units</span>
             </div>
             <div className="flex items-center justify-between text-sm mt-1">
-              <span className="text-gray-400">Accounted:</span>
-              <span className={`font-medium ${total === maxQty ? 'text-green-400' : total > maxQty ? 'text-red-400' : 'text-yellow-400'}`}>
+              <span className="text-[var(--ink-3)]">Accounted:</span>
+              <span className={`font-medium ${total === maxQty ? 'text-[var(--status-green)]' : total > maxQty ? 'text-[var(--status-red)]' : 'text-[var(--status-amber)]'}`}>
                 {total} / {maxQty}
               </span>
             </div>
@@ -317,7 +317,7 @@ export default function OperationCompletionModal({
           {/* Quantity inputs */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-green-400 mb-2">
+              <label className="block text-sm text-[var(--status-green)] mb-2">
                 Good Units (Pass)
               </label>
               <input
@@ -326,11 +326,11 @@ export default function OperationCompletionModal({
                 onChange={(e) => handleGoodChange(e.target.value)}
                 min="0"
                 max={maxQty}
-                className="w-full bg-gray-800 border border-green-500/50 rounded-lg px-4 py-3 text-white text-lg focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                className="w-full bg-[var(--paper)] border border-[var(--status-green)]/50 rounded-lg px-4 py-3 text-[var(--ink)] text-lg focus:border-[var(--status-green)] focus:ring-1 focus:ring-[var(--status-green)]"
               />
             </div>
             <div>
-              <label className="block text-sm text-red-400 mb-2">
+              <label className="block text-sm text-[var(--status-red)] mb-2">
                 Bad Units (Scrap)
               </label>
               <input
@@ -339,26 +339,26 @@ export default function OperationCompletionModal({
                 onChange={(e) => handleBadChange(e.target.value)}
                 min="0"
                 max={maxQty}
-                className="w-full bg-gray-800 border border-red-500/50 rounded-lg px-4 py-3 text-white text-lg focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                className="w-full bg-[var(--paper)] border border-[var(--status-red)]/50 rounded-lg px-4 py-3 text-[var(--ink)] text-lg focus:border-[var(--status-red)] focus:ring-1 focus:ring-[var(--status-red)]"
               />
             </div>
           </div>
 
           {/* Scrap details - only show if scrapping */}
           {hasScrap && (
-            <div className="space-y-4 pt-4 border-t border-gray-800">
-              <h3 className="text-sm font-medium text-red-400">Scrap Details</h3>
+            <div className="space-y-4 pt-4 border-t border-[var(--rule-hair)]">
+              <h3 className="text-sm font-medium text-[var(--status-red)]">Scrap Details</h3>
 
               {/* Scrap Reason */}
               <div>
-                <label className="block text-sm text-gray-400 mb-2">
+                <label className="block text-sm text-[var(--ink-3)] mb-2">
                   Scrap Reason *
                 </label>
                 <select
                   value={scrapReason}
                   onChange={(e) => setScrapReason(e.target.value)}
-                  className={`w-full bg-gray-800 border rounded-lg px-4 py-2 text-white ${
-                    needsReason ? 'border-red-500' : 'border-gray-700'
+                  className={`w-full bg-[var(--paper)] border rounded-lg px-4 py-2 text-[var(--ink)] ${
+                    needsReason ? 'border-[var(--status-red)]' : 'border-[var(--rule-hair)]'
                   }`}
                 >
                   <option value="">Select reason...</option>
@@ -369,7 +369,7 @@ export default function OperationCompletionModal({
                   ))}
                 </select>
                 {selectedReason?.description && (
-                  <p className="text-gray-500 text-xs mt-1">
+                  <p className="text-[var(--ink-4)] text-xs mt-1">
                     {selectedReason.description}
                   </p>
                 )}
@@ -377,13 +377,13 @@ export default function OperationCompletionModal({
 
               {/* Scrap Notes */}
               <div>
-                <label className="block text-sm text-gray-400 mb-2">
+                <label className="block text-sm text-[var(--ink-3)] mb-2">
                   Scrap Notes
                 </label>
                 <textarea
                   value={scrapNotes}
                   onChange={(e) => setScrapNotes(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white h-16 resize-none text-sm"
+                  className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)] placeholder-[var(--ink-4)] h-16 resize-none text-sm"
                   placeholder="What went wrong..."
                 />
               </div>
@@ -391,8 +391,8 @@ export default function OperationCompletionModal({
               {/* Cascade preview */}
               {loading ? (
                 <div className="flex items-center justify-center py-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-400"></div>
-                  <span className="ml-2 text-sm text-gray-400">Calculating costs...</span>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--orange)]"></div>
+                  <span className="ml-2 text-sm text-[var(--ink-3)]">Calculating costs...</span>
                 </div>
               ) : cascadeData ? (
                 <CascadeSummary
@@ -408,11 +408,11 @@ export default function OperationCompletionModal({
                   type="checkbox"
                   checked={createReplacement}
                   onChange={(e) => setCreateReplacement(e.target.checked)}
-                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                  className="w-4 h-4 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
                 />
                 <div>
-                  <span className="text-white text-sm">Create replacement order</span>
-                  <p className="text-gray-500 text-xs">
+                  <span className="text-[var(--ink)] text-sm">Create replacement order</span>
+                  <p className="text-[var(--ink-4)] text-xs">
                     Auto-create PO for {qtyBad} scrapped unit{qtyBad !== 1 ? 's' : ''}
                   </p>
                 </div>
@@ -422,23 +422,23 @@ export default function OperationCompletionModal({
 
           {/* General notes */}
           <div>
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-[var(--ink-3)] mb-2">
               Completion Notes
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white h-16 resize-none text-sm"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)] placeholder-[var(--ink-4)] h-16 resize-none text-sm"
               placeholder="Any notes about this operation..."
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-6 border-t border-gray-800">
+        <div className="flex gap-3 p-6 border-t border-[var(--rule-hair)]">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] rounded-lg hover:text-[var(--ink)]"
           >
             Cancel
           </button>
@@ -447,8 +447,8 @@ export default function OperationCompletionModal({
             disabled={!isValid || submitting}
             className={`flex-1 px-4 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
               hasScrap
-                ? 'bg-yellow-600 hover:bg-yellow-500'
-                : 'bg-green-600 hover:bg-green-500'
+                ? 'bg-[var(--status-red)] hover:bg-[var(--status-red)]/90'
+                : 'bg-[var(--orange)] hover:bg-[var(--orange-press)]'
             }`}
           >
             {submitting

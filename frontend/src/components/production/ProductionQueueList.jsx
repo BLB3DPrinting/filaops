@@ -30,15 +30,15 @@ function StatusBadge({ status }) {
  */
 function OperationsChain({ operations }) {
   if (!operations || operations.length === 0) {
-    return <span className="text-gray-600 text-sm">No operations</span>;
+    return <span className="text-[var(--ink-4)] text-sm">No operations</span>;
   }
 
   const statusIcons = {
-    pending: { icon: '○', color: 'text-gray-400', title: 'Pending' },
-    queued: { icon: '◐', color: 'text-blue-400', title: 'Queued' },
-    running: { icon: '●', color: 'text-purple-400 animate-pulse', title: 'Running' },
-    complete: { icon: '✓', color: 'text-green-400', title: 'Complete' },
-    skipped: { icon: '⊘', color: 'text-yellow-400', title: 'Skipped' },
+    pending: { icon: '○', color: 'text-[var(--ink-3)]', title: 'Pending' },
+    queued: { icon: '◐', color: 'text-[var(--ink-2)]', title: 'Queued' },
+    running: { icon: '●', color: 'text-[var(--status-amber)] animate-pulse', title: 'Running' },
+    complete: { icon: '✓', color: 'text-[var(--status-green)]', title: 'Complete' },
+    skipped: { icon: '⊘', color: 'text-[var(--status-amber)]', title: 'Skipped' },
   };
 
   return (
@@ -58,7 +58,7 @@ function OperationsChain({ operations }) {
               {config.icon}
             </span>
             {idx < operations.length - 1 && (
-              <span className="text-gray-600 mx-0.5">→</span>
+              <span className="text-[var(--ink-4)] mx-0.5">→</span>
             )}
           </div>
         );
@@ -72,7 +72,7 @@ function OperationsChain({ operations }) {
  */
 function MaterialsStatus({ materials }) {
   if (!materials || materials.length === 0) {
-    return <span className="text-gray-600 text-sm">—</span>;
+    return <span className="text-[var(--ink-4)] text-sm">—</span>;
   }
 
   const ready = materials.filter(m => m.status === 'allocated' || m.status === 'consumed').length;
@@ -80,9 +80,9 @@ function MaterialsStatus({ materials }) {
   const hasBlocking = materials.some(m => m.status === 'unavailable' || m.status === 'pending');
 
   return (
-    <span className={`text-sm ${hasBlocking ? 'text-red-400' : ready === total ? 'text-green-400' : 'text-yellow-400'}`}>
+    <span className={`text-sm ${hasBlocking ? 'text-[var(--status-red)]' : ready === total ? 'text-[var(--status-green)]' : 'text-[var(--status-amber)]'}`}>
       {ready}/{total} ready
-      {hasBlocking && <span className="ml-1 text-red-400">!</span>}
+      {hasBlocking && <span className="ml-1 text-[var(--status-red)]">!</span>}
     </span>
   );
 }
@@ -137,25 +137,25 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
 
   return (
     <tr
-      className={`border-b border-gray-800 cursor-pointer transition-colors ${
+      className={`border-b border-[var(--rule-hair)] cursor-pointer transition-colors ${
         runningOp
-          ? 'bg-purple-900/30 hover:bg-purple-900/40 border-l-2 border-l-purple-500'
-          : 'hover:bg-gray-800/50'
+          ? 'bg-[var(--status-amber-tint)] hover:bg-[var(--status-amber)]/25 border-l-2 border-l-[var(--status-amber)]'
+          : 'hover:bg-[var(--paper-sunk)]'
       }`}
       onClick={() => onRowClick(order)}
     >
       {/* Order Code */}
       <td className="px-4 py-3">
-        <div className="font-mono text-white">{order.code}</div>
+        <div className="font-mono text-[var(--ink)]">{order.code}</div>
         {order.sales_order_code && (
-          <div className="text-xs text-blue-400">SO: {order.sales_order_code}</div>
+          <div className="text-xs text-[var(--ink-3)]">SO: {order.sales_order_code}</div>
         )}
       </td>
 
       {/* Product */}
       <td className="px-4 py-3">
-        <div className="text-white">{order.product_name || order.product?.name || 'Unknown'}</div>
-        <div className="text-xs text-gray-500">Qty: {order.quantity_ordered}</div>
+        <div className="text-[var(--ink)]">{order.product_name || order.product?.name || 'Unknown'}</div>
+        <div className="text-xs text-[var(--ink-4)]">Qty: {order.quantity_ordered}</div>
       </td>
 
       {/* Operations */}
@@ -169,12 +169,12 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
           <div className="flex flex-col">
             <ElapsedTimer
               startTime={runningOp.actual_start}
-              className="text-purple-400 text-sm"
+              className="text-[var(--status-amber)] text-sm"
             />
-            <span className="text-gray-500 text-xs">running</span>
+            <span className="text-[var(--ink-4)] text-xs">running</span>
           </div>
         ) : (
-          <span className="text-gray-300 font-mono text-sm">
+          <span className="text-[var(--ink-2)] font-mono text-sm">
             {totalMinutes > 0 ? formatDuration(totalMinutes) : '—'}
           </span>
         )}
@@ -193,11 +193,11 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
       {/* Due Date */}
       <td className="px-4 py-3 text-right">
         {order.due_date ? (
-          <span className="text-gray-400 text-sm">
+          <span className="text-[var(--ink-3)] text-sm">
             {new Date(order.due_date).toLocaleDateString()}
           </span>
         ) : (
-          <span className="text-gray-600 text-sm">—</span>
+          <span className="text-[var(--ink-4)] text-sm">—</span>
         )}
       </td>
 
@@ -212,7 +212,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
                 e.stopPropagation();
                 onDispatch(order, firstPendingOp);
               }}
-              className="text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 rounded px-2 py-1 transition-colors"
+              className="text-xs text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--rule-hair)] hover:border-[var(--ink-4)] rounded px-2 py-1 transition-colors"
               title="Open scheduler for this order's next pending operation"
             >
               Dispatch →
@@ -225,7 +225,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
                 e.stopPropagation();
                 onSplit(order);
               }}
-              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-400/50 rounded px-2 py-1 transition-colors"
+              className="text-xs text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--rule-hair)] hover:border-[var(--ink-4)] rounded px-2 py-1 transition-colors"
               title="Split this order into multiple orders"
             >
               Split
@@ -238,7 +238,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
                 e.stopPropagation();
                 onComplete(order);
               }}
-              className="text-xs text-green-400 hover:text-green-300 border border-green-500/30 hover:border-green-400/50 rounded px-2 py-1 transition-colors"
+              className="text-xs text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--rule-hair)] hover:border-[var(--ink-4)] rounded px-2 py-1 transition-colors"
               title="Complete this order"
             >
               Complete
@@ -251,7 +251,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
                 e.stopPropagation();
                 onQC(order);
               }}
-              className="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:border-amber-400/50 rounded px-2 py-1 transition-colors"
+              className="text-xs text-[var(--ink-2)] hover:text-[var(--ink)] border border-[var(--rule-hair)] hover:border-[var(--ink-4)] rounded px-2 py-1 transition-colors"
               title="Record a QC inspection for this order"
             >
               QC
@@ -264,7 +264,7 @@ function ProductionQueueRow({ order, operations, onRowClick, onDispatch, onScrap
                 e.stopPropagation();
                 onScrap(order);
               }}
-              className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded px-2 py-1 transition-colors"
+              className="text-xs text-[var(--status-red)] hover:bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 hover:border-[var(--status-red)]/50 rounded px-2 py-1 transition-colors"
               title="Record scrap for this order"
             >
               Scrap
@@ -411,32 +411,32 @@ export default function ProductionQueueList({
 
   if (loading) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8">
+      <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-8">
         <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-          <span className="ml-3 text-gray-400">Loading production orders...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
+          <span className="ml-3 text-[var(--ink-3)]">Loading production orders...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden relative">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl shadow-[var(--shadow-pop)] overflow-hidden relative">
       {/* Filters */}
-      <div className="p-4 border-b border-gray-800 flex gap-4">
+      <div className="p-4 border-b border-[var(--rule-hair)] flex gap-4">
         <div className="flex-1">
           <input
             type="text"
             placeholder="Search by PO code, product, or sales order..."
             value={filters?.search || ''}
             onChange={(e) => onFiltersChange?.({ ...filters, search: e.target.value })}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500"
+            className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)] placeholder-[var(--ink-4)]"
           />
         </div>
         <select
           value={filters?.status || 'active'}
           onChange={(e) => onFiltersChange?.({ ...filters, status: e.target.value })}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+          className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
         >
           <option value="active">Active Only</option>
           <option value="all">All Status</option>
@@ -449,7 +449,7 @@ export default function ProductionQueueList({
         <select
           value={filters?.workCenter || 'all'}
           onChange={(e) => onFiltersChange?.({ ...filters, workCenter: e.target.value })}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+          className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2 text-[var(--ink)]"
         >
           <option value="all">All Work Centers</option>
           {workCenters.map((wc) => (
@@ -464,15 +464,15 @@ export default function ProductionQueueList({
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="bg-gray-800/50 text-left">
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Order</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Product</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Operations</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Est. Time</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Materials</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm">Status</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm text-right">Due</th>
-              <th className="px-4 py-3 text-gray-400 font-medium text-sm text-right"></th>
+            <tr className="bg-[var(--paper-sunk)] text-left">
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Order</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Product</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Operations</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Est. Time</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Materials</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm">Status</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm text-right">Due</th>
+              <th className="px-4 py-3 text-[var(--ink-3)] font-medium text-sm text-right"></th>
             </tr>
           </thead>
           <tbody>
@@ -482,12 +482,14 @@ export default function ProductionQueueList({
                   {filters?.search || (filters?.status && filters.status !== 'all') || (filters?.workCenter && filters.workCenter !== 'all') ? (
                     <EmptyState
                       icon="filter"
+                      tone="workbench"
                       title="No orders match your filters"
                       onClearFilters={() => onFiltersChange && onFiltersChange({ search: '', status: 'all', workCenter: 'all' })}
                     />
                   ) : (
                     <EmptyState
                       icon="production"
+                      tone="workbench"
                       title="No production orders yet"
                       description="Create a production order to start tracking your print jobs."
                       actionLabel="Create Production Order"
@@ -517,17 +519,17 @@ export default function ProductionQueueList({
 
       {/* Loading operations overlay - shows on top of table */}
       {loadingOps && (
-        <div className="absolute inset-0 bg-gray-900/80 flex items-center justify-center z-10 rounded-xl">
-          <div className="flex items-center gap-3 px-4 py-3 bg-gray-800 rounded-lg border border-gray-700 shadow-lg">
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
-            <span className="text-gray-300 text-sm font-medium">Loading operation details...</span>
+        <div className="absolute inset-0 bg-[var(--paper)]/80 flex items-center justify-center z-10 rounded-xl">
+          <div className="flex items-center gap-3 px-4 py-3 bg-[var(--paper)] rounded-lg border border-[var(--rule-hair)] shadow-[var(--shadow-pop)]">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-[var(--orange)] border-t-transparent"></div>
+            <span className="text-[var(--ink-2)] text-sm font-medium">Loading operation details...</span>
           </div>
         </div>
       )}
 
       {/* Summary footer */}
       {sortedOrders.length > 0 && (
-        <div className="px-4 py-3 border-t border-gray-800 text-sm text-gray-500 flex justify-between">
+        <div className="px-4 py-3 border-t border-[var(--rule-hair)] text-sm text-[var(--ink-4)] flex justify-between">
           <span>{sortedOrders.length} order{sortedOrders.length !== 1 ? 's' : ''}</span>
           <span>
             {sortedOrders.filter(o => o.status === 'in_progress').length} in progress

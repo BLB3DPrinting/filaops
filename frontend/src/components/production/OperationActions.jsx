@@ -69,11 +69,11 @@ function StartButton({ operation, productionOrderId, onSuccess, onError }) {
         handleStart();
       }}
       disabled={loading}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-600/30 disabled:opacity-50 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--orange)] text-white border border-transparent rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 transition-colors"
     >
       {loading ? (
         <>
-          <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-400"></div>
+          <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
           Checking...
         </>
       ) : (
@@ -100,7 +100,7 @@ function CompleteButton({ operation, onClick }) {
         e.stopPropagation();
         onClick?.();
       }}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-600/20 text-green-400 border border-green-500/30 rounded-lg hover:bg-green-600/30 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--orange)] text-white border border-transparent rounded-lg hover:bg-[var(--orange-press)] transition-colors"
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -120,7 +120,7 @@ function SkipButton({ onClick }) {
         e.stopPropagation();
         onClick?.();
       }}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-yellow-600/20 text-yellow-400 border border-yellow-500/30 rounded-lg hover:bg-yellow-600/30 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--paper-sunk)] text-[var(--ink-2)] border border-[var(--rule-hair)] rounded-lg hover:text-[var(--ink)] transition-colors"
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -140,7 +140,7 @@ function ScrapButton({ onClick }) {
         e.stopPropagation();
         onClick?.();
       }}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-red-600/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-600/30 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--status-red-tint)] text-[var(--status-red)] border border-[var(--status-red)]/30 rounded-lg hover:bg-[var(--status-red)]/20 transition-colors"
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

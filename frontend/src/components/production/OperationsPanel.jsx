@@ -90,18 +90,18 @@ function OperationsSummary({ operations }) {
   }, 0);
 
   return (
-    <div className="flex items-center justify-between text-sm border-t border-gray-800 pt-3 mt-3">
+    <div className="flex items-center justify-between text-sm border-t border-[var(--rule-hair)] pt-3 mt-3">
       <div className="flex items-center gap-4">
-        <span className="text-gray-500">
+        <span className="text-[var(--ink-4)]">
           {completed + skipped}/{operations.length} complete
         </span>
         {running > 0 && (
-          <span className="text-purple-400">
+          <span className="text-[var(--status-amber)]">
             ● {running} running
           </span>
         )}
       </div>
-      <div className="flex items-center gap-4 text-gray-500">
+      <div className="flex items-center gap-4 text-[var(--ink-4)]">
         {elapsedMinutes > 0 && (
           <span>{formatDuration(elapsedMinutes)} elapsed</span>
         )}
@@ -120,8 +120,8 @@ function EmptyOperations({ orderStatus }) {
   if (orderStatus === 'draft') {
     return (
       <div className="text-center py-8">
-        <div className="text-gray-500 mb-2">No operations yet</div>
-        <div className="text-sm text-gray-600">
+        <div className="text-[var(--ink-3)] mb-2">No operations yet</div>
+        <div className="text-sm text-[var(--ink-4)]">
           Operations will be generated when the order is released
         </div>
       </div>
@@ -130,8 +130,8 @@ function EmptyOperations({ orderStatus }) {
 
   return (
     <div className="text-center py-8">
-      <div className="text-gray-500 mb-2">No operations defined</div>
-      <div className="text-sm text-gray-600">
+      <div className="text-[var(--ink-3)] mb-2">No operations defined</div>
+      <div className="text-sm text-[var(--ink-4)]">
         This product may not have a routing configured
       </div>
     </div>
@@ -223,14 +223,14 @@ export default function OperationsPanel({ productionOrderId, productionOrder, or
   const activeOperation = operations.find(op => op.status === 'running');
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-6 shadow-[var(--shadow-pop)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Operations</h2>
+        <h2 className="text-lg font-semibold text-[var(--ink)]">Operations</h2>
         <button
           onClick={handleRefresh}
           disabled={loading}
-          className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+          className="text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors disabled:opacity-50"
           title="Refresh"
         >
           <svg
@@ -251,15 +251,15 @@ export default function OperationsPanel({ productionOrderId, productionOrder, or
 
       {/* Error state */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
-          <p className="text-red-400 text-sm">{error}</p>
+        <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3 mb-4">
+          <p className="text-[var(--status-red)] text-sm">{error}</p>
         </div>
       )}
 
       {/* Loading state */}
       {loading && operations.length === 0 && (
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
         </div>
       )}
 

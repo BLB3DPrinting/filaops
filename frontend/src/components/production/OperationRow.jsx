@@ -14,33 +14,33 @@ import OperationActions from './OperationActions';
 function StatusIndicator({ status }) {
   const configs = {
     pending: {
-      color: 'text-gray-400',
-      bgColor: 'bg-gray-500/20',
+      color: 'text-[var(--ink-4)]',
+      bgColor: 'bg-[var(--paper-sunk)]',
       icon: '○',
       label: 'Pending'
     },
     queued: {
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/20',
+      color: 'text-[var(--ink-3)]',
+      bgColor: 'bg-[var(--paper-sunk)]',
       icon: '◐',
       label: 'Queued'
     },
     running: {
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-500/20',
+      color: 'text-[var(--status-amber)]',
+      bgColor: 'bg-[var(--status-amber-tint)]',
       icon: '●',
       label: 'Running',
       pulse: true
     },
     complete: {
-      color: 'text-green-400',
-      bgColor: 'bg-green-500/20',
+      color: 'text-[var(--status-green)]',
+      bgColor: 'bg-[var(--status-green-tint)]',
       icon: '●',
       label: 'Complete'
     },
     skipped: {
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-500/20',
+      color: 'text-[var(--status-amber)]',
+      bgColor: 'bg-[var(--status-amber-tint)]',
       icon: '⊘',
       label: 'Skipped'
     }
@@ -115,7 +115,7 @@ function TimingDisplay({ operation }) {
     // Show actual time
     const actualMinutes = (operation.actual_setup_minutes || 0) + (operation.actual_run_minutes || 0);
     return (
-      <span className="text-green-400 text-sm">
+      <span className="text-[var(--status-green)] text-sm">
         {formatDuration(actualMinutes)}
       </span>
     );
@@ -125,16 +125,16 @@ function TimingDisplay({ operation }) {
     // Show elapsed time (calculate from actual_start)
     if (operation.actual_start) {
       return (
-        <span className="text-purple-400 text-sm font-mono">
+        <span className="text-[var(--status-amber)] text-sm font-mono">
           {formatDuration(elapsedMinutes)}
         </span>
       );
     }
-    return <span className="text-purple-400 text-sm">Starting...</span>;
+    return <span className="text-[var(--status-amber)] text-sm">Starting...</span>;
   }
 
   if (operation.status === 'skipped') {
-    return <span className="text-yellow-400 text-sm">—</span>;
+    return <span className="text-[var(--status-amber)] text-sm">—</span>;
   }
 
   // Pending - show estimate (API returns Numeric columns as strings; use parseFloat)
@@ -142,13 +142,13 @@ function TimingDisplay({ operation }) {
   const planned = toMin(operation.planned_setup_minutes) + toMin(operation.planned_run_minutes);
   if (planned > 0) {
     return (
-      <span className="text-gray-500 text-sm">
+      <span className="text-[var(--ink-4)] text-sm">
         Est: {formatDuration(planned)}
       </span>
     );
   }
 
-  return <span className="text-gray-600 text-sm">—</span>;
+  return <span className="text-[var(--ink-4)] text-sm">—</span>;
 }
 
 /**
@@ -171,8 +171,8 @@ export default function OperationRow({
     <div
       className={`
         group p-3 rounded-lg border transition-all
-        ${isActive ? 'border-purple-500/50 bg-purple-500/5' : 'border-gray-800 bg-gray-900/50'}
-        ${isClickable ? 'cursor-pointer hover:border-gray-700 hover:bg-gray-800/50' : ''}
+        ${isActive ? 'border-[var(--status-amber)]/50 bg-[var(--status-amber-tint)]' : 'border-[var(--rule-hair)] bg-[var(--paper)]'}
+        ${isClickable ? 'cursor-pointer hover:border-[var(--rule-hair)] hover:bg-[var(--paper-sunk)]' : ''}
         ${operation.status === 'complete' ? 'opacity-75' : ''}
         ${operation.status === 'skipped' ? 'opacity-50' : ''}
       `}
@@ -182,29 +182,29 @@ export default function OperationRow({
         {/* Left: Sequence, Code, Name */}
         <div className="flex items-center gap-3">
           {/* Sequence number */}
-          <span className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-800 text-gray-400 text-sm font-mono">
+          <span className="w-8 h-8 flex items-center justify-center rounded-full bg-[var(--paper-sunk)] text-[var(--ink-3)] text-sm font-mono">
             {operation.sequence}
           </span>
 
           {/* Operation info */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-white font-medium">
+              <span className="text-[var(--ink)] font-medium">
                 {operation.operation_code || `Op ${operation.sequence}`}
               </span>
               {operation.operation_name && (
                 <>
-                  <span className="text-gray-600">—</span>
-                  <span className="text-gray-400">{operation.operation_name}</span>
+                  <span className="text-[var(--ink-4)]">—</span>
+                  <span className="text-[var(--ink-3)]">{operation.operation_name}</span>
                 </>
               )}
             </div>
 
             {/* Work center / resource */}
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-xs text-[var(--ink-4)] mt-0.5">
               {operation.work_center_name || operation.work_center_code || 'Unassigned'}
               {operation.resource_name && (
-                <span className="text-gray-600"> → {operation.resource_name}</span>
+                <span className="text-[var(--ink-4)]"> → {operation.resource_name}</span>
               )}
             </div>
           </div>
@@ -219,11 +219,11 @@ export default function OperationRow({
 
       {/* Expanded details for running operation */}
       {operation.status === 'running' && (
-        <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
-          <div className="text-xs text-gray-500">
+        <div className="mt-3 pt-3 border-t border-[var(--rule-hair)] flex items-center justify-between">
+          <div className="text-xs text-[var(--ink-4)]">
             Started: {operation.actual_start ? formatTime(operation.actual_start) : 'Just now'}
           </div>
-          <div className="text-xs text-purple-400">
+          <div className="text-xs text-[var(--status-amber)]">
             ● In Progress
           </div>
         </div>
@@ -231,27 +231,27 @@ export default function OperationRow({
 
       {/* Materials required for this operation */}
       {operation.materials && operation.materials.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-800">
-          <div className="text-xs text-gray-500 mb-2">Materials:</div>
+        <div className="mt-3 pt-3 border-t border-[var(--rule-hair)]">
+          <div className="text-xs text-[var(--ink-4)] mb-2">Materials:</div>
           <div className="space-y-1">
             {operation.materials.map((mat) => (
               <div key={mat.id} className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400">{mat.component_sku || mat.component_name}</span>
+                  <span className="text-[var(--ink-3)]">{mat.component_sku || mat.component_name}</span>
                   {mat.component_name && mat.component_sku && (
-                    <span className="text-gray-600">- {mat.component_name}</span>
+                    <span className="text-[var(--ink-4)]">- {mat.component_name}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={mat.status === 'consumed' ? 'text-green-400' : 'text-gray-400'}>
+                  <span className={mat.status === 'consumed' ? 'text-[var(--status-green)]' : 'text-[var(--ink-3)]'}>
                     {mat.status === 'consumed'
                       ? `${Number(mat.quantity_consumed).toFixed(2)} ${mat.unit}`
                       : `${Number(mat.quantity_required).toFixed(2)} ${mat.unit}`}
                   </span>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                    mat.status === 'consumed' ? 'bg-green-500/20 text-green-400' :
-                    mat.status === 'allocated' ? 'bg-blue-500/20 text-blue-400' :
-                    'bg-gray-700 text-gray-400'
+                    mat.status === 'consumed' ? 'bg-[var(--status-green-tint)] text-[var(--status-green)]' :
+                    mat.status === 'allocated' ? 'bg-[var(--paper-sunk)] text-[var(--ink-2)]' :
+                    'bg-[var(--paper-sunk)] text-[var(--ink-3)]'
                   }`}>
                     {mat.status}
                   </span>
@@ -264,7 +264,7 @@ export default function OperationRow({
 
       {/* Show skip reason if skipped */}
       {operation.status === 'skipped' && operation.notes && (
-        <div className="mt-2 text-xs text-yellow-400/70 italic">
+        <div className="mt-2 text-xs text-[var(--status-amber)]/70 italic">
           Skipped: {operation.notes}
         </div>
       )}

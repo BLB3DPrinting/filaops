@@ -61,12 +61,12 @@ export default function ShortageModal({
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Order Short" disableClose={creating} className="w-full max-w-md mx-4">
+    <Modal isOpen={isOpen} onClose={onClose} title="Order Short" variant="workbench" disableClose={creating} className="w-full max-w-md mx-4">
         {/* Header */}
-        <div className="flex items-center gap-3 p-6 border-b border-gray-800">
-          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-orange-500/20">
+        <div className="flex items-center gap-3 p-6 border-b border-[var(--rule-hair)]">
+          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[var(--status-amber-tint)]">
             <svg
-              className="w-6 h-6 text-orange-400"
+              className="w-6 h-6 text-[var(--status-amber)]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -80,26 +80,26 @@ export default function ShortageModal({
             </svg>
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-white">Order Short</h2>
-            <p className="text-sm text-gray-400">{poCode}</p>
+            <h2 className="text-xl font-semibold text-[var(--ink)]">Order Short</h2>
+            <p className="text-sm text-[var(--ink-3)]">{poCode}</p>
           </div>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-4">
           {/* Shortage Summary */}
-          <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
+          <div className="bg-[var(--paper-sunk)] rounded-lg p-4 space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Ordered</span>
-              <span className="text-white font-mono">{quantityOrdered}</span>
+              <span className="text-[var(--ink-3)]">Ordered</span>
+              <span className="text-[var(--ink)] font-mono">{quantityOrdered}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Completed</span>
-              <span className="text-green-400 font-mono">{quantityCompleted}</span>
+              <span className="text-[var(--ink-3)]">Completed</span>
+              <span className="text-[var(--status-green)] font-mono">{quantityCompleted}</span>
             </div>
-            <div className="border-t border-gray-700 pt-2 flex justify-between text-sm">
-              <span className="text-orange-400 font-medium">Short</span>
-              <span className="text-orange-400 font-mono font-medium">
+            <div className="border-t border-[var(--rule-hair)] pt-2 flex justify-between text-sm">
+              <span className="text-[var(--status-amber)] font-medium">Short</span>
+              <span className="text-[var(--status-amber)] font-mono font-medium">
                 {quantityShort}
               </span>
             </div>
@@ -107,9 +107,9 @@ export default function ShortageModal({
 
           {/* Sales Order Warning */}
           {salesOrderCode && (
-            <div className="flex items-start gap-2 text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+            <div className="flex items-start gap-2 text-sm bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3">
               <svg
-                className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5"
+                className="w-5 h-5 text-[var(--ink-3)] flex-shrink-0 mt-0.5"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -122,7 +122,7 @@ export default function ShortageModal({
                 />
               </svg>
               <div>
-                <span className="text-blue-300">
+                <span className="text-[var(--ink-2)]">
                   Sales Order <span className="font-mono font-medium">{salesOrderCode}</span> requires{' '}
                   <span className="font-medium">{quantityShort} more</span> to fulfill.
                 </span>
@@ -132,8 +132,8 @@ export default function ShortageModal({
 
           {/* Error */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-              <p className="text-red-400 text-sm">{error}</p>
+            <div className="bg-[var(--status-red-tint)] border border-[var(--status-red)]/30 rounded-lg p-3">
+              <p className="text-[var(--status-red)] text-sm">{error}</p>
             </div>
           )}
 
@@ -141,14 +141,14 @@ export default function ShortageModal({
           <div className="flex gap-3 pt-2">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              className="flex-1 px-4 py-2 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink-2)] hover:text-[var(--ink)] rounded-lg transition-colors"
             >
               Dismiss
             </button>
             <button
               onClick={handleCreateReplacement}
               disabled={creating}
-              className="flex-1 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               {creating ? 'Creating...' : `Create Replacement (${quantityShort})`}
             </button>
