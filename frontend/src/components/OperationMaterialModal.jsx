@@ -323,8 +323,9 @@ export default function OperationMaterialModal({
               )}
             </div>
 
-            {/* Quantity */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Quantity — collapses to one column in simple mode so the
+                hidden "Per" field doesn't leave a blank half-row. */}
+            <div className={simpleFields ? "grid grid-cols-1 gap-4" : "grid grid-cols-2 gap-4"}>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Quantity *
@@ -356,8 +357,9 @@ export default function OperationMaterialModal({
               )}
             </div>
 
-            {/* Unit and Scrap Factor */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Unit and Scrap Factor — same single-column collapse in
+                simple mode (Scrap Factor is hidden there). */}
+            <div className={simpleFields ? "grid grid-cols-1 gap-4" : "grid grid-cols-2 gap-4"}>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Unit
