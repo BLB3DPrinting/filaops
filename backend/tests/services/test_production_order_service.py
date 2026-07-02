@@ -2510,7 +2510,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2549,7 +2551,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2611,7 +2615,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2652,7 +2658,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
@@ -2742,7 +2750,9 @@ class TestRecordScrap:
             try:
                 real_flush(*a, **kw)
             except Exception:
-                pass
+                # ScrapRecord is mocked (not ORM-persistent), so real_flush can
+                # raise here; swallowing it is intentional for this patched path.
+                return None
 
         with patch(
             "app.services.production_order_service.ScrapRecord",
