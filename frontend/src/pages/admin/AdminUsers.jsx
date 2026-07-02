@@ -2,7 +2,14 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useCRUD } from "../../hooks/useCRUD";
 import { useToast } from "../../components/Toast";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import Modal from "../../components/Modal";
+
+// Community installs allow a single active staff seat; PRO/enterprise are
+// unlimited. Mirrors backend app/core/seat_limits.py (community cap = 1). The
+// backend is the real gate (enforce_seat_cap, PR-D2 #862) — this constant only
+// drives the FE seat banner / Add-User affordance.
+const COMMUNITY_SEAT_CAP = 1;
 
 // Role options
 const ROLE_OPTIONS = [
@@ -30,6 +37,7 @@ const STATUS_OPTIONS = [
 export default function AdminUsers() {
   const toast = useToast();
   const api = useApi();
+  const { isPro } = useFeatureFlags();
   const {
     items: users,
     loading,
@@ -84,6 +92,13 @@ export default function AdminUsers() {
     ).length,
     inactive: users.filter((u) => u.status !== "active").length,
   };
+
+  // Seat usage — active staff seats (admin + operator). On a capped community
+  // tier we surface the 1-seat limit and disable "Add User" at cap; PRO is
+  // unlimited so no banner. The backend still enforces the cap regardless
+  // (enforce_seat_cap #862) — this is upsell/awareness only.
+  const activeSeats = stats.admins + stats.operators;
+  const atSeatCap = !isPro && activeSeats >= COMMUNITY_SEAT_CAP;
 
   const getRoleStyle = (role) => {
     const found = ROLE_OPTIONS.find((r) => r.value === role);
@@ -190,11 +205,53 @@ export default function AdminUsers() {
             setEditingUser(null);
             setShowUserModal(true);
           }}
-          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500"
+          disabled={atSeatCap}
+          title={
+            atSeatCap
+              ? `Your plan allows ${COMMUNITY_SEAT_CAP} user${COMMUNITY_SEAT_CAP === 1 ? "" : "s"}. Upgrade to PRO to add team members.`
+              : undefined
+          }
+          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:from-blue-600 disabled:hover:to-purple-600"
         >
           + Add User
         </button>
       </div>
+
+      {/* Seat-cap banner — community allows 1 staff seat; PRO is unlimited. */}
+      {!isPro && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <svg
+              className="w-5 h-5 text-blue-400 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+            <p className="text-sm text-gray-300">
+              <span className="font-semibold text-white">
+                {activeSeats} of {COMMUNITY_SEAT_CAP} staff seat
+                {COMMUNITY_SEAT_CAP === 1 ? "" : "s"} used
+              </span>{" "}
+              — your plan allows {COMMUNITY_SEAT_CAP} user
+              {COMMUNITY_SEAT_CAP === 1 ? "" : "s"}. Upgrade to PRO for unlimited
+              team members.
+            </p>
+          </div>
+          <a
+            href="/pricing"
+            className="shrink-0 inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors text-center"
+          >
+            Upgrade to PRO
+          </a>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

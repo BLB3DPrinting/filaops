@@ -304,7 +304,9 @@ export default function App() {
                       path="analytics"
                       element={
                         <Suspense fallback={<PageLoader />}>
-                          <AdminAnalytics />
+                          <ProGate>
+                            <AdminAnalytics />
+                          </ProGate>
                         </Suspense>
                       }
                     />

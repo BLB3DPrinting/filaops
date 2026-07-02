@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
+import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 
 const AdminAnalytics = () => {
   const api = useApi();
+  const { hasFeature } = useFeatureFlags();
+  const hasAnalytics = hasFeature("reports_advanced");
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [days, setDays] = useState(30);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [days]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -21,17 +20,68 @@ const AdminAnalytics = () => {
       );
       setAnalytics(data);
     } catch (err) {
-      if (err.status === 402) {
-        // Tier required - user will see the Pro announcement
-        setLoading(false);
-        return;
-      }
       console.error("Analytics fetch error:", err);
       setError(err.message || "Failed to connect to analytics service");
     } finally {
       setLoading(false);
     }
-  };
+  }, [api, days]);
+
+  useEffect(() => {
+    // Don't call the (now gated) endpoint without the feature — the locked
+    // panel renders below regardless of loading state, so the request would
+    // only 402. Skipping the fetch leaves loading truthy, but !hasAnalytics
+    // is checked first so the locked panel wins.
+    if (!hasAnalytics) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Fetch-on-mount updates state after the async API response.
+    fetchAnalytics();
+  }, [hasAnalytics, fetchAnalytics]);
+
+  // PRO gate — Advanced Analytics (reports_advanced) is a wholly-PRO page.
+  // The /admin/analytics route is already wrapped in <ProGate> (redirects a
+  // non-PRO direct-URL visit to the License page), but we also lock the page
+  // itself on the feature so a PRO tier without reports_advanced sees the
+  // upsell rather than a 402-driven error. Locked-state shape mirrors
+  // AdminIntakeStudio.
+  if (!hasAnalytics) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Advanced Analytics</h1>
+          <p className="text-gray-400 mt-1">
+            Revenue, customer, product, and profit insights for your business
+          </p>
+        </div>
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6 text-center">
+          <svg
+            className="w-12 h-12 text-blue-400 mx-auto mb-3"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+            />
+          </svg>
+          <h3 className="text-lg font-semibold text-white mb-2">PRO Feature</h3>
+          <p className="text-gray-400 mb-4">
+            Advanced Analytics gives you revenue metrics with growth tracking,
+            top-customer and top-product analysis, profit margin calculations,
+            and customizable date ranges — all in one dashboard.
+          </p>
+          <a
+            href="/pricing"
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+          >
+            Upgrade to PRO
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="p-6 text-white">Loading analytics...</div>;
@@ -54,51 +104,6 @@ const AdminAnalytics = () => {
           >
             Retry
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (error?.includes("402") || error?.includes("tier")) {
-    return (
-      <div className="p-6 space-y-6">
-        <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-lg p-8 text-center">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Advanced Analytics
-          </h1>
-          <p className="text-gray-300 mb-6">
-            Get comprehensive insights into your business with revenue,
-            customer, product, and profit analytics.
-          </p>
-          <div className="bg-gray-800/50 rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-semibold text-white mb-4">
-              Available in FilaOps Pro
-            </h2>
-            <ul className="text-left text-gray-300 space-y-2 max-w-md mx-auto">
-              <li className="flex items-start">
-                <span className="text-green-400 mr-2">+</span>
-                <span>Revenue metrics with growth tracking</span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-green-400 mr-2">+</span>
-                <span>Top customers and products analysis</span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-green-400 mr-2">+</span>
-                <span>Profit margin calculations</span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-green-400 mr-2">+</span>
-                <span>Customizable date ranges</span>
-              </li>
-            </ul>
-          </div>
-          <p className="text-sm text-gray-400">
-            Learn more at{" "}
-            <a href="/pricing" className="text-blue-400 hover:text-blue-300 underline">
-              filaops.com/pricing
-            </a>
-          </p>
         </div>
       </div>
     );

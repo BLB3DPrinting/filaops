@@ -430,6 +430,18 @@ const navGroups = [
         label: "Analytics",
         icon: AnalyticsIcon,
       },
+      {
+        // Advanced Analytics (revenue/customer/product/profit dashboard) is a
+        // wholly-PRO page behind reports_advanced. It had a route + page but no
+        // nav entry — reachable only by typing the URL. Surface it badged so
+        // non-PRO sees the upgrade prompt instead of a hidden dead-end.
+        path: "/admin/analytics",
+        label: "Advanced Analytics",
+        icon: AnalyticsIcon,
+        adminOnly: true,
+        proOnly: true,
+        feature: "reports_advanced",
+      },
     ],
   },
   {
@@ -500,12 +512,20 @@ const navGroups = [
         label: "Intake Studio",
         icon: ProductionIcon,
         adminOnly: true,
+        // Intake Studio gates access on isPro at the page level (the
+        // intake_unified_flow flag only switches the UI variant, it is not
+        // the access gate), so this is proOnly with no feature filter —
+        // available to every PRO tier. This is the original PRO-leak audit
+        // finding (2026-07-01): the item was previously adminOnly-only.
+        proOnly: true,
       },
       {
         path: "/admin/intake-batch",
         label: "Intake Batch",
         icon: ProductionIcon,
         adminOnly: true,
+        // Same access model as Intake Studio — isPro page gate, no feature.
+        proOnly: true,
       },
     ],
   },
