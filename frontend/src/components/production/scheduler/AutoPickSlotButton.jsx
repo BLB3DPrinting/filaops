@@ -94,7 +94,7 @@ export default function AutoPickSlotButton({ operationId, productionOrderId, onS
       <button
         type="button"
         onClick={handleClick}
-        disabled={disabled || running || !operationId || flagsLoading}
+        disabled={disabled || running || !productionOrderId || flagsLoading}
         className="text-xs text-purple-400 hover:text-purple-300 border border-purple-500/30 hover:border-purple-400/50 rounded px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         title="Use the PRO auto-scheduler to find the optimal slot"
       >
