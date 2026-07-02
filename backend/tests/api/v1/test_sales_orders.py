@@ -119,6 +119,19 @@ class TestSalesOrderAuth:
         })
         assert response.status_code == 401
 
+    def test_list_shipping_events_requires_auth(self, unauthed_client):
+        """Regression: this was the sole router endpoint without an auth
+        dependency, exposing tracking/carrier/location by id enumeration."""
+        response = unauthed_client.get(f"{BASE_URL}/1/shipping-events")
+        assert response.status_code == 401
+
+    def test_add_shipping_event_requires_auth(self, unauthed_client):
+        response = unauthed_client.post(f"{BASE_URL}/1/shipping-events", json={
+            "event_type": "shipped",
+            "title": "Shipped",
+        })
+        assert response.status_code == 401
+
 
 # =============================================================================
 # Status Transitions Metadata

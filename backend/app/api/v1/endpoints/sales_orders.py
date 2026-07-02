@@ -1321,9 +1321,15 @@ async def list_shipping_events(
     order_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List shipping events for a sales order."""
+    """List shipping events for a sales order.
+
+    Requires authentication — this was the only endpoint in the router without
+    an auth dependency, so tracking numbers, carrier, and shipment locations
+    were readable unauthenticated by order-id enumeration.
+    """
     # Verify order exists (raises 404 if not found)
     sales_order_service.get_sales_order(db, order_id)
 
