@@ -657,6 +657,29 @@ class TestCompleteProductionOrder:
         assert response.json()["status"] == "complete"
 
 
+class TestQCInspectionEndpoint:
+    """Test POST /api/v1/production-orders/{id}/qc"""
+
+    def test_qc_conditional_result_accepted(self, client, db, make_product, make_bom):
+        """'conditional' is a valid QC result — the endpoint must bind it (A6).
+        It previously 422'd because QCStatus lacked the member, even though the
+        service and DB CHECK already accept it."""
+        fg, _, _ = _create_product_with_bom(make_product, make_bom, db)
+        order_data = _create_draft_order(client, fg.id)
+        client.post(f"{BASE_URL}/{order_data['id']}/release")
+        client.post(f"{BASE_URL}/{order_data['id']}/start")
+        client.post(
+            f"{BASE_URL}/{order_data['id']}/complete",
+            json={"quantity_completed": "10"},
+        )
+
+        response = client.post(
+            f"{BASE_URL}/{order_data['id']}/qc",
+            json={"result": "conditional", "notes": "Accepted with minor cosmetic deviation"},
+        )
+        assert response.status_code == 200, response.text
+
+
 # =============================================================================
 # Cancel -- POST /api/v1/production-orders/{id}/cancel
 # =============================================================================

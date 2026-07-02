@@ -153,6 +153,18 @@ def complete_production_order(
         except Exception as e:
             logger.warning("Actual cost recalculation failed for %s: %s", order.code, e)
 
+        # Advance the parent sales order (allocated qty + ready_to_ship once all
+        # its WOs are done). The per-operation completion path syncs this; the
+        # bulk-complete path (e.g. "Complete Production" on ProductionOrderDetail,
+        # and the only path for routing-less WOs) must too, or the SO is stranded
+        # in in_production and never becomes shippable. sync_on_production_complete
+        # is a no-op unless every sibling WO is complete, so it is safe here.
+        try:
+            from app.services.status_sync_service import sync_on_production_complete
+            sync_on_production_complete(db, order)
+        except Exception as e:
+            logger.error("Failed to sync sales order for %s: %s", order.code, e)
+
     if notes:
         if order.notes:
             order.notes = f"{order.notes}\n[{datetime.now(timezone.utc).isoformat()}] {notes}"

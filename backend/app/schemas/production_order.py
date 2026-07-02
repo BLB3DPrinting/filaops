@@ -60,6 +60,10 @@ class QCStatus(str, Enum):
     PASSED = "passed"
     FAILED = "failed"
     WAIVED = "waived"
+    # Accepted-with-conditions result. The service (_QC_RESULTS) and DB CHECK
+    # already accept it; the modal offers it — this member lets the API bind it
+    # instead of 422-ing a valid inspection result.
+    CONDITIONAL = "conditional"
 
 
 # ============================================================================
@@ -637,7 +641,7 @@ class QCInspectionRequest(BaseModel):
     """Request to perform QC inspection on a production order"""
     result: QCStatus = Field(
         ...,
-        description="QC result: 'passed' or 'failed'"
+        description="QC result: 'passed', 'failed', 'waived', or 'conditional'"
     )
     quantity_passed: Optional[int] = Field(
         None,

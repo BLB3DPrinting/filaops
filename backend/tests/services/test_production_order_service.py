@@ -1079,6 +1079,26 @@ class TestStartProductionOrder:
 class TestCompleteProductionOrder:
     """Test production order completion."""
 
+    def test_complete_syncs_parent_sales_order_to_ready_to_ship(
+        self, db, finished_good, make_sales_order
+    ):
+        """Bulk complete must advance the parent SalesOrder to ready_to_ship once
+        all its WOs are done — the per-operation path synced this, the bulk path
+        didn't, stranding routing-less orders in in_production (A5)."""
+        so = make_sales_order(
+            product_id=finished_good.id, quantity=5, status="in_production",
+        )
+        order = _make_production_order(
+            db, finished_good, status="in_progress", quantity=5, sales_order_id=so.id,
+        )
+        svc.complete_production_order(
+            db, order.id, "test@filaops.dev", quantity_good=5,
+        )
+        assert order.status == "complete"
+        # sync_on_production_complete mutates this same session instance; don't
+        # refresh (that would revert the un-flushed change to the stored value).
+        assert so.status == "ready_to_ship"
+
     def test_complete_in_progress_order(self, db, finished_good):
         """Should complete an in_progress order with full quantity."""
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
@@ -2816,6 +2836,35 @@ class TestRecordQCInspection:
         assert reloaded.qc_inspected_by == "Inspector Persist"
         assert reloaded.qc_notes == "All checks passed"
         assert reloaded.qc_inspected_at is not None
+
+    @pytest.mark.parametrize("release_result", ["passed", "waived", "conditional"])
+    def test_reinspection_releases_qc_hold_and_syncs_so(
+        self, db, finished_good, make_sales_order, release_result
+    ):
+        """A non-failed re-inspection releases a qc_hold WO back to 'complete' AND
+        re-syncs the parent SO — a sibling may have completed while this WO was
+        held, so releasing it is what makes the SO shippable (A4)."""
+        so = make_sales_order(
+            product_id=finished_good.id, quantity=10, status="in_production",
+        )
+        order = _make_production_order(
+            db, finished_good, status="in_progress", quantity=10, sales_order_id=so.id,
+        )
+        order.quantity_completed = 10
+        db.flush()
+        # Fail QC -> qc_hold; the parent SO is not advanced.
+        svc.record_qc_inspection(
+            db, order.id, inspector="Insp", qc_status="failed", quantity_failed=10,
+        )
+        assert order.status == "qc_hold"
+        assert so.status == "in_production"
+        # A non-failed re-inspection releases the WO and advances the SO.
+        svc.record_qc_inspection(
+            db, order.id, inspector="Insp", qc_status=release_result, quantity_passed=10,
+        )
+        assert order.status == "complete"
+        assert order.qc_status == release_result
+        assert so.status == "ready_to_ship"
 
     def test_record_failed_inspection_holds_order_without_autoscrap(self, db, finished_good):
         """A failed inspection holds the order for disposition but does NOT
