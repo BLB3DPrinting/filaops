@@ -23,7 +23,16 @@ from app.services import accounting_service
 
 # PRO gate (PR-D1): GL reporting + fiscal period close/reopen require the
 # "accounting" feature entitlement. Community installs have no features → 403.
-router = APIRouter(dependencies=[Depends(require_feature("accounting"))])
+# Auth runs FIRST so an anonymous request gets 401 (not authenticated) — it
+# must not learn that this is a PRO-gated feature. FastAPI caches identical
+# sub-dependencies per request, so also declaring get_current_admin_user on a
+# route does not re-execute it.
+router = APIRouter(
+    dependencies=[
+        Depends(get_current_admin_user),
+        Depends(require_feature("accounting")),
+    ]
+)
 
 
 # =============================================================================

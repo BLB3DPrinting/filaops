@@ -506,7 +506,14 @@ async def get_machine_availability(
 
 @router.post(
     "/auto-schedule",
-    dependencies=[Depends(require_feature("production_advanced"))],
+    # Auth runs FIRST so an anonymous request gets 401 (not authenticated) — it
+    # must not learn that this is a PRO-gated feature. FastAPI caches identical
+    # sub-dependencies per request, so the current_user param below does not
+    # re-execute get_current_user.
+    dependencies=[
+        Depends(get_current_user),
+        Depends(require_feature("production_advanced")),
+    ],
 )
 async def auto_schedule_order(
     order_id: int = Query(..., description="Production order ID"),

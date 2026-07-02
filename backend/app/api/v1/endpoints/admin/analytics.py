@@ -18,10 +18,17 @@ from app.services import analytics_service
 # PRO gate (PR-D1): advanced analytics require the "reports_advanced" feature
 # entitlement. Replaces the dormant @require_tier decorator (a no-op while
 # LICENSING_ENABLED was False). Community installs have no features → 403.
+# Auth runs FIRST so an anonymous request gets 401 (not authenticated) — it
+# must not learn that this is a PRO-gated feature. FastAPI caches identical
+# sub-dependencies per request, so also declaring get_current_admin_user on a
+# route does not re-execute it.
 router = APIRouter(
     prefix="/analytics",
     tags=["analytics"],
-    dependencies=[Depends(require_feature("reports_advanced"))],
+    dependencies=[
+        Depends(get_current_admin_user),
+        Depends(require_feature("reports_advanced")),
+    ],
 )
 
 

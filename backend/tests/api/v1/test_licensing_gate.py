@@ -90,6 +90,16 @@ class TestAccountingGate:
         resp = client.get(self.URL)
         assert resp.status_code != 403
 
+    def test_anonymous_returns_401_not_403(self, unauthed_client):
+        """Auth precedes the feature gate: an unauthenticated request must get
+        401 (not authenticated), never a PRO-specific 403 — anon callers must
+        not learn that this is a PRO-gated feature. The registry is empty here,
+        so if the gate ran before auth this would incorrectly be a 403.
+        """
+        assert plugin_registry.get_features() == []
+        resp = unauthed_client.get(self.URL)
+        assert resp.status_code == 401
+
 
 # ── Admin analytics router: require_feature("reports_advanced") ──────
 
