@@ -7,6 +7,7 @@ Provides endpoints for:
 - Auto-scheduling production orders
 """
 from datetime import datetime, timezone, timedelta
+from math import ceil
 from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -32,10 +33,13 @@ from app.services.resource_compatibility_service import (
 )
 from app.services.resource_scheduling import (
     TERMINAL_STATUSES,
+    MaintenanceWindowConflictError,
+    SequenceError,
     find_conflicts,
     find_next_available_slot,
     find_window_conflicts,
     get_resource_schedule,
+    schedule_operation,
 )
 
 router = APIRouter()
@@ -384,6 +388,8 @@ async def check_capacity(
     machine = _resolve_machine(db, request.resource_id, request.is_printer)
     start_time = _naive_utc(request.start_time)
     end_time = _naive_utc(request.end_time)
+    if end_time <= start_time:
+        raise HTTPException(status_code=422, detail="end_time must be after start_time")
 
     conflicts: List[ConflictInfo] = []
     for op in find_conflicts(
@@ -397,7 +403,7 @@ async def check_capacity(
         conflicts.append(ConflictInfo(
             type="operation",
             order_id=po.id if po else None,
-            order_code=po.code if po else "",
+            order_code=po.code if po else None,
             operation_id=op.id,
             operation_code=op.operation_code,
             start_time=op.scheduled_start.isoformat(),
@@ -415,7 +421,7 @@ async def check_capacity(
         conflicts.append(ConflictInfo(
             type="maintenance",
             order_id=None,
-            order_code="Maintenance window",
+            order_code=None,
             start_time=w.starts_at.isoformat(),
             end_time=w.ends_at.isoformat(),
             product_name=w.reason or "Scheduled downtime",
@@ -452,6 +458,8 @@ async def get_available_slots(
     _resolve_machine(db, resource_id, is_printer)
     start_date = _naive_utc(start_date)
     end_date = _naive_utc(end_date)
+    if end_date <= start_date:
+        raise HTTPException(status_code=422, detail="end_date must be after start_date")
 
     busy_periods = _busy_intervals(db, resource_id, start_date, end_date, is_printer)
 
@@ -506,6 +514,8 @@ async def get_machine_availability(
     """
     start_date = _naive_utc(start_date)
     end_date = _naive_utc(end_date)
+    if end_date <= start_date:
+        raise HTTPException(status_code=422, detail="end_date must be after start_date")
 
     query = db.query(Resource).filter(Resource.is_active == True)  # noqa: E712
 
@@ -624,7 +634,12 @@ async def auto_schedule_order(
     search_start = _naive_utc(preferred_start) if preferred_start else _naive_utc(
         datetime.now(timezone.utc)
     )
-    search_start = search_start.replace(minute=0, second=0, microsecond=0)
+    # Round UP to the next whole hour — flooring would move the search (and the
+    # resulting booking) earlier than the requested/current time.
+    rounded_start = search_start.replace(minute=0, second=0, microsecond=0)
+    if rounded_start != search_start:
+        rounded_start += timedelta(hours=1)
+    search_start = rounded_start
     search_end = search_start + timedelta(days=7)  # Search 7 days ahead
 
     # If order has due date, limit search to before due date
@@ -665,7 +680,9 @@ async def auto_schedule_order(
         slot = find_next_available_slot(
             db,
             resource_id=resource.id,
-            duration_minutes=int(estimated_hours * 60),
+            # Round UP: truncating would accept a gap shorter than the actual
+            # scheduled duration (candidate_end uses the exact hours).
+            duration_minutes=ceil(estimated_hours * 60),
             after=search_start,
             is_printer=False,
         )
@@ -700,8 +717,57 @@ async def auto_schedule_order(
             detail=detail
         )
 
-    # Schedule the order
     scheduled_end = best_slot + timedelta(hours=estimated_hours)
+
+    # Persist the booking on the operation plane — the plane every conflict /
+    # capacity read uses. Writing only the order-level columns would leave this
+    # booking invisible to the next capacity check or auto-schedule call
+    # (self-double-booking). Ops are placed back-to-back in sequence order
+    # inside the validated gap; schedule_operation re-validates conflicts,
+    # maintenance windows, and predecessor sequencing per op.
+    schedulable_ops = [
+        op for op in sorted(order.operations, key=lambda o: o.sequence)
+        if op.status not in TERMINAL_STATUSES and op.scheduled_start is None
+    ]
+    if schedulable_ops:
+        # Per-op share of the whole-order estimate, proportional to planned
+        # minutes (identical to planned minutes when the estimate came from
+        # them); an even split when no op carries planned time. Totals exactly
+        # estimated_hours, the size find_next_available_slot validated.
+        total_planned = sum(
+            float(op.planned_setup_minutes or 0) + float(op.planned_run_minutes or 0)
+            for op in schedulable_ops
+        )
+        cursor = best_slot
+        try:
+            for op in schedulable_ops:
+                planned = float(op.planned_setup_minutes or 0) + float(op.planned_run_minutes or 0)
+                if total_planned > 0:
+                    share_hours = estimated_hours * (planned / total_planned)
+                else:
+                    share_hours = estimated_hours / len(schedulable_ops)
+                op_end = cursor + timedelta(hours=share_hours)
+                ok, op_conflicts = schedule_operation(
+                    db, op, best_resource.id, cursor, op_end, is_printer=False
+                )
+                if not ok:
+                    codes = ", ".join(
+                        c.production_order.code if c.production_order else str(c.id)
+                        for c in op_conflicts
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Slot was taken while scheduling: conflicts with {codes}",
+                    )
+                cursor = op_end
+        except (SequenceError, MaintenanceWindowConflictError) as e:
+            raise HTTPException(status_code=409, detail=str(e))
+    # else: routing-less order — no operation rows exist to book; the order-
+    # level columns below are the only representation (matching how such
+    # orders are scheduled everywhere else).
+
+    # Order-level envelope kept for legacy readers (PO detail/list responses,
+    # CompleteOrderModal display).
     order.scheduled_start = best_slot
     order.scheduled_end = scheduled_end
     order.assigned_to = best_resource.code

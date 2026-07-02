@@ -353,10 +353,12 @@ class TestAutoSchedule:
         resource = _make_resource(db, wc.id)
         busy_po = make_production_order(product_id=make_product().id)
         t0 = _tomorrow_midnight()
+        # auto_schedule_order searches a 7-day horizon from preferred_start;
+        # block far past it so the 409 path holds even if the horizon grows.
         _make_operation(
             db, busy_po.id, wc.id,
             resource_id=resource.id,
-            scheduled_start=t0, scheduled_end=t0 + timedelta(days=8),
+            scheduled_start=t0, scheduled_end=t0 + timedelta(days=30),
         )
         target_po = make_production_order(product_id=make_product().id)
         db.flush()
@@ -370,3 +372,80 @@ class TestAutoSchedule:
             },
         )
         assert response.status_code == 409, response.text
+
+    def test_booking_lands_on_operation_rows(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        """Auto-schedule must persist on the operation plane — the plane every
+        conflict/capacity read uses — or its own booking is invisible to the
+        next call (self-double-booking)."""
+        wc = make_work_center()
+        resource = _make_resource(db, wc.id)
+        po = make_production_order(product_id=make_product().id)
+        t0 = _tomorrow_midnight()
+        op1 = _make_operation(
+            db, po.id, wc.id, sequence=10, status="pending", planned_run_minutes=60,
+        )
+        op2 = _make_operation(
+            db, po.id, wc.id, sequence=20, status="pending", planned_run_minutes=120,
+        )
+        db.flush()
+
+        response = client.post(
+            f"{BASE_URL}/auto-schedule",
+            params={
+                "order_id": po.id,
+                "preferred_start": _z(t0),
+                "work_center_id": wc.id,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        # Ops booked back-to-back in sequence order on the chosen machine.
+        db.refresh(op1)
+        db.refresh(op2)
+        assert op1.status == "queued" and op2.status == "queued"
+        assert op1.resource_id == resource.id and op2.resource_id == resource.id
+        assert op1.scheduled_start == t0
+        assert op1.scheduled_end == op2.scheduled_start
+        assert op2.scheduled_end == t0 + timedelta(hours=3)
+
+        # And the booking is visible to the capacity plane.
+        check = client.post(
+            f"{BASE_URL}/capacity/check",
+            json={
+                "resource_id": resource.id,
+                "start_time": _z(t0),
+                "end_time": _z(t0 + timedelta(hours=3)),
+            },
+        )
+        assert check.status_code == 200
+        assert check.json()["has_capacity"] is False
+
+    def test_second_auto_schedule_sees_first(
+        self, client, db, make_product, make_production_order, make_work_center
+    ):
+        """Two consecutive auto-schedules on one machine must not overlap —
+        the regression the op-plane persistence exists to prevent."""
+        wc = make_work_center()
+        _make_resource(db, wc.id)
+        t0 = _tomorrow_midnight()
+        po_a = make_production_order(product_id=make_product().id)
+        po_b = make_production_order(product_id=make_product().id)
+        _make_operation(db, po_a.id, wc.id, status="pending", planned_run_minutes=120)
+        _make_operation(db, po_b.id, wc.id, status="pending", planned_run_minutes=120)
+        db.flush()
+
+        first = client.post(
+            f"{BASE_URL}/auto-schedule",
+            params={"order_id": po_a.id, "preferred_start": _z(t0), "work_center_id": wc.id},
+        )
+        second = client.post(
+            f"{BASE_URL}/auto-schedule",
+            params={"order_id": po_b.id, "preferred_start": _z(t0), "work_center_id": wc.id},
+        )
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        first_end = datetime.fromisoformat(first.json()["scheduled_end"])
+        second_start = datetime.fromisoformat(second.json()["scheduled_start"])
+        assert second_start >= first_end

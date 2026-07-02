@@ -18,10 +18,11 @@ class CapacityCheckRequest(BaseModel):
 
 class ConflictInfo(BaseModel):
     """Information about a scheduling conflict"""
-    # "operation" or "maintenance" — maintenance-window conflicts carry no order.
+    # "operation" or "maintenance" — maintenance-window conflicts carry no
+    # order, so the order fields are all optional.
     type: str = "operation"
     order_id: Optional[int] = None
-    order_code: str
+    order_code: Optional[str] = None
     operation_id: Optional[int] = None
     operation_code: Optional[str] = None
     start_time: str
