@@ -21,6 +21,7 @@ from app.models.user import User, RefreshToken
 from app.api.v1.deps import get_current_admin_user
 from app.core.security import hash_password
 from app.core.features import enforce_resource_limit, get_current_tier
+from app.core.seat_limits import enforce_seat_cap, STAFF_ACCOUNT_TYPES
 from app.logging_config import get_logger
 from app.schemas.user_admin import (
     AdminUserCreate,
@@ -66,7 +67,7 @@ async def list_admin_users(
     Admin only.
     """
     query = db.query(User).filter(
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     )
     
     # Filter by account type
@@ -124,7 +125,7 @@ async def get_user_stats(
     ).count()
 
     total_inactive = db.query(User).filter(
-        User.account_type.in_(["admin", "operator"]),
+        User.account_type.in_(STAFF_ACCOUNT_TYPES),
         User.status != "active"
     ).count()
 
@@ -153,7 +154,7 @@ async def get_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -193,9 +194,11 @@ async def create_admin_user(
 
     Note: Subject to tier limits. Community tier allows 1 user (the initial admin).
     """
-    # Check tier limits before creating
+    # Legacy tier-limit hook (dormant unless features.LICENSING_ENABLED is on;
+    # owned by a separate change). Kept for continuity — real enforcement is
+    # enforce_seat_cap() just before db.add() below.
     current_user_count = db.query(User).filter(
-        User.account_type.in_(["admin", "operator"]),
+        User.account_type.in_(STAFF_ACCOUNT_TYPES),
         User.status == "active"
     ).count()
 
@@ -209,12 +212,23 @@ async def create_admin_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     # Hash password
     password_hashed = hash_password(request.password)
-    
+
     now = datetime.now(timezone.utc)
-    
+
+    # Multi-user seat cap: community allows 1 active staff seat, PRO/enterprise
+    # unlimited. Reads the live tier from plugin_registry. Blocks only the NEW
+    # seat over the cap — never affects existing users (grandfathered).
+    # Placed LAST before db.add() (CodeRabbit #862): on capped tiers this takes
+    # a transaction-scoped advisory lock held until commit, so it must not sit
+    # above the email lookup / bcrypt hashing — that would serialize concurrent
+    # creates through the slowest part of the handler. It must still run BEFORE
+    # db.add(): the session would autoflush the pending user into the seat
+    # count and off-by-one every create.
+    enforce_seat_cap(db)
+
     user = User(
         email=request.email,
         password_hash=password_hashed,
@@ -275,7 +289,7 @@ async def update_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -319,7 +333,14 @@ async def update_admin_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
             )
-    
+
+    # Multi-user seat cap: block activating a currently-inactive staff user via
+    # PATCH status='active' if it would exceed the tier's active-staff cap.
+    # Only fires on an inactive->active transition, so editing an already-active
+    # user is unaffected (grandfathered). Exclude this user from the count.
+    if request.status == "active" and user.status != "active":
+        enforce_seat_cap(db, exclude_user_id=user.id)
+
     # Update fields
     update_data = request.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -375,7 +396,7 @@ async def reset_user_password(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -431,7 +452,7 @@ async def deactivate_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -506,7 +527,7 @@ async def reactivate_admin_user(
     """
     user = db.query(User).filter(
         User.id == user_id,
-        User.account_type.in_(["admin", "operator"])
+        User.account_type.in_(STAFF_ACCOUNT_TYPES)
     ).first()
     
     if not user:
@@ -520,7 +541,12 @@ async def reactivate_admin_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User is already active"
         )
-    
+
+    # Multi-user seat cap: reactivating adds one active staff seat. Block if it
+    # would exceed the tier cap (community=1, PRO/enterprise unlimited). Exclude
+    # this user from the count. Grandfathered — never touches other users.
+    enforce_seat_cap(db, exclude_user_id=user.id)
+
     user.status = "active"
     user.updated_by = current_admin.id
     user.updated_at = datetime.now(timezone.utc)
