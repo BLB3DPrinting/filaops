@@ -74,13 +74,22 @@ const materialSignatureKey = (filamentType, colorHex) =>
  * page here would create a page↔panel import cycle), but keyed by material
  * signature instead of a single slot_id: a signature spans every plate that
  * uses that exact color, so one pick here maps ALL of them at once.
+ *
+ * Type→color staging: picking a TYPE alone does NOT commit a mapping (an
+ * auto-committed "first color of the type" would be an arbitrary spool) —
+ * the type is staged locally and any prior pick for this signature is
+ * cleared, so the signature only counts as mapped after an EXPLICIT color
+ * selection. The one exception: a type with exactly ONE purchasable color
+ * is committed immediately, since that pick is unambiguous.
  * @param {object} props
  * @param {string|null} props.filamentType - the signature's slicer type.
  * @param {string|null} props.colorHex - the signature's #RRGGBB color.
  * @param {Array<object>} props.items - the purchasable catalog (/materials/for-bom).
  * @param {object|undefined} props.chosen - the currently-mapped catalog item
- *   for this signature (the raw /materials/for-bom item, or undefined).
- * @param {(item: object) => void} props.onPick - called with the picked catalog item.
+ *   for this signature (the raw /materials/for-bom item, null/undefined when
+ *   unmapped or a multi-color type is staged awaiting its color pick).
+ * @param {(item: object|null) => void} props.onPick - called with the picked
+ *   catalog item, or null to clear the mapping while a type is staged.
  * @returns {JSX.Element}
  */
 function MaterialSignatureRow({
@@ -90,6 +99,11 @@ function MaterialSignatureRow({
   chosen,
   onPick,
 }) {
+  // The type the operator picked but hasn't confirmed with a color yet.
+  // Only meaningful while `chosen` is null — a committed pick's own
+  // material_code takes over as soon as a color is selected.
+  const [stagedType, setStagedType] = useState("");
+
   // Distinct material types present in the catalog.
   const typeOptions = [];
   const seenTypes = new Set();
@@ -102,8 +116,9 @@ function MaterialSignatureRow({
 
   // `chosen` IS a catalog item (materialMap stores the picked item directly,
   // unlike matchChoices' { product_id, sku, name } shape), so its own
-  // material_code drives the selected type — no re-lookup needed.
-  const selectedType = chosen?.material_code || "";
+  // material_code drives the selected type once a pick is committed; before
+  // that, the locally-staged type drives the color dropdown.
+  const selectedType = chosen?.material_code || stagedType;
 
   // Colors available for the selected type.
   const colorOptions = items
@@ -115,9 +130,25 @@ function MaterialSignatureRow({
       color_hex: it.color_hex,
     }));
 
-  const pickFirstColorForType = (typeCode) => {
-    const first = items.find((it) => it.material_code === typeCode);
-    if (first) onPick(first);
+  const handleTypePick = (typeCode) => {
+    // Re-selecting the committed pick's own type is a no-op — don't throw
+    // away an explicit color choice the operator already made.
+    if (chosen && chosen.material_code === typeCode) {
+      setStagedType("");
+      return;
+    }
+    const typeItems = items.filter((it) => it.material_code === typeCode);
+    if (typeItems.length === 1) {
+      // Exactly one purchasable color for this type — unambiguous, commit.
+      setStagedType("");
+      onPick(typeItems[0]);
+      return;
+    }
+    // Multiple colors: stage the type and CLEAR any prior pick, so the
+    // signature can't count as mapped (and Create can't enable) until the
+    // operator explicitly chooses which color/spool this signature means.
+    setStagedType(typeCode);
+    onPick(null);
   };
 
   return (
@@ -143,7 +174,7 @@ function MaterialSignatureRow({
           <SearchableSelect
             options={typeOptions}
             value={selectedType}
-            onChange={(val) => pickFirstColorForType(val)}
+            onChange={(val) => handleTypePick(val)}
             placeholder="Select material…"
             displayKey="name"
             valueKey="id"
@@ -157,7 +188,13 @@ function MaterialSignatureRow({
             value={chosen?.id != null ? String(chosen.id) : ""}
             onChange={(val) => {
               const it = items.find((x) => String(x.id) === val);
-              if (it) onPick(it);
+              if (it) {
+                // The explicit color pick — THIS is what commits the mapping;
+                // the committed item's material_code takes over from the
+                // staged type from here on.
+                setStagedType("");
+                onPick(it);
+              }
             }}
             placeholder={selectedType ? "Select color…" : "Pick a material first"}
             displayKey="name"
@@ -278,9 +315,9 @@ export default function AssemblyIntakePanel({
   // Unique material signatures — scanned across EVERY plate's slots (not just
   // the default plate), keyed by (filament_type, color_hex) so a color reused
   // across several plates/slots maps once and applies everywhere. A plate
-  // whose slots[] is empty contributes no signature here — its component's
-  // slots payload falls back to a single synthetic slot (see handleCreate),
-  // which is keyed the same way so it still resolves against this map.
+  // whose slots[] is empty contributes one synthetic (null, null) signature
+  // here, matching handleCreate's synthetic fallback slot so its material
+  // cost and spool_product_id still resolve against this same map.
   // ---------------------------------------------------------------------------
 
   const materialSignatures = (() => {
@@ -322,7 +359,11 @@ export default function AssemblyIntakePanel({
     );
   // Every unique material signature must be mapped to a catalog item before
   // the assembly can be created — a gap here would leave some slot's
-  // spool_product_id undefined in the /assembly payload.
+  // spool_product_id undefined in the /assembly payload. An entry only lands
+  // in materialMap on an EXPLICIT color pick (or a single-color type, which
+  // is unambiguous) — MaterialSignatureRow stages a multi-color type pick
+  // locally and writes null here, so a type-only selection can't enable
+  // Create with an arbitrary first-color spool.
   const allSignaturesMapped =
     materialSignatures.length > 0 &&
     materialSignatures.every((sig) => materialMap[sig.key] != null);
@@ -683,6 +724,9 @@ export default function AssemblyIntakePanel({
                 colorHex={sig.color_hex}
                 items={materials}
                 chosen={materialMap[sig.key]}
+                // item is null while the row stages a multi-color type pick —
+                // storing the null clears the mapping so allSignaturesMapped
+                // (a != null check) keeps Create gated until the color pick.
                 onPick={(item) =>
                   setMaterialMap((prev) => ({ ...prev, [sig.key]: item }))
                 }
