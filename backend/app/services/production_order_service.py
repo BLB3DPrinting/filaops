@@ -808,6 +808,11 @@ def record_qc_inspection(
     # would double-count the failed units.
     if qc_status == "failed":
         order.status = "qc_hold"
+    elif order.status == "qc_hold":
+        # A passing/waived/conditional re-inspection releases a previously held
+        # order back to 'complete' so it can proceed to fulfillment. Without this
+        # the WO stays stuck in qc_hold forever even after the defect is cleared.
+        order.status = "complete"
 
     # #783: append an immutable inspection record so re-inspections keep a
     # history and true first-pass yield is derivable. The order.qc_* fields

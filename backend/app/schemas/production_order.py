@@ -60,6 +60,10 @@ class QCStatus(str, Enum):
     PASSED = "passed"
     FAILED = "failed"
     WAIVED = "waived"
+    # Accepted-with-conditions result. The service (_QC_RESULTS) and DB CHECK
+    # already accept it; the modal offers it — this member lets the API bind it
+    # instead of 422-ing a valid inspection result.
+    CONDITIONAL = "conditional"
 
 
 # ============================================================================
