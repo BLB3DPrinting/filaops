@@ -69,8 +69,13 @@ router = APIRouter()
 
 def build_operation_response(op, po, next_op=None) -> OperationResponse:
     """Build response from operation model."""
+    # Machine lane first: schedule_operation stores printers in printer_id
+    # (resource_id=None), so resolving only op.resource left printer-scheduled
+    # ops with no machine in start/complete/skip responses.
     resource_code = None
-    if op.resource:
+    if op.printer_id and op.printer:
+        resource_code = op.printer.code
+    elif op.resource:
         resource_code = op.resource.code
 
     # Get current operation sequence for PO
@@ -181,12 +186,17 @@ def get_operations(
                 status=mat.status,
             ))
 
-        # Resolve resource name - handle negative IDs (printers) vs positive (resources)
+        # Resolve the machine display. Modern writers (schedule_operation)
+        # store printers in printer_id with resource_id=None and resources in
+        # resource_id; legacy rows encoded printers as a negative resource_id.
         resource_code = None
         resource_name = None
-        if op.resource_id:
+        if op.printer_id and op.printer:
+            resource_code = op.printer.code
+            resource_name = op.printer.name
+        elif op.resource_id:
             if op.resource_id < 0:
-                # Negative ID = printer ID (stored as -printer_id)
+                # Legacy encoding: printer stored as -printer_id
                 printer = db.get(Printer, abs(op.resource_id))
                 if printer:
                     resource_code = printer.code
@@ -207,6 +217,7 @@ def get_operations(
             work_center_code=op.work_center.code if op.work_center else None,
             work_center_name=op.work_center.name if op.work_center else None,
             resource_id=op.resource_id,
+            printer_id=op.printer_id,
             resource_code=resource_code,
             resource_name=resource_name,
             planned_setup_minutes=op.planned_setup_minutes,

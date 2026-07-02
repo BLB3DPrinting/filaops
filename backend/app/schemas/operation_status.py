@@ -146,6 +146,10 @@ class OperationListItem(BaseModel):
     work_center_name: Optional[str] = None
 
     resource_id: Optional[int] = None
+    # Printer assignment (mutually exclusive with resource_id — see
+    # resource_scheduling.schedule_operation). resource_code/resource_name are
+    # populated from whichever machine lane is set.
+    printer_id: Optional[int] = None
     resource_code: Optional[str] = None
     resource_name: Optional[str] = None
 
