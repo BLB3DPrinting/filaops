@@ -66,6 +66,7 @@ class ProductResponse(BaseModel):
     weight: Optional[float] = None
     is_raw_material: bool
     has_bom: bool
+    has_routing: bool = False
     active: bool
     woocommerce_product_id: Optional[int] = None
     image_url: Optional[str] = None
@@ -120,6 +121,29 @@ async def list_products(
             limit=limit,
             offset=offset,
         )
+
+        # Populate computed has_routing (an active routing exists for the product).
+        # The sales-order product picker treats a product as sellable when it has
+        # a BOM OR a routing; without this field, routing-built finished goods
+        # (which have no BOM — the norm for PRO/Intake products) are silently
+        # filtered out as "No sellable products". See issue #883.
+        from app.models.manufacturing import Routing
+        product_ids = [p.id for p in products]
+        routing_ids: set[int] = set()
+        if product_ids:
+            routing_ids = {
+                r[0]
+                for r in db.query(Routing.product_id)
+                .filter(
+                    Routing.product_id.in_(product_ids),
+                    Routing.is_active.is_(True),
+                )
+                .distinct()
+                .all()
+            }
+        for p in products:
+            # transient attribute read by ProductResponse (from_attributes)
+            p.has_routing = p.id in routing_ids
 
         return ProductListResponse(
             total=total,
