@@ -170,8 +170,15 @@ class SalesOrder(Base):
 
     @property
     def is_cancellable(self) -> bool:
-        """Check if order can be cancelled"""
-        return self.status in ["pending_confirmation", "draft", "pending_payment", "payment_failed", "confirmed", "on_hold"]
+        """Check if order can be cancelled (pre-fulfillment states).
+
+        Uses the real SalesOrderStatus vocabulary: 'pending' is the status
+        every newly created / quote-converted order gets, so it MUST be here.
+        The former list referenced 'pending_payment'/'payment_failed', which
+        are not valid SalesOrderStatus values, and omitted 'pending' — so the
+        Cancel action 400'd on every brand-new order.
+        """
+        return self.status in ["pending_confirmation", "draft", "pending", "confirmed", "on_hold"]
 
     @property
     def is_paid(self) -> bool:

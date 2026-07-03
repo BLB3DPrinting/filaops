@@ -857,6 +857,21 @@ def update_sales_order_status(
             ),
         )
 
+    # Cancellation must go through cancel_sales_order() so the reason and
+    # cancelled_at are recorded and linked production orders / material
+    # reservations are released. A bare status flip to 'cancelled' skipped the
+    # is_cancellable guard and all cleanup, leaving a terminal order with no
+    # audit trail and orphaned WOs/inventory.
+    if new_status == "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Orders cannot be cancelled via status update. Use "
+                "POST /sales-orders/<order_id>/cancel so the reason is recorded "
+                "and production orders / reservations are released."
+            ),
+        )
+
     try:
         validate_sales_order_transition(old_status, new_status)
     except StatusTransitionError as exc:
