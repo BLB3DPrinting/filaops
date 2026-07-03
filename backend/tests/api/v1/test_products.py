@@ -90,6 +90,24 @@ class TestProductList:
         skus = [item["sku"] for item in body["items"]]
         assert product.sku in skus
 
+    def test_list_exposes_has_routing(self, client, db, make_product):
+        """Routing-built products (no BOM) must report has_routing=True so the
+        sales-order product picker treats them as sellable. Without this field
+        the picker filters them out as "No sellable products" (issue #883)."""
+        from app.models.manufacturing import Routing
+
+        uid = _uid()
+        routed = make_product(sku=f"HASRT-{uid}", name=f"Routed {uid}")
+        db.add(Routing(product_id=routed.id, code=f"RT-{uid}", name="R", is_active=True))
+        plain = make_product(sku=f"NORT-{uid}", name=f"Plain {uid}")
+        db.flush()
+
+        resp = client.get(BASE_URL, params={"search": uid})
+        assert resp.status_code == 200
+        items = {i["sku"]: i for i in resp.json()["items"]}
+        assert items[routed.sku]["has_routing"] is True
+        assert items[plain.sku]["has_routing"] is False
+
     @pytest.mark.parametrize("legacy_unit", [None, "", "   "])
     def test_list_defaults_legacy_blank_unit(self, client, db, make_product, legacy_unit):
         """Legacy product rows with NULL/blank unit should not break API responses."""
