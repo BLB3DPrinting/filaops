@@ -119,6 +119,69 @@ class TestSalesOrderAuth:
         })
         assert response.status_code == 401
 
+    def test_list_shipping_events_requires_auth(self, unauthed_client):
+        """Regression: this was the sole router endpoint without an auth
+        dependency, exposing tracking/carrier/location by id enumeration."""
+        response = unauthed_client.get(f"{BASE_URL}/1/shipping-events")
+        assert response.status_code == 401
+
+    def test_add_shipping_event_requires_auth(self, unauthed_client):
+        response = unauthed_client.post(f"{BASE_URL}/1/shipping-events", json={
+            "event_type": "shipped",
+            "title": "Shipped",
+        })
+        assert response.status_code == 401
+
+
+class TestShippingEventsAuthorization:
+    """Owner-or-admin guard on shipping-events (#872 CodeRabbit follow-up):
+    an authenticated non-owner must not read/write another customer's shipment
+    events, matching get_sales_order_details."""
+
+    def _as_new_customer(self, client, db, suffix):
+        from app.core.security import create_access_token
+        from app.models.user import User
+        other = User(
+            email=f"outsider-{suffix}@filaops.dev",
+            password_hash="not-a-real-hash",
+            first_name="Out", last_name="Sider",
+            account_type="customer",
+        )
+        db.add(other)
+        db.flush()
+        client.headers["Authorization"] = f"Bearer {create_access_token(user_id=other.id)}"
+        return other
+
+    def test_non_owner_cannot_list_shipping_events(self, client, db, make_product, make_sales_order):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
+        db.flush()  # order is owned by the seeded admin (user_id=1)
+        self._as_new_customer(client, db, f"list-{so.id}")
+
+        response = client.get(f"{BASE_URL}/{so.id}/shipping-events")
+        assert response.status_code == 403
+
+    def test_non_owner_cannot_add_shipping_event(self, client, db, make_product, make_sales_order):
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
+        db.flush()
+        self._as_new_customer(client, db, f"add-{so.id}")
+
+        response = client.post(
+            f"{BASE_URL}/{so.id}/shipping-events",
+            json={"event_type": "delivered", "title": "Delivered"},
+        )
+        assert response.status_code == 403
+
+    def test_admin_can_list_shipping_events(self, client, db, make_product, make_sales_order):
+        """The default client is the seeded admin — the guard must not block it."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
+        db.flush()
+
+        response = client.get(f"{BASE_URL}/{so.id}/shipping-events")
+        assert response.status_code == 200
+
 
 # =============================================================================
 # Status Transitions Metadata

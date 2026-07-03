@@ -1321,11 +1321,22 @@ async def list_shipping_events(
     order_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List shipping events for a sales order."""
-    # Verify order exists (raises 404 if not found)
-    sales_order_service.get_sales_order(db, order_id)
+    """List shipping events for a sales order.
+
+    Owner-or-admin only (matching get_sales_order_details): this was the sole
+    endpoint in the router with no auth dependency, so tracking numbers,
+    carrier, and shipment locations were readable unauthenticated — and even
+    once authenticated, a signed-in non-owner could read another customer's
+    shipment PII by enumerating order ids.
+    """
+    order = sales_order_service.get_sales_order(db, order_id)
+
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if order.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to view this order")
 
     query = db.query(ShippingEvent).filter(
         ShippingEvent.sales_order_id == order_id
@@ -1371,8 +1382,12 @@ async def add_shipping_event(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Add a shipping event to a sales order."""
+    """Add a shipping event to a sales order (owner-or-admin only)."""
     order = sales_order_service.get_sales_order(db, order_id)
+
+    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
+    if order.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this order")
 
     event = record_shipping_event(
         db=db,
