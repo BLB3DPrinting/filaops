@@ -25,6 +25,7 @@ from app.services.uom_service import (
     convert_cost_for_unit,
 )
 from app.services.reservation_reconciliation_service import check_allocation_guard
+from app.services.operation_material_mapping import get_consume_stages_for_operation
 
 logger = get_logger(__name__)
 
@@ -1048,19 +1049,29 @@ def release_production_reservations(
     db: Session,
     production_order: ProductionOrder,
     created_by: Optional[str] = None,
+    component_ids: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """
     Release (un-allocate) materials that were reserved for a production order.
-    
+
     Called when:
-    - Production order is cancelled/unscheduled
-    - Before consuming actuals (to release then consume)
-    
+    - Production order is cancelled/unscheduled (full release, component_ids=None)
+    - Before consuming actuals for a specific stage (to release then consume;
+      component_ids scopes the release to that stage — see FIX-1/FIX-2)
+
     Args:
         db: Database session
         production_order: The production order
         created_by: User performing the action
-    
+        component_ids: If provided, only release reservations (and clear
+            quantity_allocated) for components in this set. The reservation
+            ledger has no stage column, so consumers that only want to
+            release THEIR stage's share (e.g. consume_production_materials
+            releasing only production-stage components, leaving
+            shipping-stage box/label reservations intact until ship) pass
+            the stage's component-id universe here. None (default) releases
+            everything for the order — the original cancel/delete behavior.
+
     Returns:
         List of release records
     """
@@ -1069,12 +1080,17 @@ def release_production_reservations(
     _location = get_or_create_default_location(db)
 
     # Find all reservation transactions for this PO
-    reservation_txns = db.query(InventoryTransaction).filter(
+    reservation_query = db.query(InventoryTransaction).filter(
         InventoryTransaction.reference_type == "production_order",
         InventoryTransaction.reference_id == production_order.id,
         InventoryTransaction.transaction_type == "reservation",
-    ).all()
-    
+    )
+    if component_ids is not None:
+        reservation_query = reservation_query.filter(
+            InventoryTransaction.product_id.in_(component_ids)
+        )
+    reservation_txns = reservation_query.all()
+
     for txn in reservation_txns:
         # Decrease allocated quantity
         inventory = db.query(Inventory).filter(
@@ -1124,9 +1140,10 @@ def release_production_reservations(
     # Mirror the release on op-material rows: zero out quantity_allocated for
     # any rows that are still in a pre-consumption state (pending / allocated).
     # Rows already consumed retain their quantity_consumed; only the allocation
-    # field is cleared so the two books stay in sync.
+    # field is cleared so the two books stay in sync. Scoped to component_ids
+    # when provided, matching the ledger-side filter above.
     from app.models.production_order import ProductionOrderOperation
-    unconsumed_rows = (
+    unconsumed_query = (
         db.query(ProductionOrderOperationMaterial)
         .join(
             ProductionOrderOperation,
@@ -1137,8 +1154,12 @@ def release_production_reservations(
             ProductionOrderOperation.production_order_id == production_order.id,
             ProductionOrderOperationMaterial.status.in_(["pending", "allocated"]),
         )
-        .all()
     )
+    if component_ids is not None:
+        unconsumed_query = unconsumed_query.filter(
+            ProductionOrderOperationMaterial.component_id.in_(component_ids)
+        )
+    unconsumed_rows = unconsumed_query.all()
     for row in unconsumed_rows:
         row.quantity_allocated = Decimal("0")
 
@@ -1407,6 +1428,188 @@ def _consumption_already_posted(
     return existing is not None
 
 
+class MaterialConsumptionError(Exception):
+    """
+    Raised when a consumption stage had reservations/allocations but nothing
+    was actually consumable (FIX-3 guardrail).
+
+    This replaces the old silent-empty-return behavior: releasing a
+    reservation and then finding no routing op-material rows AND no BOM
+    line to consume from means material was reserved for real inventory
+    that is now being un-reserved with nothing posted in its place — a
+    correctness gap that must be surfaced, not swallowed.
+    """
+    def __init__(self, message: str, production_order_id: Optional[int] = None,
+                 product_id: Optional[int] = None, stage: Optional[str] = None):
+        self.message = message
+        self.production_order_id = production_order_id
+        self.product_id = product_id
+        self.stage = stage
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message
+
+
+def _get_stage_op_materials(
+    db: Session,
+    production_order_id: int,
+    stage: str,
+) -> Tuple[List["ProductionOrderOperationMaterial"], bool]:
+    """
+    Shared routing-first + stage-filter + idempotency resolver for material
+    consumption (FIX-1/FIX-2).
+
+    Mirrors _get_reservation_requirements's routing-first semantics: when a
+    production order has ANY materialized ProductionOrderOperationMaterial
+    rows (copied from the routing at release), those rows are the
+    order-specific truth for consumption and the legacy BOM walk must NOT
+    also run for this order (op rows REPLACE the BOM walk entirely, exactly
+    as reservation already does) — this is what keeps reserve and consume
+    from diverging again.
+
+    Filters to rows whose parent operation's operation_code resolves (via
+    get_consume_stages_for_operation) to include `stage` — e.g. only
+    PRINT/EXTRUDE/etc-coded operations are returned for stage="production",
+    only PACK/SHIP/LABEL-coded operations for stage="shipping". Operations
+    with no operation_code use DEFAULT_CONSUME_STAGES (production + any),
+    matching the mapping module's own default and existing test fixtures
+    that don't set operation_code.
+
+    IDEMPOTENCY: rows already status=='consumed' are excluded — the
+    per-operation path (complete_operation -> consume_operation_materials
+    -> consume_operation_material) may already have posted a transaction
+    for that exact row; this resolver must never hand back a row for a
+    second consumption.
+
+    Args:
+        db: Database session
+        production_order_id: The production order
+        stage: The consume stage to filter to ("production" or "shipping")
+
+    Returns:
+        Tuple of:
+          - list of unconsumed ProductionOrderOperationMaterial rows for
+            this stage (component eagerly usable via row.component_id)
+          - has_any_op_rows: True if the order has ANY op-material rows at
+            all (any stage, any status) — signals routing-first mode is
+            active for this order so the BOM fallback must not also run,
+            even if every routing-stage row for THIS stage was already
+            consumed or filtered out.
+    """
+    all_op_rows = _get_all_op_material_rows(db, production_order_id)
+
+    has_any_op_rows = len(all_op_rows) > 0
+
+    stage_rows = []
+    for row in all_op_rows:
+        if row.status == "consumed":
+            continue
+        op = row.operation
+        stages = get_consume_stages_for_operation(op.operation_code if op else None)
+        if stage in stages:
+            stage_rows.append(row)
+
+    return stage_rows, has_any_op_rows
+
+
+def _get_all_op_material_rows(
+    db: Session,
+    production_order_id: int,
+) -> List["ProductionOrderOperationMaterial"]:
+    """Load ALL ProductionOrderOperationMaterial rows for a production order
+    (any stage, any status), ordered by operation sequence. Shared query
+    used by both _get_stage_op_materials (unconsumed, stage-filtered) and
+    _get_stage_component_ids (full component universe per stage)."""
+    from app.models.production_order import ProductionOrderOperation
+
+    return (
+        db.query(ProductionOrderOperationMaterial)
+        .join(
+            ProductionOrderOperation,
+            ProductionOrderOperationMaterial.production_order_operation_id
+            == ProductionOrderOperation.id,
+        )
+        .filter(
+            ProductionOrderOperation.production_order_id == production_order_id,
+        )
+        .order_by(
+            ProductionOrderOperation.sequence,
+            ProductionOrderOperationMaterial.id,
+        )
+        .all()
+    )
+
+
+def _get_stage_component_ids(
+    db: Session,
+    production_order: ProductionOrder,
+    stage: str,
+) -> set:
+    """
+    Return the set of component_ids that belong to `stage` for this
+    production order — the "universe" of components a stage cares about,
+    used to scope reservation-release and the FIX-3 guardrail's
+    had-a-reservation check to just this stage's components (the
+    reservation ledger itself has no stage column, so this is resolved from
+    the same routing-first-then-BOM-fallback source that drives
+    consumption).
+
+    Routing-first: if the order has ANY op-material rows (any status), the
+    universe is every row (consumed or not) whose parent operation resolves
+    to `stage` — including already-consumed rows, since those components
+    were legitimately part of this stage's reservation even though they're
+    no longer awaiting consumption.
+
+    BOM fallback: only consulted when the order has ZERO op-material rows,
+    matching the "op rows replace the BOM walk entirely" rule used
+    everywhere else in this module.
+    """
+    all_op_rows = _get_all_op_material_rows(db, production_order.id)
+
+    if all_op_rows:
+        component_ids = set()
+        for row in all_op_rows:
+            op = row.operation
+            stages = get_consume_stages_for_operation(op.operation_code if op else None)
+            if stage in stages:
+                component_ids.add(row.component_id)
+        return component_ids
+
+    # FALLBACK — legacy BOM walk
+    bom = db.query(BOM).filter(
+        BOM.product_id == production_order.product_id,
+        BOM.active.is_(True),
+    ).first()
+    if bom:
+        bom_lines = db.query(BOMLine).filter(
+            BOMLine.bom_id == bom.id,
+            BOMLine.consume_stage == stage,
+            BOMLine.is_cost_only.is_(False),
+        ).all()
+        return {line.component_id for line in bom_lines}
+
+    # Order has NEITHER routing op-material rows NOR a BOM at all. There is
+    # no source to attribute a reservation to any particular stage — but if
+    # the ledger nonetheless shows a net-reserved component for this order
+    # (an orphaned/legacy reservation, e.g. from a BOM that has since been
+    # deleted or deactivated), the FIX-3 guardrail still needs to see it so
+    # it doesn't silently vanish. With no BOM/routing at all there is no
+    # shipping-stage concept for this order either, so attribute any
+    # net-reserved component to the "production" stage query only (the
+    # stage every pre-fix reservation implicitly belonged to) — never to
+    # "shipping", so consume_shipping_materials doesn't also try to release
+    # the same orphaned reservation a second time.
+    if stage == "production":
+        net_reserved = _get_net_reserved_by_component(db, production_order.id)
+        return {
+            component_id
+            for component_id, qty in net_reserved.items()
+            if qty > Decimal("0")
+        }
+    return set()
+
+
 def consume_production_materials(
     db: Session,
     production_order: ProductionOrder,
@@ -1415,20 +1618,44 @@ def consume_production_materials(
     release_reservations: bool = True,
 ) -> List[InventoryTransaction]:
     """
-    Consume raw materials based on BOM when production order completes.
+    Consume production-stage raw materials when a production order completes.
 
-    Only consumes items with consume_stage='production' and cost_only=False.
+    FIX-1 (routing-first consumption): mirrors the reservation side's
+    routing-first resolution (_get_reservation_requirements / RESERVE-1).
+    PRIMARY source is materialized ProductionOrderOperationMaterial rows for
+    this order's PRODUCTION-stage operations (resolved via
+    get_consume_stages_for_operation through the shared
+    _get_stage_op_materials helper) — this is the normal case for
+    routing-driven / Intake-Studio products that have NO active BOM at all.
+    FALLBACK — legacy BOM walk (consume_stage='production'): only runs when
+    the order has ZERO op-material rows whatsoever (not just zero for this
+    stage), matching reservation's "op rows REPLACE the BOM walk entirely"
+    rule so the two paths can never diverge again.
 
-    IDEMPOTENCY (HARD-11): Before posting each BOM-line consumption, checks
-    whether a non-voided consumption transaction already exists for
-    (production_order, component).  If per-operation consumption
-    (consume_operation_material) already posted a transaction for a given
-    component, this backflush skips it with a log entry.  The check is
-    keyed on component_id so that if the same component appears on multiple
-    BOM lines (unusual but possible) each line is guarded independently.
+    Only shipping-stage op-materials (PACK/SHIP/LABEL-coded operations) are
+    intentionally excluded here — those are consumed at ship time by
+    consume_shipping_materials (FIX-2), not at production completion.
+
+    IDEMPOTENCY:
+    - Routing-first rows: status=='consumed' rows are skipped by
+      _get_stage_op_materials (the per-operation path may have already
+      consumed them via complete_operation -> consume_operation_material).
+    - BOM fallback (HARD-11): Before posting each BOM-line consumption,
+      checks whether a non-voided consumption transaction already exists
+      for (production_order, component); if per-operation consumption
+      already posted for a component this backflush skips it.
 
     If release_reservations=True (default), first releases any existing
-    reservations before consuming actual quantities.
+    PRODUCTION-stage reservations before consuming actual quantities.
+    Shipping-stage reservations are left alone — they are released by
+    consume_shipping_materials at ship time.
+
+    FIX-3 guardrail: if this production order HAD reservations for the
+    production stage but nothing was consumable (neither routing
+    op-materials nor a BOM line matched), this is logged at ERROR and
+    raised as MaterialConsumptionError rather than silently released with
+    an empty return — a reservation vanishing with nothing posted in its
+    place is exactly the bug this fix closes.
 
     Args:
         db: Database session
@@ -1440,19 +1667,132 @@ def consume_production_materials(
     Returns:
         List of created inventory transactions
     """
-    # Release reservations first if requested
+    # Resolve which components belong to the PRODUCTION stage for this order
+    # (routing-first, BOM-fallback-only-if-no-op-rows — see
+    # _get_stage_component_ids) so both the reservation snapshot and the
+    # release below are scoped to THIS stage and never touch shipping-stage
+    # reservations (e.g. a box reserved for a PACK op).
+    stage_component_ids = _get_stage_component_ids(db, production_order, "production")
+
+    # Snapshot whether this order had any net production-stage reservation
+    # BEFORE releasing it, so the FIX-3 guardrail can tell "nothing to
+    # consume because nothing was reserved" (fine) apart from "something
+    # was reserved but consumption produced nothing" (the bug). Scoped to
+    # production-stage components only — a shipping-stage-only reservation
+    # (e.g. a box) must not trip the production-stage guardrail.
+    net_reserved = _get_net_reserved_by_component(db, production_order.id)
+    had_reservation = any(
+        qty > Decimal("0")
+        for component_id, qty in net_reserved.items()
+        if component_id in stage_component_ids
+    )
+
+    # Release PRODUCTION-stage reservations only — shipping-stage
+    # reservations (e.g. packaging) are left intact for
+    # consume_shipping_materials to release at ship time.
     if release_reservations:
-        release_production_reservations(db, production_order, created_by)
+        release_production_reservations(
+            db, production_order, created_by, component_ids=stage_component_ids
+        )
     transactions = []
     location = get_or_create_default_location(db)
 
-    # Get BOM for the product
+    # FIX-1: routing-first resolution, production stage only.
+    stage_rows, has_any_op_rows = _get_stage_op_materials(
+        db, production_order.id, "production"
+    )
+
+    if stage_rows:
+        for row in stage_rows:
+            component = db.query(Product).filter(Product.id == row.component_id).first()
+            if not component:
+                logger.error(
+                    f"Component {row.component_id} not found for op-material "
+                    f"row {row.id} (PO {production_order.code}) — skipping"
+                )
+                continue
+
+            txn = consume_operation_material(
+                db=db,
+                material=row,
+                production_order=production_order,
+                created_by=created_by,
+            )
+            if txn:
+                transactions.append(txn)
+
+        # Routing-first mode is active for this order (it has op-material
+        # rows) — never fall through to the BOM walk, even if this
+        # particular call posted zero new rows (e.g. every stage_rows entry
+        # was already consumed by a concurrent per-op call).
+        if had_reservation and not transactions:
+            logger.error(
+                "Production-stage reservation existed for PO %s (product %s) "
+                "but zero production-stage op-materials were actually "
+                "consumed this call (all already consumed per-operation) — "
+                "routing-first mode is active so the BOM fallback does not "
+                "apply.",
+                production_order.code,
+                production_order.product_id,
+            )
+            raise MaterialConsumptionError(
+                f"No production-stage material was consumed for PO "
+                f"{production_order.code} despite an existing reservation, "
+                f"and routing-first mode is active (order has op-material "
+                f"rows) so the BOM fallback does not apply.",
+                production_order_id=production_order.id,
+                product_id=production_order.product_id,
+                stage="production",
+            )
+        return transactions
+
+    elif has_any_op_rows:
+        # Order has op-material rows, just none for the production stage
+        # (e.g. a shipping-only routing) — routing-first mode still applies;
+        # do not fall back to the BOM walk.
+        if had_reservation:
+            logger.error(
+                "Production-stage reservation existed for PO %s (product %s) "
+                "but no consumable production-stage source was found "
+                "(routing op-materials all non-production-stage or already "
+                "consumed, no BOM fallback applies in routing-first mode).",
+                production_order.code,
+                production_order.product_id,
+            )
+            raise MaterialConsumptionError(
+                f"No production-stage material was consumed for PO "
+                f"{production_order.code} despite an existing reservation, "
+                f"and routing-first mode is active (order has op-material "
+                f"rows) so the BOM fallback does not apply.",
+                production_order_id=production_order.id,
+                product_id=production_order.product_id,
+                stage="production",
+            )
+        return transactions
+
+    # FALLBACK — legacy BOM walk (no op-material rows on this order at all)
     bom = db.query(BOM).filter(
         BOM.product_id == production_order.product_id,
         BOM.active.is_(True)
     ).first()
 
     if not bom:
+        if had_reservation:
+            logger.error(
+                "Production-stage reservation existed for PO %s (product %s) "
+                "but no active BOM and no routing op-material rows exist — "
+                "nothing was consumed.",
+                production_order.code,
+                production_order.product_id,
+            )
+            raise MaterialConsumptionError(
+                f"No production-stage material was consumed for PO "
+                f"{production_order.code} despite an existing reservation: "
+                f"no active BOM and no routing op-material rows.",
+                production_order_id=production_order.id,
+                product_id=production_order.product_id,
+                stage="production",
+            )
         logger.warning(f"No active BOM found for product {production_order.product_id}")
         return transactions
 
@@ -1538,6 +1878,24 @@ def consume_production_materials(
             f"Consumed {total_qty} {component_unit} of {component.sku} "
             f"for production order {production_order.id}"
             f"{f' (tracked in {len(lot_consumptions)} lot(s))' if lot_consumptions else ''}"
+        )
+
+    if had_reservation and not transactions:
+        logger.error(
+            "Production-stage reservation existed for PO %s (product %s) "
+            "but the BOM produced zero consumable production-stage lines "
+            "(all cost-only, missing components, or already consumed "
+            "per-op) — nothing was consumed.",
+            production_order.code,
+            production_order.product_id,
+        )
+        raise MaterialConsumptionError(
+            f"No production-stage material was consumed for PO "
+            f"{production_order.code} despite an existing reservation: "
+            f"BOM lines produced no consumable output.",
+            production_order_id=production_order.id,
+            product_id=production_order.product_id,
+            stage="production",
         )
 
     return transactions
@@ -1662,9 +2020,35 @@ def consume_shipping_materials(
     created_by: Optional[str] = None,
 ) -> List[InventoryTransaction]:
     """
-    Consume packaging materials based on BOM when order ships.
+    Consume shipping-stage packaging materials when a sales order ships.
 
-    Only consumes items with consume_stage='shipping' from the order's product BOMs.
+    FIX-2 (routing-first shipping consumption): supports BOTH sources at
+    once, since either can exist depending on how the product was built:
+      - Routing-first: ProductionOrderOperationMaterial rows on the
+        shipped product's production order(s) whose parent operation
+        resolves to stage "shipping" (PACK/SHIP/LABEL-coded ops) — the
+        normal case for routing-driven / Intake-Studio products that put
+        the box on a PACK/SHIP op and have no BOM at all.
+      - BOM: BOMLine rows with consume_stage='shipping' on the product's
+        active BOM — the existing/legacy path where packaging is a BOM
+        shipping line.
+    Both are consumed when both exist; there is no "replaces" relationship
+    between BOM and routing at the PER-PRODUCT level the way there is for
+    the (single) production-stage BOM-vs-routing choice, because shipping
+    packaging is commonly modeled either way per product.
+
+    IDEMPOTENCY: routing op-material rows already status=='consumed' are
+    skipped (via the shared _get_stage_op_materials helper) — a component
+    consumed once (per-op or by a prior ship call) is never double-posted.
+
+    Reservations: releases only SHIPPING-stage reservations for each
+    production order tied to this sales order (component_ids resolved via
+    _get_stage_component_ids), leaving production-stage reservations alone
+    (those are released by consume_production_materials at completion).
+
+    FIX-3 guardrail: if a production order tied to this sales order HAD a
+    shipping-stage reservation but nothing was consumed for it from either
+    source, this is logged at ERROR and raised as MaterialConsumptionError.
 
     Args:
         db: Database session
@@ -1688,64 +2072,160 @@ def consume_shipping_materials(
         products_to_ship.append((sales_order.product_id, sales_order.quantity or 1))
 
     for product_id, qty in products_to_ship:
-        # Get BOM for product
+        product_had_reservation = False
+        product_consumed_anything = False
+
+        # --- Routing-first: shipping-stage op-materials on this sales
+        # order's production order(s) for this product ---
+        production_orders = (
+            db.query(ProductionOrder)
+            .filter(
+                ProductionOrder.sales_order_id == sales_order.id,
+                ProductionOrder.product_id == product_id,
+            )
+            .all()
+        )
+
+        for po in production_orders:
+            stage_component_ids = _get_stage_component_ids(db, po, "shipping")
+
+            net_reserved = _get_net_reserved_by_component(db, po.id)
+            po_had_reservation = any(
+                net_qty > Decimal("0")
+                for component_id, net_qty in net_reserved.items()
+                if component_id in stage_component_ids
+            )
+            product_had_reservation = product_had_reservation or po_had_reservation
+
+            # Release SHIPPING-stage reservations for this PO only —
+            # production-stage reservations were already released (or will
+            # be) by consume_production_materials.
+            release_production_reservations(
+                db, po, created_by, component_ids=stage_component_ids
+            )
+
+            stage_rows, _has_any_op_rows = _get_stage_op_materials(db, po.id, "shipping")
+            for row in stage_rows:
+                component = db.query(Product).filter(Product.id == row.component_id).first()
+                if not component:
+                    logger.error(
+                        f"Component {row.component_id} not found for shipping "
+                        f"op-material row {row.id} (PO {po.code}) — skipping"
+                    )
+                    continue
+
+                txn = consume_operation_material(
+                    db=db,
+                    material=row,
+                    production_order=po,
+                    created_by=created_by,
+                )
+                if txn:
+                    transactions.append(txn)
+                    product_consumed_anything = True
+
+        # --- BOM: shipping-stage BOM lines on the product's active BOM ---
         bom = db.query(BOM).filter(
             BOM.product_id == product_id,
             BOM.active.is_(True)
         ).first()
 
-        if not bom:
-            continue
+        if bom:
+            # Get BOM lines for shipping consumption
+            bom_lines = db.query(BOMLine).filter(
+                BOMLine.bom_id == bom.id,
+                BOMLine.consume_stage == "shipping",
+            ).all()
 
-        # Get BOM lines for shipping consumption
-        bom_lines = db.query(BOMLine).filter(
-            BOMLine.bom_id == bom.id,
-            BOMLine.consume_stage == "shipping",
-        ).all()
+            for line in bom_lines:
+                if line.is_cost_only:
+                    continue
 
-        for line in bom_lines:
-            if line.is_cost_only:
-                continue
+                component = db.query(Product).filter(Product.id == line.component_id).first()
+                if not component:
+                    continue
 
-            component = db.query(Product).filter(Product.id == line.component_id).first()
-            if not component:
-                continue
+                # HARD-11-style idempotency: skip if a non-voided shipping
+                # consumption already posted for this component on this
+                # sales order (e.g. a prior call, or this same product
+                # appearing on multiple lines).
+                existing = (
+                    db.query(InventoryTransaction)
+                    .filter(
+                        InventoryTransaction.reference_type == "sales_order",
+                        InventoryTransaction.reference_id == sales_order.id,
+                        InventoryTransaction.transaction_type == "consumption",
+                        InventoryTransaction.product_id == line.component_id,
+                        InventoryTransaction.voided_by.is_(None),
+                    )
+                    .first()
+                )
+                if existing:
+                    logger.info(
+                        "Skipping BOM shipping-line consumption for component %s "
+                        "(SO %s) — a non-voided consumption transaction already "
+                        "exists",
+                        component.sku,
+                        sales_order.order_number,
+                    )
+                    continue
 
-            # Calculate quantity to consume
-            bom_qty = Decimal(str(line.quantity)) * Decimal(str(qty))
+                # Calculate quantity to consume
+                bom_qty = Decimal(str(line.quantity)) * Decimal(str(qty))
 
-            # UOM Conversion: Convert BOM line unit to component's inventory unit
-            line_unit = (line.unit or component.unit or "EA").upper()
-            component_unit = (component.unit or "EA").upper()
+                # UOM Conversion: Convert BOM line unit to component's inventory unit
+                line_unit = (line.unit or component.unit or "EA").upper()
+                component_unit = (component.unit or "EA").upper()
 
-            total_qty, notes = convert_and_generate_notes(
-                db=db,
-                bom_qty=bom_qty,
-                line_unit=line_unit,
-                component_unit=component_unit,
-                component_name=component.name,
-                component_sku=component.sku,
-                reference_prefix="Shipping materials for SO#",
-                reference_code=sales_order.order_number,
+                total_qty, notes = convert_and_generate_notes(
+                    db=db,
+                    bom_qty=bom_qty,
+                    line_unit=line_unit,
+                    component_unit=component_unit,
+                    component_name=component.name,
+                    component_sku=component.sku,
+                    reference_prefix="Shipping materials for SO#",
+                    reference_code=sales_order.order_number,
+                )
+
+                txn = create_inventory_transaction(
+                    db=db,
+                    product_id=line.component_id,
+                    location_id=location.id,
+                    transaction_type="consumption",
+                    quantity=total_qty,
+                    reference_type="sales_order",
+                    reference_id=sales_order.id,
+                    notes=notes,
+                    cost_per_unit=get_effective_cost_per_inventory_unit(component),
+                    created_by=created_by,
+                )
+                transactions.append(txn)
+                product_consumed_anything = True
+
+                logger.info(
+                    f"Consumed {total_qty} {component_unit} of {component.sku} "
+                    f"for shipping order {sales_order.id}"
+                )
+
+        # FIX-3 guardrail: a shipping-stage reservation existed for this
+        # product's production order(s) but neither routing op-materials
+        # nor a BOM shipping line produced any consumption.
+        if product_had_reservation and not product_consumed_anything:
+            logger.error(
+                "Shipping-stage reservation existed for product %s on SO %s "
+                "but no consumable shipping-stage source was found (no "
+                "matching routing op-materials, no BOM shipping line) — "
+                "nothing was consumed.",
+                product_id,
+                sales_order.order_number,
             )
-
-            txn = create_inventory_transaction(
-                db=db,
-                product_id=line.component_id,
-                location_id=location.id,
-                transaction_type="consumption",
-                quantity=total_qty,
-                reference_type="sales_order",
-                reference_id=sales_order.id,
-                notes=notes,
-                cost_per_unit=get_effective_cost_per_inventory_unit(component),
-                created_by=created_by,
-            )
-            transactions.append(txn)
-
-            logger.info(
-                f"Consumed {total_qty} {component_unit} of {component.sku} "
-                f"for shipping order {sales_order.id}"
+            raise MaterialConsumptionError(
+                f"No shipping-stage material was consumed for product "
+                f"{product_id} on SO {sales_order.order_number} despite an "
+                f"existing reservation.",
+                product_id=product_id,
+                stage="shipping",
             )
 
     return transactions
