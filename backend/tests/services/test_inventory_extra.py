@@ -1931,3 +1931,567 @@ class TestAccountingEndpointsExcludeGhostRows:
         assert body["costs"]["materials"]["total"] == 0.0, (
             "Unapplied held consumption must not inflate material cost"
         )
+
+
+# =============================================================================
+# FIX-1/2/3: routing-first material consumption (restores drawdown + COGS)
+#
+# Root cause: reservation (_get_reservation_requirements) was already
+# routing-first (RESERVE-1), but consumption (consume_production_materials /
+# consume_shipping_materials) was BOM-only — for routing-driven / Intake
+# Studio products with NO active BOM, completion/ship posted ZERO consumption
+# transactions, so on_hand never decremented and COGS stayed at $0.
+#
+# These tests assert ACTUAL POSTED InventoryTransaction rows (not just that
+# the functions ran without error) — that is the entire point of the fix.
+# =============================================================================
+
+class TestRoutingFirstConsumptionRestoresPosting:
+    """FIX-1: a routing-driven order with NO BOM posts real consumption rows."""
+
+    def test_routing_only_order_posts_consumption_and_decrements_on_hand(
+        self, db, make_product
+    ):
+        """A production order for a product with NO active BOM, whose routing
+        materialized ProductionOrderOperationMaterial rows on a PRINT-coded
+        op, must post a real 'consumption' InventoryTransaction for the
+        filament component when the order completes — and on_hand must
+        actually decrement. Before FIX-1 this posted ZERO transactions."""
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id, sequence=10)
+        op.operation_code = "PRINT"
+        mat = _make_op_material(db, op.id, filament.id, Decimal("370"), unit="G")
+        db.flush()
+
+        # No BOM exists for `fg` at all (has_bom=False shape, the normal
+        # Intake-Studio / routing-only state this bug targeted).
+        assert db.query(BOM).filter(BOM.product_id == fg.id).first() is None
+
+        txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+
+        assert len(txns) == 1, "Routing-only order must post exactly one consumption row"
+        txn = txns[0]
+        assert txn.transaction_type == "consumption"
+        assert txn.product_id == filament.id
+        assert txn.reference_type == "production_order"
+        assert txn.reference_id == po.id
+        assert txn.quantity == Decimal("-370")  # signed delta (HARD-4a)
+        assert txn.cost_per_unit == Decimal("0.02")
+
+        # Assert the row is really in the DB, not just returned in-memory.
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(rows) == 1
+
+        # on_hand actually decremented.
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == filament.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert inv.on_hand_quantity == Decimal("630")  # 1000 - 370
+
+        # The op-material row itself is marked consumed (per-op accounting
+        # stays consistent even though this went through the bulk path).
+        db.refresh(mat)
+        assert mat.status == "consumed"
+
+    def test_legacy_bom_driven_product_still_consumes_correctly(self, db, make_product):
+        """FALLBACK check: a product with a BOM and NO routing op-material
+        rows must still consume via the legacy BOM walk (fallback intact)."""
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        component = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        _make_bom_with_lines(db, fg.id, [
+            {"component_id": component.id, "quantity": Decimal("100"), "unit": "G",
+             "consume_stage": "production"},
+        ])
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, component.id, location.id, Decimal("2000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=5)
+        txns = inventory_service.consume_production_materials(
+            db, po, Decimal("5"), release_reservations=False
+        )
+
+        assert len(txns) == 1
+        assert txns[0].transaction_type == "consumption"
+        assert txns[0].product_id == component.id
+        assert txns[0].quantity == Decimal("-500")  # 100 * 5, signed
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 1
+
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == component.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert inv.on_hand_quantity == Decimal("1500")  # 2000 - 500
+
+
+class TestShippingStageOpMaterialDeferredToShip(object):
+    """FIX-2: a SHIPPING-stage op-material (box on a PACK/SHIP op) must NOT
+    be consumed at production completion, and must be consumed at ship."""
+
+    def _setup(self, db, make_product):
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        box = make_product(
+            item_type="packaging", unit="EA", cost_method="average",
+            average_cost=Decimal("1.50"),
+        )
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+        _make_inventory(db, box.id, location.id, Decimal("100"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+
+        print_op = _make_operation(db, po.id, wc.id, sequence=10)
+        print_op.operation_code = "PRINT"
+        filament_mat = _make_op_material(db, print_op.id, filament.id, Decimal("370"), unit="G")
+
+        pack_op = _make_operation(db, po.id, wc.id, sequence=20)
+        pack_op.operation_code = "PACK"
+        box_mat = _make_op_material(db, pack_op.id, box.id, Decimal("1"), unit="EA")
+        db.flush()
+
+        return fg, filament, box, location, po, filament_mat, box_mat
+
+    def test_shipping_stage_material_not_consumed_at_production_completion(
+        self, db, make_product
+    ):
+        fg, filament, box, location, po, filament_mat, box_mat = self._setup(db, make_product)
+
+        txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+
+        # Only the PRINT-stage filament consumes at completion.
+        assert len(txns) == 1
+        assert txns[0].product_id == filament.id
+
+        box_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows) == 0, "Box (shipping-stage) must NOT consume at production completion"
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("100"), "Box on_hand must be untouched"
+
+        db.refresh(box_mat)
+        assert box_mat.status != "consumed", "Box op-material row must remain unconsumed"
+
+    def test_shipping_stage_material_consumed_at_ship(self, db, make_product, make_sales_order):
+        fg, filament, box, location, po, filament_mat, box_mat = self._setup(db, make_product)
+
+        # Complete production first (consumes filament only).
+        inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po.sales_order_id = so.id
+        db.flush()
+
+        txns = inventory_service.consume_shipping_materials(db, so)
+
+        assert len(txns) == 1
+        assert txns[0].product_id == box.id
+        assert txns[0].transaction_type == "consumption"
+        assert txns[0].reference_type == "production_order"
+        assert txns[0].reference_id == po.id
+        assert txns[0].quantity == Decimal("-1")
+
+        box_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows) == 1
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("99"), "Box on_hand must decrement at ship"
+
+        db.refresh(box_mat)
+        assert box_mat.status == "consumed"
+
+    def test_double_ship_call_does_not_double_consume_box(self, db, make_product, make_sales_order):
+        """Idempotency: calling consume_shipping_materials twice must not
+        double-post the routing-first shipping op-material."""
+        fg, filament, box, location, po, filament_mat, box_mat = self._setup(db, make_product)
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po.sales_order_id = so.id
+        db.flush()
+
+        first = inventory_service.consume_shipping_materials(db, so)
+        assert len(first) == 1
+
+        second = inventory_service.consume_shipping_materials(db, so)
+        assert len(second) == 0, "Second ship call must be idempotent (box already consumed)"
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(rows) == 1
+
+
+class TestBulkPathDoesNotDoubleConsumeAlreadyCompletedOp:
+    """FIX-1 idempotency: an op-material row already consumed per-operation
+    (status='consumed') must NOT be double-consumed by the bulk completion
+    path — the guardrail introduced by FIX-3 must also stay quiet here,
+    since routing-first mode correctly finds nothing left to do."""
+
+    def test_per_op_consumed_row_skipped_by_bulk_completion(self, db, make_product):
+        fg = make_product(item_type="finished_good")
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id, sequence=10)
+        op.operation_code = "PRINT"
+        mat = _make_op_material(db, op.id, filament.id, Decimal("370"), unit="G")
+        db.flush()
+
+        # Simulate the per-operation path (complete_operation) already having
+        # consumed this material row.
+        first_txn = inventory_service.consume_operation_material(db, mat, po)
+        assert first_txn is not None
+        db.refresh(mat)
+        assert mat.status == "consumed"
+
+        # Bulk completion path must find nothing left to consume, and must
+        # NOT raise (nothing was reserved in this test, so the FIX-3
+        # guardrail must not fire) and must NOT double-post.
+        bulk_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert bulk_txns == []
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(rows) == 1, "Only the per-op consumption may exist; bulk must not duplicate"
+
+
+class TestGuardrailSurfacesUnconsumableReservation:
+    """FIX-3: a reservation with nothing consumable behind it must raise
+    MaterialConsumptionError (and log at ERROR), never silently
+    release-and-return-empty."""
+
+    def test_production_stage_reservation_with_no_source_raises(self, db, make_product):
+        """A production-stage reservation exists (ledger 'reservation' row)
+        but the order has NO BOM and NO routing op-material rows at all —
+        the old code released the reservation and returned [] silently;
+        FIX-3 must raise instead."""
+        fg = make_product(item_type="finished_good")
+        component = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, component.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+
+        # Manually post a reservation ledger row for `component` against this
+        # PO, simulating a state where reservation succeeded (e.g. via an
+        # older BOM that has since been deleted/deactivated) but consumption
+        # now has nothing to work from.
+        inventory = db.query(Inventory).filter(
+            Inventory.product_id == component.id,
+            Inventory.location_id == location.id,
+        ).first()
+        inventory.allocated_quantity = Decimal("100")
+        reservation_txn = InventoryTransaction(
+            product_id=component.id,
+            location_id=location.id,
+            transaction_type="reservation",
+            quantity=Decimal("100"),
+            reference_type="production_order",
+            reference_id=po.id,
+            notes="Test reservation with no consumable source",
+            unit="G",
+        )
+        db.add(reservation_txn)
+        db.flush()
+
+        with pytest.raises(inventory_service.MaterialConsumptionError):
+            inventory_service.consume_production_materials(
+                db, po, Decimal("1"), release_reservations=True
+            )
+
+    def test_guardrail_does_not_fire_when_nothing_was_reserved(self, db, make_product):
+        """Sanity check: the guardrail must stay silent (return []) for the
+        ordinary 'no BOM, nothing was ever reserved' case — this is NOT a
+        bug, just a product with no material requirements."""
+        fg = make_product(item_type="finished_good")
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+
+        txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=True
+        )
+        assert txns == []
+
+
+class TestGuardrailNoFalsePositiveOnAlreadyConsumedStage:
+    """PR #875 review regression: consume_operation_material posts the
+    consumption + marks the row status='consumed' but does NOT release the
+    reservation. So an order fully completed via the per-operation path still
+    has OPEN production-stage reservations. When that order then finalizes
+    through consume_production_materials (the update_po_status auto-complete
+    path), had_reservation is True but stage_rows is empty (all consumed) —
+    the guardrail must NOT false-raise. It must instead release the lingering
+    reservation and return with zero NEW transactions."""
+
+    def test_fully_per_op_consumed_order_finalizes_without_raise(self, db, make_product):
+        fg = make_product(item_type="finished_good")
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id, sequence=10)
+        op.operation_code = "PRINT"
+        mat = _make_op_material(db, op.id, filament.id, Decimal("370"), unit="G")
+        db.flush()
+
+        # Reserve production materials (routing-first) — this posts a real
+        # 'reservation' ledger row and bumps allocated_quantity. No BOM.
+        reservations = inventory_service.reserve_production_materials(db, po)
+        assert len(reservations) == 1, "Routing-first reservation must post"
+        db.flush()
+
+        # Per-operation path consumes the whole stage (marks row 'consumed',
+        # posts the consumption) but LEAVES the reservation open — this is
+        # the exact real-world precondition for the false positive.
+        per_op_txn = inventory_service.consume_operation_material(db, mat, po)
+        assert per_op_txn is not None
+        db.refresh(mat)
+        assert mat.status == "consumed"
+
+        # Sanity: the production-stage reservation is STILL open post per-op.
+        net = inventory_service._get_net_reserved_by_component(db, po.id)
+        assert net.get(filament.id, Decimal("0")) > Decimal("0"), (
+            "Precondition: per-op consumption must leave the reservation open"
+        )
+
+        # Now finalize through the bulk completion path (release_reservations
+        # defaults True, matching process_production_completion). This MUST
+        # NOT raise despite had_reservation=True + zero unconsumed rows.
+        bulk_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1")
+        )
+
+        # No NEW consumption transactions (no double-consume).
+        assert bulk_txns == []
+
+        # The lingering reservation was released (net back to zero).
+        net_after = inventory_service._get_net_reserved_by_component(db, po.id)
+        assert net_after.get(filament.id, Decimal("0")) == Decimal("0"), (
+            "Finalizing call must release the lingering reservation"
+        )
+
+        # Exactly one consumption row total (the per-op one) — no duplicate.
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(rows) == 1
+
+        # on_hand decremented exactly once (1000 - 370).
+        inv = db.query(Inventory).filter(
+            Inventory.product_id == filament.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert inv.on_hand_quantity == Decimal("630")
+
+    def test_partially_consumed_stage_still_consumes_remainder_no_raise(
+        self, db, make_product
+    ):
+        """Two production op-materials, one already consumed per-op with its
+        reservation left open. The finalizing bulk call must consume the
+        remaining row and must NOT raise (it posted a transaction)."""
+        fg = make_product(item_type="finished_good")
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        insert = make_product(unit="EA", cost_method="average", average_cost=Decimal("1.00"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+        _make_inventory(db, insert.id, location.id, Decimal("100"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op1 = _make_operation(db, po.id, wc.id, sequence=10)
+        op1.operation_code = "PRINT"
+        mat1 = _make_op_material(db, op1.id, filament.id, Decimal("370"), unit="G")
+        op2 = _make_operation(db, po.id, wc.id, sequence=20)
+        op2.operation_code = "PRINT"
+        _make_op_material(db, op2.id, insert.id, Decimal("2"), unit="EA")
+        db.flush()
+
+        inventory_service.reserve_production_materials(db, po)
+        db.flush()
+
+        # Consume only op1 per-op (reservation left open).
+        inventory_service.consume_operation_material(db, mat1, po)
+
+        # Bulk finalize: must consume op2's insert, must NOT raise.
+        bulk_txns = inventory_service.consume_production_materials(db, po, Decimal("1"))
+        assert len(bulk_txns) == 1
+        assert bulk_txns[0].product_id == insert.id
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(rows) == 2  # filament (per-op) + insert (bulk)
+
+    def test_fully_per_op_consumed_shipping_stage_finalizes_without_raise(
+        self, db, make_product, make_sales_order
+    ):
+        """Same false-positive shape on the SHIPPING stage: a box on a PACK
+        op, reserved and already consumed per-op (reservation left open). A
+        second/finalizing consume_shipping_materials call must NOT raise and
+        must not double-consume."""
+        fg = make_product(item_type="finished_good")
+        box = make_product(
+            item_type="packaging", unit="EA", cost_method="average",
+            average_cost=Decimal("1.50"),
+        )
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, box.id, location.id, Decimal("100"))
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        po.sales_order_id = so.id
+        wc = _make_work_center(db)
+        pack_op = _make_operation(db, po.id, wc.id, sequence=10)
+        pack_op.operation_code = "PACK"
+        box_mat = _make_op_material(db, pack_op.id, box.id, Decimal("1"), unit="EA")
+        db.flush()
+
+        # Reserve (routing-first reserves the box too) then consume the box
+        # per-op, leaving the shipping-stage reservation OPEN.
+        inventory_service.reserve_production_materials(db, po)
+        db.flush()
+        inventory_service.consume_operation_material(db, box_mat, po)
+        db.refresh(box_mat)
+        assert box_mat.status == "consumed"
+
+        net = inventory_service._get_net_reserved_by_component(db, po.id)
+        assert net.get(box.id, Decimal("0")) > Decimal("0"), (
+            "Precondition: box reservation must still be open after per-op consume"
+        )
+
+        # Finalizing ship call: box already consumed, reservation open ->
+        # must NOT raise, must not double-post.
+        txns = inventory_service.consume_shipping_materials(db, so)
+        assert txns == [], "No new shipping consumption; box already consumed per-op"
+
+        net_after = inventory_service._get_net_reserved_by_component(db, po.id)
+        assert net_after.get(box.id, Decimal("0")) == Decimal("0"), (
+            "Finalizing ship call must release the lingering shipping reservation"
+        )
+
+        rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(rows) == 1  # only the per-op consumption
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id,
+            Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("99")  # decremented once
+
+
+class TestCogsSelfHealsAfterRoutingFirstFix:
+    """Integration: get_cogs_summary (untouched by this fix) returns NONZERO
+    material COGS for a completed routing-only order once FIX-1 posts real
+    consumption transactions — proving the chain end-to-end without
+    modifying the COGS aggregation itself."""
+
+    def test_cogs_summary_nonzero_for_completed_routing_order(
+        self, db, client, make_product, make_sales_order
+    ):
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="shipped")
+        so.shipped_at = datetime.now(timezone.utc)
+
+        po = _make_production_order(db, fg.id, qty_ordered=1, status="in_progress")
+        po.sales_order_id = so.id
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id, sequence=10)
+        op.operation_code = "PRINT"
+        _make_op_material(db, op.id, filament.id, Decimal("370"), unit="G")
+        db.flush()
+
+        # No BOM for `fg` — routing-only, the shape this fix targets.
+        assert db.query(BOM).filter(BOM.product_id == fg.id).first() is None
+
+        # FIX-1: complete production -> posts real consumption transactions.
+        consumption_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert len(consumption_txns) == 1
+        db.commit()
+
+        response = client.get("/api/v1/admin/accounting/cogs-summary", params={"days": 30})
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["cogs"]["materials"] > 0.0, (
+            "COGS materials must be nonzero once FIX-1 posts real consumption "
+            "transactions for a routing-only completed order"
+        )
+        assert data["cogs"]["total"] > 0.0
