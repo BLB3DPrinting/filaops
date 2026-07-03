@@ -1513,6 +1513,32 @@ def _get_stage_op_materials(
     return stage_rows, has_any_op_rows
 
 
+def _stage_has_consumed_op_materials(
+    db: Session,
+    production_order_id: int,
+    stage: str,
+) -> bool:
+    """Return True if this order has AT LEAST ONE ProductionOrderOperationMaterial
+    row for `stage` that is already status=='consumed'.
+
+    Used by the FIX-3 guardrail to distinguish "nothing was consumed because
+    there was no source" (a real bug — raise) from "nothing was consumed
+    THIS call because the stage's materials were ALREADY consumed by the
+    per-operation path (complete_operation -> consume_operation_material,
+    which posts the consumption + marks the row 'consumed' but does NOT
+    release the reservation)". The latter is a correctly-completed order
+    finalizing through the bulk/auto-complete path — it must NOT false-raise
+    merely because the still-open reservation makes had_reservation True."""
+    for row in _get_all_op_material_rows(db, production_order_id):
+        if row.status != "consumed":
+            continue
+        op = row.operation
+        stages = get_consume_stages_for_operation(op.operation_code if op else None)
+        if stage in stages:
+            return True
+    return False
+
+
 def _get_all_op_material_rows(
     db: Session,
     production_order_id: int,
@@ -1725,13 +1751,24 @@ def consume_production_materials(
         # rows) — never fall through to the BOM walk, even if this
         # particular call posted zero new rows (e.g. every stage_rows entry
         # was already consumed by a concurrent per-op call).
-        if had_reservation and not transactions:
+        #
+        # FIX-3 guardrail — but suppress the FALSE POSITIVE where the stage
+        # was ALREADY fully consumed by the per-operation path
+        # (complete_operation -> consume_operation_material posts the
+        # consumption + marks the row 'consumed' but does NOT release the
+        # reservation, so had_reservation is still True here even though the
+        # material was correctly consumed). Only raise when the stage has no
+        # already-consumed rows either — i.e. genuinely nothing consumable.
+        if (
+            had_reservation
+            and not transactions
+            and not _stage_has_consumed_op_materials(db, production_order.id, "production")
+        ):
             logger.error(
                 "Production-stage reservation existed for PO %s (product %s) "
-                "but zero production-stage op-materials were actually "
-                "consumed this call (all already consumed per-operation) — "
-                "routing-first mode is active so the BOM fallback does not "
-                "apply.",
+                "but zero production-stage op-materials were consumable and "
+                "none were previously consumed either — routing-first mode is "
+                "active so the BOM fallback does not apply.",
                 production_order.code,
                 production_order.product_id,
             )
@@ -1747,15 +1784,24 @@ def consume_production_materials(
         return transactions
 
     elif has_any_op_rows:
-        # Order has op-material rows, just none for the production stage
-        # (e.g. a shipping-only routing) — routing-first mode still applies;
-        # do not fall back to the BOM walk.
-        if had_reservation:
+        # Order has op-material rows, just none UNCONSUMED for the production
+        # stage — routing-first mode still applies; do not fall back to the
+        # BOM walk.
+        #
+        # FIX-3 guardrail — suppress the same false positive: if the
+        # production stage was already fully consumed per-operation (rows
+        # exist and are all status='consumed'), this is a correctly-completed
+        # order finalizing, NOT a missing-source bug. The lingering
+        # reservation was already released above; return quietly.
+        if had_reservation and not _stage_has_consumed_op_materials(
+            db, production_order.id, "production"
+        ):
             logger.error(
                 "Production-stage reservation existed for PO %s (product %s) "
-                "but no consumable production-stage source was found "
-                "(routing op-materials all non-production-stage or already "
-                "consumed, no BOM fallback applies in routing-first mode).",
+                "but no consumable production-stage source was found and none "
+                "were previously consumed either (routing op-materials all "
+                "non-production-stage, no BOM fallback applies in "
+                "routing-first mode).",
                 production_order.code,
                 production_order.product_id,
             )
@@ -2074,6 +2120,7 @@ def consume_shipping_materials(
     for product_id, qty in products_to_ship:
         product_had_reservation = False
         product_consumed_anything = False
+        product_stage_already_consumed = False
 
         # --- Routing-first: shipping-stage op-materials on this sales
         # order's production order(s) for this product ---
@@ -2096,6 +2143,15 @@ def consume_shipping_materials(
                 if component_id in stage_component_ids
             )
             product_had_reservation = product_had_reservation or po_had_reservation
+
+            # Track whether this PO already has shipping-stage op-materials
+            # consumed (per-op or a prior ship call) — used to suppress the
+            # FIX-3 guardrail false positive below (see production-stage note:
+            # consume_operation_material posts + marks 'consumed' but does NOT
+            # release the reservation, so a fully-consumed shipping stage on a
+            # finalizing call still shows had_reservation=True).
+            if _stage_has_consumed_op_materials(db, po.id, "shipping"):
+                product_stage_already_consumed = True
 
             # Release SHIPPING-stage reservations for this PO only —
             # production-stage reservations were already released (or will
@@ -2209,14 +2265,25 @@ def consume_shipping_materials(
                 )
 
         # FIX-3 guardrail: a shipping-stage reservation existed for this
-        # product's production order(s) but neither routing op-materials
-        # nor a BOM shipping line produced any consumption.
-        if product_had_reservation and not product_consumed_anything:
+        # product's production order(s) but neither routing op-materials nor
+        # a BOM shipping line produced any consumption.
+        #
+        # Suppress the false positive where the shipping stage was ALREADY
+        # consumed per-operation / by a prior ship call (rows are all
+        # status='consumed'): consume_operation_material leaves the
+        # reservation open, so product_had_reservation is still True on this
+        # finalizing call even though the box was correctly consumed. Only
+        # raise when nothing was consumed AND nothing was previously consumed.
+        if (
+            product_had_reservation
+            and not product_consumed_anything
+            and not product_stage_already_consumed
+        ):
             logger.error(
                 "Shipping-stage reservation existed for product %s on SO %s "
-                "but no consumable shipping-stage source was found (no "
-                "matching routing op-materials, no BOM shipping line) — "
-                "nothing was consumed.",
+                "but no consumable shipping-stage source was found and none "
+                "were previously consumed either (no matching routing "
+                "op-materials, no BOM shipping line) — nothing was consumed.",
                 product_id,
                 sales_order.order_number,
             )
