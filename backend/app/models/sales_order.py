@@ -67,22 +67,22 @@ class SalesOrder(Base):
     shipping_cost = Column(Numeric(10, 2), nullable=True, default=0.00)
     grand_total = Column(Numeric(10, 2), nullable=False)  # total + tax + shipping
 
-    # Order Status (Customer-Facing)
-    # Lifecycle: draft → pending_payment → confirmed → in_production → ready_to_ship → shipped → delivered → completed
-    # Alternative paths: payment_failed, partially_shipped, on_hold, cancelled
+    # Order Status. The authoritative vocabulary + allowed transitions live in
+    # app/core/status_config.py (SalesOrderStatus / SALES_ORDER_TRANSITIONS);
+    # keep this comment in sync with that enum.
+    # Lifecycle: pending → confirmed → in_production → ready_to_ship → shipped → delivered → completed
     # Status meanings:
+    #   - pending_confirmation: External order awaiting admin review
     #   - draft: Order being created/edited
-    #   - pending_payment: Submitted, awaiting payment
-    #   - payment_failed: Payment declined, needs retry
-    #   - confirmed: Payment received, ready for production planning
+    #   - pending: Created and awaiting confirmation (default for new/quote-converted orders)
+    #   - confirmed: Reviewed/accepted, ready for production planning
     #   - in_production: At least one WO is in progress
-    #   - ready_to_ship: All WOs complete and QC passed, awaiting shipment
-    #   - partially_shipped: Multi-line order with some items shipped
+    #   - ready_to_ship: Production complete, awaiting shipment
     #   - shipped: All items shipped
     #   - delivered: Carrier confirmed delivery
     #   - completed: Order fully closed
-    #   - on_hold: Production/shipment paused
-    #   - cancelled: Order terminated
+    #   - on_hold: Production/shipment paused (alternative path)
+    #   - cancelled: Order terminated (alternative path)
     status = Column(String(50), nullable=False, default="draft", index=True)
 
     # Payment Status
