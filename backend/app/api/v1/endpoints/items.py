@@ -116,6 +116,7 @@ def _build_item_response(item, db: Session) -> ItemResponse:
         allocated_qty=data["allocated_qty"],
         has_bom=data["has_bom"],
         bom_count=data["bom_count"],
+        gcode_file_path=data.get("gcode_file_path"),
         created_at=data["created_at"],
         updated_at=data["updated_at"],
     )
@@ -271,6 +272,7 @@ async def list_items(
             image_url=item.get("image_url"),
             has_bom=item.get("has_bom", False),
             has_routing=item.get("has_routing", False),
+            gcode_file_path=item.get("gcode_file_path"),
             parent_product_id=item.get("parent_product_id"),
             is_template=item.get("is_template", False),
             variant_count=item.get("variant_count", 0),
