@@ -1,9 +1,13 @@
 import { useState } from "react";
 import ItemCreationWizard from "./ItemCreationWizard";
 
+// Raw materials are intentionally NOT sellable on a customer sales order (#886) —
+// a print shop sells finished goods, not its filament. The "materials" render
+// block further down is left intact but unreachable (no tab drives activeTab to
+// "materials"), so material resale could be re-enabled as a config-gated option
+// later without rebuilding it.
 const TABS = [
   { id: "products", label: "Finished Goods" },
-  { id: "materials", label: "Raw Materials" },
   { id: "fees", label: "Fees" },
 ];
 
