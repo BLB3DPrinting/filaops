@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -76,13 +76,24 @@ def get_trial_balance(
     *,
     as_of_date: date | None = None,
     include_zero_balances: bool = False,
+    include_unposted: bool = False,
 ) -> dict:
-    """Generate a trial balance report. Returns dict matching TrialBalanceResponse."""
+    """Generate a trial balance report. Returns dict matching TrialBalanceResponse.
+
+    Only posted journal entries are counted unless ``include_unposted`` is True
+    (drafts are editable and voids are cancelled — neither belongs in reports).
+    """
     if as_of_date is None:
         as_of_date = date.today()
 
     # Query to sum debits and credits by account
-    # Use conditional sums so accounts with only future entries still appear
+    # Use conditional sums so accounts with only future entries still appear.
+    # The posted-status filter must live INSIDE the case() (not a WHERE clause)
+    # so the outerjoin keeps zero-activity accounts listed.
+    entry_condition = GLJournalEntry.entry_date <= as_of_date
+    if not include_unposted:
+        entry_condition = and_(entry_condition, GLJournalEntry.status == "posted")
+
     query = db.query(
         GLAccount.account_code,
         GLAccount.name,
@@ -90,7 +101,7 @@ def get_trial_balance(
         func.coalesce(
             func.sum(
                 case(
-                    (GLJournalEntry.entry_date <= as_of_date, GLJournalEntryLine.debit_amount),
+                    (entry_condition, GLJournalEntryLine.debit_amount),
                     else_=Decimal("0"),
                 )
             ),
@@ -99,7 +110,7 @@ def get_trial_balance(
         func.coalesce(
             func.sum(
                 case(
-                    (GLJournalEntry.entry_date <= as_of_date, GLJournalEntryLine.credit_amount),
+                    (entry_condition, GLJournalEntryLine.credit_amount),
                     else_=Decimal("0"),
                 )
             ),
@@ -310,9 +321,14 @@ def get_transaction_ledger(
     end_date: date | None = None,
     limit: int = 100,
     offset: int = 0,
+    include_unposted: bool = False,
 ) -> dict:
     """Get the transaction ledger for a specific GL account.
-    Returns dict matching LedgerResponse."""
+    Returns dict matching LedgerResponse.
+
+    Only posted journal entries are counted unless ``include_unposted`` is True
+    (drafts are editable and voids are cancelled — neither belongs in reports).
+    """
     # Get the account
     account = db.query(GLAccount).filter(
         GLAccount.account_code == account_code
@@ -346,6 +362,9 @@ def get_transaction_ledger(
         GLJournalEntryLine.account_id == account.id
     )
 
+    if not include_unposted:
+        query = query.filter(GLJournalEntry.status == "posted")
+
     # Apply date filters
     if start_date:
         query = query.filter(GLJournalEntry.entry_date >= start_date)
@@ -377,6 +396,9 @@ def get_transaction_ledger(
             GLJournalEntryLine.account_id == account.id,
             GLJournalEntry.entry_date < start_date,
         )
+
+        if not include_unposted:
+            opening_query = opening_query.filter(GLJournalEntry.status == "posted")
 
         opening_result = opening_query.first()
         if opening_result:

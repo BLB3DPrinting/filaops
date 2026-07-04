@@ -263,6 +263,7 @@ class RecentEntriesResponse(BaseModel):
 async def get_trial_balance(
     as_of_date: Optional[date] = Query(None, description="Balance as of this date (default: today)"),
     include_zero_balances: bool = Query(False, description="Include accounts with zero balance"),
+    include_unposted: bool = Query(False, description="Include draft and voided journal entries (default: posted only)"),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user),
 ):
@@ -281,6 +282,7 @@ async def get_trial_balance(
         db,
         as_of_date=as_of_date,
         include_zero_balances=include_zero_balances,
+        include_unposted=include_unposted,
     )
 
 
@@ -339,6 +341,7 @@ async def get_transaction_ledger(
     end_date: Optional[date] = Query(None, description="Filter transactions to this date"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum transactions to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
+    include_unposted: bool = Query(False, description="Include draft and voided journal entries (default: posted only)"),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user),
 ):
@@ -364,6 +367,7 @@ async def get_transaction_ledger(
         end_date=end_date,
         limit=limit,
         offset=offset,
+        include_unposted=include_unposted,
     )
 
 
