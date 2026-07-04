@@ -19,10 +19,10 @@ from app.models.sales_order import SalesOrder
 from app.models.production_order import ProductionOrder
 from app.models.bom import BOM
 from app.models.product import Product
-from app.models.inventory import InventoryTransaction
 from app.models.payment import Payment
 from app.api.v1.deps import get_current_staff_user
 from app.services import notification_service
+from app.services import cogs_report_service
 
 router = APIRouter(prefix="/dashboard", tags=["Admin - Dashboard"])
 
@@ -1123,7 +1123,9 @@ async def get_profit_summary(
 
     Calculates:
     - Revenue from completed/shipped sales orders (this month and YTD)
-    - COGS from material consumption in production (this month and YTD)
+    - COGS derived from the persisted GL (#880 PR-5) — same derivation as
+      /accounting/cogs-summary and /accounting/dashboard, so this and those
+      surfaces never disagree
     - Gross profit and gross margin percentages
 
     Admin only. Freemium tier - basic profit view.
@@ -1162,47 +1164,25 @@ async def get_profit_summary(
     )
     revenue_ytd = revenue_ytd_result or Decimal("0")
 
-    # ========== COGS CALCULATION ==========
-    # Sum of material costs consumed in production
-    # We use inventory transactions with transaction_type='consumption'
-    # and reference_type='production_order' to track material usage
-    # The cost_per_unit field contains the material cost
-
-    # COGS this month (material consumption)
-    # abs(): ledger rows store signed quantities post-HARD-4a (legacy rows
-    # mixed both conventions) — cost is a magnitude either way.
-    cogs_this_month_result = (
-        db.query(
-            func.sum(
-                func.abs(InventoryTransaction.quantity) *
-                func.coalesce(InventoryTransaction.cost_per_unit, 0)
-            )
-        )
-        .filter(
-            InventoryTransaction.transaction_type == "consumption",
-            InventoryTransaction.reference_type == "production_order",
-            InventoryTransaction.created_at >= month_start,
-        )
-        .scalar()
+    # ========== COGS CALCULATION (GL-derived, #880 PR-5) ==========
+    # out_of_pocket_cogs anchored on the same shipped/completed +
+    # shipped_at-window sales-order set the other COGS surfaces use — see
+    # app/services/cogs_report_service.py. Anchored on shipped_at (not
+    # InventoryTransaction.created_at) so this and /accounting/cogs-summary
+    # never disagree about which orders are "this month".
+    month_order_ids = cogs_report_service.shipped_order_ids_in_window(
+        db, start=month_start
     )
-    cogs_this_month = cogs_this_month_result or Decimal("0")
+    cogs_this_month = cogs_report_service.gl_derived_cogs_for_orders(
+        db, month_order_ids, include_legacy=False
+    ).out_of_pocket_cogs
 
-    # COGS YTD
-    cogs_ytd_result = (
-        db.query(
-            func.sum(
-                func.abs(InventoryTransaction.quantity) *
-                func.coalesce(InventoryTransaction.cost_per_unit, 0)
-            )
-        )
-        .filter(
-            InventoryTransaction.transaction_type == "consumption",
-            InventoryTransaction.reference_type == "production_order",
-            InventoryTransaction.created_at >= year_start,
-        )
-        .scalar()
+    year_order_ids = cogs_report_service.shipped_order_ids_in_window(
+        db, start=year_start
     )
-    cogs_ytd = cogs_ytd_result or Decimal("0")
+    cogs_ytd = cogs_report_service.gl_derived_cogs_for_orders(
+        db, year_order_ids, include_legacy=False
+    ).out_of_pocket_cogs
 
     # ========== PROFIT CALCULATION ==========
     gross_profit_this_month = revenue_this_month - cogs_this_month
@@ -1224,7 +1204,7 @@ async def get_profit_summary(
     # Add note if COGS tracking is limited
     note = None
     if cogs_this_month == 0 and cogs_ytd == 0:
-        note = "COGS tracking requires inventory consumption transactions from production orders. Values may be zero if material consumption is not being tracked."
+        note = "COGS is derived from posted GL journal entries for shipped orders. Values may be zero if no orders have shipped, or if shipments haven't posted GL entries yet."
 
     return ProfitSummary(
         revenue_this_month=revenue_this_month,

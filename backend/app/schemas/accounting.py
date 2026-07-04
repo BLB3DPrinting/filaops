@@ -423,19 +423,53 @@ class OrderCostBreakdownResponse(BaseModel):
 # --- COGS Summary ---
 
 class COGSBreakdown(BaseModel):
-    """COGS breakdown by category."""
+    """COGS breakdown by category.
+
+    Legacy bucket split (materials/labor/packaging), kept populated for one
+    release from a re-sum of the same InventoryTransaction rows this
+    endpoint used before #880 PR-5. `total` mirrors the legacy total
+    (materials+labor+packaging) — use out_of_pocket_cogs/full_product_cogs
+    on COGSSummaryResponse for the GL-derived numbers.
+    """
     materials: float
     labor: float
     packaging: float
     total: float
 
 
+class COGSReconciliationSchema(BaseModel):
+    """The GL identity behind the two headline COGS numbers.
+
+    full_product_cogs (ship_cogs_5000) - completion_variance_5200
+        == out_of_pocket_cogs
+    """
+    ship_cogs_5000: float
+    packaging_5010: float
+    completion_variance_5200: float
+
+
 class COGSSummaryResponse(BaseModel):
-    """Response for GET /cogs-summary."""
+    """Response for GET /cogs-summary.
+
+    GL-derived (#880 PR-5): buckets come from posted gl_journal_entry_lines
+    on the shipment JEs (5000/5010) and the linked production orders'
+    completion-variance JEs (5200), not from a live re-sum of
+    InventoryTransaction. See app/services/cogs_report_service.py.
+
+    - out_of_pocket_cogs: what the shipped orders cost out of pocket
+      (materials + packaging actually spent; built-in labor/machine value
+      backed out via the 5200 variance).
+    - full_product_cogs: full FG-cost COGS (5000 debits) for margin
+      analysis — includes built-in labor & machine.
+    - reconciliation: the three GL buckets so the UI can show the identity.
+    """
     period: str
     orders_shipped: int
     revenue: float
     cogs: COGSBreakdown
+    out_of_pocket_cogs: float
+    full_product_cogs: float
+    reconciliation: COGSReconciliationSchema
     shipping_expense: float
     gross_profit: float
     gross_margin_pct: float

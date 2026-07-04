@@ -112,16 +112,16 @@ export default function COGSTab() {
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <div className="text-gray-400 text-sm mb-1">
-            Total COGS
+            What Your Shipped Orders Cost You Out Of Pocket
             <span
               className="ml-1 text-xs"
-              title="Production costs only (materials, labor, packaging)"
+              title="Materials + packaging you actually paid for. Built-in labor and machine value are backed out via the production-variance credit — this is the tax-correct Schedule C answer."
             >
               ℹ️
             </span>
           </div>
           <div className="text-2xl font-bold text-red-400">
-            {formatCurrency(data?.cogs?.total)}
+            {formatCurrency(data?.out_of_pocket_cogs)}
           </div>
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
@@ -129,7 +129,7 @@ export default function COGSTab() {
             Gross Profit
             <span
               className="ml-1 text-xs"
-              title="Revenue - COGS (before operating expenses)"
+              title="Revenue - out-of-pocket COGS (before operating expenses)"
             >
               ℹ️
             </span>
@@ -143,12 +143,43 @@ export default function COGSTab() {
         </div>
       </div>
 
+      {/* Secondary: full product-cost COGS for margin analysis */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-gray-400 text-sm">
+              Full Product-Cost COGS
+              <span className="ml-2 text-xs text-gray-500 font-normal">
+                (includes your built-in labor &amp; machine)
+              </span>
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              For margin analysis — the full cost of the finished goods you shipped.
+            </div>
+          </div>
+          <div className="text-xl font-bold text-white">
+            {formatCurrency(data?.full_product_cogs)}
+          </div>
+        </div>
+        {data?.reconciliation && (
+          <div className="border-t border-gray-700 mt-3 pt-3 text-xs text-gray-500 flex flex-wrap items-center gap-1">
+            <span>{formatCurrency(data.full_product_cogs)} full COGS</span>
+            <span>&minus;</span>
+            <span>{formatCurrency(data.reconciliation.completion_variance_5200)} labor/machine variance</span>
+            <span>=</span>
+            <span className="text-gray-300 font-medium">
+              {formatCurrency(data.out_of_pocket_cogs)} out of pocket
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* COGS Breakdown */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h3 className="text-lg font-semibold text-white mb-4">
           COGS Breakdown
           <span className="ml-2 text-xs text-gray-400 font-normal">
-            (Production costs only)
+            (Legacy category split — materials/labor/packaging)
           </span>
         </h3>
         <div className="space-y-3">
@@ -171,7 +202,7 @@ export default function COGSTab() {
             </span>
           </div>
           <div className="border-t border-gray-700 pt-3 flex items-center justify-between">
-            <span className="text-white font-semibold">Total COGS</span>
+            <span className="text-white font-semibold">Total (legacy)</span>
             <span className="text-red-400 font-bold">
               {formatCurrency(data?.cogs?.total)}
             </span>

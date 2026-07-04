@@ -66,9 +66,28 @@ export default function DashboardTab() {
   // Check if there's no shipped orders yet (common for new installations)
   const hasNoShippedOrders = data?.revenue?.mtd_orders === 0 && data?.revenue?.ytd_orders === 0;
   const hasOutstandingOrders = data?.payments?.outstanding_orders > 0;
+  const unjournaledCount = data?.unjournaled_txn_count || 0;
 
   return (
     <div className="space-y-6">
+      {/* GL-health warning: production consumption/receipt rows not yet
+          journaled — the GL has drifted from the inventory ledger. */}
+      {unjournaledCount > 0 && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p className="text-yellow-400 font-medium text-sm">
+              GL out of sync with inventory ({unjournaledCount} unjournaled transaction{unjournaledCount === 1 ? "" : "s"})
+            </p>
+            <p className="text-gray-400 text-xs mt-1">
+              Some production consumption/receipt activity hasn't posted to the general ledger yet. COGS figures below may understate until this resolves.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Helpful hint for new users */}
       {hasNoShippedOrders && hasOutstandingOrders && (
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex items-start gap-3">
@@ -186,7 +205,7 @@ export default function DashboardTab() {
             COGS MTD
             <span
               className="ml-1 text-xs"
-              title="Direct material costs of shipped goods"
+              title="Out-of-pocket cost of shipped goods, derived from the GL (materials + packaging; built-in labor/machine backed out)"
             >
               ℹ️
             </span>
