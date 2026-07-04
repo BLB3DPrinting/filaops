@@ -784,6 +784,7 @@ async def complete_production_order(
         quantity_scrapped=int(request.quantity_scrapped or 0),
         force_close_short=request.force_close_short,
         notes=request.notes,
+        user_id=current_user.id,
     )
 
     db.commit()

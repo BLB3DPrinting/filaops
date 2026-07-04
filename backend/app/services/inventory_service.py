@@ -2024,6 +2024,7 @@ def process_production_completion(
     production_order: ProductionOrder,
     quantity_completed: Decimal,
     created_by: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Tuple[List[InventoryTransaction], Optional[InventoryTransaction], Optional[InventoryTransaction]]:
     """
     Process all inventory transactions for production order completion.
@@ -2036,7 +2037,10 @@ def process_production_completion(
         db: Database session
         production_order: The completed production order
         quantity_completed: Number of units completed (may exceed ordered)
-        created_by: User completing the order
+        created_by: User completing the order (email, for inventory txns)
+        user_id: Completing user's id, for journal-entry attribution
+            (GLJournalEntry.created_by/posted_by); None when the caller
+            has no user context
 
     Returns:
         Tuple of (material_consumption_txns, ordered_receipt_txn, overrun_receipt_txn)
@@ -2056,6 +2060,17 @@ def process_production_completion(
         quantity_completed=quantity_completed,
         created_by=created_by,
     )
+
+    # Post the completion journal entry (#880): sweep this order's
+    # unjournaled consumption/receipt transactions (including any posted
+    # earlier by the per-operation path) into ONE GL entry. Runs in the
+    # SAME session/transaction as the consumption + receipts above, so a
+    # poster failure rolls back together with them — no half-posted state.
+    # Lazy import per the service-layer pattern (keeps import graph acyclic).
+    from app.services.production_gl_service import (
+        create_production_completion_gl_entry,
+    )
+    create_production_completion_gl_entry(db, production_order, user_id=user_id)
 
     return consumption_txns, ordered_txn, overrun_txn
 

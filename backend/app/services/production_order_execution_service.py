@@ -60,6 +60,7 @@ def complete_production_order(
     quantity_scrapped: int = 0,
     force_close_short: bool = False,
     notes: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> ProductionOrder:
     """
     Complete a production order and record finished goods to inventory.
@@ -71,6 +72,9 @@ def complete_production_order(
         quantity_scrapped: Scrapped quantity
         force_close_short: Allow closing order with less than ordered quantity
         notes: Completion notes
+        user_id: Completing user's id for journal-entry attribution (the
+            completion GL entry's created_by/posted_by); optional for
+            backward compatibility
 
     Returns:
         Updated ProductionOrder
@@ -117,6 +121,7 @@ def complete_production_order(
             production_order=order,
             quantity_completed=Decimal(str(quantity_good)),
             created_by=user_email,
+            user_id=user_id,
         )
     except Exception as e:
         logger.error(f"Failed to process production completion: {e}")
@@ -300,6 +305,16 @@ def accept_short_production_order(
         cost_per_unit=get_effective_cost_per_inventory_unit(product),
         created_by=user_email,
     )
+
+    # Post the completion journal entry (#880) over the consumption +
+    # receipt transactions just written. This path hand-rolls its FG
+    # receipt (instead of receive_finished_goods), so it must call the
+    # poster itself; the sweep's journal_entry_id-IS-NULL predicate makes
+    # this idempotent with any per-operation consumption already posted.
+    from app.services.production_gl_service import (
+        create_production_completion_gl_entry,
+    )
+    create_production_completion_gl_entry(db, order, user_id=user_id)
 
     # 3. Transition to complete
     order.status = "complete"

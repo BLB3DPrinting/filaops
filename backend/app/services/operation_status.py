@@ -165,13 +165,22 @@ def derive_po_status(po: ProductionOrder) -> str:
         return 'in_progress'
 
 
-def update_po_status(db: Session, po: ProductionOrder, created_by: Optional[str] = None) -> None:
+def update_po_status(
+    db: Session,
+    po: ProductionOrder,
+    created_by: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> None:
     """
     Update PO status based on operations.
 
     When PO transitions to 'complete':
     - Adds finished goods to inventory via process_production_completion
     - Syncs parent sales order status via sync_on_production_complete
+
+    user_id attributes the completion journal entry (#892): the
+    complete-operation path passes the acting user's id; callers without
+    user context (start/skip) leave it None.
     """
     new_status = derive_po_status(po)
     old_status = po.status
@@ -200,6 +209,7 @@ def update_po_status(db: Session, po: ProductionOrder, created_by: Optional[str]
                     production_order=po,
                     quantity_completed=qty_completed,
                     created_by=created_by,
+                    user_id=user_id,
                 )
                 logger.info(
                     f"Auto-completed inventory receipt for {po.code}: "
@@ -505,8 +515,13 @@ def complete_operation(
         po.quantity_scrapped = (po.quantity_scrapped or Decimal("0")) + quantity_scrapped
 
     # Update PO status (uses quantity_completed to determine complete vs short)
-    # Pass operator_name for inventory transaction attribution
-    update_po_status(db, po, created_by=op.operator_name or f"user:{user_id}" if user_id else None)
+    # Pass operator_name for inventory transaction attribution and user_id
+    # for journal-entry attribution (#892) if this completes the PO.
+    update_po_status(
+        db, po,
+        created_by=op.operator_name or f"user:{user_id}" if user_id else None,
+        user_id=user_id,
+    )
 
     db.flush()
     return op, scrap_result
