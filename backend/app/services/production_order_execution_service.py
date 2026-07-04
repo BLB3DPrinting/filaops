@@ -301,6 +301,16 @@ def accept_short_production_order(
         created_by=user_email,
     )
 
+    # Post the completion journal entry (#880) over the consumption +
+    # receipt transactions just written. This path hand-rolls its FG
+    # receipt (instead of receive_finished_goods), so it must call the
+    # poster itself; the sweep's journal_entry_id-IS-NULL predicate makes
+    # this idempotent with any per-operation consumption already posted.
+    from app.services.production_gl_service import (
+        create_production_completion_gl_entry,
+    )
+    create_production_completion_gl_entry(db, order, user_id=user_id)
+
     # 3. Transition to complete
     order.status = "complete"
     order.completed_at = datetime.now(timezone.utc)

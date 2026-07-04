@@ -485,6 +485,10 @@ class DashboardResponse(BaseModel):
     tax: DashboardTax
     cogs: DashboardCOGS
     profit: DashboardProfit
+    # GL-health counter (#880): production consumption/receipt inventory
+    # transactions not yet linked to a journal entry (non-held, non-voided).
+    # Zero when the GL mirrors the inventory ledger.
+    unjournaled_txn_count: int = 0
 
 
 # --- Sales Journal ---

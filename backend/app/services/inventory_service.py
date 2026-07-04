@@ -2057,6 +2057,17 @@ def process_production_completion(
         created_by=created_by,
     )
 
+    # Post the completion journal entry (#880): sweep this order's
+    # unjournaled consumption/receipt transactions (including any posted
+    # earlier by the per-operation path) into ONE GL entry. Runs in the
+    # SAME session/transaction as the consumption + receipts above, so a
+    # poster failure rolls back together with them — no half-posted state.
+    # Lazy import per the service-layer pattern (keeps import graph acyclic).
+    from app.services.production_gl_service import (
+        create_production_completion_gl_entry,
+    )
+    create_production_completion_gl_entry(db, production_order)
+
     return consumption_txns, ordered_txn, overrun_txn
 
 

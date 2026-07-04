@@ -725,6 +725,24 @@ async def get_accounting_dashboard(
     mtd_gross_profit = Decimal(str(mtd_revenue)) - mtd_cogs
     mtd_margin = float(mtd_gross_profit / Decimal(str(mtd_revenue)) * 100) if mtd_revenue > 0 else 0
 
+    # GL-health counter (#880): production consumption/receipt rows the
+    # completion poster has not journaled yet. Non-zero means the GL has
+    # drifted from the inventory ledger (e.g. a swallowed posting failure
+    # on the per-operation auto-complete path, or an in-flight order with
+    # per-op consumption awaiting completion). The completion-GL backfill
+    # script's dry-run doubles as the detailed audit list.
+    unjournaled_txn_count = db.query(func.count(InventoryTransaction.id)).filter(
+        InventoryTransaction.reference_type == 'production_order',
+        InventoryTransaction.transaction_type.in_(['consumption', 'receipt']),
+        InventoryTransaction.journal_entry_id.is_(None),
+        # Held and voided rows never affected on_hand — not GL drift.
+        InventoryTransaction.voided_by.is_(None),
+        ~(
+            InventoryTransaction.requires_approval.is_(True)
+            & InventoryTransaction.approved_by.is_(None)
+        ),
+    ).scalar() or 0
+
     return {
         "as_of": now.isoformat(),
         "fiscal_year_start": fiscal_year_start.isoformat(),
@@ -751,6 +769,7 @@ async def get_accounting_dashboard(
             "mtd_gross": float(mtd_gross_profit),
             "mtd_margin_pct": mtd_margin,
         },
+        "unjournaled_txn_count": int(unjournaled_txn_count),
     }
 
 
