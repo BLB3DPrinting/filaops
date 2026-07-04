@@ -40,6 +40,16 @@ from app.services.transaction_service import (
 # FIXTURES
 # =============================================================================
 
+def _unique_so_id() -> int:
+    """Unique fake sales-order id for ship_order calls.
+
+    These tests commit, and the #880 duplicate-shipment guard checks
+    committed shipment JEs by source_id — so reruns against a non-fresh
+    database must not reuse hardcoded ids.
+    """
+    return uuid.uuid4().int % 1_000_000_000 + 1_000_000
+
+
 @pytest.fixture
 def db():
     """Create a database session for testing."""
@@ -411,7 +421,7 @@ class TestShipmentFlow:
         expected_shipping = pkg_qty * pkg_cost  # $2.50
 
         inv_txns, je = txn_service.ship_order(
-            sales_order_id=999,
+            sales_order_id=_unique_so_id(),
             items=[ShipmentItem(
                 product_id=test_finished_good.id,
                 quantity=ship_qty,
@@ -569,7 +579,7 @@ class TestFullMTOFlow:
 
         # Step 4: Ship to customer
         txn_service.ship_order(
-            sales_order_id=300,
+            sales_order_id=_unique_so_id(),
             items=[ShipmentItem(
                 product_id=test_finished_good.id,
                 quantity=fg_qty,

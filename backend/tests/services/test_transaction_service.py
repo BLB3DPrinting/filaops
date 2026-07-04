@@ -16,6 +16,8 @@ Run with:
 Run with coverage:
     pytest tests/services/test_transaction_service.py -v --cov=app/services/transaction_service
 """
+import uuid
+
 import pytest
 from decimal import Decimal
 from datetime import date
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.services.transaction_service import (
+    DuplicateShipmentError,
     TransactionService,
     MaterialConsumption,
     ShipmentItem,
@@ -34,6 +37,7 @@ from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.production_order import ProductionOrder, ScrapRecord
 from app.models.product import Product
+from app.models.sales_order import SalesOrder
 
 
 # ============================================================================
@@ -203,6 +207,52 @@ class TestTransactionServiceHelpers:
             assert seq2 == seq1 + 1
         finally:
             # Cleanup
+            db.rollback()
+
+
+# ============================================================================
+# Journal Entry Date Tests (#880 PR-2)
+# ============================================================================
+
+class TestJournalEntryDate:
+    """Test the optional entry_date parameter on create_journal_entry"""
+
+    def test_entry_date_defaults_to_today(self, db: Session):
+        """Omitting entry_date should keep the existing today() behavior"""
+        ts = TransactionService(db)
+
+        try:
+            je = ts.create_journal_entry(
+                description="Entry date default test",
+                lines=[
+                    ("1200", Decimal("10.00"), "DR"),
+                    ("2000", Decimal("10.00"), "CR"),
+                ],
+            )
+            db.flush()
+
+            assert je.entry_date == date.today()
+        finally:
+            db.rollback()
+
+    def test_explicit_entry_date_lands_on_journal_entry(self, db: Session):
+        """An explicit (backdated) entry_date should land on the JE"""
+        ts = TransactionService(db)
+        backdated = date(2026, 4, 15)
+
+        try:
+            je = ts.create_journal_entry(
+                description="Backdated entry test",
+                lines=[
+                    ("1200", Decimal("10.00"), "DR"),
+                    ("2000", Decimal("10.00"), "CR"),
+                ],
+                entry_date=backdated,
+            )
+            db.flush()
+
+            assert je.entry_date == backdated
+        finally:
             db.rollback()
 
 
@@ -710,6 +760,206 @@ class TestShipOrder:
         finally:
             db.rollback()
 
+    def _make_sales_order(self, db: Session, status: str = "ready_to_ship") -> SalesOrder:
+        """Create a SalesOrder row (guard + description tests need a real SO)."""
+        uid = uuid.uuid4().hex[:8]
+        so = SalesOrder(
+            order_number=f"SO-TEST-{uid}",
+            user_id=1,
+            product_name=f"Test Product {uid}",
+            quantity=5,
+            material_type="PLA",
+            unit_price=Decimal("20.00"),
+            total_price=Decimal("100.00"),
+            grand_total=Decimal("100.00"),
+            status=status,
+        )
+        db.add(so)
+        db.flush()
+        return so
+
+    def test_je_description_uses_order_number(self, db: Session, test_finished_good: Product):
+        """JE description should use the order_number format shared with the
+        fulfillment path, not the numeric sales order id (#880)"""
+        ts = TransactionService(db)
+
+        try:
+            so = self._make_sales_order(db)
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("100"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            items = [ShipmentItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("5"),
+                unit_cost=Decimal("20.00"),
+            )]
+
+            inv_txns, je = ts.ship_order(
+                sales_order_id=so.id,
+                items=items,
+            )
+            db.flush()
+
+            assert je.description == f"Shipment for SO#{so.order_number}"
+        finally:
+            db.rollback()
+
+    def test_second_ship_raises_and_posts_no_inventory(self, db: Session, test_finished_good: Product):
+        """Retrying ship_order for an already-shipped SO must raise
+        DuplicateShipmentError BEFORE posting any inventory transaction (#880)"""
+        ts = TransactionService(db)
+
+        try:
+            so = self._make_sales_order(db)
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("100"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            items = [ShipmentItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("5"),
+                unit_cost=Decimal("20.00"),
+            )]
+
+            # First ship posts inventory + JE
+            inv_txns, je = ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+            assert je is not None
+
+            def txn_count() -> int:
+                return db.query(InventoryTransaction).filter(
+                    InventoryTransaction.reference_type == "sales_order",
+                    InventoryTransaction.reference_id == so.id,
+                ).count()
+
+            count_before = txn_count()
+            on_hand_before = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+
+            # Retry raises and posts ZERO new inventory transactions
+            with pytest.raises(DuplicateShipmentError, match="already has a shipment"):
+                ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+
+            assert txn_count() == count_before
+            on_hand_after = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+            assert on_hand_after == on_hand_before
+        finally:
+            db.rollback()
+
+    def test_voided_shipment_je_does_not_block_reship(self, db: Session, test_finished_good: Product):
+        """A voided shipment JE is a correction artifact — it must not trip
+        the duplicate-shipment guard (#880)"""
+        ts = TransactionService(db)
+
+        try:
+            so = self._make_sales_order(db)
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("100"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            voided_je = GLJournalEntry(
+                entry_number=f"JE-TEST-{uuid.uuid4().hex[:8]}",
+                entry_date=date.today(),
+                description=f"Shipment for SO#{so.order_number}",
+                source_type="sales_order",
+                source_id=so.id,
+                status="voided",
+            )
+            db.add(voided_je)
+            db.flush()
+
+            items = [ShipmentItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("5"),
+                unit_cost=Decimal("20.00"),
+            )]
+
+            inv_txns, je = ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+
+            assert je is not None
+            assert je.id != voided_je.id
+        finally:
+            db.rollback()
+
+    def test_zero_cost_ship_retry_raises_and_posts_no_inventory(
+        self, db: Session, test_finished_good: Product
+    ):
+        """A zero-cost shipment mints NO journal entry, so the JE-based guard
+        alone can't see it — the shipment inventory-transaction guard must
+        still block a retry from double-relieving FG (#880 CodeRabbit)"""
+        ts = TransactionService(db)
+
+        try:
+            so = self._make_sales_order(db)
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("100"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            items = [ShipmentItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("5"),
+                unit_cost=Decimal("0.00"),
+            )]
+
+            # First ship posts inventory but NO journal entry (zero cost)
+            inv_txns, je = ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+            assert je is None
+            assert len(inv_txns) == 1
+
+            def txn_count() -> int:
+                return db.query(InventoryTransaction).filter(
+                    InventoryTransaction.reference_type == "sales_order",
+                    InventoryTransaction.reference_id == so.id,
+                ).count()
+
+            count_before = txn_count()
+            on_hand_before = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+
+            # Retry raises and posts ZERO new inventory transactions
+            with pytest.raises(
+                DuplicateShipmentError,
+                match="already has a shipment inventory transaction",
+            ):
+                ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+
+            assert txn_count() == count_before
+            on_hand_after = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+            assert on_hand_after == on_hand_before
+        finally:
+            db.rollback()
+
 
 # ============================================================================
 # Receive Purchase Order Tests
@@ -795,6 +1045,118 @@ class TestReceivePurchaseOrder:
             ).first()
             assert inv is not None
             assert inv.on_hand_quantity == Decimal("1000")
+        finally:
+            db.rollback()
+
+    def test_packaging_receipt_debits_1230(self, db: Session, test_packaging: Product):
+        """Packaging PO receipt should debit Packaging Inventory (1230), not
+        Raw Materials — otherwise 1230 goes negative at ship (#880)"""
+        ts = TransactionService(db)
+
+        try:
+            items = [ReceiptItem(
+                product_id=test_packaging.id,
+                quantity=Decimal("100"),
+                unit_cost=Decimal("2.50"),
+            )]
+
+            inv_txns, je = ts.receive_purchase_order(
+                purchase_order_id=1,
+                items=items,
+            )
+            db.flush()
+
+            assert je.is_balanced
+
+            dr_line = next(line for line in je.lines if line.debit_amount > 0)
+            cr_line = next(line for line in je.lines if line.credit_amount > 0)
+
+            assert dr_line.account.account_code == "1230"  # Packaging Inventory
+            assert dr_line.debit_amount == Decimal("250.00")
+            assert cr_line.account.account_code == "2000"  # AP
+        finally:
+            db.rollback()
+
+    def test_finished_good_receipt_debits_1220(self, db: Session, test_finished_good: Product):
+        """Purchased finished-good receipt should debit FG Inventory (1220)"""
+        ts = TransactionService(db)
+
+        try:
+            items = [ReceiptItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("10"),
+                unit_cost=Decimal("10.00"),
+            )]
+
+            inv_txns, je = ts.receive_purchase_order(
+                purchase_order_id=1,
+                items=items,
+            )
+            db.flush()
+
+            assert je.is_balanced
+
+            dr_line = next(line for line in je.lines if line.debit_amount > 0)
+            cr_line = next(line for line in je.lines if line.credit_amount > 0)
+
+            assert dr_line.account.account_code == "1220"  # FG Inventory
+            assert cr_line.account.account_code == "2000"  # AP
+        finally:
+            db.rollback()
+
+    def test_mixed_po_receipt_multi_line_je_balances(
+        self,
+        db: Session,
+        test_material: Product,
+        test_packaging: Product,
+        test_finished_good: Product,
+    ):
+        """Mixed PO produces ONE JE with a DR line per inventory account and
+        a single CR 2000 for the total"""
+        ts = TransactionService(db)
+
+        try:
+            items = [
+                ReceiptItem(
+                    product_id=test_material.id,
+                    quantity=Decimal("1000"),
+                    unit_cost=Decimal("0.02"),
+                    unit="G",
+                ),
+                ReceiptItem(
+                    product_id=test_packaging.id,
+                    quantity=Decimal("10"),
+                    unit_cost=Decimal("2.50"),
+                ),
+                ReceiptItem(
+                    product_id=test_finished_good.id,
+                    quantity=Decimal("5"),
+                    unit_cost=Decimal("10.00"),
+                ),
+            ]
+
+            inv_txns, je = ts.receive_purchase_order(
+                purchase_order_id=1,
+                items=items,
+            )
+            db.flush()
+
+            assert je.is_balanced
+
+            dr_by_account = {
+                line.account.account_code: line.debit_amount
+                for line in je.lines if line.debit_amount > 0
+            }
+            cr_lines = [line for line in je.lines if line.credit_amount > 0]
+
+            assert dr_by_account == {
+                "1200": Decimal("20.00"),   # 1000g @ 0.02
+                "1230": Decimal("25.00"),   # 10 @ 2.50
+                "1220": Decimal("50.00"),   # 5 @ 10.00
+            }
+            assert len(cr_lines) == 1
+            assert cr_lines[0].account.account_code == "2000"
+            assert cr_lines[0].credit_amount == Decimal("95.00")
         finally:
             db.rollback()
 

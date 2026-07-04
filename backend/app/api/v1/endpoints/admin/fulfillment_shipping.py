@@ -32,7 +32,12 @@ from app.models.bom import BOM
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.traceability import SerialNumber
 from app.services.shipping_service import shipping_service
-from app.services.transaction_service import TransactionService, ShipmentItem, PackagingUsed
+from app.services.transaction_service import (
+    DuplicateShipmentError,
+    TransactionService,
+    ShipmentItem,
+    PackagingUsed,
+)
 from app.services import inventory_ledger
 from app.services.inventory_service import get_effective_cost_per_inventory_unit, get_or_create_default_location
 from app.api.v1.deps import get_current_staff_user
@@ -791,11 +796,21 @@ async def buy_shipping_label(
         )]
 
         txn_service = TransactionService(db)
-        inv_txns, journal_entry = txn_service.ship_order(
-            sales_order_id=sales_order_id,
-            items=shipment_items,
-            packaging=packaging_list if packaging_list else None,
-        )
+        try:
+            inv_txns, journal_entry = txn_service.ship_order(
+                sales_order_id=sales_order_id,
+                items=shipment_items,
+                packaging=packaging_list if packaging_list else None,
+            )
+        except DuplicateShipmentError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Order {order.order_number} already has a shipment journal "
+                    "entry — it was already shipped. Retrying would double-post "
+                    "inventory and COGS."
+                ),
+            ) from exc
 
         # Get updated FG inventory for response
         fg_inventory = db.query(Inventory).filter(
@@ -1054,11 +1069,21 @@ async def ship_from_stock(
                 })
 
     # Execute shipment
-    inv_txns, journal_entry = txn_service.ship_order(
-        sales_order_id=sales_order_id,
-        items=shipment_items,
-        packaging=packaging_list if packaging_list else None,
-    )
+    try:
+        inv_txns, journal_entry = txn_service.ship_order(
+            sales_order_id=sales_order_id,
+            items=shipment_items,
+            packaging=packaging_list if packaging_list else None,
+        )
+    except DuplicateShipmentError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Order {order.order_number} already has a shipment journal "
+                "entry — it was already shipped. Retrying would double-post "
+                "inventory and COGS."
+            ),
+        ) from exc
 
     # Get updated inventory for response
     fg_inventory = db.query(Inventory).filter(

@@ -2444,16 +2444,17 @@ class TestLandedCostCapitalization:
         # Total should be $60 (base $50 + landed $10)
         assert total_dr == pytest.approx(Decimal("60.00"), rel=1e-4)
 
-        # Confirm accounts: 1200 DR, 2000 CR
+        # Confirm accounts: 1220 DR (purchased finished_good — PO receipt
+        # debits are item_type-aware since #880), 2000 CR
         account_ids_dr = {
             jl.account_id for jl in je_lines if Decimal(str(jl.debit_amount)) > 0
         }
         account_ids_cr = {
             jl.account_id for jl in je_lines if Decimal(str(jl.credit_amount)) > 0
         }
-        inv_acct = db.query(GLAccount).filter(GLAccount.account_code == "1200").first()
+        inv_acct = db.query(GLAccount).filter(GLAccount.account_code == "1220").first()
         ap_acct = db.query(GLAccount).filter(GLAccount.account_code == "2000").first()
-        assert inv_acct.id in account_ids_dr, "1200 (Inventory) must be debited"
+        assert inv_acct.id in account_ids_dr, "1220 (FG Inventory) must be debited"
         assert ap_acct.id in account_ids_cr, "2000 (AP) must be credited"
 
     def test_decimal_precision_no_penny_drift(
