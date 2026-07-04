@@ -28,11 +28,13 @@ from app.models.sales_order import SalesOrder
 from app.services import inventory_ledger
 
 _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
+# Distinct namespace so ship-guard locks never collide with entry-number locks.
+_SHIPMENT_GUARD_LOCK_NAMESPACE = 74003
 
 
 class DuplicateShipmentError(Exception):
     """Raised when ship_order is retried for a sales order that already has a
-    non-voided shipment journal entry.
+    non-voided shipment journal entry or shipment inventory transaction.
 
     A retry that skipped the JE but still posted inventory would silently
     double-decrement finished goods, so the guard raises BEFORE any inventory
@@ -596,10 +598,30 @@ class TransactionService:
             Tuple of (list of inventory transactions, journal entry)
 
         Raises:
-            DuplicateShipmentError: If a non-voided shipment journal entry
-                already exists for this sales order (retry would double-relieve
-                FG inventory). Raised BEFORE any inventory transaction posts.
+            DuplicateShipmentError: If a non-voided shipment journal entry OR
+                a non-voided shipment inventory transaction already exists for
+                this sales order (retry would double-relieve FG inventory).
+                Raised BEFORE any inventory transaction posts.
         """
+        # Serialize concurrent ships of the same order (#880 CodeRabbit): the
+        # existing-JE lookup below is a plain SELECT with no uniqueness
+        # constraint on (source_type, source_id), so two concurrent requests
+        # could both pass it and double-post. Transaction-scoped advisory lock
+        # keyed by sales_order_id — same pattern as _next_entry_number, but a
+        # distinct namespace so ship locks never collide with entry-number
+        # locks. Released automatically at commit/rollback.
+        self.db.execute(
+            text(
+                """
+                SELECT pg_advisory_xact_lock(
+                    CAST(:namespace AS integer),
+                    CAST(:key AS integer)
+                )
+                """
+            ),
+            {"namespace": _SHIPMENT_GUARD_LOCK_NAMESPACE, "key": sales_order_id},
+        )
+
         # Idempotency guard (#880): same predicate as _create_shipment_gl_entry
         # in sales_order_fulfillment_service. A skip-and-continue retry would
         # still double-decrement FG, so raise before touching inventory.
@@ -612,6 +634,23 @@ class TransactionService:
             raise DuplicateShipmentError(
                 f"Sales order {sales_order_id} already has a shipment journal "
                 f"entry (id {existing_je.id}); refusing to ship again"
+            )
+
+        # Zero-cost shipments post NO journal entry (total_amount == 0 below),
+        # so the JE guard alone can't see them — a retry would double-relieve
+        # FG. Also refuse when a non-voided shipment inventory transaction
+        # already exists for this order.
+        existing_ship_txn = self.db.query(InventoryTransaction.id).filter(
+            InventoryTransaction.transaction_type == "shipment",
+            InventoryTransaction.reference_type == "sales_order",
+            InventoryTransaction.reference_id == sales_order_id,
+            InventoryTransaction.voided_by.is_(None),
+        ).first()
+        if existing_ship_txn:
+            raise DuplicateShipmentError(
+                f"Sales order {sales_order_id} already has a shipment "
+                f"inventory transaction (id {existing_ship_txn.id}); "
+                f"refusing to ship again"
             )
 
         # Unify JE description with the fulfillment path's order_number format
@@ -704,6 +743,13 @@ class TransactionService:
         total_cost = Decimal("0")
         cost_by_account: dict[str, Decimal] = {}
 
+        # Batch-load products once (CodeRabbit: avoid N+1 db.get per item).
+        product_ids = {item.product_id for item in items}
+        products_by_id: dict[int, Product] = {
+            p.id: p
+            for p in self.db.query(Product).filter(Product.id.in_(product_ids))
+        } if product_ids else {}
+
         for item in items:
             cost = item.quantity * item.unit_cost
             total_cost += cost
@@ -711,7 +757,7 @@ class TransactionService:
             # Same item_type -> account map as cycle_count_adjustment (#880):
             # a flat DR 1200 sends packaging purchases to Raw Materials while
             # shipping credits 1230, driving Packaging Inventory negative.
-            product = self.db.get(Product, item.product_id)
+            product = products_by_id.get(item.product_id)
             inv_account = "1200"  # Default: Raw Materials
             if product and product.item_type == "finished_good":
                 inv_account = "1220"

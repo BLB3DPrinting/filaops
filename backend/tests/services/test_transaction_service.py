@@ -902,6 +902,64 @@ class TestShipOrder:
         finally:
             db.rollback()
 
+    def test_zero_cost_ship_retry_raises_and_posts_no_inventory(
+        self, db: Session, test_finished_good: Product
+    ):
+        """A zero-cost shipment mints NO journal entry, so the JE-based guard
+        alone can't see it — the shipment inventory-transaction guard must
+        still block a retry from double-relieving FG (#880 CodeRabbit)"""
+        ts = TransactionService(db)
+
+        try:
+            so = self._make_sales_order(db)
+            inv = Inventory(
+                product_id=test_finished_good.id,
+                location_id=1,
+                on_hand_quantity=Decimal("100"),
+                allocated_quantity=Decimal("0"),
+            )
+            db.add(inv)
+            db.flush()
+
+            items = [ShipmentItem(
+                product_id=test_finished_good.id,
+                quantity=Decimal("5"),
+                unit_cost=Decimal("0.00"),
+            )]
+
+            # First ship posts inventory but NO journal entry (zero cost)
+            inv_txns, je = ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+            assert je is None
+            assert len(inv_txns) == 1
+
+            def txn_count() -> int:
+                return db.query(InventoryTransaction).filter(
+                    InventoryTransaction.reference_type == "sales_order",
+                    InventoryTransaction.reference_id == so.id,
+                ).count()
+
+            count_before = txn_count()
+            on_hand_before = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+
+            # Retry raises and posts ZERO new inventory transactions
+            with pytest.raises(
+                DuplicateShipmentError,
+                match="already has a shipment inventory transaction",
+            ):
+                ts.ship_order(sales_order_id=so.id, items=items)
+            db.flush()
+
+            assert txn_count() == count_before
+            on_hand_after = db.query(Inventory).filter(
+                Inventory.product_id == test_finished_good.id
+            ).first().on_hand_quantity
+            assert on_hand_after == on_hand_before
+        finally:
+            db.rollback()
+
 
 # ============================================================================
 # Receive Purchase Order Tests
