@@ -3143,13 +3143,24 @@ class TestMarkShippedGL:
     ):
         """A ready_to_ship order that somehow already has a shipment JE passes
         the status gate, but _create_shipment_gl_entry's one-JE-per-SO guard
-        prevents a second journal entry."""
+        prevents a second journal entry.
+
+        The seeded JE is a realistic posted shipment entry — balanced
+        DR 5000 / CR 1220 lines, source-linked to the sales order — so the
+        guard is proven against the shape a real prior shipment leaves
+        behind, not just a bare header row (#893)."""
         from datetime import date
-        from app.models.accounting import GLJournalEntry
+        from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
+        from app.services.payment_service import ensure_core_sales_accounts
 
         product, so, inv = self._make_shippable_order(
             db, make_product, make_quote, make_sales_order, quantity=2
         )
+        ensure_core_sales_accounts(db)
+        accounts = {
+            code: db.query(GLAccount).filter(GLAccount.account_code == code).first()
+            for code in ("5000", "1220")
+        }
         pre_existing = GLJournalEntry(
             entry_number=f"JE-TEST-{_uid()}",
             entry_date=date.today(),
@@ -3159,6 +3170,23 @@ class TestMarkShippedGL:
             status="posted",
         )
         db.add(pre_existing)
+        db.flush()
+        db.add_all([
+            GLJournalEntryLine(
+                journal_entry_id=pre_existing.id,
+                account_id=accounts["5000"].id,
+                debit_amount=Decimal("10.00"),
+                credit_amount=Decimal("0"),
+                line_order=1,
+            ),
+            GLJournalEntryLine(
+                journal_entry_id=pre_existing.id,
+                account_id=accounts["1220"].id,
+                debit_amount=Decimal("0"),
+                credit_amount=Decimal("10.00"),
+                line_order=2,
+            ),
+        ])
         db.flush()
 
         resp = client.post(
@@ -3172,6 +3200,71 @@ class TestMarkShippedGL:
         jes = _shipment_jes(db, so.id)
         assert len(jes) == 1  # guard: no second JE
         assert jes[0].id == pre_existing.id
+
+        # The guard must skip cleanly: the seeded entry's lines are untouched
+        # (no lines appended, amounts unchanged).
+        totals = _je_lines_by_code(db, pre_existing.id)
+        assert totals["5000"] == (Decimal("10.00"), Decimal("0"))
+        assert totals["1220"] == (Decimal("0"), Decimal("10.00"))
+        _assert_je_balanced(totals)
+
+        # The new shipment txn IS recorded, and intentionally stays unlinked:
+        # the guard's contract is skip-don't-adopt (it never claims a JE it
+        # did not create). Happy-path linkage is pinned in
+        # test_mark_shipped_posts_shipment_txn_and_je; asserting None here
+        # makes any future guard-linkage change deliberate, not silent.
+        txns = _fg_shipment_txns(db, so.id)
+        assert len(txns) == 1
+        assert txns[0].journal_entry_id is None
+
+    def test_mark_shipped_locks_order_before_inventory_relief(
+        self, client, db, make_product, make_quote, make_sales_order
+    ):
+        """#893: the shipped-status gate must be atomic with inventory relief.
+        mark-shipped takes a SELECT ... FOR UPDATE row lock on the sales
+        order BEFORE the status check and holds it through the ledger
+        posting, so a concurrent request serializes on the lock and 409s
+        instead of double-relieving finished goods. In-process concurrency
+        is not exercisable through TestClient, so the lock is pinned via
+        SQL emission (maintenance-window lock-test precedent)."""
+        from sqlalchemy import event
+
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, quantity=2
+        )
+
+        captured: list[str] = []
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):
+            captured.append(statement)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", _capture)
+        try:
+            resp = client.post(
+                f"{BASE}/ship/{so.id}/mark-shipped",
+                json={"tracking_number": "TRK-GL-LOCK", "carrier": "USPS"},
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", _capture)
+        assert resp.status_code == 200
+
+        lock_indices = [
+            i for i, s in enumerate(captured)
+            if "FOR UPDATE" in s and "sales_orders" in s
+        ]
+        assert lock_indices, (
+            "mark-shipped must row-lock the sales order (SELECT ... FOR "
+            f"UPDATE) before the status gate; statements seen: {captured}"
+        )
+        relief_indices = [
+            i for i, s in enumerate(captured) if "inventory_transactions" in s
+        ]
+        assert relief_indices, "expected inventory ledger activity in mark-shipped"
+        assert lock_indices[0] < relief_indices[0], (
+            "the sales-order row lock must be acquired before any inventory "
+            "ledger activity"
+        )
 
 
 class TestConsolidatedBuyLabelGL:
@@ -3349,3 +3442,106 @@ class TestConsolidatedBuyLabelGL:
         assert len(_fg_shipment_txns(db, so2.id)) == 1
         assert len(_shipment_jes(db, so1.id)) == 1
         assert len(_shipment_jes(db, so2.id)) == 1
+
+    def test_consolidated_packaging_follows_request_order(
+        self, client, db, make_product, make_sales_order, make_bom,
+        make_production_order, fake_shipping_service,
+    ):
+        """#893: 'first order' means order_ids[0] of the REQUEST, not database
+        row order. Request the higher-id order first: its JE — not the
+        lower-id order that an unordered IN query would surface first —
+        must carry the DR 5010 / CR 1230 packaging pair."""
+        fg1, fg2, so1, so2, inv1, inv2 = self._make_consolidation(
+            db, make_product, make_sales_order
+        )
+        assert so1.id < so2.id  # created in this sequence — precondition
+        pkg = self._add_packaging_reservation(
+            db, make_product, make_bom, make_production_order, so2, fg2
+        )
+
+        # so2 (higher id, later DB row) is order_ids[0]
+        resp = client.post(
+            f"{BASE}/ship/consolidate/buy-label?rate_id=rate_1&shipment_id=shp_1",
+            json=[so2.id, so1.id],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["packaging_consumed"], (
+            "packaging must be consumed from the first REQUESTED order (so2)"
+        )
+
+        # so2's JE carries the packaging pair on top of its FG COGS
+        jes2 = _shipment_jes(db, so2.id)
+        assert len(jes2) == 1
+        totals2 = _je_lines_by_code(db, jes2[0].id)
+        assert totals2["5010"] == (Decimal("0.50"), Decimal("0"))
+        assert totals2["1230"] == (Decimal("0"), Decimal("0.50"))
+        _assert_je_balanced(totals2)
+
+        # so1's JE has no packaging lines
+        jes1 = _shipment_jes(db, so1.id)
+        assert len(jes1) == 1
+        totals1 = _je_lines_by_code(db, jes1[0].id)
+        assert "5010" not in totals1
+        assert "1230" not in totals1
+        _assert_je_balanced(totals1)
+
+        # And the single consumption txn links to so2's JE
+        from app.models.inventory import InventoryTransaction
+        pkg_txns = db.query(InventoryTransaction).filter(
+            InventoryTransaction.product_id == pkg.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(pkg_txns) == 1
+        assert pkg_txns[0].reference_id == so2.id
+        assert pkg_txns[0].journal_entry_id == jes2[0].id
+
+    def test_consolidated_locks_orders_in_id_order_before_relief(
+        self, client, db, make_product, make_sales_order, fake_shipping_service,
+    ):
+        """#893: consolidated buy-label re-checks order statuses under
+        SELECT ... FOR UPDATE — ordered by id so overlapping consolidations
+        sharing orders acquire locks in the same sequence and cannot
+        deadlock — before any packaging/FG ledger activity. Pinned via SQL
+        emission (see mark-shipped lock test for rationale)."""
+        from sqlalchemy import event
+
+        fg1, fg2, so1, so2, inv1, inv2 = self._make_consolidation(
+            db, make_product, make_sales_order
+        )
+
+        captured: list[str] = []
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):
+            captured.append(statement)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", _capture)
+        try:
+            resp = client.post(
+                f"{BASE}/ship/consolidate/buy-label?rate_id=rate_1&shipment_id=shp_1",
+                json=[so1.id, so2.id],
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", _capture)
+        assert resp.status_code == 200, resp.text
+
+        lock_stmts = [
+            (i, s) for i, s in enumerate(captured)
+            if "FOR UPDATE" in s and "sales_orders" in s
+        ]
+        assert lock_stmts, (
+            "consolidated buy-label must row-lock the sales orders "
+            f"(SELECT ... FOR UPDATE); statements seen: {captured}"
+        )
+        first_lock_idx, first_lock_sql = lock_stmts[0]
+        assert "ORDER BY" in first_lock_sql, (
+            "the lock SELECT must order by id for deadlock-free acquisition"
+        )
+        relief_indices = [
+            i for i, s in enumerate(captured) if "inventory_transactions" in s
+        ]
+        assert relief_indices, "expected inventory ledger activity in consolidation"
+        assert first_lock_idx < relief_indices[0], (
+            "the sales-order row locks must be acquired before any inventory "
+            "ledger activity"
+        )
