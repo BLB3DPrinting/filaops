@@ -39,7 +39,15 @@ from app.services.transaction_service import (
     PackagingUsed,
 )
 from app.services import inventory_ledger
-from app.services.inventory_service import get_effective_cost_per_inventory_unit, get_or_create_default_location
+from app.services.inventory_service import (
+    get_effective_cost_per_inventory_unit,
+    get_or_create_default_location,
+    issue_shipped_goods,
+)
+from app.services.sales_order_fulfillment_service import (
+    SHIPPED_ORDER_STATUSES,
+    _create_shipment_gl_entry,
+)
 from app.api.v1.deps import get_current_staff_user
 
 router = APIRouter(prefix="/fulfillment", tags=["Admin - Fulfillment Shipping"])
@@ -356,17 +364,22 @@ async def buy_consolidated_shipping_label(
     rate_id: str,
     shipment_id: str,
     db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_staff_user),
 ):
     """
     Purchase a shipping label for consolidated orders.
 
     Updates ALL orders with the same tracking number.
     Only consumes packaging from ONE order (avoids double-consumption).
+    Relieves finished goods and posts a shipment journal entry per order
+    (#880 PR-4).
     """
     if len(order_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 orders to consolidate")
 
-    # Fetch all orders
+    # Pre-check (unlocked): fail fast — before spending money on a label —
+    # if any order is missing or not ready. The authoritative gate is the
+    # FOR UPDATE re-check below.
     orders = db.query(SalesOrder).filter(
         SalesOrder.id.in_(order_ids),
         SalesOrder.status == "ready_to_ship"
@@ -387,8 +400,52 @@ async def buy_consolidated_shipping_label(
             detail=f"Failed to purchase label: {result.error}"
         )
 
+    # =========================================================================
+    # ATOMIC SHIP GATE (#893)
+    #
+    # Row-lock EVERY order in the consolidation and re-check status under
+    # the lock, holding it through the packaging/FG posting, GL, status
+    # flip, and commit below. Without this, two concurrent requests
+    # sharing an order can both pass the unlocked pre-check and
+    # double-relieve inventory — the one-JE-per-SO guard only dedupes GL.
+    #
+    # Locks are taken in ascending id order so two overlapping
+    # consolidations acquire them in the same sequence and cannot
+    # deadlock. The carrier purchase above stays OUTSIDE the locked
+    # section so a slow EasyPost call never holds row locks.
+    # populate_existing() refreshes rows already loaded by the pre-check,
+    # so the re-check sees a status flipped by a concurrent winner.
+    # =========================================================================
+    locked_orders = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id.in_(order_ids))
+        .order_by(SalesOrder.id)
+        .populate_existing()
+        .with_for_update()
+        .all()
+    )
+    not_ready = [o.order_number for o in locked_orders if o.status != "ready_to_ship"]
+    if len(locked_orders) != len(order_ids) or not_ready:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Orders changed while the label was being purchased "
+                f"({', '.join(not_ready) if not_ready else 'some orders no longer exist'}) "
+                "— nothing was shipped. The purchased label is unused; refund it "
+                "via the carrier."
+            ),
+        )
+
+    # Deterministic packaging attribution (#893): the FIRST order of the
+    # REQUEST (order_ids[0]) — not database row order — consumes the
+    # packaging and carries the DR 5010 / CR 1230 GL lines, so iteration
+    # below preserves the request order.
+    orders_by_id = {order.id: order for order in locked_orders}
+    orders = [orders_by_id[order_id] for order_id in order_ids]
+
     # Consume packaging from FIRST order only (consolidated = one box)
     packaging_consumed = []
+    packaging_txns = []  # ledger rows, fed into the first order's GL entry
     first_order = orders[0]
 
     production_orders = db.query(ProductionOrder).filter(
@@ -445,7 +502,7 @@ async def buy_consolidated_shipping_label(
             # The poster acquires a FOR UPDATE lock via
             # get_or_create_inventory_row and writes both the ledger
             # row and the on_hand delta atomically (HARD-4a contract).
-            inventory_ledger.post(
+            pkg_txn = inventory_ledger.post(
                 db,
                 product_id=res_txn.product_id,
                 location_id=location_id,
@@ -461,6 +518,7 @@ async def buy_consolidated_shipping_label(
                 ),
                 created_by="system",
             )
+            packaging_txns.append(pkg_txn)
 
             packaging_consumed.append({
                 "component_sku": component.sku if component else "N/A",
@@ -532,6 +590,36 @@ async def buy_consolidated_shipping_label(
                         created_by="system",
                     )
                     db.add(release_txn)
+
+    # =========================================================================
+    # FG RELIEF + GL — one shipment journal entry per order (#880 PR-4)
+    #
+    # Every order in the consolidation ships its finished goods, so each
+    # gets an FG issue (relieving 1220) and its own journal entry
+    # (DR 5000 COGS / CR 1220 FG). Before this, consolidated shipments
+    # flipped status without relieving FG or posting any GL.
+    #
+    # Packaging attribution constraint: packaging is consumed against the
+    # FIRST order only (one physical box — existing behavior, kept), so the
+    # first order's JE carries the DR 5010 / CR 1230 packaging line.
+    # Per-order 5010 attribution is therefore approximate; the
+    # consolidation's GL TOTALS are exact.
+    #
+    # Retry safety: the FOR UPDATE status re-check above rejects re-runs
+    # and concurrent duplicates — the gate is atomic with this posting
+    # because the row locks are held through the commit below — and
+    # _create_shipment_gl_entry's one-JE-per-SO guard backstops against
+    # double-posting GL for an order that already has a shipment entry.
+    # =========================================================================
+    for order in orders:
+        issue_pairs = issue_shipped_goods(db, order, created_by=current_admin.email)
+        issue_txns = [txn for _, txn in issue_pairs]
+        gl_txns = (
+            [*packaging_txns, *issue_txns]
+            if order.id == first_order.id
+            else issue_txns
+        )
+        _create_shipment_gl_entry(db, order, current_admin.id, gl_txns)
 
     # Update ALL orders with same tracking
     order_numbers = []
@@ -1144,11 +1232,40 @@ async def mark_order_shipped(
     Manually mark an order as shipped (for when label was created outside system).
 
     Updates tracking info and optionally sends notification to customer.
+    Issues finished goods and posts the shipment journal entry
+    (DR 5000 COGS / CR 1220 FG) like the other ship paths (#880 PR-4).
     """
-    order = db.query(SalesOrder).filter(SalesOrder.id == sales_order_id).first()
+    # Atomic ship gate (#893): row-lock the order BEFORE the status check
+    # and hold the lock through the FG relief, GL posting, status flip,
+    # and commit below. Without the lock, two concurrent mark-shipped
+    # requests can both pass the status gate and double-relieve finished
+    # goods — the one-JE-per-SO guard only dedupes GL, not inventory.
+    # Mirrors ship_order()'s FOR UPDATE gate in
+    # sales_order_fulfillment_service.
+    order = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == sales_order_id)
+        .with_for_update()
+        .first()
+    )
 
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
+
+    # Status gate (#880 PR-4), re-checked under the row lock above: an
+    # order already in a shipped-family status must not be marked shipped
+    # again — the FG issue below would double-decrement finished goods
+    # and re-post COGS. A concurrent request serializes on the lock and
+    # sees the status flipped by the winner, so it 409s here.
+    if order.status in SHIPPED_ORDER_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Order {order.order_number} is already '{order.status}' — "
+                "marking it shipped again would double-relieve finished "
+                "goods and double-post COGS."
+            ),
+        )
 
     # Update order
     order.tracking_number = request.tracking_number
@@ -1195,7 +1312,7 @@ async def mark_order_shipped(
                 # replacing the float-math direct mutation and the
                 # hand-built InventoryTransaction that bypassed locking.
                 location_id = fg_inventory.location_id or get_or_create_default_location(db).id
-                inventory_ledger.post(
+                ship_txn = inventory_ledger.post(
                     db,
                     product_id=quote.product_id,
                     location_id=location_id,
@@ -1208,6 +1325,12 @@ async def mark_order_shipped(
                     notes=f"Shipped {qty_shipped} units for {order.order_number}",
                     created_by="system",
                 )
+
+                # Journal the shipment (#880 PR-4): DR 5000 COGS / CR 1220 FG,
+                # linked to the ledger row above. _create_shipment_gl_entry
+                # has its own one-JE-per-SO guard, so even a request that
+                # slips past the status gate cannot double-post GL.
+                _create_shipment_gl_entry(db, order, current_admin.id, [ship_txn])
 
                 # Read back the updated on_hand for the response payload.
                 db.flush()
