@@ -16,6 +16,10 @@ Covers:
 - the GL-health counter on the accounting dashboard
 - the backfill script (dry-run, backup-marker gate, apply -> manifest ->
   rollback round-trip)
+- the #892 concurrency guard: pg_advisory_xact_lock(74004, po_id) before
+  the sweep, exactly-once posting across sequential transactions, and the
+  backfill's atomic temp-file manifest lifecycle (rename after commit,
+  delete on commit failure)
 
 All tests are delta-based with per-run unique fixtures (uuid SKUs/codes
 from the conftest factories) because filaops_test accumulates state.
@@ -397,6 +401,85 @@ class TestCompletionGLPoster:
 
 
 # =============================================================================
+# Concurrency guard (#892): advisory lock + exactly-once posting
+# =============================================================================
+
+class TestCompletionAdvisoryLock:
+    """The poster must serialize concurrent completions of the same PO with a
+    transaction-scoped advisory lock (namespace 74004, keyed by PO id) taken
+    BEFORE the sweep, because GLJournalEntry has no (source_type, source_id)
+    uniqueness and the per-op auto-complete path arrives without a
+    ProductionOrder row lock."""
+
+    def _make_sweepable_po(self, db, make_product, make_production_order):
+        raw = make_product(item_type="supply", average_cost=Decimal("0.50"))
+        fg = make_product(item_type="finished_good", average_cost=Decimal("2.00"))
+        po = make_production_order(product_id=fg.id, status="in_progress", quantity=2)
+        _seed_stock(db, raw, 20, "0.50")
+        _consume(db, raw, po, 4, "0.50")
+        _receive_fg(db, fg, po, 2, "2.00")
+        return po
+
+    def test_advisory_lock_emitted_with_po_key(
+        self, db, make_product, make_production_order, monkeypatch
+    ):
+        """The completion guard lock is the FIRST statement the poster
+        executes, in its own namespace (74002 = entry-number lock,
+        74003 = ship guard), keyed by the production order id."""
+        from app.services import production_gl_service
+
+        po = self._make_sweepable_po(db, make_product, make_production_order)
+
+        captured = []
+        original_execute = db.execute
+
+        def spy_execute(statement, *args, **kwargs):
+            params = args[0] if args else kwargs.get("params")
+            captured.append((str(statement), params))
+            return original_execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", spy_execute)
+        je = create_production_completion_gl_entry(db, po)
+        monkeypatch.undo()
+
+        assert je is not None
+        lock_params = [
+            params for sql, params in captured
+            if "pg_advisory_xact_lock" in sql
+        ]
+        assert lock_params, (
+            "expected pg_advisory_xact_lock on the completion-poster path"
+        )
+        assert production_gl_service._COMPLETION_GUARD_LOCK_NAMESPACE == 74004
+        assert lock_params[0]["namespace"] == 74004
+        assert lock_params[0]["key"] == po.id
+
+    def test_posts_exactly_once_across_separate_transactions(
+        self, db, make_product, make_production_order
+    ):
+        """Two sequential completion attempts in separate transactions post
+        exactly one entry: the committed journal_entry_id links make the
+        second sweep empty. This is the exactly-once contract the #892
+        advisory lock extends to CONCURRENT completions — once the first
+        transaction commits and releases the lock, a blocked second caller
+        re-sweeps and finds nothing."""
+        po = self._make_sweepable_po(db, make_product, make_production_order)
+
+        first = create_production_completion_gl_entry(db, po)
+        assert first is not None
+        db.commit()   # transaction 1 ends: links durable, lock released
+
+        second = create_production_completion_gl_entry(db, po)
+        assert second is None
+        db.commit()   # transaction 2
+
+        entries = _completion_entries(db, po)
+        assert len(entries) == 1
+        for txn in _po_txns(db, po):
+            assert txn.journal_entry_id == entries[0].id
+
+
+# =============================================================================
 # Call sites
 # =============================================================================
 
@@ -656,6 +739,11 @@ class TestBackfillScript:
         )
         assert len(entries) == 1
 
+        # Temp-file lifecycle (#892): the pre-commit temp manifest was
+        # renamed into place — final file present, no *.tmp left behind.
+        assert manifest_path.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+
         posted = _completion_entries(db, po)
         assert len(posted) == 1
         je = posted[0]
@@ -697,3 +785,41 @@ class TestBackfillScript:
         ]
         assert len(live) == 1
         assert live[0].id != je.id
+
+    def test_apply_commit_failure_removes_temp_manifest(
+        self, db, make_product, make_production_order, tmp_path, monkeypatch
+    ):
+        """#892: the manifest is written to a temp file BEFORE commit and
+        only renamed into place after commit succeeds. When the commit
+        fails, nothing was posted — the temp file must be deleted (a stale
+        rollback record would be misleading) and no final manifest may
+        appear."""
+        po = self._make_unjournaled_po(db, make_product, make_production_order)
+        # Persist the fixture rows to this savepoint so the post-failure
+        # rollback below only undoes the failed apply.
+        db.commit()
+
+        marker = _fresh_marker(tmp_path)
+        manifest_path = tmp_path / "manifest.json"
+
+        def boom():
+            raise RuntimeError("simulated commit failure")
+
+        monkeypatch.setattr(db, "commit", boom)
+        with pytest.raises(RuntimeError, match="simulated commit failure"):
+            backfill.run_apply(
+                db, str(manifest_path), backup_marker=str(marker),
+                po_ids=[po.id], out=lambda *_: None,
+            )
+        monkeypatch.undo()
+
+        # Neither the temp file nor the final manifest survives the failure.
+        assert not manifest_path.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+
+        # What main() does on any exception — and afterwards the books show
+        # nothing posted and every transaction back to sweepable.
+        db.rollback()
+        assert _completion_entries(db, po) == []
+        for txn in _po_txns(db, po):
+            assert txn.journal_entry_id is None

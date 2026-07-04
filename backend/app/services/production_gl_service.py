@@ -47,7 +47,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -56,6 +56,11 @@ from app.models.inventory import InventoryTransaction
 from app.models.production_order import ProductionOrder, ScrapRecord
 
 logger = get_logger(__name__)
+
+# Advisory-lock namespace for the completion poster. Distinct from the
+# entry-number lock (74002) and the ship guard (74003) in
+# transaction_service so completion locks never collide with either.
+_COMPLETION_GUARD_LOCK_NAMESPACE = 74004
 
 RAW_MATERIALS_ACCOUNT = "1200"
 WIP_ACCOUNT = "1210"
@@ -337,6 +342,33 @@ def create_production_completion_gl_entry(
         entry_date: Entry date; defaults to today. The live-books backfill
             passes the PO's completed_at date to backdate corrections.
     """
+    # Serialize concurrent completions of the same production order (#892
+    # CodeRabbit): the sweep predicate (journal_entry_id IS NULL) is a plain
+    # SELECT with no uniqueness constraint on GLJournalEntry
+    # (source_type, source_id), and the per-op auto-complete path
+    # (operation_status -> process_production_completion) reaches here
+    # without a ProductionOrder row lock — so two concurrent completions
+    # could both sweep the same rows and double-post. Transaction-scoped
+    # advisory lock keyed by production_order.id, same pattern as
+    # transaction_service.ship_order (74003) and _next_entry_number (74002).
+    # Living INSIDE the poster covers every caller (bulk complete, per-op
+    # auto-complete, accept-short, backfill script) regardless of its own
+    # locking. Released automatically at commit/rollback.
+    db.execute(
+        text(
+            """
+            SELECT pg_advisory_xact_lock(
+                CAST(:namespace AS integer),
+                CAST(:key AS integer)
+            )
+            """
+        ),
+        {
+            "namespace": _COMPLETION_GUARD_LOCK_NAMESPACE,
+            "key": production_order.id,
+        },
+    )
+
     txns = _sweep_unjournaled_transactions(db, production_order.id)
     if not txns:
         return None

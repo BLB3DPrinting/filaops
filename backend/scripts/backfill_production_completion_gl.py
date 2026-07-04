@@ -34,6 +34,7 @@ posts nothing.
 """
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -211,9 +212,8 @@ def run_apply(
             "transaction_ids": preview.transaction_ids,
         })
 
-    db.commit()
-
     if not manifest_entries:
+        db.rollback()
         out("Nothing was posted (all candidates zero-cost).")
         return []
 
@@ -223,7 +223,22 @@ def run_apply(
         "applied_at": datetime.now(timezone.utc).isoformat(),
         "entries": manifest_entries,
     }
-    Path(manifest_path).write_text(json.dumps(manifest, indent=2))
+    # Write the rollback record to a temp file BEFORE commit, then rename it
+    # into place after commit succeeds (#892 CodeRabbit): a crash between
+    # commit and manifest write would otherwise leave permanently posted
+    # entries with no record to drive --rollback. The temp file sits in the
+    # manifest's own directory so os.replace() is an atomic same-filesystem
+    # rename; on commit failure it is removed (nothing was posted, so a
+    # stale rollback record would be misleading).
+    final_path = Path(manifest_path)
+    tmp_path = final_path.with_name(final_path.name + ".tmp")
+    tmp_path.write_text(json.dumps(manifest, indent=2))
+    try:
+        db.commit()
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    os.replace(tmp_path, final_path)
     out(f"\nPosted {len(manifest_entries)} journal entr(ies). "
         f"Manifest written to {manifest_path} — keep it for --rollback.")
     return manifest_entries
