@@ -24,9 +24,20 @@ from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.inventory import InventoryTransaction
 from app.models.production_order import ScrapRecord
 from app.models.product import Product
+from app.models.sales_order import SalesOrder
 from app.services import inventory_ledger
 
 _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
+
+
+class DuplicateShipmentError(Exception):
+    """Raised when ship_order is retried for a sales order that already has a
+    non-voided shipment journal entry.
+
+    A retry that skipped the JE but still posted inventory would silently
+    double-decrement finished goods, so the guard raises BEFORE any inventory
+    transaction is posted (#880). Callers convert this to HTTP 409.
+    """
 
 
 class MaterialConsumption(NamedTuple):
@@ -123,6 +134,7 @@ class TransactionService:
         source_type: Optional[str] = None,
         source_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        entry_date: Optional[date] = None,
     ) -> GLJournalEntry:
         """Create a balanced posted journal entry for service-level callers."""
         return self._create_journal_entry(
@@ -131,6 +143,7 @@ class TransactionService:
             source_type=source_type,
             source_id=source_id,
             user_id=user_id,
+            entry_date=entry_date,
         )
 
     def _create_journal_entry(
@@ -140,6 +153,7 @@ class TransactionService:
         source_type: str = None,
         source_id: int = None,
         user_id: int = None,
+        entry_date: Optional[date] = None,
     ) -> GLJournalEntry:
         """
         Create balanced journal entry with lines.
@@ -150,6 +164,8 @@ class TransactionService:
             source_type: 'production_order', 'sales_order', 'purchase_order', etc.
             source_id: ID of source document
             user_id: Creating user ID
+            entry_date: Entry date; defaults to today. Lets correction posters
+                (e.g. the #880 completion-GL backfill) backdate entries.
 
         Returns:
             GLJournalEntry with lines attached
@@ -159,7 +175,7 @@ class TransactionService:
         """
         je = GLJournalEntry(
             entry_number=self._next_entry_number(),
-            entry_date=date.today(),
+            entry_date=entry_date or date.today(),
             description=description,
             source_type=source_type,
             source_id=source_id,
@@ -578,7 +594,31 @@ class TransactionService:
 
         Returns:
             Tuple of (list of inventory transactions, journal entry)
+
+        Raises:
+            DuplicateShipmentError: If a non-voided shipment journal entry
+                already exists for this sales order (retry would double-relieve
+                FG inventory). Raised BEFORE any inventory transaction posts.
         """
+        # Idempotency guard (#880): same predicate as _create_shipment_gl_entry
+        # in sales_order_fulfillment_service. A skip-and-continue retry would
+        # still double-decrement FG, so raise before touching inventory.
+        existing_je = self.db.query(GLJournalEntry.id).filter(
+            GLJournalEntry.source_type == "sales_order",
+            GLJournalEntry.source_id == sales_order_id,
+            GLJournalEntry.status != "voided",
+        ).first()
+        if existing_je:
+            raise DuplicateShipmentError(
+                f"Sales order {sales_order_id} already has a shipment journal "
+                f"entry (id {existing_je.id}); refusing to ship again"
+            )
+
+        # Unify JE description with the fulfillment path's order_number format
+        # (falls back to the numeric id when no SalesOrder row exists).
+        order = self.db.get(SalesOrder, sales_order_id)
+        order_ref = order.order_number if order and order.order_number else sales_order_id
+
         inv_txns = []
         je_lines = []
 
@@ -629,7 +669,7 @@ class TransactionService:
         total_amount = fg_total + pkg_total
         if total_amount > 0:
             je = self._create_journal_entry(
-                description=f"Shipment for SO#{sales_order_id}",
+                description=f"Shipment for SO#{order_ref}",
                 lines=je_lines,
                 source_type="sales_order",
                 source_id=sales_order_id,
@@ -653,17 +693,33 @@ class TransactionService:
         Receive materials from vendor.
 
         Inventory: RECEIPT for each item (positive qty)
-        Accounting: DR Raw Materials (1200), CR Accounts Payable (2000)
+        Accounting: DR inventory account by item_type — packaging (1230),
+            finished goods (1220), default Raw Materials (1200) — CR
+            Accounts Payable (2000)
 
         Returns:
             Tuple of (list of inventory transactions, journal entry)
         """
         inv_txns = []
         total_cost = Decimal("0")
+        cost_by_account: dict[str, Decimal] = {}
 
         for item in items:
             cost = item.quantity * item.unit_cost
             total_cost += cost
+
+            # Same item_type -> account map as cycle_count_adjustment (#880):
+            # a flat DR 1200 sends packaging purchases to Raw Materials while
+            # shipping credits 1230, driving Packaging Inventory negative.
+            product = self.db.get(Product, item.product_id)
+            inv_account = "1200"  # Default: Raw Materials
+            if product and product.item_type == "finished_good":
+                inv_account = "1220"
+            elif product and product.item_type == "packaging":
+                inv_account = "1230"
+            cost_by_account[inv_account] = (
+                cost_by_account.get(inv_account, Decimal("0")) + cost
+            )
 
             inv_txn = self._post_inventory(
                 product_id=item.product_id,
@@ -678,13 +734,16 @@ class TransactionService:
             )
             inv_txns.append(inv_txn)
 
-        # Create journal entry: DR Raw Materials, CR AP
+        # Create journal entry: DR inventory accounts by item_type, CR AP
+        je_lines: List[Tuple[str, Decimal, str]] = [
+            (account, amount, "DR")
+            for account, amount in sorted(cost_by_account.items())
+        ]
+        je_lines.append(("2000", total_cost, "CR"))  # Accounts Payable
+
         je = self._create_journal_entry(
             description=f"PO#{purchase_order_id} receipt",
-            lines=[
-                ("1200", total_cost, "DR"),  # Raw Materials
-                ("2000", total_cost, "CR"),  # Accounts Payable
-            ],
+            lines=je_lines,
             source_type="purchase_order",
             source_id=purchase_order_id,
             user_id=user_id,

@@ -2799,3 +2799,143 @@ class TestAvailableBoxesExtended:
             assert box["dimensions"]["width"] == 6.0
             assert box["dimensions"]["height"] == 4.0
             assert box["volume"] == 192.0
+
+
+# =============================================================================
+# Duplicate-shipment guard (#880 PR-2) — ship retries return 409
+# =============================================================================
+
+@pytest.fixture
+def fake_shipping_service(monkeypatch):
+    """Replace the module-level shipping_service with a stub whose buy_label
+    succeeds, so the request reaches the TransactionService.ship_order guard."""
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(
+        buy_label=lambda *args, **kwargs: SimpleNamespace(
+            success=True,
+            tracking_number="TRACK-TEST-409",
+            carrier="USPS",
+            label_url="https://example.com/label.pdf",
+            rate=5.00,
+            error=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.admin.fulfillment_shipping.shipping_service",
+        fake,
+    )
+    return fake
+
+
+class TestDuplicateShipmentGuard409:
+    """Retrying a ship after a shipment JE exists must 409, not double-post."""
+
+    @staticmethod
+    def _post_shipment_je(db, so):
+        """Create the non-voided shipment JE the guard looks for."""
+        from datetime import date
+        from app.models.accounting import GLJournalEntry
+
+        je = GLJournalEntry(
+            entry_number=f"JE-TEST-{_uid()}",
+            entry_date=date.today(),
+            description=f"Shipment for SO#{so.order_number}",
+            source_type="sales_order",
+            source_id=so.id,
+            status="posted",
+        )
+        db.add(je)
+        db.flush()
+        return je
+
+    @staticmethod
+    def _shipment_txn_count(db, so_id):
+        from app.models.inventory import InventoryTransaction
+
+        return db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "sales_order",
+            InventoryTransaction.reference_id == so_id,
+        ).count()
+
+    def test_buy_label_duplicate_shipment_409(
+        self, client, db, make_product, make_sales_order, make_quote,
+        fake_shipping_service,
+    ):
+        """buy-label on an order that already has a shipment JE returns 409
+        and posts zero new inventory transactions."""
+        product = make_product(
+            item_type="finished_good",
+            standard_cost=Decimal("5.00"),
+        )
+        quote = make_quote(product_id=product.id)
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("20.00"),
+            status="ready_to_ship",
+            quote_id=quote.id,
+        )
+        self._post_shipment_je(db, so)
+        count_before = self._shipment_txn_count(db, so.id)
+
+        resp = client.post(
+            f"{BASE}/ship/{so.id}/buy-label?rate_id=rate_1&shipment_id=shp_1"
+        )
+
+        assert resp.status_code == 409
+        assert "already" in resp.json()["detail"].lower()
+        assert self._shipment_txn_count(db, so.id) == count_before
+
+    def test_ship_from_stock_duplicate_shipment_409(
+        self, client, db, make_product, make_sales_order, make_quote,
+        fake_shipping_service,
+    ):
+        """ship-from-stock on an order that already has a shipment JE returns
+        409, posts zero inventory transactions, and does not flip status."""
+        from app.models.inventory import Inventory, InventoryLocation
+
+        product = make_product(
+            item_type="finished_good",
+            standard_cost=Decimal("5.00"),
+            selling_price=Decimal("20.00"),
+        )
+        quote = make_quote(product_id=product.id)
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("20.00"),
+            status="confirmed",
+            quote_id=quote.id,
+        )
+
+        location = db.query(InventoryLocation).filter(
+            InventoryLocation.active.is_(True)
+        ).first()
+        inv = Inventory(
+            product_id=product.id,
+            location_id=location.id,
+            on_hand_quantity=Decimal("10"),
+            allocated_quantity=Decimal("0"),
+        )
+        db.add(inv)
+        db.flush()
+
+        self._post_shipment_je(db, so)
+        count_before = self._shipment_txn_count(db, so.id)
+
+        resp = client.post(
+            f"{BASE}/ship-from-stock/{so.id}/ship",
+            json={
+                "rate_id": "rate_test123",
+                "shipment_id": "shp_test123",
+            },
+        )
+
+        assert resp.status_code == 409
+        assert "already" in resp.json()["detail"].lower()
+        assert self._shipment_txn_count(db, so.id) == count_before
+        db.refresh(so)
+        assert so.status == "confirmed"
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("10")
