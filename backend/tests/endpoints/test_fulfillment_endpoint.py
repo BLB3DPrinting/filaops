@@ -2397,7 +2397,7 @@ class TestMarkShippedExtended:
     def test_mark_shipped_from_draft_succeeds(
         self, client, db, make_product, make_sales_order
     ):
-        """Mark shipped works from any status (no status guard)."""
+        """Mark shipped works from any non-shipped status (draft included)."""
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(
             product_id=product.id,
@@ -2413,7 +2413,8 @@ class TestMarkShippedExtended:
                 "carrier": "USPS",
             },
         )
-        # mark-shipped has no status guard, so it succeeds from any status
+        # mark-shipped only gates the shipped-family statuses (#880 PR-4),
+        # so it still succeeds from draft (label made outside the system).
         assert resp.status_code == 200
         db.refresh(so)
         assert so.status == "shipped"
@@ -2939,3 +2940,412 @@ class TestDuplicateShipmentGuard409:
         assert so.status == "confirmed"
         db.refresh(inv)
         assert inv.on_hand_quantity == Decimal("10")
+
+
+# =============================================================================
+# Ship-path completeness (#880 PR-4) — mark-shipped + consolidated buy-label
+# post GL and gate status
+# =============================================================================
+
+def _seed_default_location_inventory(db, product_id, on_hand, allocated=Decimal("0")):
+    """Seed stock at the DEFAULT location (where issue_shipped_goods posts)."""
+    from app.models.inventory import Inventory
+    from app.services.inventory_service import get_or_create_default_location
+
+    location = get_or_create_default_location(db)
+    inv = db.query(Inventory).filter(
+        Inventory.product_id == product_id,
+        Inventory.location_id == location.id,
+    ).first()
+    if inv is None:
+        inv = Inventory(
+            product_id=product_id,
+            location_id=location.id,
+            on_hand_quantity=on_hand,
+            allocated_quantity=allocated,
+        )
+        db.add(inv)
+    else:
+        inv.on_hand_quantity = on_hand
+        inv.allocated_quantity = allocated
+    db.flush()
+    return inv
+
+
+def _shipment_jes(db, so_id):
+    """Non-voided shipment journal entries for a sales order."""
+    from app.models.accounting import GLJournalEntry
+
+    return db.query(GLJournalEntry).filter(
+        GLJournalEntry.source_type == "sales_order",
+        GLJournalEntry.source_id == so_id,
+        GLJournalEntry.status != "voided",
+    ).all()
+
+
+def _je_lines_by_code(db, je_id):
+    """{account_code: (total_debit, total_credit)} for a journal entry."""
+    from app.models.accounting import GLAccount, GLJournalEntryLine
+
+    rows = (
+        db.query(
+            GLAccount.account_code,
+            GLJournalEntryLine.debit_amount,
+            GLJournalEntryLine.credit_amount,
+        )
+        .select_from(GLJournalEntryLine)
+        .join(GLAccount, GLJournalEntryLine.account_id == GLAccount.id)
+        .filter(GLJournalEntryLine.journal_entry_id == je_id)
+        .all()
+    )
+    totals = {}
+    for code, debit, credit in rows:
+        dr, cr = totals.get(code, (Decimal("0"), Decimal("0")))
+        totals[code] = (
+            dr + Decimal(str(debit or 0)),
+            cr + Decimal(str(credit or 0)),
+        )
+    return totals
+
+
+def _assert_je_balanced(totals):
+    total_dr = sum(dr for dr, _ in totals.values())
+    total_cr = sum(cr for _, cr in totals.values())
+    assert total_dr == total_cr, f"JE does not balance: DR {total_dr} != CR {total_cr}"
+
+
+def _fg_shipment_txns(db, so_id):
+    from app.models.inventory import InventoryTransaction
+
+    return db.query(InventoryTransaction).filter(
+        InventoryTransaction.reference_type == "sales_order",
+        InventoryTransaction.reference_id == so_id,
+        InventoryTransaction.transaction_type == "shipment",
+    ).all()
+
+
+class TestMarkShippedGL:
+    """mark-shipped posts a DR 5000 / CR 1220 JE and gates shipped statuses (#880 PR-4)."""
+
+    def _make_shippable_order(self, db, make_product, make_quote, make_sales_order,
+                              quantity=2, status="ready_to_ship"):
+        product = make_product(
+            item_type="finished_good",
+            standard_cost=Decimal("5.00"),
+            selling_price=Decimal("20.00"),
+        )
+        quote = make_quote(product_id=product.id)
+        so = make_sales_order(
+            product_id=product.id,
+            quantity=quantity,
+            unit_price=Decimal("20.00"),
+            status=status,
+            quote_id=quote.id,
+        )
+        inv = _seed_default_location_inventory(db, product.id, Decimal("10"))
+        return product, so, inv
+
+    def test_mark_shipped_posts_shipment_txn_and_je(
+        self, client, db, make_product, make_quote, make_sales_order
+    ):
+        """Happy path: FG issue posts a shipment txn AND a linked DR5000/CR1220 JE."""
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, quantity=2
+        )
+
+        resp = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-1", "carrier": "USPS"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["finished_goods_shipped"] is not None
+
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("8")
+
+        txns = _fg_shipment_txns(db, so.id)
+        assert len(txns) == 1
+
+        jes = _shipment_jes(db, so.id)
+        assert len(jes) == 1
+        assert txns[0].journal_entry_id == jes[0].id
+
+        totals = _je_lines_by_code(db, jes[0].id)
+        assert totals["5000"] == (Decimal("10.00"), Decimal("0"))  # 2 x 5.00 COGS
+        assert totals["1220"] == (Decimal("0"), Decimal("10.00"))  # FG relief
+        _assert_je_balanced(totals)
+
+    def test_mark_shipped_already_shipped_409_no_double_decrement(
+        self, client, db, make_product, make_quote, make_sales_order
+    ):
+        """mark-shipped on an already-shipped order 409s and touches nothing."""
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, status="shipped"
+        )
+
+        resp = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-2", "carrier": "USPS"},
+        )
+        assert resp.status_code == 409
+        assert "already" in resp.json()["detail"].lower()
+
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("10")
+        assert _fg_shipment_txns(db, so.id) == []
+        assert _shipment_jes(db, so.id) == []
+
+    @pytest.mark.parametrize("terminal_status", ["delivered", "completed"])
+    def test_mark_shipped_terminal_statuses_409(
+        self, client, db, make_product, make_quote, make_sales_order, terminal_status
+    ):
+        """delivered/completed orders are also gated (SHIPPED_ORDER_STATUSES)."""
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, status=terminal_status
+        )
+
+        resp = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-3", "carrier": "USPS"},
+        )
+        assert resp.status_code == 409
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("10")
+
+    def test_mark_shipped_retry_409_posts_exactly_once(
+        self, client, db, make_product, make_quote, make_sales_order
+    ):
+        """First mark-shipped succeeds; the retry 409s via the status gate,
+        leaving exactly one shipment txn and one JE."""
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, quantity=2
+        )
+
+        first = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-4", "carrier": "USPS"},
+        )
+        assert first.status_code == 200
+
+        retry = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-4-RETRY", "carrier": "USPS"},
+        )
+        assert retry.status_code == 409
+
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("8")  # decremented ONCE
+        assert len(_fg_shipment_txns(db, so.id)) == 1
+        assert len(_shipment_jes(db, so.id)) == 1
+
+    def test_mark_shipped_je_guard_backstop(
+        self, client, db, make_product, make_quote, make_sales_order
+    ):
+        """A ready_to_ship order that somehow already has a shipment JE passes
+        the status gate, but _create_shipment_gl_entry's one-JE-per-SO guard
+        prevents a second journal entry."""
+        from datetime import date
+        from app.models.accounting import GLJournalEntry
+
+        product, so, inv = self._make_shippable_order(
+            db, make_product, make_quote, make_sales_order, quantity=2
+        )
+        pre_existing = GLJournalEntry(
+            entry_number=f"JE-TEST-{_uid()}",
+            entry_date=date.today(),
+            description=f"Shipment for SO#{so.order_number}",
+            source_type="sales_order",
+            source_id=so.id,
+            status="posted",
+        )
+        db.add(pre_existing)
+        db.flush()
+
+        resp = client.post(
+            f"{BASE}/ship/{so.id}/mark-shipped",
+            json={"tracking_number": "TRK-GL-5", "carrier": "USPS"},
+        )
+        assert resp.status_code == 200  # status gate passes (ready_to_ship)
+
+        db.refresh(inv)
+        assert inv.on_hand_quantity == Decimal("8")  # FG still relieved
+        jes = _shipment_jes(db, so.id)
+        assert len(jes) == 1  # guard: no second JE
+        assert jes[0].id == pre_existing.id
+
+
+class TestConsolidatedBuyLabelGL:
+    """Consolidated buy-label relieves FG for EVERY order and posts one JE
+    per order; the first order's JE carries the packaging (5010) line (#880 PR-4)."""
+
+    _ADDRESS = dict(
+        shipping_address_line1="123 Main St",
+        shipping_city="Austin",
+        shipping_state="TX",
+        shipping_zip="78701",
+    )
+
+    def _make_consolidation(self, db, make_product, make_sales_order):
+        fg1 = make_product(item_type="finished_good", standard_cost=Decimal("5.00"))
+        fg2 = make_product(item_type="finished_good", standard_cost=Decimal("3.00"))
+        so1 = make_sales_order(
+            product_id=fg1.id, quantity=1, unit_price=Decimal("20.00"),
+            status="ready_to_ship", **self._ADDRESS,
+        )
+        so2 = make_sales_order(
+            product_id=fg2.id, quantity=2, unit_price=Decimal("15.00"),
+            status="ready_to_ship", **self._ADDRESS,
+        )
+        inv1 = _seed_default_location_inventory(db, fg1.id, Decimal("5"))
+        inv2 = _seed_default_location_inventory(db, fg2.id, Decimal("5"))
+        return fg1, fg2, so1, so2, inv1, inv2
+
+    def _add_packaging_reservation(
+        self, db, make_product, make_bom, make_production_order, first_so, fg_product
+    ):
+        """Give the first order a shipping-stage packaging reservation, the way
+        production leaves it: BOM shipping line + reservation txn + allocation."""
+        from app.models.inventory import InventoryTransaction
+        from app.services.inventory_service import get_or_create_default_location
+
+        pkg = make_product(
+            item_type="packaging",
+            standard_cost=Decimal("0.50"),
+            name=f"Test box 6x4x3 {_uid()}",
+        )
+        location = get_or_create_default_location(db)
+        _seed_default_location_inventory(
+            db, pkg.id, Decimal("5"), allocated=Decimal("1")
+        )
+        bom = make_bom(product_id=fg_product.id, lines=[
+            {"component_id": pkg.id, "quantity": Decimal("1")},
+        ])
+        bom.lines[0].consume_stage = "shipping"
+        po = make_production_order(
+            product_id=fg_product.id,
+            status="completed",
+            quantity=1,
+            sales_order_id=first_so.id,
+            bom_id=bom.id,
+        )
+        res_txn = InventoryTransaction(
+            product_id=pkg.id,
+            location_id=location.id,
+            transaction_type="reservation",
+            reference_type="production_order",
+            reference_id=po.id,
+            quantity=Decimal("1"),
+            cost_per_unit=Decimal("0.50"),
+            unit="EA",
+            created_by="test",
+        )
+        db.add(res_txn)
+        db.flush()
+        return pkg
+
+    def test_consolidated_relieves_fg_and_posts_je_per_order(
+        self, client, db, make_product, make_sales_order, make_bom,
+        make_production_order, fake_shipping_service,
+    ):
+        """Each order gets FG relief + its own balanced JE; the first order's
+        JE carries the 5010/1230 packaging pair."""
+        fg1, fg2, so1, so2, inv1, inv2 = self._make_consolidation(
+            db, make_product, make_sales_order
+        )
+        pkg = self._add_packaging_reservation(
+            db, make_product, make_bom, make_production_order, so1, fg1
+        )
+
+        resp = client.post(
+            f"{BASE}/ship/consolidate/buy-label?rate_id=rate_1&shipment_id=shp_1",
+            json=[so1.id, so2.id],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["success"] is True
+
+        # Both orders shipped
+        db.refresh(so1)
+        db.refresh(so2)
+        assert so1.status == "shipped"
+        assert so2.status == "shipped"
+
+        # FG relieved for EVERY order
+        db.refresh(inv1)
+        db.refresh(inv2)
+        assert inv1.on_hand_quantity == Decimal("4")  # 5 - 1
+        assert inv2.on_hand_quantity == Decimal("3")  # 5 - 2
+
+        txns1 = _fg_shipment_txns(db, so1.id)
+        txns2 = _fg_shipment_txns(db, so2.id)
+        assert len(txns1) == 1
+        assert len(txns2) == 1
+
+        # One JE per order, each balanced and linked to its txns
+        jes1 = _shipment_jes(db, so1.id)
+        jes2 = _shipment_jes(db, so2.id)
+        assert len(jes1) == 1
+        assert len(jes2) == 1
+        assert txns1[0].journal_entry_id == jes1[0].id
+        assert txns2[0].journal_entry_id == jes2[0].id
+
+        # First order's JE: FG COGS + the packaging pair
+        totals1 = _je_lines_by_code(db, jes1[0].id)
+        assert totals1["5000"] == (Decimal("5.00"), Decimal("0"))  # 1 x 5.00
+        assert totals1["1220"] == (Decimal("0"), Decimal("5.00"))
+        assert totals1["5010"] == (Decimal("0.50"), Decimal("0"))  # packaging
+        assert totals1["1230"] == (Decimal("0"), Decimal("0.50"))
+        _assert_je_balanced(totals1)
+
+        # Second order's JE: FG COGS only — no packaging lines
+        totals2 = _je_lines_by_code(db, jes2[0].id)
+        assert totals2["5000"] == (Decimal("6.00"), Decimal("0"))  # 2 x 3.00
+        assert totals2["1220"] == (Decimal("0"), Decimal("6.00"))
+        assert "5010" not in totals2
+        assert "1230" not in totals2
+        _assert_je_balanced(totals2)
+
+        # Packaging consumed once, against the first order's JE
+        from app.models.inventory import Inventory, InventoryTransaction
+        pkg_txns = db.query(InventoryTransaction).filter(
+            InventoryTransaction.product_id == pkg.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        assert len(pkg_txns) == 1
+        assert pkg_txns[0].journal_entry_id == jes1[0].id
+        pkg_inv = db.query(Inventory).filter(
+            Inventory.product_id == pkg.id
+        ).first()
+        assert pkg_inv.on_hand_quantity == Decimal("4")  # 5 - 1
+        assert pkg_inv.allocated_quantity == Decimal("0")  # reservation released
+
+    def test_consolidated_retry_rejected_no_double_post(
+        self, client, db, make_product, make_sales_order, fake_shipping_service,
+    ):
+        """A retry after a successful consolidation is rejected by the
+        ready_to_ship status filter and posts nothing new."""
+        fg1, fg2, so1, so2, inv1, inv2 = self._make_consolidation(
+            db, make_product, make_sales_order
+        )
+
+        first = client.post(
+            f"{BASE}/ship/consolidate/buy-label?rate_id=rate_1&shipment_id=shp_1",
+            json=[so1.id, so2.id],
+        )
+        assert first.status_code == 200
+
+        retry = client.post(
+            f"{BASE}/ship/consolidate/buy-label?rate_id=rate_1&shipment_id=shp_1",
+            json=[so1.id, so2.id],
+        )
+        assert retry.status_code == 400
+        assert "not found or not ready" in retry.json()["detail"].lower()
+
+        # Nothing double-posted
+        db.refresh(inv1)
+        db.refresh(inv2)
+        assert inv1.on_hand_quantity == Decimal("4")
+        assert inv2.on_hand_quantity == Decimal("3")
+        assert len(_fg_shipment_txns(db, so1.id)) == 1
+        assert len(_fg_shipment_txns(db, so2.id)) == 1
+        assert len(_shipment_jes(db, so1.id)) == 1
+        assert len(_shipment_jes(db, so2.id)) == 1
