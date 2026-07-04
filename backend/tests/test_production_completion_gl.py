@@ -20,6 +20,9 @@ Covers:
   the sweep, exactly-once posting across sequential transactions, and the
   backfill's atomic temp-file manifest lifecycle (rename after commit,
   delete on commit failure)
+- #892 round 2: the _with_preview variant returns the preview of the sweep
+  it actually posted (single sweep for the backfill manifest), and user_id
+  threads through the completion paths into GLJournalEntry.created_by
 
 All tests are delta-based with per-run unique fixtures (uuid SKUs/codes
 from the conftest factories) because filaops_test accumulates state.
@@ -37,6 +40,7 @@ from app.models.inventory import InventoryTransaction
 from app.services import inventory_service
 from app.services.production_gl_service import (
     create_production_completion_gl_entry,
+    create_production_completion_gl_entry_with_preview,
 )
 from app.services.transaction_service import TransactionService
 
@@ -207,6 +211,44 @@ class TestCompletionGLPoster:
         po = make_production_order(product_id=fg.id, status="in_progress", quantity=1)
         assert create_production_completion_gl_entry(db, po) is None
         assert _completion_entries(db, po) == []
+
+    def test_with_preview_returns_the_posted_sweep(
+        self, db, make_product, make_production_order
+    ):
+        """#892 round 2: the _with_preview variant hands back the preview
+        built from the SAME sweep the entry posted (after the advisory
+        lock), so the backfill manifest never needs a second
+        sweep-and-compute — and can't race the lock with a precomputed
+        preview."""
+        raw = make_product(item_type="supply", average_cost=Decimal("0.50"))
+        fg = make_product(item_type="finished_good", average_cost=Decimal("2.00"))
+        po = make_production_order(product_id=fg.id, status="in_progress", quantity=5)
+
+        _seed_stock(db, raw, 100, "0.50")
+        _consume(db, raw, po, 10, "0.50")       # 5.00 materials
+        _receive_fg(db, fg, po, 5, "2.00")      # 10.00 FG
+
+        je, preview = create_production_completion_gl_entry_with_preview(db, po)
+
+        assert je is not None
+        assert preview is not None
+        # The preview IS the posted sweep: same linked transactions...
+        assert sorted(preview.transaction_ids) == sorted(
+            txn.id for txn in _po_txns(db, po)
+        )
+        assert preview.material_cost == Decimal("5.00")
+        assert preview.finished_goods_value == Decimal("10.00")
+        assert preview.variance == Decimal("5.00")
+        # ...and its lines aggregate to exactly the entry's per-account nets.
+        expected_net = defaultdict(lambda: Decimal("0"))
+        for account_code, amount, dr_cr in preview.lines:
+            expected_net[account_code] += amount if dr_cr == "DR" else -amount
+        assert _je_net(db, je) == expected_net
+
+        # Nothing left sweepable -> (None, None).
+        assert create_production_completion_gl_entry_with_preview(db, po) == (
+            None, None,
+        )
 
     def test_prior_scrap_je_does_not_block_and_s_term_zeroes_wip(
         self, db, make_product, make_production_order
@@ -443,16 +485,18 @@ class TestCompletionAdvisoryLock:
         monkeypatch.undo()
 
         assert je is not None
-        lock_params = [
-            params for sql, params in captured
-            if "pg_advisory_xact_lock" in sql
-        ]
-        assert lock_params, (
-            "expected pg_advisory_xact_lock on the completion-poster path"
+        assert captured, "expected the poster to execute statements"
+        first_sql, first_params = captured[0]
+        # Literally the FIRST statement (round 3): filtering for the lock
+        # among all captured calls would still pass if a sweep query snuck
+        # in ahead of it — the docstring's ordering claim must be pinned.
+        assert "pg_advisory_xact_lock" in first_sql, (
+            "the completion guard lock must be the first statement the "
+            "poster executes, before the sweep it protects"
         )
         assert production_gl_service._COMPLETION_GUARD_LOCK_NAMESPACE == 74004
-        assert lock_params[0]["namespace"] == 74004
-        assert lock_params[0]["key"] == po.id
+        assert first_params["namespace"] == 74004
+        assert first_params["key"] == po.id
 
     def test_posts_exactly_once_across_separate_transactions(
         self, db, make_product, make_production_order
@@ -510,12 +554,16 @@ class TestCompletionCallSites:
         po = make_production_order(product_id=fg.id, status="in_progress", quantity=5)
 
         completed = complete_production_order(
-            db, po.id, "tester@filaops.dev", quantity_good=5
+            db, po.id, "tester@filaops.dev", quantity_good=5, user_id=1
         )
         assert completed.status == "complete"
 
         entries = _completion_entries(db, po)
         assert len(entries) == 1
+        # #892 round 2: the acting user's id threads through
+        # process_production_completion into the JE's attribution columns.
+        assert entries[0].created_by == 1
+        assert entries[0].posted_by == 1
         net = _je_net(db, entries[0])
         # 500 G x 0.02 = 10.00 consumed; FG 5 x 2.50 = 12.50; V = +2.50
         assert net["1200"] == Decimal("-10.00")
@@ -547,11 +595,14 @@ class TestCompletionCallSites:
         inventory_service.process_production_completion(
             db=db, production_order=po,
             quantity_completed=Decimal("5"), created_by="tester@filaops.dev",
+            user_id=1,
         )
 
         entries = _completion_entries(db, po)
         assert len(entries) == 1
         je = entries[0]
+        # #892 round 2: user_id passed through to the JE attribution.
+        assert je.created_by == 1
 
         # Both the earlier per-op consumption and the new FG receipt are
         # linked to the single entry.
@@ -585,6 +636,7 @@ class TestCompletionCallSites:
 
         entries = _completion_entries(db, po)
         assert len(entries) == 1
+        assert entries[0].created_by == 1
         net = _je_net(db, entries[0])
         # 3 of 5 produced at effective cost 2.00 -> FG 6.00, no consumption.
         assert net["1220"] == Decimal("6.00")
@@ -753,6 +805,14 @@ class TestBackfillScript:
         manifest = json.loads(manifest_path.read_text())
         assert manifest["entries"][0]["journal_entry_id"] == je.id
         assert manifest["entries"][0]["production_order_id"] == po.id
+        # #892 round 2: the manifest is built from the preview the poster
+        # returned — the exact sweep it posted from (5.00 raw consumed,
+        # 8.00 FG received in this fixture).
+        assert manifest["entries"][0]["material_cost"] == "5.00"
+        assert manifest["entries"][0]["finished_goods_value"] == "8.00"
+        assert manifest["entries"][0]["transaction_ids"] == [
+            txn.id for txn in sorted(_po_txns(db, po), key=lambda t: t.id)
+        ]
 
         # --- re-apply: sweep idempotency, posts nothing ---
         manifest2 = tmp_path / "manifest2.json"

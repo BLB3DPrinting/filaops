@@ -325,10 +325,36 @@ def create_production_completion_gl_entry(
 ) -> Optional[GLJournalEntry]:
     """Post the completion journal entry for one production order.
 
+    Thin wrapper over create_production_completion_gl_entry_with_preview
+    for callers that only need the entry (the app completion paths).
+    Returns the created entry, or None when there is nothing to post.
+    """
+    journal_entry, _ = create_production_completion_gl_entry_with_preview(
+        db, production_order, user_id=user_id, entry_date=entry_date
+    )
+    return journal_entry
+
+
+def create_production_completion_gl_entry_with_preview(
+    db: Session,
+    production_order: ProductionOrder,
+    user_id: Optional[int] = None,
+    entry_date: Optional[date] = None,
+) -> Tuple[Optional[GLJournalEntry], Optional[CompletionGLPreview]]:
+    """Post the completion journal entry for one production order.
+
     Sweeps the order's unjournaled consumption/receipt transactions,
     posts a single balanced entry (see module docstring for the shape),
-    and links every swept transaction to it. Returns the created entry,
-    or None when there is nothing to post.
+    and links every swept transaction to it.
+
+    Returns (journal_entry, preview). The preview is built from the SAME
+    sweep the entry posted — computed after the advisory lock below — so
+    a caller recording what was posted (the backfill manifest) uses this
+    instead of calling compute_completion_gl_preview first, which would
+    both duplicate the sweep and race the lock (#892 round 2).
+    journal_entry is None when nothing posted; preview is None when no
+    rows were sweepable at all (and carries empty lines when the swept
+    rows were all zero-cost).
 
     Runs in the caller's session/transaction — no commit here. The call
     sites run this strictly AFTER consumption + receipts succeed in the
@@ -371,7 +397,7 @@ def create_production_completion_gl_entry(
 
     txns = _sweep_unjournaled_transactions(db, production_order.id)
     if not txns:
-        return None
+        return None, None
 
     preview = _build_preview(db, production_order, txns)
     if not preview.lines:
@@ -384,7 +410,7 @@ def create_production_completion_gl_entry(
             production_order.code,
             len(txns),
         )
-        return None
+        return None, preview
 
     # Lazy import to keep service-layer import graphs acyclic (pattern from
     # sales_order_fulfillment_service).
@@ -419,4 +445,4 @@ def create_production_completion_gl_entry(
         preview.variance,
         len(txns),
     )
-    return journal_entry
+    return journal_entry, preview

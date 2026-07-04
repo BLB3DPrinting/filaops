@@ -51,7 +51,7 @@ from app.models.inventory import InventoryTransaction  # noqa: E402
 from app.models.production_order import ProductionOrder  # noqa: E402
 from app.services.production_gl_service import (  # noqa: E402
     compute_completion_gl_preview,
-    create_production_completion_gl_entry,
+    create_production_completion_gl_entry_with_preview,
     find_unjournaled_production_order_ids,
 )
 
@@ -187,8 +187,11 @@ def run_apply(
     manifest_entries = []
     for order in orders:
         entry_date = _entry_date_for(order)
-        preview = compute_completion_gl_preview(db, order)
-        journal_entry = create_production_completion_gl_entry(
+        # One sweep per PO (#892 round 2): the poster returns the preview it
+        # actually posted from, computed AFTER its advisory lock — so the
+        # manifest records exactly what was posted, with no second
+        # sweep-and-compute and no lock race from a precomputed preview.
+        journal_entry, preview = create_production_completion_gl_entry_with_preview(
             db, order, user_id=None, entry_date=entry_date
         )
         if journal_entry is None:
