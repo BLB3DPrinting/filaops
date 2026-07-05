@@ -6,8 +6,11 @@ and the freemium profit summary all derive their COGS numbers from the SAME
 posted `gl_journal_entry_lines` — no more parallel InventoryTransaction
 re-sums that can (and did) disagree with the GL.
 
-Anchor: shipped/completed sales orders in a window, exactly as before
-(status in shipped/completed, shipped_at >= cutoff). For each anchor order:
+Anchor: shipped/completed/delivered sales orders in a window (status in
+shipped/completed/delivered, shipped_at >= cutoff). A delivered order was
+shipped — its ship JE already exists — so it belongs in the same anchor set
+revenue uses; excluding it left delivered orders with revenue but zero COGS
+in gross_profit/gross_margin. For each anchor order:
 
 - Ship-side (5000, 5010): sum DEBIT lines on posted journal entries with
   source_type='sales_order' AND source_id IN (anchor ids). These are the
@@ -51,8 +54,8 @@ _MONEY = Decimal("0.01")
 class COGSReconciliation:
     """The GL identity behind the two headline numbers.
 
-    full_product_cogs (5000) - completion_variance_5200 (net linked credit)
-        == out_of_pocket_cogs
+    ship_cogs_5000 + packaging_5010 - completion_variance_5200 (net linked
+        credit) == out_of_pocket_cogs
     """
     ship_cogs_5000: Decimal = Decimal("0.00")
     packaging_5010: Decimal = Decimal("0.00")
@@ -271,11 +274,17 @@ def gl_derived_cogs_for_orders(
 def shipped_order_ids_in_window(
     db: Session, *, start: Optional[datetime] = None, end: Optional[datetime] = None
 ) -> List[int]:
-    """Anchor query shared by callers: shipped/completed orders whose
-    shipped_at falls in [start, end). Either bound may be omitted.
+    """Anchor query shared by callers: shipped/completed/delivered orders
+    whose shipped_at falls in [start, end). Either bound may be omitted.
+
+    `delivered` is included alongside `shipped`/`completed` because a
+    delivered order was shipped — its ship JE (5000/5010) already posted —
+    so it must anchor COGS the same way it anchors revenue. Dropping it here
+    left delivered orders contributing revenue with zero COGS in the
+    dashboard's gross_profit/gross_margin (CodeRabbit #897).
     """
     query = db.query(SalesOrder.id).filter(
-        SalesOrder.status.in_(["shipped", "completed"])
+        SalesOrder.status.in_(["shipped", "completed", "delivered"])
     )
     if start is not None:
         query = query.filter(SalesOrder.shipped_at >= start)

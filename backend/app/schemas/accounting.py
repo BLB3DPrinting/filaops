@@ -440,8 +440,8 @@ class COGSBreakdown(BaseModel):
 class COGSReconciliationSchema(BaseModel):
     """The GL identity behind the two headline COGS numbers.
 
-    full_product_cogs (ship_cogs_5000) - completion_variance_5200
-        == out_of_pocket_cogs
+    ship_cogs_5000 + packaging_5010 - completion_variance_5200 (net linked
+        credit) == out_of_pocket_cogs
     """
     ship_cogs_5000: float
     packaging_5010: float

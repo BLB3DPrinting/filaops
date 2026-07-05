@@ -164,6 +164,8 @@ export default function COGSTab() {
         {data?.reconciliation && (
           <div className="border-t border-gray-700 mt-3 pt-3 text-xs text-gray-500 flex flex-wrap items-center gap-1">
             <span>{formatCurrency(data.full_product_cogs)} full COGS</span>
+            <span>+</span>
+            <span>{formatCurrency(data.reconciliation.packaging_5010)} packaging</span>
             <span>&minus;</span>
             <span>{formatCurrency(data.reconciliation.completion_variance_5200)} labor/machine variance</span>
             <span>=</span>

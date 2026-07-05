@@ -26,7 +26,10 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.services import inventory_service
-from app.services.cogs_report_service import gl_derived_cogs_for_orders
+from app.services.cogs_report_service import (
+    gl_derived_cogs_for_orders,
+    shipped_order_ids_in_window,
+)
 from app.services.production_gl_service import create_production_completion_gl_entry
 from app.services.transaction_service import ShipmentItem, TransactionService
 
@@ -280,11 +283,24 @@ class TestCOGSSummaryGLDerived:
         resp = client.get(f"{BASE}/cogs-summary", params={"days": 7})
         data = resp.json()
 
-        # The order shouldn't be counted in orders_shipped for this window —
-        # can't assert a global zero (shared DB), so assert the specific
-        # order's ship JE amount isn't force-included by checking the
-        # order count doesn't include it via a narrower probe: re-derive
-        # directly and compare against a wide window that DOES include it.
+        # Directly assert the 60-day-old order's id is ABSENT from the
+        # narrow (7-day) anchor set, and present in a wide (90-day) window
+        # that does cover it — this proves the window actually excludes it,
+        # rather than just comparing aggregate counts (which would pass
+        # even if the order were wrongly included).
+        narrow_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        narrow_ids = shipped_order_ids_in_window(db, start=narrow_cutoff)
+        assert so.id not in narrow_ids
+
+        wide_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        wide_ids = shipped_order_ids_in_window(db, start=wide_cutoff)
+        assert so.id in wide_ids
+
+        # The order's own COGS contribution must likewise be absent from the
+        # narrow window's derivation.
+        narrow_derivation = gl_derived_cogs_for_orders(db, narrow_ids)
+        assert so.id not in narrow_derivation.order_ids
+
         wide_resp = client.get(f"{BASE}/cogs-summary", params={"days": 90})
         wide_data = wide_resp.json()
         assert wide_data["orders_shipped"] >= data["orders_shipped"]
@@ -314,11 +330,6 @@ class TestDashboardAgreesWithCOGSSummary:
             shipped_at=now,
         )
         db.commit()
-
-        from app.services.cogs_report_service import (
-            gl_derived_cogs_for_orders,
-            shipped_order_ids_in_window,
-        )
 
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         month_order_ids = shipped_order_ids_in_window(db, start=month_start)
@@ -350,3 +361,59 @@ class TestDashboardAgreesWithCOGSSummary:
         data = resp.json()
         assert "entries" in data
         assert "transaction_count" in data
+
+
+# =============================================================================
+# /admin/dashboard/profit-summary — delivered orders must count in BOTH
+# revenue and COGS (CodeRabbit #897 review comment 3523975559)
+# =============================================================================
+
+DASHBOARD_BASE = "/api/v1/admin/dashboard"
+
+
+class TestDeliveredOrdersCountInRevenueAndCOGS:
+
+    def test_delivered_order_counted_in_both_revenue_and_cogs_anchor(
+        self, client, db, make_product, make_sales_order, make_production_order
+    ):
+        """A 'delivered' order was shipped — its ship JE (5000/5010) already
+        posted — so it must anchor COGS the same way it anchors revenue.
+        Before the fix, shipped_order_ids_in_window() only anchored
+        shipped/completed orders while /profit-summary's revenue query
+        already included delivered, so a delivered order contributed
+        revenue with zero COGS to gross_profit/gross_margin.
+        """
+        now = datetime.now(timezone.utc)
+        so, po, _, _ = _build_shipped_cycle(
+            db, make_product, make_sales_order, make_production_order,
+            material_cost=Decimal("4.00"), fg_receipt_value=Decimal("11.00"),
+            ship_qty=1, ship_unit_cost=Decimal("11.00"),
+            shipped_at=now, so_status="delivered",
+        )
+        db.commit()
+
+        # The shared anchor helper must pick up the delivered order.
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_order_ids = shipped_order_ids_in_window(db, start=month_start)
+        assert so.id in month_order_ids
+
+        # And its own GL-derived COGS must be non-zero (the ship JE posted).
+        single_order = gl_derived_cogs_for_orders(db, [so.id], include_legacy=False)
+        assert single_order.out_of_pocket_cogs > Decimal("0.00")
+
+        # The dashboard endpoint's revenue (which already included
+        # 'delivered') and COGS (via the now-widened anchor) must both
+        # reflect this order — i.e. it must not be revenue-with-zero-COGS.
+        resp = client.get(f"{DASHBOARD_BASE}/profit-summary")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert Decimal(str(data["revenue_this_month"])) >= so.grand_total - Decimal("0.01")
+        # If COGS were still anchored on shipped/completed only, this
+        # delivered order's cogs_this_month contribution would be zero,
+        # inflating gross_profit_this_month by its full revenue. Assert the
+        # dashboard's own gross profit is consistent with revenue minus at
+        # least this order's COGS contribution (i.e. COGS was NOT skipped).
+        assert Decimal(str(data["gross_profit_this_month"])) <= Decimal(
+            str(data["revenue_this_month"])
+        ) - single_order.out_of_pocket_cogs + Decimal("0.01")
