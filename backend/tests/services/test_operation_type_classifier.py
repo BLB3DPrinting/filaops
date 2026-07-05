@@ -34,47 +34,12 @@ from app.services.operation_type_classifier import (
     classify_name,
     run_classifier,
 )
-
-# Mirrors migrations/versions/101_operation_types.py::SEED_OPERATION_TYPES,
-# same approach as test_operation_type_catalog.py's seed helper.
-SEED_OPERATION_TYPES = {
-    "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
-    "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
-    "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
-    "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
-    "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
-    "SANDING": ("Sanding", "finishing", ["any"], False, 60),
-    "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
-    "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
-    "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
-}
-
-
-def _seed_operation_types(db):
-    existing_codes = {code for (code,) in db.query(OperationType.code).all()}
-    created = []
-    for code, (label, category, stages, is_qc, sort_order) in SEED_OPERATION_TYPES.items():
-        if code in existing_codes:
-            continue
-        row = OperationType(
-            code=code,
-            label=label,
-            category=category,
-            consume_stages=stages,
-            is_qc=is_qc,
-            is_system=True,
-            is_active=True,
-            sort_order=sort_order,
-        )
-        db.add(row)
-        created.append(code)
-    db.flush()
-    return created
+from tests.services._operation_type_seed import seed_operation_types
 
 
 @pytest.fixture(autouse=True)
 def _seed(db):
-    _seed_operation_types(db)
+    seed_operation_types(db)
     db.commit()
 
 
@@ -267,6 +232,94 @@ class TestAudit:
         untouched = db.query(RoutingOperation).filter(RoutingOperation.operation_code == "PRINT").first()
         assert untouched.operation_type is None
 
+    def test_audit_match_source_unknown_stored_type_falls_through_to_legacy_dict(
+        self, db, make_product, make_work_center
+    ):
+        """A stored operation_type that ISN'T in the catalog (unknown/
+        inactive/stale hand-edited data) must not be reported as
+        "stored-type" — resolve_consume_stages() actually falls through to
+        the legacy dict for this row, so match_source must say
+        "legacy-dict", matching runtime behavior exactly (CodeRabbit
+        finding: _match_source must reflect the REAL resolution path)."""
+        _make_routing_op(
+            db, make_product, make_work_center, "3D Print",
+            operation_code="PRINT", operation_type="NOT_A_REAL_TYPE_CODE",
+        )
+        rows = build_audit(db)
+        row = next(r for r in rows if r.operation_name == "3D Print")
+        assert row.stored_operation_type == "NOT_A_REAL_TYPE_CODE"
+        assert row.match_source == "legacy-dict"
+        assert row.current_consume_stages == ["production", "any"]
+
+    def test_audit_match_source_unknown_stored_type_and_unknown_code_falls_through_to_default(
+        self, db, make_product, make_work_center
+    ):
+        """Same as above, but with no legacy-dict code match either ->
+        "default", not "stored-type"."""
+        _make_routing_op(
+            db, make_product, make_work_center, "Widget Frobnicate",
+            operation_code=None, operation_type="NOT_A_REAL_TYPE_CODE",
+        )
+        rows = build_audit(db)
+        row = next(r for r in rows if r.operation_name == "Widget Frobnicate")
+        assert row.match_source == "default"
+        assert row.current_consume_stages == ["production", "any"]
+
+    def test_audit_stored_type_row_gets_no_proposed_type(self, db, make_product, make_work_center):
+        """Proposals are for NULL-typed rows only — run_classifier() never
+        touches a row that already carries a stored type, so build_audit()
+        must not show an unactionable proposed_type (previously: a
+        stored-type row's name could still match a rule and populate
+        proposed_type with no proposed_consume_stages behind it)."""
+        _make_routing_op(
+            db, make_product, make_work_center, "Pack it up",
+            operation_code=None, operation_type="QUALITY_CONTROL",
+        )
+        rows = build_audit(db)
+        row = next(r for r in rows if r.operation_name == "Pack it up")
+        assert row.stored_operation_type == "QUALITY_CONTROL"
+        assert row.proposed_type is None
+        assert row.proposed_consume_stages is None
+        assert row.behavior_changed is False
+        assert row.classification_reason is None
+
+    def test_audit_conflicting_stored_types_across_rows_surfaced(
+        self, db, make_product, make_work_center
+    ):
+        """Two rows sharing the same (operation_code, operation_name) pair
+        but stored with DIFFERENT operation_type values is a genuine
+        conflict, not just a NULL-vs-typed split — the representative
+        stored_operation_type must be deterministic (sorted-first)
+        regardless of DB row order, and the other type(s) must be exposed
+        via conflicting_stored_types rather than silently dropped."""
+        _make_routing_op(
+            db, make_product, make_work_center, "Ambiguous Op",
+            operation_code="AMBIG", operation_type="QUALITY_CONTROL",
+        )
+        _make_routing_op(
+            db, make_product, make_work_center, "Ambiguous Op",
+            operation_code="AMBIG", operation_type="ASSEMBLY",
+        )
+        rows = build_audit(db)
+        row = next(r for r in rows if r.operation_name == "Ambiguous Op")
+        # Deterministic representative: lexicographically first of the
+        # distinct types ("ASSEMBLY" < "QUALITY_CONTROL").
+        assert row.stored_operation_type == "ASSEMBLY"
+        assert row.conflicting_stored_types == ["QUALITY_CONTROL"]
+        assert row.routing_op_count == 2
+
+    def test_audit_single_stored_type_has_no_conflict(self, db, make_product, make_work_center):
+        """A pair with only one distinct non-NULL stored type (the common
+        case) reports conflicting_stored_types = None, not an empty list
+        or the type itself."""
+        _make_routing_op(
+            db, make_product, make_work_center, "Pack it up",
+            operation_code=None, operation_type="PACK_SHIP",
+        )
+        rows = build_audit(db)
+        row = next(r for r in rows if r.operation_name == "Pack it up")
+        assert row.conflicting_stored_types is None
+
 
 # =============================================================================
 # Classifier: dry-run / apply / idempotency / safety rules
@@ -324,6 +377,67 @@ class TestClassifierApply:
         run_classifier(db, dry_run=False)
         db.refresh(op)
         assert op.operation_type == "QUALITY_CONTROL", "apply must never touch a non-NULL operation_type"
+
+    def test_apply_writes_via_conditional_update_not_orm_mutate(
+        self, db, make_product, make_work_center
+    ):
+        """The apply path must be a conditional UPDATE ... WHERE
+        operation_type IS NULL (re-checked at write time), not an ORM
+        read-then-mutate-then-commit — closing the TOCTOU window where a
+        concurrent request could type the row between the initial SELECT
+        and this function's write. Simulated in-process by setting the
+        row's operation_type to non-NULL AFTER the row objects have
+        already been read via _iter_null_typed_routing_ops (which
+        run_classifier calls internally): if the write were still
+        row.operation_type = proposed_type; db.add(row), the stale ORM
+        object would silently clobber the concurrent value on commit.
+        With the conditional UPDATE, the write matches zero rows for this
+        id and the concurrently-set value survives."""
+        op = _make_routing_op(db, make_product, make_work_center, "Pack items", operation_code=None)
+
+        from app.services import operation_type_classifier as classifier_module
+
+        real_iter = classifier_module._iter_null_typed_routing_ops
+
+        def _iter_then_concurrently_type(db_):
+            rows = real_iter(db_)
+            # Simulate a concurrent request setting operation_type between
+            # our read and our write, via a raw UPDATE so it doesn't go
+            # through this same ORM session's identity map trickery.
+            db_.execute(
+                classifier_module.RoutingOperation.__table__.update()
+                .where(classifier_module.RoutingOperation.id == op.id)
+                .values(operation_type="QUALITY_CONTROL")
+            )
+            db_.commit()
+            return rows
+
+        original = classifier_module._iter_null_typed_routing_ops
+        classifier_module._iter_null_typed_routing_ops = _iter_then_concurrently_type
+        try:
+            result = run_classifier(db, dry_run=False)
+        finally:
+            classifier_module._iter_null_typed_routing_ops = original
+
+        # Our conditional UPDATE matched zero rows for this id (the
+        # concurrent write already changed operation_type away from NULL),
+        # so applied_count reflects that -- not a stale in-memory count.
+        assert result.applied_count == 0
+        db.refresh(op)
+        assert op.operation_type == "QUALITY_CONTROL", (
+            "the concurrently-set value must survive; the classifier's "
+            "conditional UPDATE must not clobber it"
+        )
+
+    def test_apply_second_run_reports_zero_from_rowcount(self, db, make_product, make_work_center):
+        """applied_count on a second run must come from actual UPDATE
+        rowcount (zero matching rows), not from re-counting proposals."""
+        _make_routing_op(db, make_product, make_work_center, "Pack items", operation_code=None)
+        first = run_classifier(db, dry_run=False)
+        assert first.applied_count == 1
+
+        second = run_classifier(db, dry_run=False)
+        assert second.applied_count == 0
 
     def test_apply_only_touches_null_rows_both_tables(
         self, db, make_product, make_work_center, make_production_order
@@ -412,7 +526,7 @@ class TestClassifierApply:
     def test_non_terminal_exposure_count(
         self, db, make_product, make_work_center, make_production_order
     ):
-        _po_op, _po = _make_po_op(
+        _make_po_op(
             db, make_product, make_work_center, make_production_order,
             "Pack items", operation_code=None, po_status="in_progress",
         )
@@ -590,6 +704,36 @@ class TestAdminCRUD:
         response = client.put(
             "/api/v1/admin/operation-types/GENERAL",
             json={"consume_stages": ["production", "any"]},
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("field,value", [
+        ("label", None),
+        ("consume_stages", None),
+        ("is_qc", None),
+        ("sort_order", None),
+        ("is_active", None),
+    ])
+    def test_explicit_null_rejected_for_not_nullable_fields(self, client, db, field, value):
+        """An explicit JSON null for a NOT NULL-backed column (label,
+        consume_stages, is_qc, sort_order, is_active) is rejected with 422
+        rather than reaching the ORM as a null write (e.g. list(None) on
+        consume_stages). Omitting the field entirely remains fine (covered
+        by test_system_row_label_and_sort_order_editable etc., which never
+        sends the other fields)."""
+        response = client.put(
+            "/api/v1/admin/operation-types/GENERAL",
+            json={field: value},
+        )
+        assert response.status_code == 422
+
+    def test_explicit_null_still_accepted_for_nullable_fields(self, client, db):
+        """description/category are genuinely nullable columns — explicit
+        null must still be accepted for these (only the NOT NULL-backed
+        fields are rejected)."""
+        response = client.put(
+            "/api/v1/admin/operation-types/GENERAL",
+            json={"description": None, "category": None},
         )
         assert response.status_code == 200
 

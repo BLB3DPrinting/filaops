@@ -30,25 +30,19 @@ from app.services.operation_material_mapping import (
     load_operation_type_stage_map,
     resolve_consume_stages,
 )
+from tests.services._operation_type_seed import (
+    SEED_OPERATION_TYPES,
+    seed_operation_types,
+)
 
-# Mirrors migrations/versions/101_operation_types.py::SEED_OPERATION_TYPES /
-# BACKFILL_ALIAS_MAP verbatim, so a drift between the migration and this test
-# fails loudly rather than silently. This is the ONLY seed-data literal in
-# this file — _seed_operation_types() below consumes it directly rather than
-# maintaining a second, redundant copy.
-SEED_OPERATION_TYPES = {
-    # code: (label, category, consume_stages, is_qc, sort_order)
-    "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
-    "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
-    "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
-    "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
-    "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
-    "SANDING": ("Sanding", "finishing", ["any"], False, 60),
-    "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
-    "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
-    "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
-}
-
+# Mirrors migrations/versions/101_operation_types.py::BACKFILL_ALIAS_MAP
+# verbatim, so a drift between the migration and this test fails loudly
+# rather than silently. SEED_OPERATION_TYPES itself now lives in the
+# shared _operation_type_seed module (imported above) so
+# test_operation_type_classifier.py doesn't carry an independent copy —
+# see that module's docstring for why the migration's OWN frozen copy is
+# a deliberate, separate equivalence-proof literal, not something to
+# unify away.
 BACKFILL_ALIAS_MAP = {
     "PRINT": "FDM_PRINT",
     "EXTRUDE": "GENERAL",
@@ -69,32 +63,6 @@ BACKFILL_ALIAS_MAP = {
     "SHIP": "PACK_SHIP",
     "LABEL": "PACK_SHIP",
 }
-
-
-def _seed_operation_types(db):
-    """Idempotent INSERT-if-missing seed helper, mirroring migration 101
-    step 2, for use directly against the test DB (no alembic run in tests).
-    Consumes the module-level SEED_OPERATION_TYPES constant above — no
-    separate inline copy of the seed data."""
-    existing_codes = {code for (code,) in db.query(OperationType.code).all()}
-    created = []
-    for code, (label, category, stages, is_qc, sort_order) in SEED_OPERATION_TYPES.items():
-        if code in existing_codes:
-            continue
-        row = OperationType(
-            code=code,
-            label=label,
-            category=category,
-            consume_stages=stages,
-            is_qc=is_qc,
-            is_system=True,
-            is_active=True,
-            sort_order=sort_order,
-        )
-        db.add(row)
-        created.append(code)
-    db.flush()
-    return created
 
 
 def _backfill_operation_types(db):
@@ -142,7 +110,7 @@ class TestPredicateEquivalence:
 
     @pytest.fixture(autouse=True)
     def _seed(self, db):
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
     def _type_for_code(self, db, legacy_code):
@@ -217,7 +185,7 @@ class TestPredicateEquivalence:
 class TestResolverPrecedence:
     @pytest.fixture(autouse=True)
     def _seed(self, db):
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
     def test_type_beats_code(self, db):
@@ -304,7 +272,7 @@ class TestResolverPrecedence:
 
 class TestSeedIdempotency:
     def test_seed_creates_nine_system_rows(self, db):
-        created = _seed_operation_types(db)
+        created = seed_operation_types(db)
         db.commit()
         assert len(created) == 9
         assert set(created) == set(SEED_OPERATION_TYPES)
@@ -313,13 +281,13 @@ class TestSeedIdempotency:
         assert len(rows) == 9
 
     def test_seed_running_twice_creates_nothing_new(self, db):
-        first_created = _seed_operation_types(db)
+        first_created = seed_operation_types(db)
         db.commit()
         assert len(first_created) == 9
 
         count_after_first = db.query(OperationType).count()
 
-        second_created = _seed_operation_types(db)
+        second_created = seed_operation_types(db)
         db.commit()
         assert second_created == []
 
@@ -327,7 +295,7 @@ class TestSeedIdempotency:
         assert count_after_first == count_after_second
 
     def test_seed_is_unique_on_code(self, db):
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
         codes = [c for (c,) in db.query(OperationType.code).all()]
         assert len(codes) == len(set(codes))
@@ -338,7 +306,7 @@ class TestBackfillIdempotency:
         """An OP10 row (no exact legacy-code match — routing editor
         autofill) and a FINISH row (deliberately excluded) both stay NULL.
         A PRINT row (exact match) gets typed FDM_PRINT."""
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
         product = make_product(item_type="finished_good")
@@ -378,7 +346,7 @@ class TestBackfillIdempotency:
         assert op_print.operation_type == "FDM_PRINT", "PRINT is an exact legacy-code match"
 
     def test_backfill_running_twice_is_a_no_op(self, db, make_product):
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
         product = make_product(item_type="finished_good")
@@ -413,7 +381,7 @@ class TestBackfillIdempotency:
         """A row a human already typed (even to something unexpected) must
         never be overwritten — the WHERE operation_type IS NULL guard is
         what makes this true; assert it holds."""
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
         product = make_product(item_type="finished_good")
@@ -445,7 +413,7 @@ class TestBackfillIdempotency:
 class TestOperationTypesEndpoint:
     @pytest.fixture(autouse=True)
     def _seed(self, db):
-        _seed_operation_types(db)
+        seed_operation_types(db)
         db.commit()
 
     def test_requires_auth(self, unauthed_client):

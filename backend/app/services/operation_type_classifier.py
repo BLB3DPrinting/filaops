@@ -137,10 +137,25 @@ class AuditRow:
     material_bearing: bool
     classification_reason: Optional[str]
     in_flight_non_terminal_po_count: int
+    conflicting_stored_types: Optional[List[str]] = None
 
 
-def _match_source(operation_type: Optional[str], operation_code: Optional[str]) -> str:
-    if operation_type:
+def _match_source(
+    type_map: Dict[str, List[str]],
+    operation_type: Optional[str],
+    operation_code: Optional[str],
+) -> str:
+    """
+    Report the source that ``resolve_consume_stages`` actually used, not
+    merely whether ``operation_type`` is truthy. Mirrors
+    ``resolve_consume_stages``'s own precedence exactly: an unknown or
+    inactive type (not in ``type_map``) falls through to the legacy dict
+    or default, and the reported source must say so — otherwise a stored
+    type that silently failed to resolve would be mislabeled
+    "stored-type" when the runtime behavior is actually legacy-dict or
+    default.
+    """
+    if operation_type and operation_type in type_map:
         return "stored-type"
     from app.services.operation_material_mapping import OPERATION_CONSUME_STAGES
 
@@ -153,9 +168,19 @@ def _distinct_pairs_with_counts(db: Session):
     """
     Every distinct (operation_code, operation_name) pair across BOTH
     routing_operations and production_order_operations, with per-table
-    counts and one representative stored operation_type per pair (routing
-    table wins ties; falls back to the PO-op table if the pair only exists
-    there).
+    counts and a deterministic representative stored operation_type per
+    pair.
+
+    A pair can legitimately have MORE THAN ONE distinct non-NULL
+    operation_type across its rows (e.g. typed differently on different
+    routing operations, or typed on some rows and NULL on others) — this
+    is a real conflict, not merely a NULL-vs-typed split, and must be
+    surfaced rather than silently resolved by picking whichever type the
+    database happened to return first. All distinct non-NULL types seen
+    for the pair are collected; the representative is the
+    lexicographically-first one (deterministic regardless of DB row
+    order), and every distinct type beyond the representative is exposed
+    via ``conflicting_stored_types`` in the audit row.
     """
     routing_rows = (
         db.query(
@@ -187,9 +212,10 @@ def _distinct_pairs_with_counts(db: Session):
     )
 
     # key = (operation_code, operation_name) — the pair identity for the
-    # audit. Aggregate multiple stored-type rows for the same pair (e.g. a
-    # pair typed on some rows and NULL on others) by preferring any non-NULL
-    # type over NULL, routing table first.
+    # audit. Track EVERY distinct non-NULL operation_type seen for the
+    # pair (in a set) rather than keeping only the first-seen one, so a
+    # genuine conflict (the same pair typed two different ways across its
+    # rows) is detected instead of hidden by DB-return-order luck.
     pairs: Dict[Tuple[Optional[str], Optional[str]], dict] = {}
 
     def _ingest(rows, table_key):
@@ -197,14 +223,21 @@ def _distinct_pairs_with_counts(db: Session):
             key = (code, name)
             entry = pairs.setdefault(
                 key,
-                {"routing_op_count": 0, "po_op_count": 0, "operation_type": None},
+                {"routing_op_count": 0, "po_op_count": 0, "operation_types": set()},
             )
             entry[table_key] += count
-            if op_type and not entry["operation_type"]:
-                entry["operation_type"] = op_type
+            if op_type:
+                entry["operation_types"].add(op_type)
 
     _ingest(routing_rows, "routing_op_count")
     _ingest(po_rows, "po_op_count")
+
+    # Collapse the distinct-types set into a deterministic representative
+    # (sorted-first) plus the remaining conflicting types, if any.
+    for entry in pairs.values():
+        distinct_types = sorted(entry.pop("operation_types"))
+        entry["operation_type"] = distinct_types[0] if distinct_types else None
+        entry["conflicting_stored_types"] = distinct_types[1:] if len(distinct_types) > 1 else None
 
     return pairs
 
@@ -281,7 +314,7 @@ def build_audit(db: Session) -> List[AuditRow]:
     for (code, name), info in sorted(pairs.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
         stored_type = info["operation_type"]
         current_stages = resolve_consume_stages(type_map, stored_type, code)
-        source = _match_source(stored_type, code)
+        source = _match_source(type_map, stored_type, code)
         is_material_bearing = (code, name) in material_bearing_pairs
 
         name_result = classify_name(name)
@@ -294,9 +327,21 @@ def build_audit(db: Session) -> List[AuditRow]:
             proposed_type = None
             reason = MANUAL_DECISION_REASON
 
+        # Proposals are for NULL-typed rows only — the classifier
+        # (run_classifier) never touches a row that already has a stored
+        # type, so a proposal for an already-typed row is not actionable
+        # and must not be shown as if it were. Clearing proposed_type here
+        # (rather than merely leaving proposed_consume_stages/
+        # behavior_changed at their no-op defaults) keeps proposed_type
+        # and proposed_consume_stages consistent with each other: either
+        # both are populated (an actionable NULL-row proposal) or both are
+        # None, never a proposed_type with no stage projection behind it.
         proposed_stages = None
         behavior_changed = False
-        if proposed_type is not None and stored_type is None:
+        if stored_type is not None:
+            proposed_type = None
+            reason = None
+        elif proposed_type is not None:
             proposed_stages = resolve_consume_stages(type_map, proposed_type, code)
             behavior_changed = list(proposed_stages) != list(current_stages)
 
@@ -315,6 +360,7 @@ def build_audit(db: Session) -> List[AuditRow]:
                 material_bearing=is_material_bearing,
                 classification_reason=reason,
                 in_flight_non_terminal_po_count=in_flight.get((code, name), 0),
+                conflicting_stored_types=info.get("conflicting_stored_types"),
             )
         )
 
@@ -376,10 +422,15 @@ def run_classifier(db: Session, dry_run: bool = True) -> ClassifyResult:
 
     dry_run=False: applies NULL -> proposed_type ONLY where a safe
     unambiguous proposal exists. Never overwrites a non-NULL
-    operation_type (the WHERE clause guarantees this — rows are only
-    selected because operation_type IS NULL). Idempotent: running again
-    after an apply finds zero NULL rows left to propose for, so it is a
-    no-op.
+    operation_type — enforced twice: the initial SELECT only reads rows
+    where operation_type IS NULL, and the write itself is a conditional
+    UPDATE ... WHERE id = :id AND operation_type IS NULL (not an ORM
+    read-then-mutate-then-commit), so a concurrent write to the same row
+    between our read and our write cannot be silently clobbered — our
+    UPDATE simply matches zero rows for that id, and applied_count is
+    derived purely from each UPDATE's rowcount, never assumed. Idempotent:
+    running again after an apply finds zero NULL rows left to propose
+    for, so it is a no-op.
 
     Material-bearing rows that would otherwise match a no-consume type
     (QUALITY_CONTROL / SANDING / SUPPORT_REMOVAL) are never auto-applied —
@@ -453,9 +504,23 @@ def run_classifier(db: Session, dry_run: bool = True) -> ClassifyResult:
             result.non_terminal_exposure_count += 1
 
         if not dry_run:
-            row.operation_type = proposed_type
-            db.add(row)
-            result.applied_count += 1
+            # Conditional bulk UPDATE rather than an ORM read-then-mutate:
+            # the WHERE clause re-checks operation_type IS NULL at write
+            # time (not just at the earlier SELECT in
+            # _iter_null_typed_*_ops), so a concurrent request that typed
+            # this exact row between our read and our write loses the
+            # race safely — our UPDATE matches zero rows instead of
+            # clobbering the other request's write. rowcount is the only
+            # source of truth for whether this row was actually applied;
+            # the model class is resolved per table_name since the two
+            # tables share this helper.
+            model = RoutingOperation if table_name == "routing_operations" else ProductionOrderOperation
+            update_result = (
+                db.query(model)
+                .filter(model.id == row.id, model.operation_type.is_(None))
+                .update({model.operation_type: proposed_type}, synchronize_session=False)
+            )
+            result.applied_count += update_result
 
     for row in _iter_null_typed_routing_ops(db):
         _process(row, "routing_operations")

@@ -6,9 +6,9 @@ admin CRUD request/response shapes and the audit/classifier report shapes
 added in #876 PR-3 (app/api/v1/endpoints/admin/operation_types.py).
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class OperationTypeResponse(BaseModel):
@@ -44,6 +44,16 @@ class OperationTypeCreate(BaseModel):
     sort_order: int = 0
 
 
+# NOT NULL-backed columns on OperationType. A field left out of an update
+# request body is fine (means "don't touch it"), but an explicit JSON
+# `null` for any of these is rejected with 422 rather than being allowed
+# through to reach the ORM as a null write (e.g. `list(None)` on
+# consume_stages). Module-level (not a class attribute on
+# OperationTypeUpdate) because Pydantic v2 wraps an underscore-prefixed
+# class attribute in ModelPrivateAttr, which isn't iterable as plain data.
+_UPDATE_NOT_NULLABLE_FIELDS = ("label", "consume_stages", "is_qc", "sort_order", "is_active")
+
+
 class OperationTypeUpdate(BaseModel):
     """
     Update an existing operation type.
@@ -53,6 +63,14 @@ class OperationTypeUpdate(BaseModel):
     attempt to change them is rejected with 400. For custom (non-system)
     rows, editing consume_stages on a type referenced by an operation of a
     NON-terminal production order is rejected with 409.
+
+    label/consume_stages/is_qc/sort_order/is_active are NOT NULL-backed
+    columns on OperationType: a field left out of the request body is
+    fine (means "don't touch it"), but an explicit JSON `null` for any of
+    these is rejected with 422 rather than being allowed through to reach
+    the ORM as a null write (e.g. `list(None)` on consume_stages).
+    description/category are genuinely nullable columns, so explicit null
+    is accepted for those.
     """
     label: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
@@ -61,6 +79,25 @@ class OperationTypeUpdate(BaseModel):
     is_qc: Optional[bool] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_explicit_null_for_not_nullable_fields(cls, data: Any) -> Any:
+        """Distinguish "omitted" (fine — means don't touch it) from an
+        explicit JSON `null` (rejected) for the NOT-NULL-backed columns.
+        Pydantic's Optional[...] = None default can't tell these apart on
+        its own, since both an omitted key and an explicit null produce
+        None after validation — this runs before that collapse happens."""
+        if isinstance(data, dict):
+            nulled = [
+                f for f in _UPDATE_NOT_NULLABLE_FIELDS if f in data and data[f] is None
+            ]
+            if nulled:
+                raise ValueError(
+                    "field(s) cannot be explicitly set to null (omit them instead "
+                    f"to leave unchanged): {', '.join(nulled)}"
+                )
+        return data
 
 
 # =============================================================================
@@ -81,6 +118,7 @@ class OperationTypeAuditRow(BaseModel):
     material_bearing: bool
     classification_reason: Optional[str] = None
     in_flight_non_terminal_po_count: int
+    conflicting_stored_types: Optional[List[str]] = None
 
 
 class OperationTypeAuditResponse(BaseModel):
