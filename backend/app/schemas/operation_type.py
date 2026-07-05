@@ -7,11 +7,13 @@ Read-only response shape for GET /api/v1/operation-types. Admin CRUD
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class OperationTypeResponse(BaseModel):
     """A single operation-type catalog row, for the future editor picker."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     code: str
     label: str
@@ -24,6 +26,3 @@ class OperationTypeResponse(BaseModel):
     sort_order: int
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

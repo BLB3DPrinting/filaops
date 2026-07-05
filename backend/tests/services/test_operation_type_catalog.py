@@ -33,18 +33,21 @@ from app.services.operation_material_mapping import (
 
 # Mirrors migrations/versions/101_operation_types.py::SEED_OPERATION_TYPES /
 # BACKFILL_ALIAS_MAP verbatim, so a drift between the migration and this test
-# fails loudly rather than silently.
-SEED_OPERATION_TYPES = [
-    ("FDM_PRINT", ["production", "any"], False),
-    ("RESIN_PRINT", ["production", "any"], False),
-    ("ASSEMBLY", ["assembly", "production", "any"], False),
-    ("QUALITY_CONTROL", ["any"], True),
-    ("SUPPORT_REMOVAL", ["any"], False),
-    ("SANDING", ["any"], False),
-    ("PAINTING", ["finishing", "any"], False),
-    ("PACK_SHIP", ["shipping", "any"], False),
-    ("GENERAL", ["production", "any"], False),
-]
+# fails loudly rather than silently. This is the ONLY seed-data literal in
+# this file — _seed_operation_types() below consumes it directly rather than
+# maintaining a second, redundant copy.
+SEED_OPERATION_TYPES = {
+    # code: (label, category, consume_stages, is_qc, sort_order)
+    "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
+    "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
+    "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
+    "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
+    "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
+    "SANDING": ("Sanding", "finishing", ["any"], False, 60),
+    "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
+    "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
+    "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
+}
 
 BACKFILL_ALIAS_MAP = {
     "PRINT": "FDM_PRINT",
@@ -70,21 +73,12 @@ BACKFILL_ALIAS_MAP = {
 
 def _seed_operation_types(db):
     """Idempotent INSERT-if-missing seed helper, mirroring migration 101
-    step 2, for use directly against the test DB (no alembic run in tests)."""
+    step 2, for use directly against the test DB (no alembic run in tests).
+    Consumes the module-level SEED_OPERATION_TYPES constant above — no
+    separate inline copy of the seed data."""
     existing_codes = {code for (code,) in db.query(OperationType.code).all()}
-    seed_source = {
-        "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
-        "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
-        "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
-        "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
-        "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
-        "SANDING": ("Sanding", "finishing", ["any"], False, 60),
-        "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
-        "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
-        "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
-    }
     created = []
-    for code, (label, category, stages, is_qc, sort_order) in seed_source.items():
+    for code, (label, category, stages, is_qc, sort_order) in SEED_OPERATION_TYPES.items():
         if code in existing_codes:
             continue
         row = OperationType(
@@ -313,7 +307,7 @@ class TestSeedIdempotency:
         created = _seed_operation_types(db)
         db.commit()
         assert len(created) == 9
-        assert set(created) == {code for code, _, _ in SEED_OPERATION_TYPES}
+        assert set(created) == set(SEED_OPERATION_TYPES)
 
         rows = db.query(OperationType).filter(OperationType.is_system.is_(True)).all()
         assert len(rows) == 9

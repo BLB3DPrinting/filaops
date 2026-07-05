@@ -167,7 +167,6 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("code", name="uq_operation_types_code"),
         )
-        op.create_index("ix_operation_types_code", "operation_types", ["code"])
 
     # ------------------------------------------------------------------
     # 2. Seed the 9 system rows — INSERT-if-missing on unique code
@@ -244,5 +243,4 @@ def downgrade() -> None:
             op.drop_column(table, "operation_type")
 
     if _has_table("operation_types"):
-        op.drop_index("ix_operation_types_code", table_name="operation_types", if_exists=True)
         op.drop_table("operation_types")
