@@ -84,6 +84,7 @@ def copy_routing_to_operations(
             resource_id=None,  # Resource assigned during scheduling
             sequence=rop.sequence,
             operation_code=rop.operation_code,
+            operation_type=getattr(rop, "operation_type", None),
             operation_name=rop.operation_name,
             planned_setup_minutes=rop.setup_time_minutes or 0,
             planned_run_minutes=float(rop.run_time_minutes or 0) * float(production_order.quantity_ordered),

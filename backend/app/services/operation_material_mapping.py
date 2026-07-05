@@ -69,6 +69,63 @@ def get_all_consume_stages() -> Set[str]:
 
 
 # =============================================================================
+# #876 PR-2: write-time alias assist — the ONE shared importable copy.
+#
+# NOTE ON DUPLICATION: migrations/versions/101_operation_types.py and
+# tests/services/test_operation_type_catalog.py each keep their OWN frozen
+# literal copy of this same code->type mapping, deliberately — a migration
+# must never import live application code (it has to keep working exactly
+# as written even after this module changes in the future), and its pinned
+# test asserts the migration's frozen copy byte-for-byte. This module's copy
+# is the single source other RUNTIME code (routing_service.py's write-time
+# alias assist) is meant to import. If you change the aliasing rule here,
+# the migration and its test are NOT automatically updated — that is correct
+# and intentional; a shipped migration is immutable history.
+#
+# FINISH and POST are deliberately excluded (see migration 101 docstring):
+# the live census shows FINISH spans shipping/quality/blank names, so it is
+# classifiable only per-row by name via the human-gated classifier, never
+# by a blanket alias.
+# =============================================================================
+
+OPERATION_CODE_TYPE_ALIASES: Dict[str, str] = {
+    "PRINT": "FDM_PRINT",
+    "EXTRUDE": "GENERAL",
+    "MOLD": "GENERAL",
+    "CUT": "GENERAL",
+    "MACHINE": "GENERAL",
+    "ASSEMBLE": "ASSEMBLY",
+    "BUILD": "ASSEMBLY",
+    "WELD": "ASSEMBLY",
+    "QC": "QUALITY_CONTROL",
+    "INSPECT": "QUALITY_CONTROL",
+    "TEST": "QUALITY_CONTROL",
+    "CLEAN": "SUPPORT_REMOVAL",
+    "SAND": "SANDING",
+    "PAINT": "PAINTING",
+    "COAT": "PAINTING",
+    "PACK": "PACK_SHIP",
+    "SHIP": "PACK_SHIP",
+    "LABEL": "PACK_SHIP",
+}
+
+
+def alias_operation_type_for_code(operation_code: Optional[str]) -> Optional[str]:
+    """
+    Write-time alias assist: given a legacy operation_code, return the
+    canonical operation_type it should be auto-assigned when the caller
+    didn't supply one explicitly.
+
+    Returns None when the code is empty/None or doesn't match one of the 18
+    legacy canonical keys (case-insensitive) — most notably FINISH and POST,
+    which get NO alias, deliberately (see module docstring above).
+    """
+    if not operation_code:
+        return None
+    return OPERATION_CODE_TYPE_ALIASES.get(operation_code.upper())
+
+
+# =============================================================================
 # #876 PR-1: operation-type catalog resolver (dormant — no consumer wired yet)
 #
 # Everything ABOVE this line (the legacy dict, DEFAULT_CONSUME_STAGES, and

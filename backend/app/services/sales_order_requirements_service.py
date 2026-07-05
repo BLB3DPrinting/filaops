@@ -202,7 +202,8 @@ def get_material_requirements(
         qty_required: Decimal,
         unit: str,
         operation_code: Optional[str],
-        material_source: str
+        material_source: str,
+        operation_type: Optional[str] = None,
     ):
         """Add a material requirement, aggregating duplicates."""
         key = component.id
@@ -270,6 +271,7 @@ def get_material_requirements(
                 "quantity_short_now": float(qty_short_now),
                 "covered_by_incoming": covered_by_incoming,
                 "operation_code": operation_code,
+                "operation_type": operation_type,
                 "material_source": material_source,
                 "has_incoming_supply": has_incoming,
                 "incoming_supply_details": incoming_details,
@@ -289,13 +291,17 @@ def get_material_requirements(
             # when a routing was found, "bom" otherwise — the canonical function
             # already applied routing-first precedence so we just tag accordingly.
             # The operation_code is unavailable at this aggregation layer because
-            # explode_requirements flattens multi-operation materials; tag as None.
+            # explode_requirements flattens multi-operation materials; tag as
+            # None. operation_type is explicitly None for the same reason
+            # (#876 PR-2 snapshot-propagation site) — there is no single
+            # operation this flattened requirement can be attributed to.
             add_requirement(
                 component=component,
                 qty_required=req.gross_quantity,
                 unit=component.unit or "EA",
                 operation_code=None,
                 material_source="routing_or_bom",
+                operation_type=None,
             )
 
     # Process based on order type

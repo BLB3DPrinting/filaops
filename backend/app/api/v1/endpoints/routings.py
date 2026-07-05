@@ -410,6 +410,7 @@ def _build_operation_response(op: RoutingOperation) -> RoutingOperationResponse:
         work_center_name=op.work_center.name if op.work_center else None,
         sequence=op.sequence,
         operation_code=op.operation_code,
+        operation_type=op.operation_type,
         operation_name=op.operation_name,
         description=op.description,
         setup_time_minutes=op.setup_time_minutes,

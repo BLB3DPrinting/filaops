@@ -179,6 +179,7 @@ def duplicate_item(
                 work_center_id=op.work_center_id,
                 sequence=op.sequence,
                 operation_code=op.operation_code,
+                operation_type=getattr(op, "operation_type", None),
                 operation_name=op.operation_name,
                 description=op.description,
                 setup_time_minutes=op.setup_time_minutes,
