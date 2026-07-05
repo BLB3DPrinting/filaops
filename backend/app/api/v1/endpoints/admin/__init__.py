@@ -5,7 +5,8 @@ from fastapi import APIRouter
 from . import (
     bom, dashboard, fulfillment_queue, fulfillment_shipping, audit, accounting, traceability,
     customers, inventory_transactions, analytics, export, data_import, orders,
-    users, uom, locations, system, uploads, pro_install, reconciliation, reservations
+    users, uom, locations, system, uploads, pro_install, reconciliation, reservations,
+    operation_types,
 )
 
 router = APIRouter()
@@ -46,6 +47,9 @@ router.include_router(reconciliation.router)
 
 # Reservation Reconciliation + Stranded Allocation Repair (HARD-5)
 router.include_router(reservations.router)
+
+# Operation Type Catalog: audit + human-gated classifier + hardened CRUD (876 PR-3)
+router.include_router(operation_types.router)
 
 # Export/Import
 router.include_router(export.router)

@@ -1,0 +1,534 @@
+"""
+Operation-type audit + human-gated classifier (#876 PR-3).
+
+This module NEVER auto-reclassifies anything on its own. It only:
+  1. Produces a read-only, re-runnable audit of every distinct
+     (operation_code, operation_name) pair seen across
+     ``routing_operations`` and ``production_order_operations``, with the
+     resolved consume stages (via the #898 resolver), a name-rule
+     classification proposal, and an in-flight exposure rollup.
+  2. Proposes NULL-only type assignments from a name-matching rule set —
+     writes nothing unless explicitly told to apply, and even then only
+     touches rows where ``operation_type IS NULL``.
+
+Nothing in Core calls this automatically. It is reached only through the
+staff-gated admin endpoints in
+``app/api/v1/endpoints/admin/operation_types.py``.
+"""
+import re
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.models.manufacturing import (
+    RoutingOperation,
+    RoutingOperationMaterial,
+)
+from app.models.production_order import (
+    ProductionOrder,
+    ProductionOrderOperation,
+    ProductionOrderOperationMaterial,
+)
+from app.services.operation_material_mapping import (
+    load_operation_type_stage_map,
+    resolve_consume_stages,
+)
+
+# ---------------------------------------------------------------------------
+# PO-level terminal statuses.
+#
+# NOTE the #850 fork: the ProductionOrder.status docstring describes an
+# aspirational lifecycle ending in "completed" / "closed" / "scrapped", but
+# every place in the codebase that actually WRITES or FILTERS on terminal
+# status uses "complete" (production_order_service.py get_schedule_summary
+# and its siblings: `ProductionOrder.status.notin_(["complete",
+# "cancelled"])`). We mirror that exact, live convention here rather than
+# the docstring's aspirational vocabulary, so "non-terminal" in this audit
+# means precisely what it means everywhere else in the running system.
+# ---------------------------------------------------------------------------
+PO_TERMINAL_STATUSES = ("complete", "cancelled")
+
+# Types that mean "materials count for nothing automatically" — an op
+# carrying material rows may NEVER be auto-proposed one of these (the
+# material-bearing safety rule).
+NO_CONSUME_TYPE_CODES = ("QUALITY_CONTROL", "SANDING", "SUPPORT_REMOVAL")
+
+MANUAL_DECISION_REASON = (
+    "needs manual decision — op carries material rows but matched a "
+    "no-consume type"
+)
+NO_MATCH_REASON = "no rule matched — blank or unrecognized name"
+MIXED_NAME_REASON = "mixed-name — priority applied"
+
+
+# ---------------------------------------------------------------------------
+# Name-classification rules, in priority order. First match wins. Matching
+# is case-insensitive against operation_name. A name matching more than one
+# rule is "mixed-name"; the first (highest-priority) match is applied and
+# flagged.
+# ---------------------------------------------------------------------------
+_NAME_RULES: List[Tuple[str, str]] = [
+    (r"pack|ship|label|packag|box|mail", "PACK_SHIP"),
+    (r"\bqc\b|quality|inspect", "QUALITY_CONTROL"),
+    (r"assembl", "ASSEMBLY"),
+    (r"print", "FDM_PRINT"),
+    (r"sand", "SANDING"),
+    (r"paint", "PAINTING"),
+    (r"support|clean|post.?process", "SUPPORT_REMOVAL"),
+]
+_COMPILED_NAME_RULES: List[Tuple[re.Pattern, str]] = [
+    (re.compile(pattern, re.IGNORECASE), type_code) for pattern, type_code in _NAME_RULES
+]
+
+
+@dataclass
+class NameClassification:
+    """Result of running the name rules against an operation_name."""
+    proposed_type: Optional[str]
+    matched_rule_count: int
+    reason: Optional[str] = None
+    mixed: bool = False
+
+
+def classify_name(operation_name: Optional[str]) -> NameClassification:
+    """
+    Run the priority-ordered name rules against ``operation_name``.
+
+    Blank/whitespace-only names propose nothing. A name matching more than
+    one rule's pattern is "mixed" — the highest-priority match is proposed,
+    flagged with MIXED_NAME_REASON. A name matching no rule proposes
+    nothing (NO_MATCH_REASON).
+    """
+    if not operation_name or not operation_name.strip():
+        return NameClassification(proposed_type=None, matched_rule_count=0, reason=NO_MATCH_REASON)
+
+    matches = [type_code for pattern, type_code in _COMPILED_NAME_RULES if pattern.search(operation_name)]
+    if not matches:
+        return NameClassification(proposed_type=None, matched_rule_count=0, reason=NO_MATCH_REASON)
+
+    proposed = matches[0]
+    mixed = len(matches) > 1
+    return NameClassification(
+        proposed_type=proposed,
+        matched_rule_count=len(matches),
+        reason=MIXED_NAME_REASON if mixed else None,
+        mixed=mixed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Audit
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AuditRow:
+    operation_code: Optional[str]
+    operation_name: Optional[str]
+    routing_op_count: int
+    po_op_count: int
+    stored_operation_type: Optional[str]
+    match_source: str  # "stored-type" | "legacy-dict" | "default"
+    current_consume_stages: List[str]
+    proposed_type: Optional[str]
+    proposed_consume_stages: Optional[List[str]]
+    behavior_changed: bool
+    material_bearing: bool
+    classification_reason: Optional[str]
+    in_flight_non_terminal_po_count: int
+    conflicting_stored_types: Optional[List[str]] = None
+
+
+def _match_source(
+    type_map: Dict[str, List[str]],
+    operation_type: Optional[str],
+    operation_code: Optional[str],
+) -> str:
+    """
+    Report the source that ``resolve_consume_stages`` actually used, not
+    merely whether ``operation_type`` is truthy. Mirrors
+    ``resolve_consume_stages``'s own precedence exactly: an unknown or
+    inactive type (not in ``type_map``) falls through to the legacy dict
+    or default, and the reported source must say so — otherwise a stored
+    type that silently failed to resolve would be mislabeled
+    "stored-type" when the runtime behavior is actually legacy-dict or
+    default.
+    """
+    if operation_type and operation_type in type_map:
+        return "stored-type"
+    from app.services.operation_material_mapping import OPERATION_CONSUME_STAGES
+
+    if operation_code and operation_code.upper() in OPERATION_CONSUME_STAGES:
+        return "legacy-dict"
+    return "default"
+
+
+def _distinct_pairs_with_counts(db: Session):
+    """
+    Every distinct (operation_code, operation_name) pair across BOTH
+    routing_operations and production_order_operations, with per-table
+    counts and a deterministic representative stored operation_type per
+    pair.
+
+    A pair can legitimately have MORE THAN ONE distinct non-NULL
+    operation_type across its rows (e.g. typed differently on different
+    routing operations, or typed on some rows and NULL on others) — this
+    is a real conflict, not merely a NULL-vs-typed split, and must be
+    surfaced rather than silently resolved by picking whichever type the
+    database happened to return first. All distinct non-NULL types seen
+    for the pair are collected; the representative is the
+    lexicographically-first one (deterministic regardless of DB row
+    order), and every distinct type beyond the representative is exposed
+    via ``conflicting_stored_types`` in the audit row.
+    """
+    routing_rows = (
+        db.query(
+            RoutingOperation.operation_code,
+            RoutingOperation.operation_name,
+            RoutingOperation.operation_type,
+            func.count(RoutingOperation.id),
+        )
+        .group_by(
+            RoutingOperation.operation_code,
+            RoutingOperation.operation_name,
+            RoutingOperation.operation_type,
+        )
+        .all()
+    )
+    po_rows = (
+        db.query(
+            ProductionOrderOperation.operation_code,
+            ProductionOrderOperation.operation_name,
+            ProductionOrderOperation.operation_type,
+            func.count(ProductionOrderOperation.id),
+        )
+        .group_by(
+            ProductionOrderOperation.operation_code,
+            ProductionOrderOperation.operation_name,
+            ProductionOrderOperation.operation_type,
+        )
+        .all()
+    )
+
+    # key = (operation_code, operation_name) — the pair identity for the
+    # audit. Track EVERY distinct non-NULL operation_type seen for the
+    # pair (in a set) rather than keeping only the first-seen one, so a
+    # genuine conflict (the same pair typed two different ways across its
+    # rows) is detected instead of hidden by DB-return-order luck.
+    pairs: Dict[Tuple[Optional[str], Optional[str]], dict] = {}
+
+    def _ingest(rows, table_key):
+        for code, name, op_type, count in rows:
+            key = (code, name)
+            entry = pairs.setdefault(
+                key,
+                {"routing_op_count": 0, "po_op_count": 0, "operation_types": set()},
+            )
+            entry[table_key] += count
+            if op_type:
+                entry["operation_types"].add(op_type)
+
+    _ingest(routing_rows, "routing_op_count")
+    _ingest(po_rows, "po_op_count")
+
+    # Collapse the distinct-types set into a deterministic representative
+    # (sorted-first) plus the remaining conflicting types, if any.
+    for entry in pairs.values():
+        distinct_types = sorted(entry.pop("operation_types"))
+        entry["operation_type"] = distinct_types[0] if distinct_types else None
+        entry["conflicting_stored_types"] = distinct_types[1:] if len(distinct_types) > 1 else None
+
+    return pairs
+
+
+def _material_bearing_codes(db: Session) -> set:
+    """
+    Set of (operation_code, operation_name) pairs that have at least one
+    material row attached, on EITHER the routing template
+    (RoutingOperationMaterial) or the production-order instance
+    (ProductionOrderOperationMaterial) side.
+    """
+    bearing = set()
+
+    routing_bearing = (
+        db.query(RoutingOperation.operation_code, RoutingOperation.operation_name)
+        .join(
+            RoutingOperationMaterial,
+            RoutingOperationMaterial.routing_operation_id == RoutingOperation.id,
+        )
+        .distinct()
+        .all()
+    )
+    bearing.update(routing_bearing)
+
+    po_bearing = (
+        db.query(ProductionOrderOperation.operation_code, ProductionOrderOperation.operation_name)
+        .join(
+            ProductionOrderOperationMaterial,
+            ProductionOrderOperationMaterial.production_order_operation_id == ProductionOrderOperation.id,
+        )
+        .distinct()
+        .all()
+    )
+    bearing.update(po_bearing)
+
+    return bearing
+
+
+def _in_flight_counts(db: Session) -> Dict[Tuple[Optional[str], Optional[str]], int]:
+    """
+    Count of DISTINCT non-terminal ProductionOrders whose operations carry
+    each (operation_code, operation_name) pair. "Non-terminal" = PO.status
+    NOT IN PO_TERMINAL_STATUSES (see module docstring re: #850 fork).
+    """
+    rows = (
+        db.query(
+            ProductionOrderOperation.operation_code,
+            ProductionOrderOperation.operation_name,
+            func.count(func.distinct(ProductionOrderOperation.production_order_id)),
+        )
+        .join(ProductionOrder, ProductionOrder.id == ProductionOrderOperation.production_order_id)
+        .filter(ProductionOrder.status.notin_(PO_TERMINAL_STATUSES))
+        .group_by(
+            ProductionOrderOperation.operation_code,
+            ProductionOrderOperation.operation_name,
+        )
+        .all()
+    )
+    return {(code, name): count for code, name, count in rows}
+
+
+def build_audit(db: Session) -> List[AuditRow]:
+    """
+    Build the full, read-only audit of every distinct (operation_code,
+    operation_name) pair across both operation tables. Re-runnable —
+    queries only, no writes.
+    """
+    type_map = load_operation_type_stage_map(db)
+    pairs = _distinct_pairs_with_counts(db)
+    material_bearing_pairs = _material_bearing_codes(db)
+    in_flight = _in_flight_counts(db)
+
+    rows: List[AuditRow] = []
+    for (code, name), info in sorted(pairs.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
+        stored_type = info["operation_type"]
+        current_stages = resolve_consume_stages(type_map, stored_type, code)
+        source = _match_source(type_map, stored_type, code)
+        is_material_bearing = (code, name) in material_bearing_pairs
+
+        name_result = classify_name(name)
+        proposed_type = name_result.proposed_type
+        reason = name_result.reason
+
+        # Material-bearing safety rule: never auto-propose a no-consume
+        # type for an op that carries material rows.
+        if proposed_type in NO_CONSUME_TYPE_CODES and is_material_bearing:
+            proposed_type = None
+            reason = MANUAL_DECISION_REASON
+
+        # Proposals are for NULL-typed rows only — the classifier
+        # (run_classifier) never touches a row that already has a stored
+        # type, so a proposal for an already-typed row is not actionable
+        # and must not be shown as if it were. Clearing proposed_type here
+        # (rather than merely leaving proposed_consume_stages/
+        # behavior_changed at their no-op defaults) keeps proposed_type
+        # and proposed_consume_stages consistent with each other: either
+        # both are populated (an actionable NULL-row proposal) or both are
+        # None, never a proposed_type with no stage projection behind it.
+        proposed_stages = None
+        behavior_changed = False
+        if stored_type is not None:
+            proposed_type = None
+            reason = None
+        elif proposed_type is not None:
+            proposed_stages = resolve_consume_stages(type_map, proposed_type, code)
+            behavior_changed = list(proposed_stages) != list(current_stages)
+
+        rows.append(
+            AuditRow(
+                operation_code=code,
+                operation_name=name,
+                routing_op_count=info["routing_op_count"],
+                po_op_count=info["po_op_count"],
+                stored_operation_type=stored_type,
+                match_source=source,
+                current_consume_stages=current_stages,
+                proposed_type=proposed_type,
+                proposed_consume_stages=proposed_stages,
+                behavior_changed=behavior_changed,
+                material_bearing=is_material_bearing,
+                classification_reason=reason,
+                in_flight_non_terminal_po_count=in_flight.get((code, name), 0),
+                conflicting_stored_types=info.get("conflicting_stored_types"),
+            )
+        )
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Classifier apply / dry-run
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ProposalRow:
+    table: str  # "routing_operations" | "production_order_operations"
+    row_id: int
+    operation_code: Optional[str]
+    operation_name: Optional[str]
+    proposed_type: Optional[str]
+    reason: Optional[str]
+    material_bearing: bool
+    before_stages: List[str]
+    after_stages: Optional[List[str]]
+    production_order_id: Optional[int] = None
+    production_order_status: Optional[str] = None
+
+
+@dataclass
+class ClassifyResult:
+    dry_run: bool
+    proposals: List[ProposalRow] = field(default_factory=list)
+    applied_count: int = 0
+    skipped_manual_decision_count: int = 0
+    skipped_no_match_count: int = 0
+    non_terminal_exposure_count: int = 0
+
+
+def _iter_null_typed_routing_ops(db: Session):
+    return (
+        db.query(RoutingOperation)
+        .filter(RoutingOperation.operation_type.is_(None))
+        .all()
+    )
+
+
+def _iter_null_typed_po_ops(db: Session):
+    return (
+        db.query(ProductionOrderOperation)
+        .filter(ProductionOrderOperation.operation_type.is_(None))
+        .all()
+    )
+
+
+def run_classifier(db: Session, dry_run: bool = True) -> ClassifyResult:
+    """
+    Human-gated classifier over NULL-``operation_type`` rows in BOTH
+    ``routing_operations`` and ``production_order_operations``.
+
+    dry_run=True (default): builds and returns the full proposal report —
+    WRITES NOTHING.
+
+    dry_run=False: applies NULL -> proposed_type ONLY where a safe
+    unambiguous proposal exists. Never overwrites a non-NULL
+    operation_type — enforced twice: the initial SELECT only reads rows
+    where operation_type IS NULL, and the write itself is a conditional
+    UPDATE ... WHERE id = :id AND operation_type IS NULL (not an ORM
+    read-then-mutate-then-commit), so a concurrent write to the same row
+    between our read and our write cannot be silently clobbered — our
+    UPDATE simply matches zero rows for that id, and applied_count is
+    derived purely from each UPDATE's rowcount, never assumed. Idempotent:
+    running again after an apply finds zero NULL rows left to propose
+    for, so it is a no-op.
+
+    Material-bearing rows that would otherwise match a no-consume type
+    (QUALITY_CONTROL / SANDING / SUPPORT_REMOVAL) are never auto-applied —
+    they are surfaced as "needs manual decision" and skipped in both
+    dry-run and apply.
+
+    Recording WHO applied a run and WHEN is the caller's responsibility
+    (the admin endpoint stamps the authenticated staff user's email +
+    current UTC time onto the response) — this function only knows about
+    rows and proposals, not the requesting identity.
+    """
+    type_map = load_operation_type_stage_map(db)
+    material_bearing_pairs = _material_bearing_codes(db)
+
+    # PO id -> status, for stamping production_order_status onto PO-op
+    # proposal rows and for the row-level non-terminal-exposure count,
+    # without a per-row query.
+    po_status_by_id: Dict[int, str] = dict(db.query(ProductionOrder.id, ProductionOrder.status).all())
+
+    result = ClassifyResult(dry_run=dry_run)
+
+    def _process(row, table_name: str):
+        code = row.operation_code
+        name = row.operation_name
+        is_material_bearing = (code, name) in material_bearing_pairs
+
+        name_result = classify_name(name)
+        proposed_type = name_result.proposed_type
+        reason = name_result.reason
+
+        if proposed_type in NO_CONSUME_TYPE_CODES and is_material_bearing:
+            proposed_type = None
+            reason = MANUAL_DECISION_REASON
+
+        before_stages = resolve_consume_stages(type_map, None, code)
+        after_stages = None
+        if proposed_type is not None:
+            after_stages = resolve_consume_stages(type_map, proposed_type, code)
+
+        po_id = None
+        po_status = None
+        row_is_non_terminal_po = False
+        if table_name == "production_order_operations":
+            po_id = row.production_order_id
+            po_status = po_status_by_id.get(po_id)
+            row_is_non_terminal_po = po_status is not None and po_status not in PO_TERMINAL_STATUSES
+
+        proposal = ProposalRow(
+            table=table_name,
+            row_id=row.id,
+            operation_code=code,
+            operation_name=name,
+            proposed_type=proposed_type,
+            reason=reason,
+            material_bearing=is_material_bearing,
+            before_stages=before_stages,
+            after_stages=after_stages,
+            production_order_id=po_id,
+            production_order_status=po_status,
+        )
+        result.proposals.append(proposal)
+
+        if proposed_type is None:
+            if reason == MANUAL_DECISION_REASON:
+                result.skipped_manual_decision_count += 1
+            else:
+                result.skipped_no_match_count += 1
+            return
+
+        if row_is_non_terminal_po:
+            result.non_terminal_exposure_count += 1
+
+        if not dry_run:
+            # Conditional bulk UPDATE rather than an ORM read-then-mutate:
+            # the WHERE clause re-checks operation_type IS NULL at write
+            # time (not just at the earlier SELECT in
+            # _iter_null_typed_*_ops), so a concurrent request that typed
+            # this exact row between our read and our write loses the
+            # race safely — our UPDATE matches zero rows instead of
+            # clobbering the other request's write. rowcount is the only
+            # source of truth for whether this row was actually applied;
+            # the model class is resolved per table_name since the two
+            # tables share this helper.
+            model = RoutingOperation if table_name == "routing_operations" else ProductionOrderOperation
+            update_result = (
+                db.query(model)
+                .filter(model.id == row.id, model.operation_type.is_(None))
+                .update({model.operation_type: proposed_type}, synchronize_session=False)
+            )
+            result.applied_count += update_result
+
+    for row in _iter_null_typed_routing_ops(db):
+        _process(row, "routing_operations")
+
+    for row in _iter_null_typed_po_ops(db):
+        _process(row, "production_order_operations")
+
+    if not dry_run and result.applied_count:
+        db.commit()
+
+    return result
