@@ -41,6 +41,7 @@ from app.models.scrap_reason import ScrapReason
 from app.models.work_center import WorkCenter
 from app.models.inventory import Inventory
 from app.services import production_order_service as svc
+from tests.services._operation_type_seed import seed_operation_types as _seed_operation_types
 
 
 # =============================================================================
@@ -3005,29 +3006,11 @@ class TestQCTypedLookup:
     because live ops are coded OP20/OP30/FINISH and never match '%QC%' at
     all — this is the actual bug the type catalog fixes."""
 
-    def _seed_operation_types(self, db):
-        from app.models.manufacturing import OperationType
-
-        seed = {
-            "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
-            "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
-            "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
-        }
-        existing = {code for (code,) in db.query(OperationType.code).all()}
-        for code, (label, category, stages, is_qc, sort_order) in seed.items():
-            if code in existing:
-                continue
-            db.add(OperationType(
-                code=code, label=label, category=category, consume_stages=stages,
-                is_qc=is_qc, is_system=True, is_active=True, sort_order=sort_order,
-            ))
-        db.flush()
-
     def test_typed_qc_op_found_even_with_non_qc_code(self, db, finished_good):
         """The live-census bug case: an op coded OP20 (no 'QC' substring at
         all) but TYPED QUALITY_CONTROL must still be found and completed —
         the old ilike('%QC%') fallback would have missed this entirely."""
-        self._seed_operation_types(db)
+        _seed_operation_types(db)
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
         qc_op = ProductionOrderOperation(
             production_order_id=order.id,
@@ -3062,7 +3045,7 @@ class TestQCTypedLookup:
     def test_typed_lookup_beats_ilike_when_both_present(self, db, finished_good):
         """When one op is typed QUALITY_CONTROL and a DIFFERENT op merely has
         'QC' in its code, the typed op wins (typed lookup runs first)."""
-        self._seed_operation_types(db)
+        _seed_operation_types(db)
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
 
         # A print op that happens to have "QC" in a free-text code — must
@@ -3145,7 +3128,7 @@ class TestQCTypedLookup:
     def test_explicit_operation_id_beats_both_typed_and_ilike(self, db, finished_good):
         """An explicit operation_id target always wins over both the typed
         lookup and the ilike fallback."""
-        self._seed_operation_types(db)
+        _seed_operation_types(db)
         order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
 
         typed_qc_op = ProductionOrderOperation(
@@ -3192,6 +3175,111 @@ class TestQCTypedLookup:
         assert first_typed.status == "running", (
             "The non-targeted typed QC op must be left untouched"
         )
+
+    def test_typed_qc_tie_break_picks_earliest_sequence(self, db, finished_good):
+        """CodeRabbit #4630789865 finding 1/7: when two untargeted ops are
+        BOTH typed QUALITY_CONTROL, the fallback query must deterministically
+        pick the earliest in routing sequence, not whatever order the DB
+        happens to return rows in."""
+        _seed_operation_types(db)
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+
+        later_qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=30,
+            operation_code="OP30",
+            operation_type="QUALITY_CONTROL",
+            operation_name="Final Inspection",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        earlier_qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=15,
+            operation_code="OP15",
+            operation_type="QUALITY_CONTROL",
+            operation_name="In-process Inspection",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        # Inserted in DB-row order later_qc_op, earlier_qc_op (sequence 30
+        # THEN 15) so a passing test can only be explained by an explicit
+        # ORDER BY sequence, not insertion/PK order.
+        db.add_all([later_qc_op, earlier_qc_op])
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Tiebreak",
+            qc_status="passed",
+            quantity_passed=10,
+        )
+
+        earlier = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == earlier_qc_op.id
+        ).first()
+        later = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == later_qc_op.id
+        ).first()
+        assert earlier.status == "complete", (
+            "The sequence-earliest typed QC op (15) must be picked over "
+            "the later one (30)"
+        )
+        assert earlier.operator_name == "Inspector Tiebreak"
+        assert later.status == "running", (
+            "The non-earliest typed QC op must be left untouched"
+        )
+
+    def test_deactivated_qc_type_is_not_matched(self, db, finished_good):
+        """CodeRabbit #4630789865 finding 1/7 (nitpick): the qc_type_codes
+        lookup must filter to is_active types — an op typed with a
+        DEACTIVATED is_qc type must fall through to the legacy ilike
+        fallback (or nothing at all if the code doesn't match either),
+        not be matched via the typed lookup."""
+        _seed_operation_types(db)
+        from app.models.manufacturing import OperationType
+
+        deactivated_type = db.query(OperationType).filter(
+            OperationType.code == "QUALITY_CONTROL"
+        ).first()
+        deactivated_type.is_active = False
+        db.flush()
+
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="OP20",
+            operation_type="QUALITY_CONTROL",
+            operation_name="Inspection",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        db.add(qc_op)
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Deactivated",
+            qc_status="passed",
+            quantity_passed=10,
+        )
+
+        op = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == qc_op.id
+        ).first()
+        assert op.status == "running", (
+            "An op typed with a DEACTIVATED is_qc type must not be matched "
+            "by the typed lookup — its code (OP20) also doesn't match the "
+            "legacy ilike('%QC%') fallback, so nothing should be completed"
+        )
+        assert op.operator_name is None
 
 
 class TestQCInspectionRecords:

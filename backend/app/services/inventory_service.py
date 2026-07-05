@@ -1458,6 +1458,7 @@ def _get_stage_op_materials(
     db: Session,
     production_order_id: int,
     stage: str,
+    type_map: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[List["ProductionOrderOperationMaterial"], bool]:
     """
     Shared routing-first + stage-filter + idempotency resolver for material
@@ -1491,6 +1492,13 @@ def _get_stage_op_materials(
         db: Database session
         production_order_id: The production order
         stage: The consume stage to filter to ("production" or "shipping")
+        type_map: Pre-loaded {code: consume_stages} map (see
+            load_operation_type_stage_map). Callers that need this resolved
+            for multiple stages/POs in one flow should load it ONCE and
+            pass it through here instead of letting each helper re-query
+            the operation_types table. Defaults to a fresh load when the
+            caller has no map to share (keeps this helper safe to call
+            standalone).
 
     Returns:
         Tuple of:
@@ -1506,7 +1514,8 @@ def _get_stage_op_materials(
 
     has_any_op_rows = len(all_op_rows) > 0
 
-    type_map = load_operation_type_stage_map(db)
+    if type_map is None:
+        type_map = load_operation_type_stage_map(db)
 
     stage_rows = []
     for row in all_op_rows:
@@ -1528,6 +1537,7 @@ def _stage_has_consumed_op_materials(
     db: Session,
     production_order_id: int,
     stage: str,
+    type_map: Optional[Dict[str, List[str]]] = None,
 ) -> bool:
     """Return True if this order has AT LEAST ONE ProductionOrderOperationMaterial
     row for `stage` that is already status=='consumed'.
@@ -1539,8 +1549,13 @@ def _stage_has_consumed_op_materials(
     which posts the consumption + marks the row 'consumed' but does NOT
     release the reservation)". The latter is a correctly-completed order
     finalizing through the bulk/auto-complete path — it must NOT false-raise
-    merely because the still-open reservation makes had_reservation True."""
-    type_map = load_operation_type_stage_map(db)
+    merely because the still-open reservation makes had_reservation True.
+
+    type_map: optional pre-loaded {code: consume_stages} map, threaded
+    through by callers that already loaded one for this flow (see
+    _get_stage_op_materials). Defaults to a fresh load when omitted."""
+    if type_map is None:
+        type_map = load_operation_type_stage_map(db)
     for row in _get_all_op_material_rows(db, production_order_id):
         if row.status != "consumed":
             continue
@@ -1587,6 +1602,7 @@ def _get_stage_component_ids(
     db: Session,
     production_order: ProductionOrder,
     stage: str,
+    type_map: Optional[Dict[str, List[str]]] = None,
 ) -> set:
     """
     Return the set of component_ids that belong to `stage` for this
@@ -1606,11 +1622,16 @@ def _get_stage_component_ids(
     BOM fallback: only consulted when the order has ZERO op-material rows,
     matching the "op rows replace the BOM walk entirely" rule used
     everywhere else in this module.
+
+    type_map: optional pre-loaded {code: consume_stages} map, threaded
+    through by callers that already loaded one for this flow. Defaults to
+    a fresh load when omitted.
     """
     all_op_rows = _get_all_op_material_rows(db, production_order.id)
 
     if all_op_rows:
-        type_map = load_operation_type_stage_map(db)
+        if type_map is None:
+            type_map = load_operation_type_stage_map(db)
         component_ids = set()
         for row in all_op_rows:
             op = row.operation
@@ -1715,12 +1736,20 @@ def consume_production_materials(
     Returns:
         List of created inventory transactions
     """
+    # Loaded ONCE and threaded through every stage helper call below
+    # (_get_stage_component_ids / _get_stage_op_materials /
+    # _stage_has_consumed_op_materials) instead of each one re-querying the
+    # operation_types table independently.
+    type_map = load_operation_type_stage_map(db)
+
     # Resolve which components belong to the PRODUCTION stage for this order
     # (routing-first, BOM-fallback-only-if-no-op-rows — see
     # _get_stage_component_ids) so both the reservation snapshot and the
     # release below are scoped to THIS stage and never touch shipping-stage
     # reservations (e.g. a box reserved for a PACK op).
-    stage_component_ids = _get_stage_component_ids(db, production_order, "production")
+    stage_component_ids = _get_stage_component_ids(
+        db, production_order, "production", type_map
+    )
 
     # Snapshot whether this order had any net production-stage reservation
     # BEFORE releasing it, so the FIX-3 guardrail can tell "nothing to
@@ -1747,7 +1776,7 @@ def consume_production_materials(
 
     # FIX-1: routing-first resolution, production stage only.
     stage_rows, has_any_op_rows = _get_stage_op_materials(
-        db, production_order.id, "production"
+        db, production_order.id, "production", type_map
     )
 
     if stage_rows:
@@ -1784,7 +1813,9 @@ def consume_production_materials(
         if (
             had_reservation
             and not transactions
-            and not _stage_has_consumed_op_materials(db, production_order.id, "production")
+            and not _stage_has_consumed_op_materials(
+                db, production_order.id, "production", type_map
+            )
         ):
             logger.error(
                 "Production-stage reservation existed for PO %s (product %s) "
@@ -1816,7 +1847,7 @@ def consume_production_materials(
         # order finalizing, NOT a missing-source bug. The lingering
         # reservation was already released above; return quietly.
         if had_reservation and not _stage_has_consumed_op_materials(
-            db, production_order.id, "production"
+            db, production_order.id, "production", type_map
         ):
             logger.error(
                 "Production-stage reservation existed for PO %s (product %s) "
@@ -2144,6 +2175,11 @@ def consume_shipping_materials(
     transactions = []
     location = get_or_create_default_location(db)
 
+    # Loaded ONCE for the whole call and threaded through every stage helper
+    # below (potentially multiple products x multiple production orders)
+    # instead of each PO's helper calls re-querying operation_types.
+    type_map = load_operation_type_stage_map(db)
+
     # Get products to ship - either from lines or legacy single-product format
     products_to_ship = []
 
@@ -2171,7 +2207,7 @@ def consume_shipping_materials(
         )
 
         for po in production_orders:
-            stage_component_ids = _get_stage_component_ids(db, po, "shipping")
+            stage_component_ids = _get_stage_component_ids(db, po, "shipping", type_map)
 
             net_reserved = _get_net_reserved_by_component(db, po.id)
             po_had_reservation = any(
@@ -2187,7 +2223,7 @@ def consume_shipping_materials(
             # consume_operation_material posts + marks 'consumed' but does NOT
             # release the reservation, so a fully-consumed shipping stage on a
             # finalizing call still shows had_reservation=True).
-            if _stage_has_consumed_op_materials(db, po.id, "shipping"):
+            if _stage_has_consumed_op_materials(db, po.id, "shipping", type_map):
                 product_stage_already_consumed = True
 
             # Release SHIPPING-stage reservations for this PO only —
@@ -2197,7 +2233,9 @@ def consume_shipping_materials(
                 db, po, created_by, component_ids=stage_component_ids
             )
 
-            stage_rows, _has_any_op_rows = _get_stage_op_materials(db, po.id, "shipping")
+            stage_rows, _has_any_op_rows = _get_stage_op_materials(
+                db, po.id, "shipping", type_map
+            )
             for row in stage_rows:
                 component = db.query(Product).filter(Product.id == row.component_id).first()
                 if not component:

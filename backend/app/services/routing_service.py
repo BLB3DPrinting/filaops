@@ -31,22 +31,42 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _type_exists_in_catalog(db: Session, code: str) -> bool:
+    """
+    Shared catalog-existence check used by both write-time validation and
+    alias assist, so the two paths can never drift on what counts as a
+    "real" type. Deliberately excludes deactivated rows — deactivation
+    blocks future assignability (PR-3 semantics): a retired type must
+    neither pass validation for new/updated rows nor be proposed by alias
+    assist, even though it still resolves fine for historical rows already
+    carrying it (that read-time leniency lives in resolve_consume_stages,
+    not here).
+    """
+    return (
+        db.query(OperationType.id)
+        .filter(
+            OperationType.code == code,
+            OperationType.is_active.is_(True),
+        )
+        .first()
+        is not None
+    )
+
+
 def _validate_operation_type(db: Session, operation_type) -> None:
     """
     Write-time validation: a non-null operation_type must be a known,
-    case-normalized (upper) code in the operation_types catalog, else 400.
+    ACTIVE, case-normalized (upper) code in the operation_types catalog,
+    else 400. A deactivated type is treated the same as an unknown one —
+    deactivation blocks future assignability even though historical rows
+    already carrying it keep resolving normally at read time.
 
     Silently allows None/empty — operation_type stays optional; untyped ops
     behave exactly as before (legacy code-map resolution).
     """
-    if not operation_type:
+    if not operation_type or not operation_type.strip():
         return
-    exists = (
-        db.query(OperationType.id)
-        .filter(OperationType.code == operation_type.upper())
-        .first()
-    )
-    if not exists:
+    if not _type_exists_in_catalog(db, operation_type.upper()):
         raise HTTPException(
             status_code=400,
             detail=f"Unknown operation_type '{operation_type}'",
@@ -62,29 +82,33 @@ def _apply_operation_type_alias_assist(db: Session, op_data: dict) -> dict:
     operation_type. FINISH/POST get no alias (see
     operation_material_mapping.alias_operation_type_for_code).
 
-    The proposed alias is only applied if that type code actually exists in
-    the operation_types catalog — on a DB where migration 101 hasn't run
-    (or in an isolated test transaction that never seeded the catalog),
-    this degrades to a no-op exactly like an unrecognized code would,
-    rather than assigning a type that then 400s on write-time validation.
+    A blank/whitespace-only operation_type ("", "  ") is treated as ABSENT,
+    not as an explicit value — it falls through to the alias path exactly
+    like a missing/None key, and never leaks back out as an empty string in
+    the returned op_data (the caller would otherwise persist "" onto the
+    row instead of NULL or a real code).
+
+    The proposed alias is only applied if that type code actually exists
+    (and is active) in the operation_types catalog — on a DB where
+    migration 101 hasn't run (or in an isolated test transaction that never
+    seeded the catalog), this degrades to a no-op exactly like an
+    unrecognized code would, rather than assigning a type that then 400s on
+    write-time validation.
 
     Also case-normalizes an explicitly-provided operation_type to upper,
     matching the catalog's stored-uppercase convention.
     """
     op_data = dict(op_data)
     provided_type = op_data.get("operation_type")
-    if provided_type:
+    if provided_type and provided_type.strip():
         op_data["operation_type"] = provided_type.upper()
-    elif "operation_type" not in op_data or op_data.get("operation_type") is None:
+    else:
+        if provided_type is not None:
+            # Blank/whitespace-only — never let "" or "  " leak through.
+            op_data.pop("operation_type", None)
         alias = alias_operation_type_for_code(op_data.get("operation_code"))
-        if alias:
-            exists = (
-                db.query(OperationType.id)
-                .filter(OperationType.code == alias)
-                .first()
-            )
-            if exists:
-                op_data["operation_type"] = alias
+        if alias and _type_exists_in_catalog(db, alias):
+            op_data["operation_type"] = alias
     return op_data
 
 
@@ -516,24 +540,25 @@ def update_operation(db: Session, operation_id: int, *, data: dict) -> RoutingOp
         if not db.query(WorkCenter).filter(WorkCenter.id == wc_id).first():
             raise HTTPException(status_code=400, detail=f"Work center {wc_id} not found")
 
-    if "operation_type" in data and data["operation_type"]:
+    provided_type = data.get("operation_type")
+    if "operation_type" in data and provided_type and provided_type.strip():
         # Explicit type in the payload wins outright — case-normalize only.
-        data["operation_type"] = data["operation_type"].upper()
-    elif data.get("operation_code") and not operation.operation_type:
-        # Write-time alias assist: operation_code is being (re)set, no type
-        # was explicitly provided, and the row has no type yet — auto-assign
-        # from the legacy canonical alias if the new code matches one and
-        # that type actually exists in the catalog (degrades to a no-op on
-        # a DB where migration 101 hasn't run). Never overwrites an
-        # already-typed operation.
-        alias = alias_operation_type_for_code(data["operation_code"])
-        if alias:
-            exists = (
-                db.query(OperationType.id)
-                .filter(OperationType.code == alias)
-                .first()
-            )
-            if exists:
+        data["operation_type"] = provided_type.upper()
+    else:
+        if "operation_type" in data and provided_type is not None:
+            # Blank/whitespace-only ("", "  ") is treated as absent, not as
+            # an explicit value — drop it so it never overwrites the row
+            # with an empty string below.
+            data.pop("operation_type")
+        if data.get("operation_code") and not operation.operation_type:
+            # Write-time alias assist: operation_code is being (re)set, no
+            # type was explicitly provided, and the row has no type yet —
+            # auto-assign from the legacy canonical alias if the new code
+            # matches one and that type actually exists (and is active) in
+            # the catalog (degrades to a no-op on a DB where migration 101
+            # hasn't run). Never overwrites an already-typed operation.
+            alias = alias_operation_type_for_code(data["operation_code"])
+            if alias and _type_exists_in_catalog(db, alias):
                 data["operation_type"] = alias
 
     _validate_operation_type(db, data.get("operation_type"))

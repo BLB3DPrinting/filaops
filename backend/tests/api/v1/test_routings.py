@@ -13,6 +13,8 @@ Covers:
 import pytest
 from decimal import Decimal
 
+from tests.services._operation_type_seed import seed_operation_types as _seed_operation_types
+
 
 BASE_URL = "/api/v1/routings"
 
@@ -1183,36 +1185,6 @@ class TestManufacturingBOM:
 # #876 PR-2 — operation_type write-time alias assist + validation
 # =============================================================================
 
-def _seed_operation_types(db):
-    """Idempotent INSERT-if-missing seed of the 9 system operation types,
-    mirroring migration 101 / test_operation_type_catalog.py's helper. Kept
-    local to this file (each test file seeds its own catalog rows rather
-    than importing another test module's helper)."""
-    from app.models.manufacturing import OperationType
-
-    seed = {
-        "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
-        "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
-        "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
-        "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
-        "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
-        "SANDING": ("Sanding", "finishing", ["any"], False, 60),
-        "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
-        "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
-        "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
-    }
-    existing = {code for (code,) in db.query(OperationType.code).all()}
-    for code, (label, category, stages, is_qc, sort_order) in seed.items():
-        if code in existing:
-            continue
-        db.add(OperationType(
-            code=code, label=label, category=category, consume_stages=stages,
-            is_qc=is_qc, is_system=True, is_active=True, sort_order=sort_order,
-        ))
-    db.flush()
-    db.commit()
-
-
 class TestOperationTypeAliasAssist:
     """Write-time alias assist (#876 PR-2 design §3): when operation_type is
     absent but operation_code matches one of the 18 legacy canonical codes,
@@ -1279,6 +1251,30 @@ class TestOperationTypeAliasAssist:
         op = _create_operation(client, routing["id"], operation_code="OP10")
         assert op["operation_type"] is None
 
+    def test_alias_target_deactivated_gets_no_alias(self, db, client, make_product):
+        """CodeRabbit #4630789865 finding 4: the shared catalog-existence
+        check used by alias assist excludes deactivated types, exactly like
+        write-time validation — a code that would normally alias to a now-
+        deactivated type degrades to a no-op instead of assigning a type
+        that write-time validation would then reject."""
+        _seed_operation_types(db)
+        from app.models.manufacturing import OperationType
+
+        deactivated_type = db.query(OperationType).filter(
+            OperationType.code == "FDM_PRINT"
+        ).first()
+        deactivated_type.is_active = False
+        db.flush()
+
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="PRINT")
+        assert op["operation_type"] is None, (
+            "PRINT would normally alias to FDM_PRINT, but that type is "
+            "deactivated — alias assist must degrade to a no-op"
+        )
+
     def test_explicit_type_is_never_overridden_by_alias(self, db, client, make_product):
         """An explicitly-provided operation_type always wins, even when the
         code would alias to something else."""
@@ -1341,6 +1337,58 @@ class TestOperationTypeAliasAssist:
             "Alias assist must never overwrite an already-typed operation"
         )
 
+    def test_blank_operation_type_treated_as_absent_on_create(
+        self, db, client, make_product
+    ):
+        """CodeRabbit #4630789865 finding 2: an empty-string operation_type
+        must be treated as ABSENT (falls to alias assist), not as an
+        explicit value that leaks through unchanged."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(
+            client, routing["id"], operation_code="PRINT", operation_type="",
+        )
+        assert op["operation_type"] == "FDM_PRINT", (
+            "A blank operation_type must fall through to alias assist "
+            "exactly like an absent one, never persist as ''"
+        )
+
+    def test_whitespace_operation_type_treated_as_absent_on_create(
+        self, db, client, make_product
+    ):
+        """Same as above, for a whitespace-only value — must not be
+        treated as an explicit provided type either."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(
+            client, routing["id"], operation_code="PRINT", operation_type="   ",
+        )
+        assert op["operation_type"] == "FDM_PRINT"
+
+    def test_blank_operation_type_treated_as_absent_on_update(
+        self, db, client, make_product
+    ):
+        """Same blank-is-absent rule on the update_operation path."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+        op = _create_operation(client, routing["id"], operation_code="OP10")
+        assert op["operation_type"] is None
+
+        response = client.put(
+            f"{BASE_URL}/operations/{op['id']}",
+            json={"operation_code": "PACK", "operation_type": ""},
+        )
+        assert response.status_code == 200
+        assert response.json()["operation_type"] == "PACK_SHIP", (
+            "A blank operation_type on update must fall through to alias "
+            "assist rather than persisting as ''"
+        )
+
 
 class TestOperationTypeValidation:
     """Write-time validation (#876 PR-2 design §5): a non-null operation_type
@@ -1392,6 +1440,31 @@ class TestOperationTypeValidation:
 
         op = _create_operation(client, routing["id"], operation_code="OP99")
         assert op["operation_type"] is None
+
+    def test_deactivated_operation_type_returns_400(self, db, client, make_product):
+        """CodeRabbit #4630789865 finding 3: a deactivated type must be
+        rejected on write exactly like an unknown one — deactivation blocks
+        future assignability even though it still exists in the catalog."""
+        _seed_operation_types(db)
+        from app.models.manufacturing import OperationType
+
+        deactivated_type = db.query(OperationType).filter(
+            OperationType.code == "PAINTING"
+        ).first()
+        deactivated_type.is_active = False
+        db.flush()
+
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        response = client.post(f"{BASE_URL}/{routing['id']}/operations", json={
+            "work_center_id": 1,
+            "sequence": 10,
+            "operation_code": "OP10",
+            "operation_type": "PAINTING",
+            "run_time_minutes": "5.0",
+        })
+        assert response.status_code == 400
 
 
 class TestOperationTypeSnapshotPropagation:

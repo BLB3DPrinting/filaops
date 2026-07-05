@@ -787,7 +787,12 @@ def record_qc_inspection(
     if qc_op is None:
         qc_type_codes = [
             code for (code,) in
-            db.query(OperationType.code).filter(OperationType.is_qc.is_(True)).all()
+            db.query(OperationType.code)
+            .filter(
+                OperationType.is_qc.is_(True),
+                OperationType.is_active.is_(True),
+            )
+            .all()
         ]
         if qc_type_codes:
             qc_op = (
@@ -796,6 +801,10 @@ def record_qc_inspection(
                     ProductionOrderOperation.production_order_id == order_id,
                     ProductionOrderOperation.operation_type.in_(qc_type_codes),
                 )
+                # Deterministic pick when multiple untargeted QC ops exist:
+                # earliest in the routing sequence wins, rather than
+                # whatever order the DB happens to return rows in.
+                .order_by(ProductionOrderOperation.sequence)
                 .first()
             )
     if qc_op is None:
@@ -805,6 +814,8 @@ def record_qc_inspection(
                 ProductionOrderOperation.production_order_id == order_id,
                 ProductionOrderOperation.operation_code.ilike("%QC%")
             )
+            # Same determinism guarantee as the typed lookup above.
+            .order_by(ProductionOrderOperation.sequence)
             .first()
         )
 
