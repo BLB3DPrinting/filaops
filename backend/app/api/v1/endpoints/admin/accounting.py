@@ -469,19 +469,19 @@ async def get_cogs_summary(
     """
     Get COGS summary for recent period — derived from the persisted GL (#880 PR-5).
 
-    Anchor is unchanged: shipped/completed sales orders with
-    shipped_at >= now - days. COGS buckets now come from posted
-    gl_journal_entry_lines (shipment JEs' 5000/5010 debits, and the linked
-    production orders' completion-variance 5200 credits), not from a live
-    InventoryTransaction re-sum. See app/services/cogs_report_service.py.
+    Anchor: the shared cogs_report_service anchor set (shipped/completed/
+    delivered sales orders with shipped_at >= now - days) — the SAME helper
+    /accounting/dashboard and /dashboard/profit-summary use, so no COGS
+    surface can disagree about which orders are in the window. COGS buckets
+    come from posted gl_journal_entry_lines (shipment JEs' 5000/5010 debits,
+    and the linked production orders' completion-variance 5200 credits), not
+    from a live InventoryTransaction re-sum.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Get shipped orders in period
-    shipped_orders = db.query(SalesOrder).filter(
-        SalesOrder.status.in_(['shipped', 'completed']),
-        SalesOrder.shipped_at >= cutoff
-    ).all()
+    # Anchor orders in period — full rows (revenue needs amounts), from the
+    # one shared anchor helper so revenue and COGS use the same status set.
+    shipped_orders = cogs_report_service.shipped_orders_in_window(db, start=cutoff)
 
     total_revenue = Decimal("0")
     total_shipping = Decimal("0")
@@ -558,22 +558,20 @@ async def get_accounting_dashboard(
     else:
         fiscal_year_start = today_start.replace(year=now.year - 1, month=fiscal_month, day=1)
 
-    # Revenue MTD (recognized at shipment per GAAP)
-    mtd_orders = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= month_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
+    # Revenue MTD (recognized at shipment per GAAP) — anchored on the shared
+    # cogs_report_service anchor set (shipped/completed/delivered) so revenue
+    # and the MTD COGS below can never use different status sets.
+    mtd_orders = cogs_report_service.shipped_orders_in_window(db, start=month_start)
 
     # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
     mtd_revenue = sum(float(_order_revenue_amount(o)) for o in mtd_orders)
     mtd_tax = sum(float(o.tax_amount or 0) for o in mtd_orders)
     mtd_orders_count = len(mtd_orders)
 
-    # Revenue YTD
-    ytd_orders = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= fiscal_year_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
+    # Revenue YTD — same shared anchor helper.
+    ytd_orders = cogs_report_service.shipped_orders_in_window(
+        db, start=fiscal_year_start
+    )
 
     # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
     ytd_revenue = sum(float(_order_revenue_amount(o)) for o in ytd_orders)
@@ -598,18 +596,14 @@ async def get_accounting_dashboard(
     # SalesOrder.payment_status labels do not skew AR.
     total_outstanding, outstanding_order_count = outstanding_balance_summary(db)
 
-    # COGS this month (from shipped orders)
-    shipped_mtd = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= month_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
-
     # COGS this month — GL-derived (#880 PR-5), same derivation as
-    # get_cogs_summary and get_profit_summary. mtd figure is
+    # get_cogs_summary and get_profit_summary. Anchored on the SAME
+    # mtd_orders rows the revenue figures above use (one anchor query, one
+    # status set — no separate re-query that could drift). mtd figure is
     # out_of_pocket_cogs (materials + packaging actually spent, built-in
     # labor/machine value backed out via the 5200 variance) so this and the
     # COGS tab tell the same story.
-    shipped_order_ids = [order.id for order in shipped_mtd]
+    shipped_order_ids = [order.id for order in mtd_orders]
     mtd_gl_cogs = cogs_report_service.gl_derived_cogs_for_orders(
         db, shipped_order_ids, include_legacy=False
     )

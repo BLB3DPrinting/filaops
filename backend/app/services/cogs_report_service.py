@@ -47,6 +47,15 @@ SHIP_COGS_ACCOUNT = "5000"
 SHIP_PACKAGING_ACCOUNT = "5010"
 COMPLETION_VARIANCE_ACCOUNT = "5200"
 
+# THE anchor status set for every COGS surface (and the revenue queries
+# paired with them). One definition so /accounting/cogs-summary,
+# /accounting/dashboard and /admin/dashboard/profit-summary can never
+# disagree about which orders are "in the window" — that disagreement is
+# exactly the bug class #880 PR-5 exists to kill. `delivered` is included
+# because a delivered order was shipped (its ship JE posted); see
+# shipped_order_ids_in_window below.
+ANCHOR_STATUSES = ("shipped", "completed", "delivered")
+
 _MONEY = Decimal("0.01")
 
 
@@ -271,6 +280,29 @@ def gl_derived_cogs_for_orders(
     )
 
 
+def _anchor_window_query(
+    db: Session, *, start: Optional[datetime] = None, end: Optional[datetime] = None
+):
+    """The one anchor-window filter every COGS surface shares."""
+    query = db.query(SalesOrder).filter(SalesOrder.status.in_(ANCHOR_STATUSES))
+    if start is not None:
+        query = query.filter(SalesOrder.shipped_at >= start)
+    if end is not None:
+        query = query.filter(SalesOrder.shipped_at < end)
+    return query
+
+
+def shipped_orders_in_window(
+    db: Session, *, start: Optional[datetime] = None, end: Optional[datetime] = None
+) -> List[SalesOrder]:
+    """Full SalesOrder rows for the anchor set (same window semantics as
+    shipped_order_ids_in_window). For callers that also need revenue/tax
+    amounts off the anchored orders — so their revenue and COGS can never
+    be computed from different status sets.
+    """
+    return _anchor_window_query(db, start=start, end=end).all()
+
+
 def shipped_order_ids_in_window(
     db: Session, *, start: Optional[datetime] = None, end: Optional[datetime] = None
 ) -> List[int]:
@@ -283,11 +315,9 @@ def shipped_order_ids_in_window(
     left delivered orders contributing revenue with zero COGS in the
     dashboard's gross_profit/gross_margin (CodeRabbit #897).
     """
-    query = db.query(SalesOrder.id).filter(
-        SalesOrder.status.in_(["shipped", "completed", "delivered"])
-    )
-    if start is not None:
-        query = query.filter(SalesOrder.shipped_at >= start)
-    if end is not None:
-        query = query.filter(SalesOrder.shipped_at < end)
-    return [row[0] for row in query.all()]
+    return [
+        row[0]
+        for row in _anchor_window_query(db, start=start, end=end)
+        .with_entities(SalesOrder.id)
+        .all()
+    ]

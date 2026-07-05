@@ -417,3 +417,70 @@ class TestDeliveredOrdersCountInRevenueAndCOGS:
         assert Decimal(str(data["gross_profit_this_month"])) <= Decimal(
             str(data["revenue_this_month"])
         ) - single_order.out_of_pocket_cogs + Decimal("0.01")
+
+    def test_delivered_order_counts_identically_across_all_three_cogs_surfaces(
+        self, client, db, make_product, make_sales_order, make_production_order
+    ):
+        """Cross-surface consistency: ONE delivered order must move
+        /accounting/cogs-summary, /accounting/dashboard (cogs.mtd) and
+        /admin/dashboard/profit-summary (cogs_this_month) by exactly the
+        same GL-derived amount — its own out_of_pocket_cogs. All three now
+        anchor via cogs_report_service's shared anchor helpers; before, the
+        two accounting.py endpoints used their own inline
+        ['shipped','completed'] queries, so a delivered order counted on
+        one surface but not the others (a third answer).
+
+        Delta-based (shared filaops_test DB): snapshot each surface before
+        and after seeding, and compare the deltas.
+        """
+        before_summary = client.get(f"{BASE}/cogs-summary", params={"days": 30}).json()
+        before_dash = client.get(f"{BASE}/dashboard").json()
+        before_pm = client.get(f"{DASHBOARD_BASE}/profit-summary").json()
+
+        now = datetime.now(timezone.utc)
+        so, po, _, _ = _build_shipped_cycle(
+            db, make_product, make_sales_order, make_production_order,
+            material_cost=Decimal("6.00"), fg_receipt_value=Decimal("14.00"),
+            ship_qty=1, ship_unit_cost=Decimal("14.00"),
+            shipped_at=now, so_status="delivered",
+        )
+        db.commit()
+
+        single = gl_derived_cogs_for_orders(
+            db, [so.id], include_legacy=False
+        ).out_of_pocket_cogs
+        assert single > Decimal("0.00")  # ship JE posted, material spent
+
+        after_summary = client.get(f"{BASE}/cogs-summary", params={"days": 30}).json()
+        after_dash = client.get(f"{BASE}/dashboard").json()
+        after_pm = client.get(f"{DASHBOARD_BASE}/profit-summary").json()
+
+        delta_summary = Decimal(str(after_summary["out_of_pocket_cogs"])) - Decimal(
+            str(before_summary["out_of_pocket_cogs"])
+        )
+        delta_dash_mtd = Decimal(str(after_dash["cogs"]["mtd"])) - Decimal(
+            str(before_dash["cogs"]["mtd"])
+        )
+        delta_pm = Decimal(str(after_pm["cogs_this_month"])) - Decimal(
+            str(before_pm["cogs_this_month"])
+        )
+
+        tol = Decimal("0.01")
+        assert abs(delta_summary - single) <= tol, (
+            f"/cogs-summary moved by {delta_summary}, expected {single}"
+        )
+        assert abs(delta_dash_mtd - single) <= tol, (
+            f"/accounting/dashboard cogs.mtd moved by {delta_dash_mtd}, expected {single}"
+        )
+        assert abs(delta_pm - single) <= tol, (
+            f"/profit-summary cogs_this_month moved by {delta_pm}, expected {single}"
+        )
+
+        # And the delivered order's revenue moved with its COGS on the two
+        # dashboard surfaces (no revenue-without-COGS or COGS-without-revenue).
+        assert Decimal(str(after_pm["revenue_this_month"])) - Decimal(
+            str(before_pm["revenue_this_month"])
+        ) >= so.grand_total - tol
+        assert after_dash["revenue"]["mtd_orders"] == (
+            before_dash["revenue"]["mtd_orders"] + 1
+        )
