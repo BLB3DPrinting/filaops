@@ -1177,3 +1177,248 @@ class TestManufacturingBOM:
         data = response.json()
         assert len(data["operations"]) == 2
         assert data["operations"][0]["sequence"] < data["operations"][1]["sequence"]
+
+
+# =============================================================================
+# #876 PR-2 — operation_type write-time alias assist + validation
+# =============================================================================
+
+def _seed_operation_types(db):
+    """Idempotent INSERT-if-missing seed of the 9 system operation types,
+    mirroring migration 101 / test_operation_type_catalog.py's helper. Kept
+    local to this file (each test file seeds its own catalog rows rather
+    than importing another test module's helper)."""
+    from app.models.manufacturing import OperationType
+
+    seed = {
+        "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
+        "RESIN_PRINT": ("Resin Print", "print", ["production", "any"], False, 20),
+        "ASSEMBLY": ("Assembly", "assembly", ["assembly", "production", "any"], False, 30),
+        "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
+        "SUPPORT_REMOVAL": ("Support Removal / Cleanup", "finishing", ["any"], False, 50),
+        "SANDING": ("Sanding", "finishing", ["any"], False, 60),
+        "PAINTING": ("Painting", "finishing", ["finishing", "any"], False, 70),
+        "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
+        "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
+    }
+    existing = {code for (code,) in db.query(OperationType.code).all()}
+    for code, (label, category, stages, is_qc, sort_order) in seed.items():
+        if code in existing:
+            continue
+        db.add(OperationType(
+            code=code, label=label, category=category, consume_stages=stages,
+            is_qc=is_qc, is_system=True, is_active=True, sort_order=sort_order,
+        ))
+    db.flush()
+    db.commit()
+
+
+class TestOperationTypeAliasAssist:
+    """Write-time alias assist (#876 PR-2 design §3): when operation_type is
+    absent but operation_code matches one of the 18 legacy canonical codes,
+    the server auto-assigns the type. FINISH/POST get NO alias."""
+
+    def test_print_code_gets_fdm_print_alias(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="PRINT")
+        assert op["operation_type"] == "FDM_PRINT"
+
+    def test_pack_code_gets_pack_ship_alias(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="PACK")
+        assert op["operation_type"] == "PACK_SHIP"
+
+    def test_qc_code_gets_quality_control_alias(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="QC")
+        assert op["operation_type"] == "QUALITY_CONTROL"
+
+    def test_assemble_code_gets_assembly_alias(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="ASSEMBLE")
+        assert op["operation_type"] == "ASSEMBLY"
+
+    def test_finish_code_gets_no_alias(self, db, client, make_product):
+        """FINISH is deliberately excluded from the alias map — the live
+        census shows it spans shipping/quality/blank names."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="FINISH")
+        assert op["operation_type"] is None
+
+    def test_post_code_gets_no_alias(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="POST")
+        assert op["operation_type"] is None
+
+    def test_unrecognized_code_gets_no_alias(self, db, client, make_product):
+        """OP10/OP20-style autofilled codes (not in the legacy 18) get no
+        alias — they stay untyped, exactly like today, until a human or the
+        classifier (#876 PR-3) types them."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="OP10")
+        assert op["operation_type"] is None
+
+    def test_explicit_type_is_never_overridden_by_alias(self, db, client, make_product):
+        """An explicitly-provided operation_type always wins, even when the
+        code would alias to something else."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(
+            client, routing["id"],
+            operation_code="PRINT", operation_type="QUALITY_CONTROL",
+        )
+        assert op["operation_type"] == "QUALITY_CONTROL"
+
+    def test_explicit_type_is_case_normalized_upper(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(
+            client, routing["id"],
+            operation_code="PRINT", operation_type="fdm_print",
+        )
+        assert op["operation_type"] == "FDM_PRINT"
+
+    def test_update_operation_alias_assist_on_code_change(self, db, client, make_product):
+        """Changing operation_code on an untyped op via PUT also gets the
+        alias-assist treatment (op CRUD path, not just create)."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+        op = _create_operation(client, routing["id"], operation_code="OP10")
+        assert op["operation_type"] is None
+
+        response = client.put(
+            f"{BASE_URL}/operations/{op['id']}",
+            json={"operation_code": "PACK"},
+        )
+        assert response.status_code == 200
+        assert response.json()["operation_type"] == "PACK_SHIP"
+
+    def test_update_operation_alias_assist_never_overwrites_existing_type(
+        self, db, client, make_product
+    ):
+        """If the operation already has a type, changing operation_code
+        alone must NOT silently retype it via alias assist."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+        op = _create_operation(
+            client, routing["id"], operation_code="OP10", operation_type="QUALITY_CONTROL",
+        )
+        assert op["operation_type"] == "QUALITY_CONTROL"
+
+        response = client.put(
+            f"{BASE_URL}/operations/{op['id']}",
+            json={"operation_code": "PACK"},
+        )
+        assert response.status_code == 200
+        assert response.json()["operation_type"] == "QUALITY_CONTROL", (
+            "Alias assist must never overwrite an already-typed operation"
+        )
+
+
+class TestOperationTypeValidation:
+    """Write-time validation (#876 PR-2 design §5): a non-null operation_type
+    must be a known, case-normalized-upper code in the operation_types
+    catalog, else 400."""
+
+    def test_unknown_operation_type_returns_400(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        response = client.post(f"{BASE_URL}/{routing['id']}/operations", json={
+            "work_center_id": 1,
+            "sequence": 10,
+            "operation_code": "OP10",
+            "operation_type": "NOT_A_REAL_TYPE",
+            "run_time_minutes": "5.0",
+        })
+        assert response.status_code == 400
+
+    def test_unknown_operation_type_on_update_returns_400(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+        op = _create_operation(client, routing["id"], operation_code="OP10")
+
+        response = client.put(
+            f"{BASE_URL}/operations/{op['id']}",
+            json={"operation_type": "NOT_A_REAL_TYPE"},
+        )
+        assert response.status_code == 400
+
+    def test_known_type_case_insensitive_passes(self, db, client, make_product):
+        """A lowercase-but-otherwise-known type code is case-normalized and
+        accepted, not rejected."""
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(
+            client, routing["id"], operation_code="OP10", operation_type="pack_ship",
+        )
+        assert op["operation_type"] == "PACK_SHIP"
+
+    def test_null_operation_type_always_allowed(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+        routing = _create_routing(client, product_id=product.id)
+
+        op = _create_operation(client, routing["id"], operation_code="OP99")
+        assert op["operation_type"] is None
+
+
+class TestOperationTypeSnapshotPropagation:
+    """Type propagation at copy sites (#876 PR-2 design §4): template seeds
+    carry operation_type, and apply-template copies it onto the new
+    per-product routing."""
+
+    def test_apply_template_propagates_operation_type(self, db, client, make_product):
+        _seed_operation_types(db)
+        product = make_product(item_type="finished_good", procurement_type="make")
+
+        template = _create_routing(
+            client, is_template=True,
+            code="TPL-TYPE-PROPAGATION", name="Type Propagation Template",
+        )
+        _create_operation(
+            client, template["id"],
+            operation_code="PRINT", operation_type="FDM_PRINT",
+            operation_name="3D Print", run_time_minutes="60.0",
+        )
+
+        response = client.post(f"{BASE_URL}/apply-template", json={
+            "template_id": template["id"],
+            "product_id": product.id,
+        })
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["operations"][0]["operation_code"] == "PRINT"
+        assert data["operations"][0]["operation_type"] == "FDM_PRINT"

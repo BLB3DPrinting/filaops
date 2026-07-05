@@ -189,6 +189,13 @@ class RoutingOperationBase(BaseModel):
     work_center_id: int
     sequence: int = Field(..., ge=1)
     operation_code: Optional[str] = Field(None, max_length=50)
+    # #876 PR-2: declared Type — the ONLY runtime semantic carrier for
+    # consume-stage resolution (see operation_material_mapping.
+    # resolve_consume_stages). operation_code stays a plain free-text label.
+    # Write-time validated against the operation_types catalog (400 on an
+    # unknown, case-normalized-upper code) and write-time alias-assisted
+    # from operation_code when absent — see routing_service.py.
+    operation_type: Optional[str] = Field(None, max_length=30)
     operation_name: Optional[str] = Field(None, max_length=200)
     description: Optional[str] = None
 
@@ -226,6 +233,7 @@ class RoutingOperationUpdate(BaseModel):
     work_center_id: Optional[int] = None
     sequence: Optional[int] = None
     operation_code: Optional[str] = None
+    operation_type: Optional[str] = None
     operation_name: Optional[str] = None
     description: Optional[str] = None
     setup_time_minutes: Optional[Decimal] = None

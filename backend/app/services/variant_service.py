@@ -498,6 +498,7 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
                     routing_id=variant_routing.id,
                     sequence=t_op.sequence,
                     operation_code=t_op.operation_code,
+                    operation_type=getattr(t_op, "operation_type", None),
                     operation_name=t_op.operation_name,
                     description=t_op.description,
                     work_center_id=t_op.work_center_id,

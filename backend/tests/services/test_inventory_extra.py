@@ -2495,3 +2495,335 @@ class TestCogsSelfHealsAfterRoutingFirstFix:
             "transactions for a routing-only completed order"
         )
         assert data["cogs"]["total"] > 0.0
+
+
+# =============================================================================
+# #876 PR-2: consumer switch to stored operation_type — mandatory load-bearing
+# test: mid-flight reclassification through BOTH completion paths, then ship.
+# =============================================================================
+
+def _seed_operation_types_876(db):
+    """Idempotent INSERT-if-missing seed of the operation types this test
+    module needs (subset of the 9 system rows), mirroring migration 101."""
+    from app.models.manufacturing import OperationType
+
+    seed = {
+        "GENERAL": ("Other (consumes at production)", "other", ["production", "any"], False, 90),
+        "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
+    }
+    existing = {code for (code,) in db.query(OperationType.code).all()}
+    for code, (label, category, stages, is_qc, sort_order) in seed.items():
+        if code in existing:
+            continue
+        db.add(OperationType(
+            code=code, label=label, category=category, consume_stages=stages,
+            is_qc=is_qc, is_system=True, is_active=True, sort_order=sort_order,
+        ))
+    db.flush()
+
+
+class TestMidFlightReclassificationBothCompletionPaths:
+    """LOAD-BEARING TEST (#876 PR-2 design §6 / PR-plan PR-2 row).
+
+    Setup shared by both completion-path variants — TWO generic-coded ops
+    (neither code is one of the 18 legacy alias keys, so both start life
+    resolving via the untyped DEFAULT_CONSUME_STAGES path exactly like
+    today):
+    - op1 ("OP10", typed GENERAL == production-consuming) carries the
+      filament. It is consumed per-op WHILE still GENERAL-typed — "consume
+      SOME per-op" before the reclassification happens — and marked
+      complete, simulating a real per-op-driven shop floor flow.
+    - op2 ("OP20") carries the box, LEFT PENDING. It is THEN retyped
+      GENERAL -> PACK_SHIP (production -> shipping) mid-flight — its
+      op-material row, still unconsumed, now resolves to the shipping
+      stage instead of production.
+    - Production is finalized through the completion path under test
+      (completing op2, the last op, triggers update_po_status ->
+      process_production_completion's bulk stage-sweep). The box must NOT
+      consume at production completion (it's shipping-staged now) and the
+      filament must NOT double-consume (already consumed per-op). No FIX-3
+      false raise (a reservation exists via reserve_production_materials,
+      so the guardrail is live and must stay quiet).
+    - Ship then consumes the box. No double-consumption anywhere.
+
+    Both variants assert on POSTED ROWS (InventoryTransaction / on_hand),
+    never on op/PO status alone — operation_status.py's broad
+    `except Exception` around process_production_completion (~line 218)
+    would otherwise make a regression in this path silent.
+    """
+
+    def _setup(self, db, make_product):
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        filament = make_product(unit="G", cost_method="average", average_cost=Decimal("0.02"))
+        box = make_product(
+            item_type="packaging", unit="EA", cost_method="average",
+            average_cost=Decimal("1.50"),
+        )
+
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, filament.id, location.id, Decimal("1000"))
+        _make_inventory(db, box.id, location.id, Decimal("100"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+
+        op1 = _make_operation(db, po.id, wc.id, sequence=10)
+        op1.operation_code = "OP10"  # generic — not one of the 18 legacy keys
+        op1.operation_type = "GENERAL"  # production-consuming, stored type
+        filament_mat = _make_op_material(db, op1.id, filament.id, Decimal("370"), unit="G")
+
+        op2 = _make_operation(db, po.id, wc.id, sequence=20)
+        op2.operation_code = "OP20"  # generic — not one of the 18 legacy keys
+        op2.operation_type = "GENERAL"  # still production-consuming at reserve time
+        box_mat = _make_op_material(db, op2.id, box.id, Decimal("1"), unit="EA")
+        db.flush()
+
+        # Reserve (routing-first) — posts real 'reservation' ledger rows for
+        # BOTH materials while both ops are still production-typed. This
+        # makes the FIX-3 guardrail live: if resolution regresses and finds
+        # nothing consumable behind an existing reservation, it must raise.
+        reservations = inventory_service.reserve_production_materials(db, po)
+        assert len(reservations) == 2, "Both materials must reserve while ops are production-typed"
+        db.flush()
+
+        # Consume SOME per-op: op1's filament only, while op1 is still
+        # GENERAL (production-consuming). op1 is completed via the
+        # per-operation path; op2 (the box) stays pending/unconsumed.
+        op1.status = "running"
+        db.flush()
+        from app.services import operation_status
+        operation_status.complete_operation(
+            db, po.id, op1.id,
+            quantity_completed=Decimal("1"), quantity_scrapped=Decimal("0"),
+        )
+        db.refresh(filament_mat)
+        assert filament_mat.status == "consumed"
+        db.refresh(box_mat)
+        assert box_mat.status != "consumed"
+
+        # Mid-flight reclassification: production -> shipping, on op2 only.
+        op2.operation_type = "PACK_SHIP"
+        db.flush()
+
+        return fg, filament, box, location, po, op2, filament_mat, box_mat
+
+    def test_bulk_completion_path_defers_box_no_double_consume_no_false_raise(
+        self, db, make_product, make_sales_order
+    ):
+        _seed_operation_types_876(db)
+        fg, filament, box, location, po, op, filament_mat, box_mat = self._setup(db, make_product)
+
+        # Drive the BULK completion path directly (what process_production_
+        # completion calls). Must NOT raise MaterialConsumptionError despite
+        # an open reservation existing for the (now shipping-typed) box.
+        bulk_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=True
+        )
+
+        # The box must NOT consume at production completion (PACK_SHIP
+        # resolves to the shipping stage now) — bulk posts ZERO new rows
+        # (filament already consumed per-op, box deferred to ship).
+        assert bulk_txns == [], (
+            "Bulk completion must post nothing: filament already consumed "
+            "per-op, box deferred to ship by its new PACK_SHIP type"
+        )
+
+        # Posted-rows assertion (not status): exactly one filament
+        # consumption row total, zero box consumption rows.
+        filament_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(filament_rows) == 1, "Filament must not double-consume"
+
+        box_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows) == 0, "Box must not consume at production completion post-retype"
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id, Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("100"), "Box on_hand untouched pre-ship"
+
+        # Now ship: the box (PACK_SHIP-typed) must consume at ship.
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po.sales_order_id = so.id
+        db.flush()
+
+        ship_txns = inventory_service.consume_shipping_materials(db, so)
+        assert len(ship_txns) == 1
+        assert ship_txns[0].product_id == box.id
+
+        box_rows_after_ship = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows_after_ship) == 1, "Box must consume exactly once, at ship"
+
+        box_inv_after_ship = db.query(Inventory).filter(
+            Inventory.product_id == box.id, Inventory.location_id == location.id,
+        ).first()
+        assert box_inv_after_ship.on_hand_quantity == Decimal("99")
+
+        # Idempotency: a second ship call must not double-consume the box.
+        second_ship_txns = inventory_service.consume_shipping_materials(db, so)
+        assert second_ship_txns == []
+
+        # Filament still only ever consumed once, throughout the whole flow.
+        filament_rows_final = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(filament_rows_final) == 1
+
+    def test_per_op_auto_complete_path_defers_box_no_double_consume_no_false_raise(
+        self, db, make_product, make_sales_order
+    ):
+        """Same scenario, but production finalizes through the
+        PER-OPERATION auto-complete path rather than a direct bulk call.
+
+        _setup() already completed op1 (filament) via
+        operation_status.complete_operation — that alone does not finalize
+        the PO because op2 (box, now retyped PACK_SHIP) is still pending.
+        This test finalizes via operation_status.skip_operation(op2) — a
+        legitimate real shop-floor action (nothing to physically do for a
+        shipping-stage op at production time) that is ITSELF part of the
+        per-operation status machinery: it flips op2 to 'skipped' and calls
+        update_po_status, which (now that every op is complete/skipped)
+        triggers process_production_completion -> consume_production_
+        materials (the STAGE-resolving bulk sweep this PR's fix targets)
+        under operation_status.py's broad try/except swallow (~line 218)
+        that would otherwise hide a regression here silently."""
+        from app.services import operation_status
+
+        _seed_operation_types_876(db)
+        fg, filament, box, location, po, op2, filament_mat, box_mat = self._setup(db, make_product)
+
+        skipped_op = operation_status.skip_operation(
+            db, po.id, op2.id, reason="Shipping-stage op — nothing to do at production time",
+        )
+        assert skipped_op.status == "skipped"
+
+        # Posted-rows assertions — the whole point of this test. Assert on
+        # ledger rows, not on op/po status, since a silent regression inside
+        # the swallowed try/except would otherwise still show status
+        # fields looking "fine".
+        filament_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(filament_rows) == 1, "Filament must not double-consume via the per-op path"
+
+        box_rows = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows) == 0, (
+            "Box must NOT consume when the per-op path finalizes the PO — "
+            "its PACK_SHIP type defers it to ship (if it doesn't, this "
+            "assertion catches what the swallowed try/except in "
+            "operation_status.py would otherwise hide)"
+        )
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id, Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("100"), "Box on_hand untouched pre-ship"
+
+        # Now ship: the box must consume at ship, exactly once.
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po.sales_order_id = so.id
+        db.flush()
+
+        ship_txns = inventory_service.consume_shipping_materials(db, so)
+        assert len(ship_txns) == 1
+        assert ship_txns[0].product_id == box.id
+
+        box_rows_after_ship = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == box.id,
+        ).all()
+        assert len(box_rows_after_ship) == 1, "Box must consume exactly once, at ship"
+
+        box_inv_after_ship = db.query(Inventory).filter(
+            Inventory.product_id == box.id, Inventory.location_id == location.id,
+        ).first()
+        assert box_inv_after_ship.on_hand_quantity == Decimal("99")
+
+        second_ship_txns = inventory_service.consume_shipping_materials(db, so)
+        assert second_ship_txns == [], "Second ship call must be idempotent"
+
+        filament_rows_final = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == po.id,
+            InventoryTransaction.transaction_type == "consumption",
+            InventoryTransaction.product_id == filament.id,
+        ).all()
+        assert len(filament_rows_final) == 1
+
+
+class TestTypedPackShipDefersToShip:
+    """Typed PACK_SHIP (not just legacy PACK/SHIP codes) defers packaging
+    consumption to ship — proves the type-first resolver switch actually
+    drives real consumption behavior, not just resolver unit tests."""
+
+    def test_typed_pack_ship_op_defers_packaging_with_generic_code(
+        self, db, make_product, make_sales_order
+    ):
+        """An op coded generically ("OP30" — not in the legacy 18-key map at
+        all) but TYPED PACK_SHIP must defer its packaging to ship — this is
+        exactly the live-bug shape the type catalog exists to fix (routing
+        editor autofilled OP-codes never resolved via the legacy dict)."""
+        _seed_operation_types_876(db)
+        fg = make_product(item_type="finished_good", cost_method="standard", standard_cost=Decimal("5.00"))
+        box = make_product(
+            item_type="packaging", unit="EA", cost_method="average",
+            average_cost=Decimal("1.50"),
+        )
+        location = inventory_service.get_or_create_default_location(db)
+        _make_inventory(db, box.id, location.id, Decimal("50"))
+
+        po = _make_production_order(db, fg.id, qty_ordered=1)
+        wc = _make_work_center(db)
+        op = _make_operation(db, po.id, wc.id, sequence=30)
+        op.operation_code = "OP30"  # NOT one of the 18 legacy keys
+        op.operation_type = "PACK_SHIP"
+        box_mat = _make_op_material(db, op.id, box.id, Decimal("1"), unit="EA")
+        db.flush()
+
+        # Production completion must NOT consume the box (typed shipping).
+        prod_txns = inventory_service.consume_production_materials(
+            db, po, Decimal("1"), release_reservations=False
+        )
+        assert prod_txns == []
+        db.refresh(box_mat)
+        assert box_mat.status != "consumed"
+
+        so = make_sales_order(product_id=fg.id, quantity=1, status="ready_to_ship")
+        po.sales_order_id = so.id
+        db.flush()
+
+        ship_txns = inventory_service.consume_shipping_materials(db, so)
+        assert len(ship_txns) == 1
+        assert ship_txns[0].product_id == box.id
+
+        box_inv = db.query(Inventory).filter(
+            Inventory.product_id == box.id, Inventory.location_id == location.id,
+        ).first()
+        assert box_inv.on_hand_quantity == Decimal("49")

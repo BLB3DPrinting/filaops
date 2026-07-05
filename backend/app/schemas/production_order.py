@@ -76,6 +76,12 @@ class ProductionOrderOperationBase(BaseModel):
     resource_id: Optional[int] = None
     sequence: int = Field(..., ge=1)
     operation_code: Optional[str] = Field(None, max_length=50)
+    # #876 PR-2: snapshot of the routing operation's declared Type at
+    # release time — copied alongside operation_code (see
+    # production_order_service.copy_routing_to_operations and the other
+    # release-time copy sites). Drives QC-op resolution and stage
+    # resolution for this specific production-order operation.
+    operation_type: Optional[str] = Field(None, max_length=30)
     operation_name: Optional[str] = Field(None, max_length=200)
     planned_setup_minutes: Decimal = Field(0, ge=0, le=99999)
     planned_run_minutes: Decimal = Field(..., ge=0, le=99999)
@@ -119,6 +125,7 @@ class ProductionOrderOperationResponse(BaseModel):
 
     sequence: int
     operation_code: Optional[str] = None
+    operation_type: Optional[str] = None
     operation_name: Optional[str] = None
     status: str
 

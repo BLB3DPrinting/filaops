@@ -2997,6 +2997,203 @@ class TestRecordQCInspection:
         assert exc_info.value.status_code == 404
 
 
+class TestQCTypedLookup:
+    """#876 PR-2: record_qc_inspection's QC-op fallback resolution order —
+    explicit target_op -> first op whose STORED operation_type is in the
+    catalog's is_qc set -> legacy operation_code ilike('%QC%') (kept for one
+    release, then removed). Typed lookup beats the code-substring heuristic
+    because live ops are coded OP20/OP30/FINISH and never match '%QC%' at
+    all — this is the actual bug the type catalog fixes."""
+
+    def _seed_operation_types(self, db):
+        from app.models.manufacturing import OperationType
+
+        seed = {
+            "FDM_PRINT": ("FDM Print", "print", ["production", "any"], False, 10),
+            "QUALITY_CONTROL": ("Quality Control", "quality", ["any"], True, 40),
+            "PACK_SHIP": ("Pack / Ship", "shipping", ["shipping", "any"], False, 80),
+        }
+        existing = {code for (code,) in db.query(OperationType.code).all()}
+        for code, (label, category, stages, is_qc, sort_order) in seed.items():
+            if code in existing:
+                continue
+            db.add(OperationType(
+                code=code, label=label, category=category, consume_stages=stages,
+                is_qc=is_qc, is_system=True, is_active=True, sort_order=sort_order,
+            ))
+        db.flush()
+
+    def test_typed_qc_op_found_even_with_non_qc_code(self, db, finished_good):
+        """The live-census bug case: an op coded OP20 (no 'QC' substring at
+        all) but TYPED QUALITY_CONTROL must still be found and completed —
+        the old ilike('%QC%') fallback would have missed this entirely."""
+        self._seed_operation_types(db)
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="OP20",
+            operation_type="QUALITY_CONTROL",
+            operation_name="Assembly",
+            planned_setup_minutes=0,
+            planned_run_minutes=10,
+            status="running",
+        )
+        db.add(qc_op)
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Typed",
+            qc_status="passed",
+            quantity_passed=10,
+        )
+
+        op = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == qc_op.id
+        ).first()
+        assert op.status == "complete", (
+            "Typed QUALITY_CONTROL op must be found and completed even "
+            "though its code (OP20) doesn't match '%QC%'"
+        )
+        assert op.operator_name == "Inspector Typed"
+
+    def test_typed_lookup_beats_ilike_when_both_present(self, db, finished_good):
+        """When one op is typed QUALITY_CONTROL and a DIFFERENT op merely has
+        'QC' in its code, the typed op wins (typed lookup runs first)."""
+        self._seed_operation_types(db)
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+
+        # A print op that happens to have "QC" in a free-text code — must
+        # NOT be picked over the properly-typed QC op.
+        decoy_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT-QC-STATION-3",
+            operation_type="FDM_PRINT",
+            operation_name="Print",
+            planned_setup_minutes=0,
+            planned_run_minutes=60,
+            status="complete",
+        )
+        typed_qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="OP20",
+            operation_type="QUALITY_CONTROL",
+            operation_name="Inspection",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        db.add_all([decoy_op, typed_qc_op])
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Precedence",
+            qc_status="passed",
+            quantity_passed=10,
+        )
+
+        decoy = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == decoy_op.id
+        ).first()
+        typed = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == typed_qc_op.id
+        ).first()
+        assert typed.status == "complete", "The typed QUALITY_CONTROL op must be completed"
+        assert typed.operator_name == "Inspector Precedence"
+        # Decoy was already 'complete' before the call and must be untouched
+        # (no operator_name stamped onto it by this inspection).
+        assert decoy.operator_name is None
+
+    def test_ilike_fallback_still_works_for_untyped_op(self, db, finished_good):
+        """An op with NO operation_type but a code containing 'QC' must
+        still be found via the legacy ilike fallback — kept for one release
+        to cover untyped data (see design #876 comment §3)."""
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+        qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="QC-CHECK",
+            operation_name="Quality Check",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        db.add(qc_op)
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Legacy",
+            qc_status="passed",
+            quantity_passed=10,
+        )
+
+        op = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == qc_op.id
+        ).first()
+        assert op.status == "complete"
+        assert op.operator_name == "Inspector Legacy"
+
+    def test_explicit_operation_id_beats_both_typed_and_ilike(self, db, finished_good):
+        """An explicit operation_id target always wins over both the typed
+        lookup and the ilike fallback."""
+        self._seed_operation_types(db)
+        order = _make_production_order(db, finished_good, status="in_progress", quantity=10)
+
+        typed_qc_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=10,
+            operation_code="OP10",
+            operation_type="QUALITY_CONTROL",
+            operation_name="In-process QC",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        explicit_target_op = ProductionOrderOperation(
+            production_order_id=order.id,
+            work_center_id=1,
+            sequence=20,
+            operation_code="FINISH",
+            operation_type="QUALITY_CONTROL",
+            operation_name="Final QC",
+            planned_setup_minutes=0,
+            planned_run_minutes=5,
+            status="running",
+        )
+        db.add_all([typed_qc_op, explicit_target_op])
+        db.flush()
+
+        svc.record_qc_inspection(
+            db, order.id,
+            inspector="Inspector Explicit",
+            qc_status="passed",
+            quantity_passed=10,
+            operation_id=explicit_target_op.id,
+        )
+
+        explicit = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == explicit_target_op.id
+        ).first()
+        first_typed = db.query(ProductionOrderOperation).filter(
+            ProductionOrderOperation.id == typed_qc_op.id
+        ).first()
+        assert explicit.status == "complete"
+        assert explicit.operator_name == "Inspector Explicit"
+        assert first_typed.status == "running", (
+            "The non-targeted typed QC op must be left untouched"
+        )
+
+
 class TestQCInspectionRecords:
     """#783: append-only qc_inspections history behind the qc_* cache."""
 

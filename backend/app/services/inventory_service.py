@@ -25,7 +25,10 @@ from app.services.uom_service import (
     convert_cost_for_unit,
 )
 from app.services.reservation_reconciliation_service import check_allocation_guard
-from app.services.operation_material_mapping import get_consume_stages_for_operation
+from app.services.operation_material_mapping import (
+    load_operation_type_stage_map,
+    resolve_consume_stages,
+)
 
 logger = get_logger(__name__)
 
@@ -1468,13 +1471,15 @@ def _get_stage_op_materials(
     as reservation already does) — this is what keeps reserve and consume
     from diverging again.
 
-    Filters to rows whose parent operation's operation_code resolves (via
-    get_consume_stages_for_operation) to include `stage` — e.g. only
-    PRINT/EXTRUDE/etc-coded operations are returned for stage="production",
-    only PACK/SHIP/LABEL-coded operations for stage="shipping". Operations
-    with no operation_code use DEFAULT_CONSUME_STAGES (production + any),
-    matching the mapping module's own default and existing test fixtures
-    that don't set operation_code.
+    Filters to rows whose parent operation resolves (via
+    resolve_consume_stages — stored operation_type first, falling back to
+    get_consume_stages_for_operation on operation_code) to include `stage`
+    — e.g. only PRINT/EXTRUDE/etc-coded (or FDM_PRINT/ASSEMBLY-typed)
+    operations are returned for stage="production", only PACK/SHIP/LABEL-
+    coded (or PACK_SHIP-typed) operations for stage="shipping". Operations
+    with no operation_type and no operation_code use DEFAULT_CONSUME_STAGES
+    (production + any), matching the mapping module's own default and
+    existing test fixtures that don't set either.
 
     IDEMPOTENCY: rows already status=='consumed' are excluded — the
     per-operation path (complete_operation -> consume_operation_materials
@@ -1501,12 +1506,18 @@ def _get_stage_op_materials(
 
     has_any_op_rows = len(all_op_rows) > 0
 
+    type_map = load_operation_type_stage_map(db)
+
     stage_rows = []
     for row in all_op_rows:
         if row.status == "consumed":
             continue
         op = row.operation
-        stages = get_consume_stages_for_operation(op.operation_code if op else None)
+        stages = resolve_consume_stages(
+            type_map,
+            getattr(op, "operation_type", None),
+            op.operation_code if op else None,
+        )
         if stage in stages:
             stage_rows.append(row)
 
@@ -1529,11 +1540,16 @@ def _stage_has_consumed_op_materials(
     release the reservation)". The latter is a correctly-completed order
     finalizing through the bulk/auto-complete path — it must NOT false-raise
     merely because the still-open reservation makes had_reservation True."""
+    type_map = load_operation_type_stage_map(db)
     for row in _get_all_op_material_rows(db, production_order_id):
         if row.status != "consumed":
             continue
         op = row.operation
-        stages = get_consume_stages_for_operation(op.operation_code if op else None)
+        stages = resolve_consume_stages(
+            type_map,
+            getattr(op, "operation_type", None),
+            op.operation_code if op else None,
+        )
         if stage in stages:
             return True
     return False
@@ -1594,10 +1610,15 @@ def _get_stage_component_ids(
     all_op_rows = _get_all_op_material_rows(db, production_order.id)
 
     if all_op_rows:
+        type_map = load_operation_type_stage_map(db)
         component_ids = set()
         for row in all_op_rows:
             op = row.operation
-            stages = get_consume_stages_for_operation(op.operation_code if op else None)
+            stages = resolve_consume_stages(
+                type_map,
+                getattr(op, "operation_type", None),
+                op.operation_code if op else None,
+            )
             if stage in stages:
                 component_ids.add(row.component_id)
         return component_ids
@@ -1649,10 +1670,11 @@ def consume_production_materials(
     FIX-1 (routing-first consumption): mirrors the reservation side's
     routing-first resolution (_get_reservation_requirements / RESERVE-1).
     PRIMARY source is materialized ProductionOrderOperationMaterial rows for
-    this order's PRODUCTION-stage operations (resolved via
-    get_consume_stages_for_operation through the shared
-    _get_stage_op_materials helper) — this is the normal case for
-    routing-driven / Intake-Studio products that have NO active BOM at all.
+    this order's PRODUCTION-stage operations (resolved type-first via
+    resolve_consume_stages, falling back to get_consume_stages_for_operation,
+    through the shared _get_stage_op_materials helper) — this is the normal
+    case for routing-driven / Intake-Studio products that have NO active BOM
+    at all.
     FALLBACK — legacy BOM walk (consume_stage='production'): only runs when
     the order has ZERO op-material rows whatsoever (not just zero for this
     stage), matching reservation's "op rows REPLACE the BOM walk entirely"

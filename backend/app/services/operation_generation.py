@@ -86,6 +86,7 @@ def generate_operations_from_routing(
             routing_operation_id=routing_op.id,
             sequence=routing_op.sequence,
             operation_code=routing_op.operation_code,
+            operation_type=getattr(routing_op, "operation_type", None),
             operation_name=routing_op.operation_name,
             work_center_id=routing_op.work_center_id,
             planned_setup_minutes=routing_op.setup_time_minutes or 0,

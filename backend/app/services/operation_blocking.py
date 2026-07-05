@@ -4,7 +4,7 @@ Service layer for operation-level blocking checks.
 Checks material availability for a specific operation, not the entire PO.
 """
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,10 @@ from app.models.production_order import (
 )
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
-from app.services.operation_material_mapping import get_consume_stages_for_operation
+from app.services.operation_material_mapping import (
+    load_operation_type_stage_map,
+    resolve_consume_stages,
+)
 
 
 class OperationBlockingError(Exception):
@@ -76,7 +79,8 @@ def get_material_available(db: Session, product_id: int) -> Decimal:
 def get_bom_lines_for_operation(
     db: Session,
     bom_id: int,
-    operation_code: str
+    operation_code: str,
+    operation_type: Optional[str] = None,
 ) -> List[BOMLine]:
     """
     Get BOM lines that should be checked for a specific operation.
@@ -85,15 +89,22 @@ def get_bom_lines_for_operation(
     - consume_stage matches operation's stages
     - is_cost_only = False (cost-only lines don't consume inventory)
 
+    Resolution is type-first: when `operation_type` is set and known to the
+    operation-type catalog, its consume_stages win; otherwise falls back to
+    the legacy operation_code map (see resolve_consume_stages).
+
     Args:
         db: Database session
         bom_id: BOM ID
         operation_code: Operation code (e.g., "PRINT", "PACK")
+        operation_type: Stored operation type code (e.g., "FDM_PRINT",
+            "PACK_SHIP"), if the operation has one
 
     Returns:
         List of BOMLine objects to check
     """
-    consume_stages = get_consume_stages_for_operation(operation_code)
+    type_map = load_operation_type_stage_map(db)
+    consume_stages = resolve_consume_stages(type_map, operation_type, operation_code)
 
     lines = db.query(BOMLine).filter(
         BOMLine.bom_id == bom_id,
@@ -247,7 +258,9 @@ def check_operation_blocking(
     if not po.bom_id:
         return result
 
-    bom_lines = get_bom_lines_for_operation(db, po.bom_id, op.operation_code)
+    bom_lines = get_bom_lines_for_operation(
+        db, po.bom_id, op.operation_code, getattr(op, "operation_type", None)
+    )
 
     if not bom_lines:
         return result

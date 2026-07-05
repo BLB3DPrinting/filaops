@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.models.bom import BOMLine
 from app.models.inventory import Inventory
-from app.models.manufacturing import Routing, RoutingOperation, Resource
+from app.models.manufacturing import OperationType, Routing, RoutingOperation, Resource
 from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
@@ -84,6 +84,7 @@ def copy_routing_to_operations(
             resource_id=None,
             sequence=rop.sequence,
             operation_code=rop.operation_code,
+            operation_type=getattr(rop, "operation_type", None),
             operation_name=rop.operation_name,
             planned_setup_minutes=rop.setup_time_minutes or 0,
             planned_run_minutes=float(rop.run_time_minutes or 0) * float(order.quantity_ordered),
@@ -774,17 +775,38 @@ def record_qc_inspection(
 
     inspected_at = datetime.now(timezone.utc)
 
-    # Resolve the operation this inspection completes: the explicit target when
-    # the caller gave one, else the first QC-coded op (legacy heuristic, kept for
-    # callers that don't pass an operation_id).
-    qc_op = target_op or (
-        db.query(ProductionOrderOperation)
-        .filter(
-            ProductionOrderOperation.production_order_id == order_id,
-            ProductionOrderOperation.operation_code.ilike("%QC%")
+    # Resolve the operation this inspection completes (#876 PR-2 typed
+    # lookup): the explicit target when the caller gave one; else the first
+    # op whose STORED operation_type is flagged is_qc in the catalog (typed
+    # lookup — beats the old code-substring heuristic because ops coded
+    # OP20/OP30/FINISH per the live census never matched "%QC%" at all);
+    # else the legacy operation_code ilike("%QC%") fallback, kept for ONE
+    # release to cover untyped data, then removed (see design #876 comment
+    # §3 / PR-2 row).
+    qc_op = target_op
+    if qc_op is None:
+        qc_type_codes = [
+            code for (code,) in
+            db.query(OperationType.code).filter(OperationType.is_qc.is_(True)).all()
+        ]
+        if qc_type_codes:
+            qc_op = (
+                db.query(ProductionOrderOperation)
+                .filter(
+                    ProductionOrderOperation.production_order_id == order_id,
+                    ProductionOrderOperation.operation_type.in_(qc_type_codes),
+                )
+                .first()
+            )
+    if qc_op is None:
+        qc_op = (
+            db.query(ProductionOrderOperation)
+            .filter(
+                ProductionOrderOperation.production_order_id == order_id,
+                ProductionOrderOperation.operation_code.ilike("%QC%")
+            )
+            .first()
         )
-        .first()
-    )
 
     if qc_op:
         qc_op.status = "complete"
