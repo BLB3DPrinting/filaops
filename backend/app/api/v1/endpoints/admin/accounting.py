@@ -36,6 +36,7 @@ from app.models.company_settings import CompanySettings
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
 from app.services.payment_service import outstanding_balance_summary
+from app.services import cogs_report_service
 from app.schemas.accounting import (
     InventoryByAccountResponse,
     TransactionsJournalResponse,
@@ -208,9 +209,17 @@ async def get_transactions_as_journal(
     order_id: Optional[int] = Query(None, description="Filter by sales order"),
 ) -> TransactionsJournalResponse:
     """
-    Get inventory transactions formatted as journal entries.
+    Inventory activity (non-GL) — a synthesized, illustrative debit/credit
+    view over raw InventoryTransaction rows, NOT the posted general ledger.
 
-    Each transaction maps to a debit/credit pair based on transaction type:
+    The account codes and pairings below (1300/1310/1320/5100, etc.) are a
+    fictional/simplified chart used only to make this feed readable; they do
+    not match the real chart of accounts the GL posts to (1200/1210/1220/
+    1230/5000/5010/5200 — see gl_accounts / gl_journal_entries). For the
+    real, GL-derived COGS story use /cogs-summary or /dashboard.
+
+    Each transaction maps to an illustrative debit/credit pair based on
+    transaction type:
     - reservation: DR WIP (1310), CR Raw Materials (1300)
     - consumption: DR COGS (5100), CR WIP (1310)
     - receipt (finished goods): DR Finished Goods (1320), CR WIP (1310)
@@ -458,119 +467,40 @@ async def get_cogs_summary(
     days: int = Query(30, description="Number of days"),
 ) -> COGSSummaryResponse:
     """
-    Get COGS summary for recent period.
+    Get COGS summary for recent period — derived from the persisted GL (#880 PR-5).
 
-    Shows total cost of goods sold broken down by category.
+    Anchor: the shared cogs_report_service anchor set (shipped/completed/
+    delivered sales orders with shipped_at >= now - days) — the SAME helper
+    /accounting/dashboard and /dashboard/profit-summary use, so no COGS
+    surface can disagree about which orders are in the window. COGS buckets
+    come from posted gl_journal_entry_lines (shipment JEs' 5000/5010 debits,
+    and the linked production orders' completion-variance 5200 credits), not
+    from a live InventoryTransaction re-sum.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Get shipped orders in period
-    shipped_orders = db.query(SalesOrder).filter(
-        SalesOrder.status.in_(['shipped', 'completed']),
-        SalesOrder.shipped_at >= cutoff
-    ).all()
+    # Anchor orders in period — full rows (revenue needs amounts), from the
+    # one shared anchor helper so revenue and COGS use the same status set.
+    shipped_orders = cogs_report_service.shipped_orders_in_window(db, start=cutoff)
 
     total_revenue = Decimal("0")
-    total_material = Decimal("0")
-    total_labor = Decimal("0")
-    total_packaging = Decimal("0")
     total_shipping = Decimal("0")
-
-    # Batch queries to avoid N+1
-    shipped_order_ids = [order.id for order in shipped_orders]
-    
-    # Get all production orders for shipped orders
-    sales_to_po_map = {}
-    all_po_ids = []
-    if shipped_order_ids:
-        production_orders = db.query(ProductionOrder).filter(
-            ProductionOrder.sales_order_id.in_(shipped_order_ids)
-        ).all()
-        for po in production_orders:
-            if po.sales_order_id not in sales_to_po_map:
-                sales_to_po_map[po.sales_order_id] = []
-            sales_to_po_map[po.sales_order_id].append(po.id)
-            all_po_ids.append(po.id)
-    
-    # Get all consumption and scrap transactions in one query.
-    # Scrap = materials consumed in failed WOs (remake costs roll into COGS).
-    # HARD-11: exclude rows that are either:
-    #   (a) unapplied held transactions (requires_approval=True, approved_by IS NULL)
-    #   (b) voided/rejected transactions (voided_by IS NOT NULL)
-    # Both states mean the consumption never actually affected on_hand.
-    po_consumptions = {}
-    if all_po_ids:
-        consumptions = db.query(InventoryTransaction).options(
-            joinedload(InventoryTransaction.product)
-        ).filter(
-            InventoryTransaction.reference_type == 'production_order',
-            InventoryTransaction.reference_id.in_(all_po_ids),
-            InventoryTransaction.transaction_type.in_(['consumption', 'scrap']),
-            # Exclude unapplied held rows
-            ~(
-                InventoryTransaction.requires_approval.is_(True)
-                & InventoryTransaction.approved_by.is_(None)
-            ),
-            # Exclude voided/rejected rows
-            InventoryTransaction.voided_by.is_(None),
-        ).all()
-        
-        for txn in consumptions:
-            if txn.reference_id not in po_consumptions:
-                po_consumptions[txn.reference_id] = []
-            po_consumptions[txn.reference_id].append(txn)
-    
-    # Get all packaging transactions in one query.
-    # HARD-11: same exclusions as production consumptions — unapplied and voided rows
-    # are not real costs (on_hand was never mutated).
-    pkg_consumptions_map = {}
-    if shipped_order_ids:
-        pkg_consumptions = db.query(InventoryTransaction).filter(
-            InventoryTransaction.reference_type.in_(['shipment', 'consolidated_shipment']),
-            InventoryTransaction.reference_id.in_(shipped_order_ids),
-            InventoryTransaction.transaction_type == 'consumption',
-            ~(
-                InventoryTransaction.requires_approval.is_(True)
-                & InventoryTransaction.approved_by.is_(None)
-            ),
-            InventoryTransaction.voided_by.is_(None),
-        ).all()
-        
-        for txn in pkg_consumptions:
-            if txn.reference_id not in pkg_consumptions_map:
-                pkg_consumptions_map[txn.reference_id] = []
-            pkg_consumptions_map[txn.reference_id].append(txn)
-
     for order in shipped_orders:
         # Revenue excludes tax per GAAP
         total_revenue += (order.total_price or Decimal("0"))
         total_shipping += order.shipping_cost or Decimal("0")
 
-        # Get costs from batched transactions
-        po_ids = sales_to_po_map.get(order.id, [])
-        for po_id in po_ids:
-            for txn in po_consumptions.get(po_id, []):
-                product = txn.product
-                sku = product.sku if product else ""
-                qty = abs(float(txn.quantity)) if txn.quantity else 0
-                unit_cost = float(txn.cost_per_unit) if txn.cost_per_unit else 0
-                value = Decimal(str(qty * unit_cost))
+    shipped_order_ids = [order.id for order in shipped_orders]
+    gl_cogs = cogs_report_service.gl_derived_cogs_for_orders(db, shipped_order_ids)
+    reconciliation = gl_cogs.reconciliation
 
-                if sku.startswith("SVC-"):
-                    total_labor += value
-                else:
-                    total_material += value
+    out_of_pocket = reconciliation.out_of_pocket_cogs
+    full_product = reconciliation.full_product_cogs
 
-        # Packaging from batched data
-        for txn in pkg_consumptions_map.get(order.id, []):
-            qty = abs(float(txn.quantity)) if txn.quantity else 0
-            unit_cost = float(txn.cost_per_unit) if txn.cost_per_unit else 0
-            total_packaging += Decimal(str(qty * unit_cost))
-
-    # COGS = production costs only (materials, labor, packaging)
-    # Shipping is an operating expense, not COGS
-    total_cogs = total_material + total_labor + total_packaging
-    gross_profit = total_revenue - total_cogs
+    # Legacy "total" bucket = materials+labor+packaging re-sum, kept for one
+    # release for existing consumers of the cogs.total field.
+    legacy_total = gl_cogs.legacy_total
+    gross_profit = total_revenue - out_of_pocket
     margin = (gross_profit / total_revenue * 100) if total_revenue > 0 else Decimal("0")
 
     return {
@@ -578,10 +508,17 @@ async def get_cogs_summary(
         "orders_shipped": len(shipped_orders),
         "revenue": float(total_revenue),
         "cogs": {
-            "materials": float(total_material),
-            "labor": float(total_labor),
-            "packaging": float(total_packaging),
-            "total": float(total_cogs),
+            "materials": float(gl_cogs.legacy_materials),
+            "labor": float(gl_cogs.legacy_labor),
+            "packaging": float(gl_cogs.legacy_packaging),
+            "total": float(legacy_total),
+        },
+        "out_of_pocket_cogs": float(out_of_pocket),
+        "full_product_cogs": float(full_product),
+        "reconciliation": {
+            "ship_cogs_5000": float(reconciliation.ship_cogs_5000),
+            "packaging_5010": float(reconciliation.packaging_5010),
+            "completion_variance_5200": float(reconciliation.completion_variance_5200),
         },
         "shipping_expense": float(total_shipping),  # Separate operating expense
         "gross_profit": float(gross_profit),
@@ -621,22 +558,20 @@ async def get_accounting_dashboard(
     else:
         fiscal_year_start = today_start.replace(year=now.year - 1, month=fiscal_month, day=1)
 
-    # Revenue MTD (recognized at shipment per GAAP)
-    mtd_orders = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= month_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
+    # Revenue MTD (recognized at shipment per GAAP) — anchored on the shared
+    # cogs_report_service anchor set (shipped/completed/delivered) so revenue
+    # and the MTD COGS below can never use different status sets.
+    mtd_orders = cogs_report_service.shipped_orders_in_window(db, start=month_start)
 
     # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
     mtd_revenue = sum(float(_order_revenue_amount(o)) for o in mtd_orders)
     mtd_tax = sum(float(o.tax_amount or 0) for o in mtd_orders)
     mtd_orders_count = len(mtd_orders)
 
-    # Revenue YTD
-    ytd_orders = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= fiscal_year_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
+    # Revenue YTD — same shared anchor helper.
+    ytd_orders = cogs_report_service.shipped_orders_in_window(
+        db, start=fiscal_year_start
+    )
 
     # Revenue excludes tax and shipping (liabilities/operating expenses, not revenue)
     ytd_revenue = sum(float(_order_revenue_amount(o)) for o in ytd_orders)
@@ -661,65 +596,18 @@ async def get_accounting_dashboard(
     # SalesOrder.payment_status labels do not skew AR.
     total_outstanding, outstanding_order_count = outstanding_balance_summary(db)
 
-    # COGS this month (from shipped orders)
-    shipped_mtd = db.query(SalesOrder).filter(
-        SalesOrder.shipped_at >= month_start,
-        SalesOrder.status.in_(["shipped", "completed"])
-    ).all()
-
-    mtd_cogs = Decimal("0")
-    
-    # Batch queries to avoid N+1
-    shipped_order_ids = [order.id for order in shipped_mtd]
-    
-    # Build mapping of sales_order_id -> list of production_order_ids
-    sales_to_po_map = {}
-    all_po_ids = []
-    if shipped_order_ids:
-        production_orders = db.query(ProductionOrder).filter(
-            ProductionOrder.sales_order_id.in_(shipped_order_ids)
-        ).all()
-        
-        for po in production_orders:
-            if po.sales_order_id not in sales_to_po_map:
-                sales_to_po_map[po.sales_order_id] = []
-            sales_to_po_map[po.sales_order_id].append(po.id)
-            all_po_ids.append(po.id)
-    
-    # Query all material costs in one batch (including scrap from failed WOs).
-    # HARD-11: exclude unapplied held rows and voided rows — they never
-    # affected on_hand and must not inflate COGS.
-    po_material_costs = {}
-    if all_po_ids:
-        material_costs_result = db.query(
-            InventoryTransaction.reference_id,
-            func.coalesce(
-                func.sum(func.abs(InventoryTransaction.quantity) * func.coalesce(InventoryTransaction.cost_per_unit, 0)),
-                0
-            ).label('material_cost')
-        ).filter(
-            InventoryTransaction.reference_type == 'production_order',
-            InventoryTransaction.reference_id.in_(all_po_ids),
-            InventoryTransaction.transaction_type.in_(['consumption', 'scrap']),
-            # Exclude unapplied held rows
-            ~(
-                InventoryTransaction.requires_approval.is_(True)
-                & InventoryTransaction.approved_by.is_(None)
-            ),
-            # Exclude voided/rejected rows
-            InventoryTransaction.voided_by.is_(None),
-        ).group_by(InventoryTransaction.reference_id).all()
-        
-        po_material_costs = {row.reference_id: row.material_cost for row in material_costs_result}
-    
-    # Calculate COGS using batched data
-    # Note: Only include actual production costs, not customer shipping charges
-    for order in shipped_mtd:
-        # Add material costs from production orders
-        po_ids = sales_to_po_map.get(order.id, [])
-        for po_id in po_ids:
-            material_cost = po_material_costs.get(po_id, Decimal("0"))
-            mtd_cogs += material_cost
+    # COGS this month — GL-derived (#880 PR-5), same derivation as
+    # get_cogs_summary and get_profit_summary. Anchored on the SAME
+    # mtd_orders rows the revenue figures above use (one anchor query, one
+    # status set — no separate re-query that could drift). mtd figure is
+    # out_of_pocket_cogs (materials + packaging actually spent, built-in
+    # labor/machine value backed out via the 5200 variance) so this and the
+    # COGS tab tell the same story.
+    shipped_order_ids = [order.id for order in mtd_orders]
+    mtd_gl_cogs = cogs_report_service.gl_derived_cogs_for_orders(
+        db, shipped_order_ids, include_legacy=False
+    )
+    mtd_cogs = mtd_gl_cogs.out_of_pocket_cogs
 
     # Gross profit = Revenue - COGS (tax excluded per GAAP)
     mtd_gross_profit = Decimal(str(mtd_revenue)) - mtd_cogs
