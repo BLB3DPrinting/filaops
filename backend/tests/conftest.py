@@ -369,6 +369,14 @@ def setup_database():
             END
             $$;
         """))
+        # #876 PR-1: operation-type catalog code (migration 101). create_all
+        # won't ALTER these pre-existing tables in the accumulated test DB.
+        conn.execute(text(
+            "ALTER TABLE routing_operations ADD COLUMN IF NOT EXISTS operation_type VARCHAR(30)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE production_order_operations ADD COLUMN IF NOT EXISTS operation_type VARCHAR(30)"
+        ))
         conn.commit()
 
     # Seed required data

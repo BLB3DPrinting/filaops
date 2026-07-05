@@ -44,6 +44,7 @@ from app.api.v1.endpoints import (
     system_settings,
     system_license,
     dispatch,
+    operation_types,
 )
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.test import test_endpoints_enabled
@@ -179,6 +180,9 @@ router.include_router(
     prefix="/routings",
     tags=["manufacturing"]
 )
+
+# Operation Types (catalog — #876 PR-1, feeds the routing editor Type picker)
+router.include_router(operation_types.router)
 
 # B2B Portal API is a PRO feature
 
