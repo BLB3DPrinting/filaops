@@ -4,7 +4,7 @@ Manufacturing Routes Models
 Work Centers, Resources, Routings, and Routing Operations.
 """
 from sqlalchemy import (
-    Column, Integer, String, Numeric, Boolean, DateTime, Text, Date, ForeignKey, UniqueConstraint
+    Column, Integer, String, Numeric, Boolean, DateTime, Text, Date, ForeignKey, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -162,6 +162,14 @@ class RoutingOperation(Base):
     operation_code = Column(String(50), nullable=True)  # 'PRINT', 'QC', 'ASSEMBLE'
     operation_name = Column(String(200), nullable=True)
     description = Column(Text, nullable=True)
+
+    # #876 PR-1: declared operation-type catalog code (e.g. 'FDM_PRINT',
+    # 'PACK_SHIP'). String type-code, NOT a FK to operation_types.id — see
+    # OperationType docstring below for why. NULL means "untyped": resolution
+    # falls through to the legacy operation_code map
+    # (operation_material_mapping.get_consume_stages_for_operation). Inert in
+    # this PR — no consumer reads it yet (that's #876 PR-2).
+    operation_type = Column(String(30), nullable=True)
 
     # Time (minutes)
     setup_time_minutes = Column(Numeric(10, 2), default=0, nullable=False)
@@ -340,19 +348,86 @@ class RoutingOperationMaterial(Base):
     def calculate_required_quantity(self, order_quantity: int) -> float:
         """
         Calculate total quantity required for a production order.
-        
+
         Args:
             order_quantity: Number of units being produced
-            
+
         Returns:
             Total quantity needed including scrap allowance
         """
         base_qty = float(self.quantity or 0)
         scrap = float(self.scrap_factor or 0) / 100
-        
+
         if self.quantity_per == 'unit':
             gross_qty = base_qty * order_quantity
         else:  # batch or order
             gross_qty = base_qty
-        
+
         return gross_qty * (1 + scrap)
+
+
+class OperationType(Base):
+    """
+    Canonical catalog of routing-operation types (#876 PR-1).
+
+    Every routing/production-order operation declares its Type, and the
+    Type's ``consume_stages`` decides WHEN the operation's materials count
+    as used (production completion vs. ship vs. never-automatic). This
+    replaces guessing timing from the free-text ``operation_code`` at
+    runtime.
+
+    ``routing_operations.operation_type`` / ``production_order_operations
+    .operation_type`` reference this catalog's ``code`` by STRING VALUE,
+    not by a foreign key to this table's ``id``. This is deliberate:
+
+    1. Production-order operations snapshot the type at release exactly
+       like they snapshot ``operation_code`` today — a plain string copies
+       with zero join cost and stays human-readable in raw SQL/exports.
+    2. Two ``ADD COLUMN`` + one ``CREATE TABLE`` avoids FK-ordering
+       constraints on the brownfield migration.
+    3. The PRO wheel writes ``RoutingOperation`` rows via lazy Core imports
+       and can set a string attribute behind a ``hasattr`` guard without
+       resolving an id against a table it may not know about yet.
+    4. Unknown/inactive codes at read time fall through to the legacy
+       ``operation_code`` map rather than raising — a routing edited after
+       its type was deactivated must never break historical resolution.
+
+    This PR ships the schema, the 9-row seed, and a resolver that nothing
+    calls yet (see ``operation_material_mapping.resolve_consume_stages``).
+    Zero behavior change until #876 PR-2 switches the consumers over.
+    """
+    __tablename__ = "operation_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Stored uppercase; the value referenced by operation_type columns above.
+    code = Column(String(30), unique=True, nullable=False, index=True)
+    label = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # UI grouping only (print/assembly/quality/finishing/shipping/other) —
+    # never consulted by any resolver; purely cosmetic categorization for
+    # the future editor picker.
+    category = Column(String(20), nullable=True)
+
+    # Verbatim legacy stage vocabulary — see the seed table in migration
+    # 101_operation_types.py for the exact values reused from
+    # OPERATION_CONSUME_STAGES so a typed op is byte-identical in behavior
+    # to its equivalent coded op.
+    consume_stages = Column(JSON, nullable=False)
+
+    # Drives QC-op resolution (record_qc_inspection fallback lookup, #876
+    # PR-2) — not consumed by anything in this PR.
+    is_qc = Column(Boolean, default=False, nullable=False)
+
+    # System rows (the 9 seeded types) are undeletable and have their
+    # consume_stages/is_qc locked in the admin CRUD shipped in #876 PR-3.
+    is_system = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<OperationType {self.code}: {self.label}>"

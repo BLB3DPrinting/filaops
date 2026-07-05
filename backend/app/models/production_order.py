@@ -223,6 +223,12 @@ class ProductionOrderOperation(Base):
     operation_code = Column(String(50), nullable=True)
     operation_name = Column(String(200), nullable=True)
 
+    # #876 PR-1: operation-type catalog code, snapshotted at release exactly
+    # like operation_code is today (production_order_service.py copy sites).
+    # NULL = untyped, falls through to the legacy operation_code map. Inert
+    # in this PR — see app/models/manufacturing.py:OperationType docstring.
+    operation_type = Column(String(30), nullable=True)
+
     # Status: pending, queued, running, complete, skipped
     status = Column(String(50), default='pending', nullable=False, index=True)
 
