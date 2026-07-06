@@ -1,11 +1,11 @@
 # backend/requirements.txt
 # (optional) replace your current file with this Postgres-friendly set
-fastapi==0.137.2
-uvicorn[standard]==0.49.0
+fastapi==0.139.0
+uvicorn[standard]==0.50.0
 python-multipart==0.0.32
 sqlalchemy==2.0.51
 psycopg[binary]>=3.3.4
-alembic==1.18.4
+alembic==1.18.5
 pydantic==2.13.4
 pydantic-settings==2.14.2
 email-validator==2.3.0
