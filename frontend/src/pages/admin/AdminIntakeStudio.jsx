@@ -12,6 +12,26 @@ import OperationMaterialModal from "../../components/OperationMaterialModal";
 import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+// 876 PR-5b: the finishing-op "Type" picker. Mirrors the wheel's
+// ALLOWED_FINISHING_OPERATION_TYPES (filaops-pro/filaops_pro/routes/intake.py)
+// and Core's operation_types catalog (#898) finishing-category rows. Stored
+// on RoutingOperation.operation_type when present — the picker prevents a
+// NEW ambiguous-FINISH population (see 876 §5a). "None" (empty value) keeps
+// the op untyped, resolving through the legacy operation_code map /
+// production default exactly like before this picker existed.
+const FINISHING_OPERATION_TYPES = [
+  { value: "", label: "None" },
+  { value: "SUPPORT_REMOVAL", label: "Support Removal" },
+  { value: "SANDING", label: "Sanding" },
+  { value: "PAINTING", label: "Painting" },
+  { value: "QUALITY_CONTROL", label: "Quality Control" },
+  { value: "PACK_SHIP", label: "Pack / Ship" },
+];
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1971,6 +1991,7 @@ export default function AdminIntakeStudio() {
           .map((o) => ({
             work_center_id: Number(o.work_center_id),
             operation_name: o.operation_name,
+            operation_type: o.operation_type || undefined,
             run_time_minutes: Number(o.run_time_minutes) || 0,
             setup_time_minutes: Number(o.setup_time_minutes) || 0,
             materials: (o.materials || []).map((m) => ({
@@ -2085,6 +2106,7 @@ export default function AdminIntakeStudio() {
           .map((o) => ({
             work_center_id: Number(o.work_center_id),
             operation_name: o.operation_name,
+            operation_type: o.operation_type || undefined,
             run_time_minutes: Number(o.run_time_minutes) || 0,
             setup_time_minutes: Number(o.setup_time_minutes) || 0,
             materials: (o.materials || []).map((m) => ({
@@ -2224,6 +2246,7 @@ export default function AdminIntakeStudio() {
       {
         work_center_id: "",
         operation_name: "",
+        operation_type: "",
         run_time_minutes: "",
         setup_time_minutes: "",
         materials: [],
@@ -3270,7 +3293,7 @@ export default function AdminIntakeStudio() {
                         className="bg-gray-800/50 rounded-lg p-4 space-y-3"
                       >
                         {/* Op fields row */}
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                           <div>
                             <label className="block text-xs text-gray-400 mb-1">
                               Work center
@@ -3310,6 +3333,28 @@ export default function AdminIntakeStudio() {
                               placeholder="e.g. Support removal"
                               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                             />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">
+                              Type
+                            </label>
+                            <select
+                              value={op.operation_type || ""}
+                              onChange={(e) =>
+                                updateFinishingOp(
+                                  idx,
+                                  "operation_type",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                            >
+                              {FINISHING_OPERATION_TYPES.map((t) => (
+                                <option key={t.value} value={t.value}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
                             <label className="block text-xs text-gray-400 mb-1">
