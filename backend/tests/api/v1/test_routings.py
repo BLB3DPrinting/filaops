@@ -734,13 +734,17 @@ class TestApplyTemplateIdempotency:
         POST /apply-template). Uses two independent, really-committing
         sessions (the transactional `db`/`client` fixtures share a single
         connection and can't model real concurrency) synchronized with a
-        barrier so both threads read the same pre-mutation state before
-        either mutates, then runs them for real via threading.
+        barrier planted at the actual check-then-act boundary (the SQL read
+        of the existing routing, immediately before the deactivate
+        mutation) rather than at the earlier Product lookup — see the
+        comment block at the barrier definition for why placement matters
+        and how the FOR UPDATE fix changes which worker ever reaches it.
         """
-        from app.db.session import SessionLocal
+        from sqlalchemy import event
+
+        from app.db.session import SessionLocal, engine
         from app.models.manufacturing import Routing, RoutingOperation
         from app.models.product import Product
-        from app.core import utils as core_utils
         from app.services import routing_service as rs
 
         setup_db = SessionLocal()
@@ -789,17 +793,56 @@ class TestApplyTemplateIdempotency:
             finally:
                 db1.close()
 
-            # Race: two overlapping "apply template again" calls, synchronized
-            # to both pass the product lookup (no lock taken yet) before
-            # either proceeds to check-and-mutate the routing.
-            barrier = threading.Barrier(2, timeout=15)
-            orig_get_or_404 = core_utils.get_or_404
+            # Race: two overlapping "apply template again" calls.
+            #
+            # SYNCHRONIZATION POINT: the barrier fires on the SQL that reads
+            # the *existing* active routing for this product — the
+            # check-then-act read, immediately before the "deactivate old
+            # ops" mutation. This is deliberately NOT the earlier Product
+            # lookup: a barrier planted before the #904 FOR UPDATE row lock
+            # only guarantees both threads *start* together, and then lets
+            # the OS scheduler decide how far each gets before the other is
+            # scheduled again. One worker can legitimately run all the way
+            # through read -> deactivate -> insert -> commit before the
+            # other thread is even scheduled, which would let a broken
+            # (unlocked) implementation pass this test by luck rather than
+            # by having its race genuinely exercised. Hooking the SQL
+            # emission for the "existing routing" read (via
+            # before_cursor_execute, matched by table + absence of the
+            # is_template filter that's unique to the earlier template
+            # lookup) forces both threads to reach the actual vulnerable
+            # window together.
+            #
+            # CRITICAL SUBTLETY: with the #904 FOR UPDATE fix in place, the
+            # second worker blocks *at the row lock itself* — a statement
+            # that runs BEFORE the one this barrier watches — while the
+            # first worker holds it through its whole transaction. So under
+            # FIXED code the second worker can never reach this barrier
+            # while the first is still inside its transaction: the first
+            # worker's barrier.wait() times out / raises
+            # BrokenBarrierError (expected — the assertions below, not the
+            # barrier, are the real oracle), the first worker proceeds and
+            # commits, the lock releases, and only then does the second
+            # worker reach its own (now-broken, so non-blocking) barrier
+            # call and run serialized against the first's already-committed
+            # state. Under UNFIXED (unlocked) code there's no lock to
+            # stall on, so both workers reach the barrier together, both
+            # proceed to deactivate+insert concurrently, and the final
+            # active-op-count assertion below catches the duplication.
+            barrier = threading.Barrier(2)
+            thread_state = threading.local()
 
-            def synced_get_or_404(db, model, id, detail=None):
-                result = orig_get_or_404(db, model, id, detail)
-                if model is Product:
-                    barrier.wait()
-                return result
+            def sync_on_existing_routing_read(conn, cursor, statement, parameters, context, executemany):
+                upper = statement.upper()
+                if "ROUTINGS" not in upper or "IS_TEMPLATE" in upper:
+                    return
+                if getattr(thread_state, "fired", False):
+                    return
+                thread_state.fired = True
+                try:
+                    barrier.wait(timeout=5)
+                except threading.BrokenBarrierError:
+                    pass  # expected under FIXED code — see comment block above
 
             errors = []
 
@@ -814,7 +857,7 @@ class TestApplyTemplateIdempotency:
                 finally:
                     db.close()
 
-            rs.get_or_404 = synced_get_or_404
+            event.listen(engine, "before_cursor_execute", sync_on_existing_routing_read)
             try:
                 t1 = threading.Thread(target=worker)
                 t2 = threading.Thread(target=worker)
@@ -823,8 +866,10 @@ class TestApplyTemplateIdempotency:
                 t1.join(timeout=30)
                 t2.join(timeout=30)
             finally:
-                rs.get_or_404 = orig_get_or_404
+                event.remove(engine, "before_cursor_execute", sync_on_existing_routing_read)
 
+            assert not t1.is_alive(), "worker thread 1 did not complete within timeout (hung)"
+            assert not t2.is_alive(), "worker thread 2 did not complete within timeout (hung)"
             assert not errors, f"apply_template_to_product raised under race: {errors}"
 
             verify_db = SessionLocal()

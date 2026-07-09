@@ -477,12 +477,19 @@ class TestSyncRoutingToVariants:
         """Two overlapping sync-routing-to-variants calls for the same
         template/variant must not both leave their re-copied operation set
         active — the #904 reproduction for the variant-copy flow. Uses two
-        independent, really-committing sessions synchronized with a
-        barrier (the transactional `db` fixture shares one connection and
-        can't model real concurrency)."""
+        independent, really-committing sessions (the transactional `db`
+        fixture shares one connection and can't model real concurrency)
+        synchronized with a barrier planted at the actual check-then-act
+        boundary (the SQL read of the variant's existing routing,
+        immediately before the operations-clear mutation) rather than at
+        the earlier template lookup — see the comment block at the barrier
+        definition for why placement matters and how the FOR UPDATE fix
+        changes which worker ever reaches it."""
         import threading
 
-        from app.db.session import SessionLocal
+        from sqlalchemy import event
+
+        from app.db.session import SessionLocal, engine
         from app.models.manufacturing import Routing as _Routing, RoutingOperation as _RoutingOperation
         from app.models.product import Product
         from app.models.work_center import WorkCenter
@@ -538,14 +545,53 @@ class TestSyncRoutingToVariants:
             finally:
                 db1.close()
 
-            barrier = threading.Barrier(2, timeout=15)
-            orig_get_item = vs.get_item
+            # SYNCHRONIZATION POINT: the barrier fires on the SQL that reads
+            # the variant's *existing* active routing — the check-then-act
+            # read, immediately before the "clear operations" mutation
+            # (`variant_routing.operations = []`). This is deliberately NOT
+            # the earlier `get_item(template_id)` lookup: a barrier planted
+            # that early only guarantees both threads *start* together,
+            # then lets the scheduler decide how far each runs before the
+            # other resumes. One worker can legitimately finish its entire
+            # read -> clear -> re-copy -> commit before the other thread is
+            # even scheduled, letting a broken (unlocked) implementation
+            # pass this test by luck instead of by having its race
+            # genuinely exercised. Hooking the SQL emission for the
+            # "variant's existing routing" read (via before_cursor_execute,
+            # matched by table + absence of the ORDER BY that's unique to
+            # the earlier template-routing lookup) forces both threads to
+            # reach the actual vulnerable window together.
+            #
+            # CRITICAL SUBTLETY: with the #904 FOR UPDATE fix in place, the
+            # second worker blocks *at the row lock itself* — a statement
+            # that runs BEFORE the one this barrier watches — while the
+            # first worker holds it through its whole transaction. So under
+            # FIXED code the second worker can never reach this barrier
+            # while the first is still inside its transaction: the first
+            # worker's barrier.wait() times out / raises
+            # BrokenBarrierError (expected — the assertions below, not the
+            # barrier, are the real oracle), the first worker proceeds and
+            # commits, the lock releases, and only then does the second
+            # worker reach its own (now-broken, so non-blocking) barrier
+            # call and run serialized against the first's already-committed
+            # state. Under UNFIXED (unlocked) code there's no lock to stall
+            # on, so both workers reach the barrier together, both proceed
+            # to clear+re-copy concurrently, and the final active-op-count
+            # assertion below catches the duplication.
+            barrier = threading.Barrier(2)
+            thread_state = threading.local()
 
-            def synced_get_item(db, item_id):
-                result = orig_get_item(db, item_id)
-                if item_id == template_id:
-                    barrier.wait()
-                return result
+            def sync_on_variant_routing_read(conn, cursor, statement, parameters, context, executemany):
+                upper = statement.upper()
+                if "ROUTINGS" not in upper or "ORDER BY" in upper:
+                    return
+                if getattr(thread_state, "fired", False):
+                    return
+                thread_state.fired = True
+                try:
+                    barrier.wait(timeout=5)
+                except threading.BrokenBarrierError:
+                    pass  # expected under FIXED code — see comment block above
 
             errors = []
 
@@ -558,7 +604,7 @@ class TestSyncRoutingToVariants:
                 finally:
                     db.close()
 
-            vs.get_item = synced_get_item
+            event.listen(engine, "before_cursor_execute", sync_on_variant_routing_read)
             try:
                 t1 = threading.Thread(target=worker)
                 t2 = threading.Thread(target=worker)
@@ -567,8 +613,10 @@ class TestSyncRoutingToVariants:
                 t1.join(timeout=30)
                 t2.join(timeout=30)
             finally:
-                vs.get_item = orig_get_item
+                event.remove(engine, "before_cursor_execute", sync_on_variant_routing_read)
 
+            assert not t1.is_alive(), "worker thread 1 did not complete within timeout (hung)"
+            assert not t2.is_alive(), "worker thread 2 did not complete within timeout (hung)"
             assert not errors, f"sync_routing_to_variants raised under race: {errors}"
 
             verify_db = SessionLocal()
