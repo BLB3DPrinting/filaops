@@ -1,4 +1,11 @@
 import React from "react";
+import {
+  categoryLabel,
+  describeOperationType,
+  groupOperationTypes,
+  UNTYPED_DESCRIPTION,
+  UNTYPED_LABEL,
+} from "./operationTypeDisplay";
 
 /**
  * OperationRow - A single operation row in the routing operations table.
@@ -12,6 +19,8 @@ import React from "react";
  * - materials: array - Materials assigned to this operation
  * - isExpanded: boolean - Whether the materials sub-row is visible
  * - loading: boolean - Whether a save/delete is in progress
+ * - operationTypes: array - Operation-type catalog (GET /operation-types),
+ *   used to render the type badge/picker and its description
  * - onToggleExpand: (operationId) => void
  * - onUpdateOperation: (index, field, value) => void
  * - onRemoveOperation: (index) => void
@@ -25,6 +34,7 @@ export default function OperationRow({
   materials,
   isExpanded,
   loading,
+  operationTypes = [],
   onToggleExpand,
   onUpdateOperation,
   onRemoveOperation,
@@ -32,6 +42,15 @@ export default function OperationRow({
   onEditMaterial,
   operations,
 }) {
+  const typeInfo = describeOperationType(op.operation_type, operationTypes);
+  const groupedTypes = groupOperationTypes(operationTypes);
+  // Keep a currently-assigned type visible in the picker even if it's not
+  // in the fetched active-only catalog (e.g. a deactivated custom type
+  // still stamped on this operation) — never silently drop the selection.
+  const hasOrphanType =
+    op.operation_type &&
+    !operationTypes.some((t) => t.code === op.operation_type);
+
   return (
     <React.Fragment>
       <tr className="border-b border-gray-800 hover:bg-gray-800/50">
@@ -87,6 +106,40 @@ export default function OperationRow({
             {op.operation_code && (
               <div className="text-sm text-gray-400">{op.operation_code}</div>
             )}
+            <div className="mt-1">
+              <select
+                aria-label={`Operation type for ${op.operation_name || op.operation_code || `operation ${index + 1}`}`}
+                value={op.operation_type || ""}
+                onChange={(e) =>
+                  onUpdateOperation(index, "operation_type", e.target.value)
+                }
+                title={typeInfo?.description || UNTYPED_DESCRIPTION}
+                className={`text-xs px-1.5 py-0.5 rounded border ${
+                  op.operation_type
+                    ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                    : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
+                }`}
+              >
+                <option value="">{UNTYPED_LABEL}</option>
+                {groupedTypes.map(([category, types]) => (
+                  <optgroup key={category} label={categoryLabel(category)}>
+                    {types.map((t) => (
+                      <option key={t.code} value={t.code}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {hasOrphanType && (
+                  <option value={op.operation_type}>{typeInfo?.label}</option>
+                )}
+              </select>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {typeInfo
+                  ? `${typeInfo.label} — ${typeInfo.description || ""}`
+                  : UNTYPED_DESCRIPTION}
+              </div>
+            </div>
             {materials.length > 0 && (
               <div className="text-xs text-blue-400 mt-1">
                 {materials.length} material{materials.length !== 1 ? 's' : ''}

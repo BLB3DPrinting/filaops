@@ -27,6 +27,7 @@ export default function RoutingEditorContent({
   const [operations, setOperations] = useState([]);
   const [workCenters, setWorkCenters] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [operationTypes, setOperationTypes] = useState([]);
   const [showAddOperation, setShowAddOperation] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [selectedProductId, setSelectedProductId] = useState(productId || "");
@@ -43,6 +44,7 @@ export default function RoutingEditorContent({
   const [newOperation, setNewOperation] = useState({
     work_center_id: "",
     sequence: 1,
+    operation_type: "",
     operation_code: "",
     operation_name: "",
     setup_time_minutes: 0,
@@ -120,6 +122,22 @@ export default function RoutingEditorContent({
     }
   }, []);
 
+  const fetchOperationTypes = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/operation-types`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOperationTypes(data || []);
+      }
+    } catch {
+      // Operation-types fetch failure is non-critical — the picker falls
+      // back to showing just the bare code for any already-typed op
+      // (operationTypeDisplay.describeOperationType's fallback table).
+    }
+  }, []);
+
   const fetchOperationMaterials = useCallback(async (operationId) => {
     if (!operationId) return;
     try {
@@ -165,6 +183,7 @@ export default function RoutingEditorContent({
       }
       fetchWorkCenters();
       fetchTemplates();
+      fetchOperationTypes();
       setError(null);
       setOperationMaterials({});
       setExpandedOperations({});
@@ -177,6 +196,7 @@ export default function RoutingEditorContent({
     fetchRoutingByProduct,
     fetchWorkCenters,
     fetchTemplates,
+    fetchOperationTypes,
   ]);
 
   // Notify parent of routing data changes (used by BOM page for cost display)
@@ -250,7 +270,8 @@ export default function RoutingEditorContent({
           operations: operations.map((op, idx) => ({
             work_center_id: op.work_center_id,
             sequence: idx + 1,
-            operation_code: op.operation_code || `OP${idx + 1}`,
+            operation_type: op.operation_type || null,
+            operation_code: op.operation_code || "",
             operation_name: op.operation_name || "",
             setup_time_minutes: op.setup_time_minutes || 0,
             run_time_minutes: op.run_time_minutes || 0,
@@ -296,7 +317,8 @@ export default function RoutingEditorContent({
               body: JSON.stringify({
                 work_center_id: op.work_center_id,
                 sequence: i + 1,
-                operation_code: op.operation_code || `OP${i + 1}`,
+                operation_type: op.operation_type || null,
+                operation_code: op.operation_code || "",
                 operation_name: op.operation_name || "",
                 setup_time_minutes: op.setup_time_minutes || 0,
                 run_time_minutes: op.run_time_minutes || 0,
@@ -319,7 +341,8 @@ export default function RoutingEditorContent({
               body: JSON.stringify({
                 work_center_id: op.work_center_id,
                 sequence: i + 1,
-                operation_code: op.operation_code || `OP${i + 1}`,
+                operation_type: op.operation_type || null,
+                operation_code: op.operation_code || "",
                 operation_name: op.operation_name || "",
                 setup_time_minutes: op.setup_time_minutes || 0,
                 run_time_minutes: op.run_time_minutes || 0,
@@ -352,6 +375,11 @@ export default function RoutingEditorContent({
   };
 
   const addOperation = () => {
+    if (!newOperation.operation_type) {
+      setError("Please select an operation type");
+      return;
+    }
+
     const workCenter = workCenters.find(
       (wc) => wc.id === parseInt(newOperation.work_center_id)
     );
@@ -376,6 +404,7 @@ export default function RoutingEditorContent({
     setNewOperation({
       work_center_id: "",
       sequence: operations.length + 2,
+      operation_type: "",
       operation_code: "",
       operation_name: "",
       setup_time_minutes: 0,
@@ -690,6 +719,7 @@ export default function RoutingEditorContent({
                       }
                       isExpanded={op.id && expandedOperations[op.id]}
                       loading={loading}
+                      operationTypes={operationTypes}
                       operations={operations}
                       onToggleExpand={toggleOperationExpanded}
                       onUpdateOperation={updateOperation}
@@ -727,6 +757,7 @@ export default function RoutingEditorContent({
           {showAddOperation && (
             <AddOperationForm
               workCenters={workCenters}
+              operationTypes={operationTypes}
               newOperation={newOperation}
               onOperationChange={setNewOperation}
               onAdd={addOperation}
