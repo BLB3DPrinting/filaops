@@ -10,6 +10,7 @@ Covers:
 - Authentication requirements for write endpoints
 - 404 and 422 error handling
 """
+import threading
 import pytest
 from decimal import Decimal
 
@@ -643,6 +644,223 @@ class TestApplyTemplate:
     def test_apply_template_missing_fields_returns_422(self, client):
         response = client.post(f"{BASE_URL}/apply-template", json={})
         assert response.status_code == 422
+
+
+class TestApplyTemplateIdempotency:
+    """Regression coverage for #904 — apply-template must never silently
+    append a second generation of operations onto an already-populated
+    routing. Root cause: apply_template_to_product's "does this product
+    already have an active routing?" check-then-act (deactivate old ops,
+    then insert new ones) was not atomic, so two overlapping calls for the
+    same product could each pass the check against the same pre-mutation
+    state and each insert their own active operation set — reproducing the
+    exact COMP-005 data shape (two interleaved active generations on one
+    routing; see #904 and the #876 classifier session).
+    """
+
+    def test_repeated_apply_template_does_not_double_active_ops(self, client, make_product):
+        """Applying the same template twice must leave the active op count
+        unchanged (replace semantics), not doubled."""
+        product = make_product(item_type="finished_good", procurement_type="make")
+
+        template = _create_routing(
+            client, is_template=True, code="TPL-IDEMPOTENT", name="Idempotent Template",
+        )
+        _create_operation(
+            client, template["id"], operation_code="PRINT", operation_name="3D Print",
+            sequence=10, run_time_minutes="60.0",
+        )
+        _create_operation(
+            client, template["id"], operation_code="QC", operation_name="QC",
+            sequence=20, run_time_minutes="2.0",
+        )
+
+        r1 = client.post(f"{BASE_URL}/apply-template", json={
+            "template_id": template["id"], "product_id": product.id,
+        })
+        assert r1.status_code == 200, r1.text
+        assert len(r1.json()["operations"]) == 2
+
+        r2 = client.post(f"{BASE_URL}/apply-template", json={
+            "template_id": template["id"], "product_id": product.id,
+        })
+        assert r2.status_code == 200, r2.text
+        assert len(r2.json()["operations"]) == 2
+
+        routing_id = r2.json()["routing_id"]
+        active_ops = client.get(f"{BASE_URL}/{routing_id}/operations").json()
+        assert len(active_ops) == 2, (
+            f"expected 2 active ops after repeated apply-template, got {len(active_ops)}"
+        )
+
+    def test_apply_template_replaces_manually_built_operations(self, client, make_product):
+        """Applying a template onto a routing that already has operations
+        (built by any other origin — manual add, an older process, etc.)
+        must deactivate the old ones, not leave them active alongside the
+        new set."""
+        product = make_product(item_type="finished_good", procurement_type="make")
+
+        routing = _create_routing(client, product_id=product.id)
+        _create_operation(client, routing["id"], operation_code="QC", operation_name="QC", sequence=1)
+        _create_operation(client, routing["id"], operation_code="PRINT", operation_name="3D Print", sequence=2)
+
+        template = _create_routing(
+            client, is_template=True, code="TPL-REPLACE", name="Replace Template",
+        )
+        _create_operation(
+            client, template["id"], operation_code="PRINT", operation_name="3D Print",
+            run_time_minutes="60.0",
+        )
+        _create_operation(
+            client, template["id"], operation_code="ASSEMBLE", operation_name="Assembly",
+            sequence=20, run_time_minutes="5.0",
+        )
+
+        response = client.post(f"{BASE_URL}/apply-template", json={
+            "template_id": template["id"], "product_id": product.id,
+        })
+        assert response.status_code == 200, response.text
+
+        active_ops = client.get(f"{BASE_URL}/{routing['id']}/operations").json()
+        assert len(active_ops) == 2, (
+            f"expected the manually-built ops to be replaced (2 active), got {len(active_ops)}"
+        )
+        assert {op["operation_code"] for op in active_ops} == {"PRINT", "ASSEMBLE"}
+
+    def test_apply_template_concurrent_double_submit_no_duplicate_active_ops(self):
+        """Two overlapping 'apply template' calls for the same product must
+        not both leave their operation set active — this is the literal
+        #904 reproduction (double-click / retry-after-timeout on
+        POST /apply-template). Uses two independent, really-committing
+        sessions (the transactional `db`/`client` fixtures share a single
+        connection and can't model real concurrency) synchronized with a
+        barrier so both threads read the same pre-mutation state before
+        either mutates, then runs them for real via threading.
+        """
+        from app.db.session import SessionLocal
+        from app.models.manufacturing import Routing, RoutingOperation
+        from app.models.product import Product
+        from app.core import utils as core_utils
+        from app.services import routing_service as rs
+
+        setup_db = SessionLocal()
+        try:
+            product = Product(
+                sku="TEST-904-RACE-PROD", name="904 Race Product",
+                item_type="finished_good", procurement_type="make", unit="EA",
+                active=True,
+            )
+            setup_db.add(product)
+            setup_db.flush()
+
+            template = Routing(
+                code="TPL-904-RACE", name="904 Race Template", is_template=True,
+                version=1, revision="1.0", is_active=True,
+            )
+            setup_db.add(template)
+            setup_db.flush()
+
+            setup_db.add_all([
+                RoutingOperation(
+                    routing_id=template.id, work_center_id=1, sequence=10,
+                    operation_code="PRINT", operation_name="3D Print",
+                    run_time_minutes=Decimal("60"), setup_time_minutes=Decimal("0"),
+                ),
+                RoutingOperation(
+                    routing_id=template.id, work_center_id=1, sequence=20,
+                    operation_code="QC", operation_name="QC",
+                    run_time_minutes=Decimal("2"), setup_time_minutes=Decimal("0"),
+                ),
+            ])
+            setup_db.flush()
+            setup_db.commit()
+
+            product_id = product.id
+            template_id = template.id
+        finally:
+            setup_db.close()
+
+        try:
+            # Generation 1 — establishes the "already has an active routing"
+            # precondition the race needs (non-racy, sequential call).
+            db1 = SessionLocal()
+            try:
+                rs.apply_template_to_product(db1, template_id=template_id, product_id=product_id)
+            finally:
+                db1.close()
+
+            # Race: two overlapping "apply template again" calls, synchronized
+            # to both pass the product lookup (no lock taken yet) before
+            # either proceeds to check-and-mutate the routing.
+            barrier = threading.Barrier(2, timeout=15)
+            orig_get_or_404 = core_utils.get_or_404
+
+            def synced_get_or_404(db, model, id, detail=None):
+                result = orig_get_or_404(db, model, id, detail)
+                if model is Product:
+                    barrier.wait()
+                return result
+
+            errors = []
+
+            def worker():
+                db = SessionLocal()
+                try:
+                    rs.apply_template_to_product(
+                        db, template_id=template_id, product_id=product_id,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    errors.append(repr(e))
+                finally:
+                    db.close()
+
+            rs.get_or_404 = synced_get_or_404
+            try:
+                t1 = threading.Thread(target=worker)
+                t2 = threading.Thread(target=worker)
+                t1.start()
+                t2.start()
+                t1.join(timeout=30)
+                t2.join(timeout=30)
+            finally:
+                rs.get_or_404 = orig_get_or_404
+
+            assert not errors, f"apply_template_to_product raised under race: {errors}"
+
+            verify_db = SessionLocal()
+            try:
+                routing = verify_db.query(Routing).filter(
+                    Routing.product_id == product_id, Routing.is_active.is_(True)
+                ).first()
+                active_ops = verify_db.query(RoutingOperation).filter(
+                    RoutingOperation.routing_id == routing.id,
+                    RoutingOperation.is_active.is_(True),
+                ).count()
+                assert active_ops == 2, (
+                    f"expected 2 active ops after concurrent double-submit, got {active_ops} "
+                    f"(#904 regression: two generations left active)"
+                )
+            finally:
+                verify_db.close()
+        finally:
+            cleanup_db = SessionLocal()
+            try:
+                routing_ids = [
+                    r.id for r in cleanup_db.query(Routing).filter(
+                        (Routing.product_id == product_id) | (Routing.id == template_id)
+                    ).all()
+                ]
+                if routing_ids:
+                    cleanup_db.query(RoutingOperation).filter(
+                        RoutingOperation.routing_id.in_(routing_ids)
+                    ).delete(synchronize_session=False)
+                    cleanup_db.query(Routing).filter(
+                        Routing.id.in_(routing_ids)
+                    ).delete(synchronize_session=False)
+                cleanup_db.query(Product).filter(Product.id == product_id).delete(synchronize_session=False)
+                cleanup_db.commit()
+            finally:
+                cleanup_db.close()
 
 
 # =============================================================================
