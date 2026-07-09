@@ -1986,22 +1986,7 @@ export default function AdminIntakeStudio() {
         item_type: itemType,
         category_id: categoryId ? Number(categoryId) : undefined,
         slots: buildSlotsPayload(),
-        finishing_ops: finishingOps
-          .filter((o) => o.work_center_id)
-          .map((o) => ({
-            work_center_id: Number(o.work_center_id),
-            operation_name: o.operation_name,
-            operation_type: o.operation_type || undefined,
-            run_time_minutes: Number(o.run_time_minutes) || 0,
-            setup_time_minutes: Number(o.setup_time_minutes) || 0,
-            materials: (o.materials || []).map((m) => ({
-              component_product_id: m.component_id,
-              quantity: Number(m.quantity) || 0,
-              unit: m.unit || "EA",
-              quantity_per: m.quantity_per || "unit",
-              scrap_factor: Number(m.scrap_factor) || 0,
-            })),
-          })),
+        finishing_ops: buildFinishingOpsPayload(finishingOps),
         packaging: [],
         persist_color_map: true,
       };
@@ -2071,7 +2056,7 @@ export default function AdminIntakeStudio() {
   };
 
   // ---------------------------------------------------------------------------
-  // Shared slot-payload builder (used by /preview and /sku)
+  // Shared slot / finishing-op payload builders (used by /preview and /sku)
   // ---------------------------------------------------------------------------
 
   const buildSlotsPayload = () =>
@@ -2082,6 +2067,24 @@ export default function AdminIntakeStudio() {
       used_g: s.used_g,
       spool_product_id: matchChoices[s.slot_id]?.product_id,
     }));
+
+  const buildFinishingOpsPayload = (ops) =>
+    ops
+      .filter((o) => o.work_center_id)
+      .map((o) => ({
+        work_center_id: Number(o.work_center_id),
+        operation_name: o.operation_name,
+        operation_type: o.operation_type || undefined,
+        run_time_minutes: Number(o.run_time_minutes) || 0,
+        setup_time_minutes: Number(o.setup_time_minutes) || 0,
+        materials: (o.materials || []).map((m) => ({
+          component_product_id: m.component_id,
+          quantity: Number(m.quantity) || 0,
+          unit: m.unit || "EA",
+          quantity_per: m.quantity_per || "unit",
+          scrap_factor: Number(m.scrap_factor) || 0,
+        })),
+      }));
 
   // ---------------------------------------------------------------------------
   // Step 4 — /preview (cost estimate before committing)
@@ -2101,22 +2104,7 @@ export default function AdminIntakeStudio() {
         print_time_seconds: parseResult.print_time_seconds,
         parts_on_plate: parts,
         slots: buildSlotsPayload(),
-        finishing_ops: ops
-          .filter((o) => o.work_center_id)
-          .map((o) => ({
-            work_center_id: Number(o.work_center_id),
-            operation_name: o.operation_name,
-            operation_type: o.operation_type || undefined,
-            run_time_minutes: Number(o.run_time_minutes) || 0,
-            setup_time_minutes: Number(o.setup_time_minutes) || 0,
-            materials: (o.materials || []).map((m) => ({
-              component_product_id: m.component_id,
-              quantity: Number(m.quantity) || 0,
-              unit: m.unit || "EA",
-              quantity_per: m.quantity_per || "unit",
-              scrap_factor: Number(m.scrap_factor) || 0,
-            })),
-          })),
+        finishing_ops: buildFinishingOpsPayload(ops),
         packaging: [],
       };
       const data = await api.post("/api/v1/pro/intake/preview", body);
