@@ -75,6 +75,80 @@ beforeEach(() => {
   })
 })
 
+describe('PrinterModal — discontinued models (WS1 catalog refresh)', () => {
+  const brandInfoWithDiscontinued = [
+    { code: 'generic', name: 'Generic', models: [] },
+    {
+      code: 'bambulab',
+      name: 'Bambu Lab',
+      models: [
+        { value: 'H2D', label: 'H2D', discontinued: false },
+        { value: 'P1S', label: 'P1S', discontinued: false },
+        { value: 'X1C', label: 'X1 Carbon', discontinued: true },
+        { value: 'X1', label: 'X1', discontinued: true },
+      ],
+    },
+  ]
+
+  const modelSelect = () =>
+    Array.from(screen.getByRole('dialog').querySelectorAll('select')).find((s) =>
+      Array.from(s.options).some((o) => o.value === 'H2D' || o.value === 'X1C')
+    )
+
+  it('hides discontinued models from the new-printer dropdown', () => {
+    render(
+      <PrinterModal
+        printer={null}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        brandInfo={brandInfoWithDiscontinued}
+      />
+    )
+    // Switch brand to bambulab so the model dropdown renders
+    const brandSelect = Array.from(
+      screen.getByRole('dialog').querySelectorAll('select')
+    ).find((s) => Array.from(s.options).some((o) => o.value === 'bambulab'))
+    fireEvent.change(brandSelect, { target: { value: 'bambulab' } })
+
+    const options = Array.from(modelSelect().options).map((o) => o.value)
+    expect(options).toContain('H2D')
+    expect(options).toContain('P1S')
+    expect(options).not.toContain('X1C')
+    expect(options).not.toContain('X1')
+  })
+
+  it('keeps the printer\'s own discontinued model selectable in edit mode, with a suffix', () => {
+    render(
+      <PrinterModal
+        printer={editablePrinter}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        brandInfo={brandInfoWithDiscontinued}
+      />
+    )
+    const select = modelSelect()
+    const x1c = Array.from(select.options).find((o) => o.value === 'X1C')
+    expect(x1c).toBeTruthy()
+    expect(x1c.textContent).toContain('(discontinued)')
+    expect(select.value).toBe('X1C')
+    // Other discontinued models stay hidden even in edit mode
+    expect(Array.from(select.options).map((o) => o.value)).not.toContain('X1')
+  })
+
+  it('does not filter models that lack the discontinued flag (older API payloads)', () => {
+    render(
+      <PrinterModal
+        printer={editablePrinter}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        brandInfo={brandInfo}
+      />
+    )
+    const select = modelSelect()
+    expect(Array.from(select.options).map((o) => o.value)).toContain('X1C')
+  })
+})
+
 describe('PrinterModal — work_center_id payload (issue #577)', () => {
   it('sends work_center_id as null (not empty string) when editing a printer with no work center', async () => {
     const onSave = vi.fn()

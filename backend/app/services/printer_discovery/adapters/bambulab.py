@@ -21,6 +21,7 @@ from ..models import (
     PrinterConnectionConfig,
     ConnectionType,
     KNOWN_PRINTER_MODELS,
+    get_brand_model_options,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,17 +218,16 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
             },
         ]
 
-    def get_supported_models(self) -> List[Dict[str, str]]:
-        """Get list of BambuLab printer models"""
-        return [
-            {"value": "X1C", "label": "X1 Carbon"},
-            {"value": "X1", "label": "X1"},
-            {"value": "X1E", "label": "X1E"},
-            {"value": "P1S", "label": "P1S"},
-            {"value": "P1P", "label": "P1P"},
-            {"value": "A1", "label": "A1"},
-            {"value": "A1 Mini", "label": "A1 Mini"},
-        ]
+    def get_supported_models(self) -> List[Dict[str, Any]]:
+        """
+        Get list of BambuLab printer models.
+
+        Derived from KNOWN_PRINTER_MODELS so the dropdown, capability lookup,
+        and discontinued flag share one source of truth. Discontinued models
+        are included with `discontinued=True`; the client filters them out of
+        the new-printer dropdown only.
+        """
+        return get_brand_model_options(self.brand_code)
 
     def _parse_ssdp_response(self, response: str, ip_address: str) -> Optional[DiscoveredPrinter]:
         """Parse SSDP response to extract printer info"""

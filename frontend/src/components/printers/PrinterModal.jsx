@@ -54,9 +54,16 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
     fetchWorkCenters();
   }, []);
 
-  // Get models for selected brand
+  // Get models for selected brand.
+  // Discontinued models are hidden from the new-printer dropdown, but when
+  // editing an existing fleet row of that model the option must stay
+  // selectable so the select has a valid value and Save works (same pattern
+  // as PRO-locked brands above).
   const selectedBrand = brandInfo.find((b) => b.code === form.brand);
-  const models = selectedBrand?.models || [];
+  const allModels = selectedBrand?.models || [];
+  const models = allModels.filter(
+    (m) => !m.discontinued || (isEdit && m.value === printer?.model)
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -208,7 +215,9 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
               >
                 <option value="">Select model...</option>
                 {models.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.value} value={m.value}>
+                    {m.label}{m.discontinued ? " (discontinued)" : ""}
+                  </option>
                 ))}
               </select>
             ) : (

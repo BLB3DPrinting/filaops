@@ -54,6 +54,29 @@ class PrinterCapabilities(BaseModel):
     max_temp_hotend: Optional[int] = Field(None, description="Max hotend temperature")
     max_temp_bed: Optional[int] = Field(None, description="Max bed temperature")
 
+    # Canonical capability fields (WS1) — unit-suffixed names, mirrored from
+    # the printer-model catalog (services/printer_discovery/models.py).
+    bed_width_mm: Optional[int] = Field(None, description="Bed width in mm")
+    bed_depth_mm: Optional[int] = Field(None, description="Bed depth in mm")
+    bed_height_mm: Optional[int] = Field(None, description="Max height in mm")
+    has_enclosure: Optional[bool] = Field(None, description="Has enclosure")
+    has_active_chamber_heat: Optional[bool] = Field(
+        None, description="Has an active chamber heater (passive-warm enclosure = False)"
+    )
+    chamber_temp_max_c: Optional[int] = Field(None, description="Max chamber temperature in °C")
+    nozzle_count: Optional[int] = Field(None, description="Number of nozzles/toolheads")
+    nozzle_temp_max_c: Optional[int] = Field(None, description="Max nozzle temperature in °C")
+    has_ams_support: Optional[bool] = Field(None, description="AMS / CFS / MMU compatible")
+    max_material_slots: Optional[int] = Field(
+        None, description="Max material slots with full multi-material expansion"
+    )
+    dual_mode_bed_width_mm: Optional[int] = Field(
+        None, description="Usable bed width in dual-nozzle mode, in mm"
+    )
+    discontinued: Optional[bool] = Field(
+        None, description="Model no longer sold — hidden from new-printer dropdown only"
+    )
+
 
 # ============================================================================
 # Connection Configuration Schema
@@ -236,6 +259,9 @@ class PrinterModelInfo(BaseModel):
     value: str
     label: str
     capabilities: Optional[Dict[str, Any]] = None
+    # Discontinued models stay in the list (so editing an existing fleet row
+    # keeps its model selectable) but are hidden from the new-printer dropdown.
+    discontinued: bool = False
 
 
 class PrinterBrandInfo(BaseModel):

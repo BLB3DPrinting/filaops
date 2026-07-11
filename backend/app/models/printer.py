@@ -46,6 +46,10 @@ class Printer(Base):
     # Printer capabilities - JSON for feature detection
     # {"bed_size": [256, 256, 256], "heated_bed": true, "enclosure": true,
     #  "ams_slots": 4, "camera": true, "max_temp_hotend": 300}
+    # Canonical unit-suffixed keys (bed_width_mm, chamber_temp_max_c,
+    # nozzle_count, has_ams_support, discontinued, ...) come from the model
+    # catalog: app/services/printer_discovery/models.py::PrinterCapabilities.
+    # Schemaless on purpose — new capability fields need no migration.
     capabilities = Column(JSON, nullable=True, default=dict)
 
     # Status
