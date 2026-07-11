@@ -182,7 +182,7 @@ class DiscoveredPrinter(BaseModel):
 
 # Known printer models with their capabilities.
 #
-# VERIFY protocol (spec 876-printer-bridge Rev B §1.5): every row below was
+# VERIFY protocol (SPEC-printer-catalog-and-live-bridge Rev B §1.5): every row below was
 # checked against the official manufacturer spec page on 2026-07-11. Source
 # per model (secondary URL where the primary page omits a value):
 #

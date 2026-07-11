@@ -1,7 +1,7 @@
 """
 Tests for the printer-model catalog (services/printer_discovery/models.py).
 
-WS1 acceptance (spec 876-printer-bridge Rev B §1.7):
+WS1 acceptance (SPEC-printer-catalog-and-live-bridge Rev B §1.7):
 - Capability lookup correct for every catalog key.
 - Unknown model → default PrinterCapabilities() (existing fallback preserved).
 - Discontinued excluded from creation dropdowns, included in lookups.
