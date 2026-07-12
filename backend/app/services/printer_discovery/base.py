@@ -139,11 +139,12 @@ class PrinterDiscoveryAdapter(ABC):
             },
         ]
 
-    def get_supported_models(self) -> List[Dict[str, str]]:
+    def get_supported_models(self) -> List[Dict[str, Any]]:
         """
         Get list of known models for this brand.
 
-        Returns list of {"value": "model_code", "label": "Display Name"}
+        Returns list of {"value": "model_code", "label": "Display Name"} plus
+        optional "capabilities" (dict) and "discontinued" (bool) keys.
         Override to provide brand-specific model list.
         """
         return []

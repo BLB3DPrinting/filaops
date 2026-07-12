@@ -159,6 +159,41 @@ class TestBrandsInfo:
         assert "models" in brand
         assert "connection_fields" in brand
 
+    def test_models_carry_discontinued_flag(self, client):
+        """Every model entry exposes `discontinued` so the client can filter
+        the new-printer dropdown while keeping edit-mode selects valid."""
+        resp = client.get(f"{BASE_URL}/brands/info")
+        assert resp.status_code == 200
+        for brand in resp.json():
+            for model in brand["models"]:
+                assert "discontinued" in model, (
+                    f"{brand['code']}:{model['value']} missing discontinued flag"
+                )
+
+    def test_bambulab_discontinued_models_flagged(self, client):
+        """X1-series is discontinued (Apr 2026) but stays listed for edit mode;
+        current models are not flagged."""
+        resp = client.get(f"{BASE_URL}/brands/info")
+        assert resp.status_code == 200
+        bambu = next(b for b in resp.json() if b["code"] == "bambulab")
+        models = {m["value"]: m for m in bambu["models"]}
+        for value in ("X1C", "X1", "X1E"):
+            assert models[value]["discontinued"] is True, f"{value} should be discontinued"
+        for value in ("P1S", "A1", "A1 Mini"):
+            assert models[value]["discontinued"] is False, f"{value} should be current"
+
+    def test_bambulab_models_carry_capabilities(self, client):
+        """Catalog-derived model entries include unit-suffixed capability data."""
+        resp = client.get(f"{BASE_URL}/brands/info")
+        assert resp.status_code == 200
+        bambu = next(b for b in resp.json() if b["code"] == "bambulab")
+        assert len(bambu["models"]) > 0
+        for model in bambu["models"]:
+            caps = model["capabilities"]
+            assert caps is not None, f"{model['value']} missing capabilities"
+            assert caps["bed_width_mm"] is not None
+            assert caps["bed_height_mm"] is not None
+
 
 # =============================================================================
 # Active Work

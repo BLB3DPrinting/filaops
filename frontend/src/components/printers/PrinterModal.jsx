@@ -54,9 +54,16 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
     fetchWorkCenters();
   }, []);
 
-  // Get models for selected brand
+  // Get models for selected brand.
+  // Discontinued models stay selectable — fleet hardware outlives retail
+  // availability, so an owned X1C must still be registrable. They are
+  // labeled "(discontinued)" and sorted after the current lineup instead
+  // of being hidden (owner decision 2026-07-11, amending spec task 5).
   const selectedBrand = brandInfo.find((b) => b.code === form.brand);
-  const models = selectedBrand?.models || [];
+  const allModels = selectedBrand?.models || [];
+  const models = [...allModels].sort(
+    (a, b) => Number(!!a.discontinued) - Number(!!b.discontinued)
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -208,7 +215,9 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
               >
                 <option value="">Select model...</option>
                 {models.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.value} value={m.value}>
+                    {m.label}{m.discontinued ? " (discontinued)" : ""}
+                  </option>
                 ))}
               </select>
             ) : (

@@ -214,6 +214,7 @@ async def get_supported_brands(
                 value=m["value"],
                 label=m["label"],
                 capabilities=m.get("capabilities"),
+                discontinued=m.get("discontinued", False),
             )
             for m in adapter.get_supported_models()
         ]
