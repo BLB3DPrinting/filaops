@@ -696,7 +696,7 @@ async def get_sales_journal(
     query = db.query(SalesOrder).filter(
         SalesOrder.shipped_at >= start_date,
         SalesOrder.shipped_at <= end_date_eod,
-        SalesOrder.status.in_(["shipped", "completed"])
+        SalesOrder.status.in_(cogs_report_service.ANCHOR_STATUSES)
     )
 
     if status:
@@ -785,7 +785,7 @@ async def export_sales_journal_csv(
     orders = db.query(SalesOrder).filter(
         SalesOrder.shipped_at >= start_date,
         SalesOrder.shipped_at <= end_date_eod,
-        SalesOrder.status.in_(["shipped", "completed"])
+        SalesOrder.status.in_(cogs_report_service.ANCHOR_STATUSES)
     ).order_by(SalesOrder.shipped_at).all()
 
     output = io.StringIO()
@@ -868,12 +868,15 @@ async def get_tax_summary(
     # Tax liability is recognized when revenue is recognized (at shipment)
     orders = db.query(SalesOrder).filter(
         SalesOrder.shipped_at >= period_start,
-        SalesOrder.status.in_(["shipped", "completed"])
+        SalesOrder.status.in_(cogs_report_service.ANCHOR_STATUSES)
     ).all()
 
-    # Get pending orders (not yet shipped) to show future tax liability
+    # Get pending orders (not yet in an anchor/terminal state) to show future
+    # tax liability. Exclude the shared anchor set (#899) — not just the old
+    # shipped/completed pair — so a delivered order, now counted as *collected*
+    # above, can never also appear here (double-counted tax); plus cancelled.
     pending_orders = db.query(SalesOrder).filter(
-        SalesOrder.status.notin_(["shipped", "completed", "cancelled"]),
+        SalesOrder.status.notin_(cogs_report_service.ANCHOR_STATUSES + ("cancelled",)),
         SalesOrder.tax_amount > 0
     ).all()
 
@@ -998,7 +1001,7 @@ async def export_tax_summary_csv(
     # Use shipped_at for accrual accounting (tax liability at revenue recognition)
     orders = db.query(SalesOrder).filter(
         SalesOrder.shipped_at >= period_start,
-        SalesOrder.status.in_(["shipped", "completed"])
+        SalesOrder.status.in_(cogs_report_service.ANCHOR_STATUSES)
     ).order_by(SalesOrder.shipped_at).all()
 
     output = io.StringIO()
