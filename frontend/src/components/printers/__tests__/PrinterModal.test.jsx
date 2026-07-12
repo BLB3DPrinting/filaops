@@ -95,7 +95,7 @@ describe('PrinterModal — discontinued models (WS1 catalog refresh)', () => {
       Array.from(s.options).some((o) => o.value === 'H2D' || o.value === 'X1C')
     )
 
-  it('hides discontinued models from the new-printer dropdown', () => {
+  it('keeps discontinued models selectable in create mode, labeled and sorted last', () => {
     render(
       <PrinterModal
         printer={null}
@@ -110,14 +110,17 @@ describe('PrinterModal — discontinued models (WS1 catalog refresh)', () => {
     ).find((s) => Array.from(s.options).some((o) => o.value === 'bambulab'))
     fireEvent.change(brandSelect, { target: { value: 'bambulab' } })
 
-    const options = Array.from(modelSelect().options).map((o) => o.value)
-    expect(options).toContain('H2D')
-    expect(options).toContain('P1S')
-    expect(options).not.toContain('X1C')
-    expect(options).not.toContain('X1')
+    const options = Array.from(modelSelect().options).filter((o) => o.value !== '')
+    const values = options.map((o) => o.value)
+    // Owned-but-discontinued hardware must remain registrable
+    expect(values).toEqual(['H2D', 'P1S', 'X1C', 'X1']) // current lineup first
+    const x1c = options.find((o) => o.value === 'X1C')
+    expect(x1c.textContent).toContain('(discontinued)')
+    const h2d = options.find((o) => o.value === 'H2D')
+    expect(h2d.textContent).not.toContain('(discontinued)')
   })
 
-  it('keeps the printer\'s own discontinued model selectable in edit mode, with a suffix', () => {
+  it('keeps the printer\'s discontinued model selected in edit mode, with a suffix', () => {
     render(
       <PrinterModal
         printer={editablePrinter}
@@ -127,15 +130,12 @@ describe('PrinterModal — discontinued models (WS1 catalog refresh)', () => {
       />
     )
     const select = modelSelect()
-    const x1c = Array.from(select.options).find((o) => o.value === 'X1C')
-    expect(x1c).toBeTruthy()
-    expect(x1c.textContent).toContain('(discontinued)')
     expect(select.value).toBe('X1C')
-    // Other discontinued models stay hidden even in edit mode
-    expect(Array.from(select.options).map((o) => o.value)).not.toContain('X1')
+    const x1c = Array.from(select.options).find((o) => o.value === 'X1C')
+    expect(x1c.textContent).toContain('(discontinued)')
   })
 
-  it('does not filter models that lack the discontinued flag (older API payloads)', () => {
+  it('treats models without the discontinued flag as current (older API payloads)', () => {
     render(
       <PrinterModal
         printer={editablePrinter}
@@ -145,7 +145,9 @@ describe('PrinterModal — discontinued models (WS1 catalog refresh)', () => {
       />
     )
     const select = modelSelect()
-    expect(Array.from(select.options).map((o) => o.value)).toContain('X1C')
+    const x1c = Array.from(select.options).find((o) => o.value === 'X1C')
+    expect(x1c).toBeTruthy()
+    expect(x1c.textContent).not.toContain('(discontinued)')
   })
 })
 

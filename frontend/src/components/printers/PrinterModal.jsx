@@ -55,14 +55,14 @@ export default function PrinterModal({ printer, onClose, onSave, brandInfo = [] 
   }, []);
 
   // Get models for selected brand.
-  // Discontinued models are hidden from the new-printer dropdown, but when
-  // editing an existing fleet row of that model the option must stay
-  // selectable so the select has a valid value and Save works (same pattern
-  // as PRO-locked brands above).
+  // Discontinued models stay selectable — fleet hardware outlives retail
+  // availability, so an owned X1C must still be registrable. They are
+  // labeled "(discontinued)" and sorted after the current lineup instead
+  // of being hidden (owner decision 2026-07-11, amending spec task 5).
   const selectedBrand = brandInfo.find((b) => b.code === form.brand);
   const allModels = selectedBrand?.models || [];
-  const models = allModels.filter(
-    (m) => !m.discontinued || (isEdit && m.value === printer?.model)
+  const models = [...allModels].sort(
+    (a, b) => Number(!!a.discontinued) - Number(!!b.discontinued)
   );
 
   const handleSubmit = async (e) => {

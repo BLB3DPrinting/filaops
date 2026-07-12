@@ -74,7 +74,7 @@ class PrinterCapabilities(BaseModel):
         None, description="Usable bed width in dual-nozzle mode, in mm"
     )
     discontinued: Optional[bool] = Field(
-        None, description="Model no longer sold — hidden from new-printer dropdown only"
+        None, description="Model no longer sold — UI label/sort hint only, never gates usage"
     )
 
 
@@ -259,8 +259,9 @@ class PrinterModelInfo(BaseModel):
     value: str
     label: str
     capabilities: Optional[Dict[str, Any]] = None
-    # Discontinued models stay in the list (so editing an existing fleet row
-    # keeps its model selectable) but are hidden from the new-printer dropdown.
+    # No longer sold. UI metadata only — the client labels these
+    # "(discontinued)" and sorts them last; they stay fully selectable
+    # because owned fleet hardware outlives retail availability.
     discontinued: bool = False
 
 

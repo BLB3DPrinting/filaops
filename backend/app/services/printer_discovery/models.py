@@ -76,7 +76,9 @@ class PrinterCapabilities(BaseModel):
     has_ams_support: bool = False           # AMS / CFS / MMU compatible
     max_material_slots: Optional[int] = None  # 24 (H2S), 5 (MMU3), …
     dual_mode_bed_width_mm: Optional[int] = None  # dual-nozzle usable X width
-    discontinued: bool = False              # hide from new-printer dropdown only
+    # No longer sold. UI metadata only: labeled "(discontinued)" and sorted
+    # last in the creation dropdown — never gates connectivity or lookups.
+    discontinued: bool = False
 
     # --- Legacy fields (pre-WS1 names) ---
     # Build volume (mm)
@@ -593,9 +595,9 @@ def get_brand_model_options(brand: str) -> List[Dict[str, Any]]:
 
     Returns entries shaped for `/brands/info` model lists:
     {"value", "label", "capabilities", "discontinued"}. Discontinued models
-    are INCLUDED with the flag set — the client hides them from the
-    new-printer dropdown but keeps them selectable when editing an existing
-    fleet row of that model.
+    are INCLUDED with the flag set — the client labels them "(discontinued)"
+    and sorts them after the current lineup; they stay selectable because
+    owned fleet hardware outlives retail availability.
     """
     prefix = f"{brand}:"
     options: List[Dict[str, Any]] = []

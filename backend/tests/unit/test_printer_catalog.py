@@ -4,7 +4,8 @@ Tests for the printer-model catalog (services/printer_discovery/models.py).
 WS1 acceptance (SPEC-printer-catalog-and-live-bridge Rev B §1.7):
 - Capability lookup correct for every catalog key.
 - Unknown model → default PrinterCapabilities() (existing fallback preserved).
-- Discontinued excluded from creation dropdowns, included in lookups.
+- Discontinued labeled in creation dropdowns (never hidden or gated),
+  included in lookups.
 - Catalog module coverage 100%.
 """
 import pytest
@@ -212,8 +213,8 @@ class TestDiscontinuedFlags:
         assert flagged == self.DISCONTINUED_KEYS
 
     def test_discontinued_models_still_resolvable(self):
-        # Discontinued gates the creation dropdown only — lookups (existing
-        # fleet rows) must keep working.
+        # Discontinued is UI metadata only (label + sort) — lookups and
+        # connectivity for existing fleet rows must keep working.
         caps = get_model_capabilities("bambulab", "X1C")
         assert caps is not None
         assert caps.discontinued is True

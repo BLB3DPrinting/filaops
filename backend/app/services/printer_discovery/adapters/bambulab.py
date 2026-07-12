@@ -224,8 +224,8 @@ class BambuLabAdapter(PrinterDiscoveryAdapter):
 
         Derived from KNOWN_PRINTER_MODELS so the dropdown, capability lookup,
         and discontinued flag share one source of truth. Discontinued models
-        are included with `discontinued=True`; the client filters them out of
-        the new-printer dropdown only.
+        are included with `discontinued=True`; the client labels and sorts
+        them last in the dropdown — they remain selectable and connectable.
         """
         return get_brand_model_options(self.brand_code)
 
