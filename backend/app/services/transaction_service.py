@@ -26,6 +26,7 @@ from app.models.production_order import ScrapRecord
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.services import inventory_ledger
+from app.services.gl_account_map import inventory_account_for
 
 _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
 # Distinct namespace so ship-guard locks never collide with entry-number locks.
@@ -309,13 +310,27 @@ class TransactionService:
         Issue raw materials when production operation starts.
 
         Inventory: CONSUMPTION for each material (negative qty)
-        Accounting: DR WIP (1210), CR Raw Materials (1200)
+        Accounting: DR WIP (1210), CR inventory account by item_type (#910):
+            packaging -> 1230, finished_good BOM inputs -> 1220, else -> 1200.
 
         Returns:
             Tuple of (list of inventory transactions, journal entry)
         """
         inv_txns = []
         total_cost = Decimal("0")
+        cost_by_account: dict[str, Decimal] = {}
+
+        # Batch-load products so each consumption credits the SAME inventory
+        # account its purchase debited (#910). A flat CR 1200 here credited
+        # Raw Materials for packaging (PO debited 1230) and purchased
+        # finished-good BOM inputs (PO debited 1220), drifting those accounts
+        # permanently overstated — the consumption sibling of the receipt-side
+        # bug already fixed in receive_purchase_order.
+        product_ids = {mat.product_id for mat in materials}
+        products_by_id: dict[int, Product] = {
+            p.id: p
+            for p in self.db.query(Product).filter(Product.id.in_(product_ids))
+        } if product_ids else {}
 
         for mat in materials:
             inv_txn = self._post_inventory(
@@ -330,18 +345,30 @@ class TransactionService:
             )
             inv_txns.append(inv_txn)
 
-            total_cost += mat.quantity * mat.unit_cost
+            cost = mat.quantity * mat.unit_cost
+            total_cost += cost
+            product = products_by_id.get(mat.product_id)
+            cr_account = inventory_account_for(
+                product.item_type if product else None
+            )
+            cost_by_account[cr_account] = (
+                cost_by_account.get(cr_account, Decimal("0")) + cost
+            )
 
-        # Create journal entry: DR WIP, CR Raw Materials
+        # Create journal entry: DR WIP, CR inventory accounts by item_type.
         # Skip GL entry if total cost is zero (no monetary value to record)
         je = None
         if total_cost > 0:
+            je_lines: List[Tuple[str, Decimal, str]] = [
+                ("1210", total_cost, "DR"),  # WIP Inventory
+            ]
+            je_lines.extend(
+                (account, amount, "CR")
+                for account, amount in sorted(cost_by_account.items())
+            )
             je = self._create_journal_entry(
                 description=f"Material issue for PO#{production_order_id} op {operation_sequence}",
-                lines=[
-                    ("1210", total_cost, "DR"),  # WIP Inventory
-                    ("1200", total_cost, "CR"),  # Raw Materials Inventory
-                ],
+                lines=je_lines,
                 source_type="production_order",
                 source_id=production_order_id,
                 user_id=user_id,
@@ -754,15 +781,13 @@ class TransactionService:
             cost = item.quantity * item.unit_cost
             total_cost += cost
 
-            # Same item_type -> account map as cycle_count_adjustment (#880):
-            # a flat DR 1200 sends packaging purchases to Raw Materials while
-            # shipping credits 1230, driving Packaging Inventory negative.
+            # Shared item_type -> account map (#910): a flat DR 1200 would send
+            # packaging purchases to Raw Materials while shipping credits 1230,
+            # driving Packaging Inventory negative.
             product = products_by_id.get(item.product_id)
-            inv_account = "1200"  # Default: Raw Materials
-            if product and product.item_type == "finished_good":
-                inv_account = "1220"
-            elif product and product.item_type == "packaging":
-                inv_account = "1230"
+            inv_account = inventory_account_for(
+                product.item_type if product else None
+            )
             cost_by_account[inv_account] = (
                 cost_by_account.get(inv_account, Decimal("0")) + cost
             )
@@ -831,12 +856,8 @@ class TransactionService:
         if not product:
             raise ValueError(f"Product {product_id} not found")
 
-        # Map product type to inventory account
-        inv_account = "1200"  # Default: Raw Materials
-        if product.item_type == "finished_good":
-            inv_account = "1220"
-        elif product.item_type == "packaging":
-            inv_account = "1230"
+        # Shared item_type -> account map (#910).
+        inv_account = inventory_account_for(product.item_type)
 
         unit_cost = product.standard_cost or product.average_cost or Decimal("0")
         total_cost = abs(variance) * unit_cost

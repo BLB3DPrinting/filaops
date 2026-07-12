@@ -15,6 +15,7 @@ from app.logging_config import get_logger
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine, GLFiscalPeriod
 from app.models.inventory import Inventory
 from app.models.product import Product
+from app.services.gl_account_map import inventory_account_for
 
 logger = get_logger(__name__)
 
@@ -201,15 +202,16 @@ def get_inventory_valuation(db: Session, *, as_of_date: date | None = None) -> d
     if as_of_date is None:
         as_of_date = date.today()
 
-    # Define category mappings
-    # item_type -> (category_name, gl_account_code)
+    # Define category mappings: item_type -> (category_name, gl_account_code).
+    # Labels stay local; account codes come from the shared map (#910) so this
+    # valuation surface can never drift from what the posters actually book.
     # Valid inventory item_types: finished_good, component, packaging, supply.
     # WIP (1210) exists for journal entries, but has no corresponding item_type.
     category_map = {
-        "supply": ("Raw Materials", "1200"),
-        "component": ("Components", "1200"),
-        "packaging": ("Packaging", "1230"),
-        "finished_good": ("Finished Goods", "1220"),
+        "supply": ("Raw Materials", inventory_account_for("supply")),
+        "component": ("Components", inventory_account_for("component")),
+        "packaging": ("Packaging", inventory_account_for("packaging")),
+        "finished_good": ("Finished Goods", inventory_account_for("finished_good")),
     }
 
     categories = []
