@@ -16,8 +16,10 @@ from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 from app.services.payment_service import (
+    _money,
     post_invoice_receivable,
     record_payment_and_reconcile,
+    reverse_invoice_receivable,
     update_order_payment_status,
 )
 
@@ -444,6 +446,65 @@ def mark_sent(db: Session, invoice_id: int) -> Invoice:
     invoice.status = "sent"
     invoice.sent_at = datetime.now(timezone.utc)
     post_invoice_receivable(db, invoice)
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+
+def void_invoice(
+    db: Session,
+    invoice_id: int,
+    reason: str,
+    voided_by_id: Optional[int] = None,
+) -> Invoice:
+    """Void an invoice: reverse its posted receivable GL and mark it voided.
+
+    Guards:
+      - 422 if ``reason`` is missing/blank (also enforced by the request schema).
+      - 404 if the invoice does not exist.
+      - 400 if it is already ``voided``/``cancelled`` (idempotent-safe: no
+        second reversal JE is ever posted).
+      - 409 if the invoice has attributed completed payments
+        (``amount_paid`` != 0). Those must be voided/refunded first so each
+        reversal stays a clean 1:1 mirror (matches how the ledger unwinds a
+        payment before the invoice).
+
+    GL: if a non-voided invoice-receivable JE exists, post a mirror reversal
+    (``source_type='invoice_void'``, idempotent). A draft invoice with no
+    posted JE is a status-only void — no JE. Sets status='voided',
+    voided_at, voided_by_id, void_reason. Commits.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Void reason is required")
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    if invoice.status in ("voided", "cancelled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invoice is already {invoice.status}",
+        )
+
+    if _money(invoice.amount_paid) != 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Invoice has attributed payments; void or refund the payments "
+                "first, then void the invoice"
+            ),
+        )
+
+    # Mirror-reverse the posted receivable (no-op for a draft with no JE).
+    reverse_invoice_receivable(db, invoice, user_id=voided_by_id, reason=reason)
+
+    invoice.status = "voided"
+    invoice.voided_at = datetime.now(timezone.utc)
+    invoice.voided_by_id = voided_by_id
+    invoice.void_reason = reason
+
     db.commit()
     db.refresh(invoice)
     return invoice

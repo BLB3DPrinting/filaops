@@ -1,5 +1,5 @@
 """Invoice Pydantic schemas."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
@@ -29,6 +29,11 @@ class InvoiceUpdate(BaseModel):
     amount_paid: Optional[Decimal] = None
     payment_method: Optional[str] = None
     payment_reference: Optional[str] = None
+
+
+class InvoiceVoidRequest(BaseModel):
+    """Body for POST /invoices/{id}/void — a non-empty reason is required."""
+    reason: str = Field(..., min_length=1, max_length=255)
 
 
 class InvoiceResponse(BaseModel):
@@ -62,6 +67,9 @@ class InvoiceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     sent_at: Optional[datetime] = None
+    voided_at: Optional[datetime] = None
+    voided_by_id: Optional[int] = None
+    void_reason: Optional[str] = None
     pdf_path: Optional[str] = None
     lines: List[InvoiceLineResponse] = []
     order_number: Optional[str] = None

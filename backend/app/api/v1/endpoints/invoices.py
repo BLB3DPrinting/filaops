@@ -1,5 +1,5 @@
 """Invoice API endpoints."""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -8,7 +8,13 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.models.sales_order import SalesOrder
-from app.schemas.invoice import InvoiceCreate, InvoiceUpdate, InvoiceResponse, InvoiceListResponse
+from app.schemas.invoice import (
+    InvoiceCreate,
+    InvoiceUpdate,
+    InvoiceResponse,
+    InvoiceListResponse,
+    InvoiceVoidRequest,
+)
 from app.services import invoice_service
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
@@ -122,10 +128,24 @@ def update_invoice(
         )
     else:
         invoice = invoice_service.get_invoice(db, invoice_id)
-        if data.status:
-            invoice.status = data.status
-            db.commit()
-            db.refresh(invoice)
+        if data.status is not None:
+            # Status whitelist (#894): PATCH may only perform the draft -> sent
+            # transition. It used to write ANY string straight to the row —
+            # PATCH {status:'voided'} / {status:'paid'} silently forked the
+            # books from the ledger (same class as #838). Every other status
+            # change must go through its dedicated GL-aware endpoint.
+            if data.status == "sent" and invoice.status == "draft":
+                invoice = invoice_service.mark_sent(db, invoice_id)
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Invoice status cannot be set to '{data.status}' via "
+                        "PATCH. Use POST /invoices/{id}/send to send, "
+                        "POST /invoices/{id}/void to void, or record a payment "
+                        "to mark it paid."
+                    ),
+                )
     return _build_invoice_response(invoice, db)
 
 
@@ -153,4 +173,23 @@ def send_invoice(
     current_user: User = Depends(get_current_staff_user),
 ):
     invoice = invoice_service.mark_sent(db, invoice_id)
+    return _build_invoice_response(invoice, db)
+
+
+@router.post("/{invoice_id}/void", response_model=InvoiceResponse)
+def void_invoice(
+    invoice_id: int,
+    data: InvoiceVoidRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_staff_user),
+):
+    """Void an invoice, posting a mirror GL reversal of its posted receivable.
+
+    404 unknown; 400 already voided/cancelled; 409 if it has attributed
+    completed payments (void/refund those first). A draft with no posted JE
+    is a status-only void.
+    """
+    invoice = invoice_service.void_invoice(
+        db, invoice_id, reason=data.reason, voided_by_id=current_user.id
+    )
     return _build_invoice_response(invoice, db)
