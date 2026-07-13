@@ -87,6 +87,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.product import Product
+from app.services.gl_account_map import inventory_account_for
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -392,12 +393,8 @@ def post_reconciliation_baseline(
             )
             total_cost = abs(delta) * unit_cost
 
-            # Map product type to inventory account (mirrors cycle_count_adjustment)
-            inv_account = "1200"
-            if product.item_type == "finished_good":
-                inv_account = "1220"
-            elif product.item_type == "packaging":
-                inv_account = "1230"
+            # Shared item_type -> account map (#910).
+            inv_account = inventory_account_for(product.item_type)
 
             if total_cost > 0:
                 # overage (delta > 0): DR Inventory, CR Inv Adjustment

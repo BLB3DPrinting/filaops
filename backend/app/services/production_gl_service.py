@@ -13,12 +13,14 @@ material cost through WIP (1210) into Finished Goods (1220) at the
 receipt values, routing the difference to 5200 "COGS - Other" as a
 production variance:
 
-    DR 1210  total consumption (materials + packaging + labor)
-    CR 1200  non-packaging material consumption
-    CR 1230  packaging-component consumption
+    DR 1210  total consumption (materials + packaging + labor + FG inputs)
+    CR 1200  component / material / supply consumption
+    CR 1230  packaging consumption
+    CR 1220  purchased finished-good BOM-input consumption
     CR 5100  SVC- labor consumption
-    DR 1220  finished-goods receipts / CR 1210 same
-    V = FG + S - M   (S = this PO's already-posted scrap-JE 1210 credits)
+    DR acct  receipts by item_type (1200/1220/1230 per #910 map) / CR 1210 same
+    V = R + S - C   (R = receipts total; S = this PO's scrap-JE 1210 credits;
+                     C = total consumption)
       V > 0:  DR 1210 V / CR 5200 V
       V < 0:  DR 5200 |V| / CR 1210 |V|
 
@@ -54,6 +56,7 @@ from app.logging_config import get_logger
 from app.models.accounting import GLAccount, GLJournalEntry, GLJournalEntryLine
 from app.models.inventory import InventoryTransaction
 from app.models.production_order import ProductionOrder, ScrapRecord
+from app.services.gl_account_map import inventory_account_for
 
 logger = get_logger(__name__)
 
@@ -94,21 +97,45 @@ class CompletionGLPreview:
 
     Built by the same code the poster runs, so the backfill script's
     dry-run output can never drift from the real posting.
+
+    Consumption and receipts are held as account-keyed maps (#910) so a
+    manufactured component consumed/received routes to its own inventory
+    account instead of a hard-coded 1200/1220. The named scalar properties
+    (material_cost/packaging_cost/labor_cost/finished_goods_value) are kept
+    as views over those maps for the logging + backfill call sites.
     """
     production_order_id: int
     production_order_code: str
     transaction_ids: List[int]
-    material_cost: Decimal        # consumption, non-packaging, non-SVC → CR 1200
-    packaging_cost: Decimal       # consumption, packaging item_type → CR 1230
-    labor_cost: Decimal           # consumption, SVC- prefix → CR 5100
-    finished_goods_value: Decimal  # receipts → DR 1220 / CR 1210
+    consumption_by_account: dict[str, Decimal]  # CR side: account -> amount
+    receipt_by_account: dict[str, Decimal]      # DR side: account -> amount
     scrap_wip_credits: Decimal    # S: prior scrap-JE 1210 credits
-    variance: Decimal             # V = FG + S − (mat + pkg + labor)
+    variance: Decimal             # V = receipts + S − consumption
     lines: List[Tuple[str, Decimal, str]]
 
     @property
+    def material_cost(self) -> Decimal:
+        """Consumption credited to Raw Materials (1200)."""
+        return self.consumption_by_account.get(RAW_MATERIALS_ACCOUNT, Decimal("0.00"))
+
+    @property
+    def packaging_cost(self) -> Decimal:
+        """Consumption credited to Packaging (1230)."""
+        return self.consumption_by_account.get(PACKAGING_ACCOUNT, Decimal("0.00"))
+
+    @property
+    def labor_cost(self) -> Decimal:
+        """SVC- consumption credited to Direct Labor (5100)."""
+        return self.consumption_by_account.get(DIRECT_LABOR_ACCOUNT, Decimal("0.00"))
+
+    @property
+    def finished_goods_value(self) -> Decimal:
+        """Total production receipts (DR by item_type map, CR 1210)."""
+        return sum(self.receipt_by_account.values(), Decimal("0.00"))
+
+    @property
     def total_consumption(self) -> Decimal:
-        return self.material_cost + self.packaging_cost + self.labor_cost
+        return sum(self.consumption_by_account.values(), Decimal("0.00"))
 
 
 def _ensure_completion_gl_accounts(db: Session) -> None:
@@ -218,44 +245,52 @@ def _build_preview(
     production_order: ProductionOrder,
     txns: List[InventoryTransaction],
 ) -> CompletionGLPreview:
-    material = Decimal("0.00")
-    packaging = Decimal("0.00")
-    labor = Decimal("0.00")
-    finished_goods = Decimal("0.00")
+    # CR side (consumption) and DR side (receipts), each keyed by the account
+    # the shared item_type map (#910) routes the row to. A manufactured
+    # component consumed as a BOM input credits 1200; a purchased finished_good
+    # BOM input credits 1220; packaging credits 1230; SVC- labor credits 5100.
+    # Receipts debit their mapped inventory account (component->1200,
+    # packaging->1230, finished_good->1220) instead of a flat DR 1220.
+    consumption_by_account: dict[str, Decimal] = {}
+    receipt_by_account: dict[str, Decimal] = {}
 
     for txn in txns:
         cost = _txn_cost(txn)
-        if txn.transaction_type == "receipt":
-            # Includes overrun receipts — both rows receive FG at the
-            # product's effective cost frozen on the transaction.
-            finished_goods += cost
-            continue
         product = txn.product
-        sku = (product.sku if product else "") or ""
         item_type = (product.item_type if product else "") or ""
+        if txn.transaction_type == "receipt":
+            # Includes overrun receipts — both rows receive at the product's
+            # effective cost frozen on the transaction.
+            account = inventory_account_for(item_type)
+            receipt_by_account[account] = (
+                receipt_by_account.get(account, Decimal("0.00")) + cost
+            )
+            continue
+        sku = (product.sku if product else "") or ""
         if sku.startswith(LABOR_SKU_PREFIX):
-            labor += cost
-        elif item_type == "packaging":
-            packaging += cost
+            account = DIRECT_LABOR_ACCOUNT
         else:
-            material += cost
+            account = inventory_account_for(item_type)
+        consumption_by_account[account] = (
+            consumption_by_account.get(account, Decimal("0.00")) + cost
+        )
 
     scrap_credits = _scrap_wip_credits(db, production_order.id)
-    total_consumption = material + packaging + labor
-    variance = finished_goods + scrap_credits - total_consumption
+    total_consumption = sum(consumption_by_account.values(), Decimal("0.00"))
+    total_receipts = sum(receipt_by_account.values(), Decimal("0.00"))
+    variance = total_receipts + scrap_credits - total_consumption
 
     lines: List[Tuple[str, Decimal, str]] = []
     if total_consumption > 0:
         lines.append((WIP_ACCOUNT, total_consumption, "DR"))
-    if material > 0:
-        lines.append((RAW_MATERIALS_ACCOUNT, material, "CR"))
-    if packaging > 0:
-        lines.append((PACKAGING_ACCOUNT, packaging, "CR"))
-    if labor > 0:
-        lines.append((DIRECT_LABOR_ACCOUNT, labor, "CR"))
-    if finished_goods > 0:
-        lines.append((FINISHED_GOODS_ACCOUNT, finished_goods, "DR"))
-        lines.append((WIP_ACCOUNT, finished_goods, "CR"))
+    for account, amount in sorted(consumption_by_account.items()):
+        if amount > 0:
+            lines.append((account, amount, "CR"))
+    for account, amount in sorted(receipt_by_account.items()):
+        if amount > 0:
+            lines.append((account, amount, "DR"))
+    if total_receipts > 0:
+        lines.append((WIP_ACCOUNT, total_receipts, "CR"))
     # Variance so WIP nets to exactly zero per completed order — the S term
     # offsets scrap entries that already credited 1210 mid-order.
     if variance > 0:
@@ -269,10 +304,8 @@ def _build_preview(
         production_order_id=production_order.id,
         production_order_code=production_order.code,
         transaction_ids=[txn.id for txn in txns],
-        material_cost=material,
-        packaging_cost=packaging,
-        labor_cost=labor,
-        finished_goods_value=finished_goods,
+        consumption_by_account=consumption_by_account,
+        receipt_by_account=receipt_by_account,
         scrap_wip_credits=scrap_credits,
         variance=variance,
         lines=lines,
