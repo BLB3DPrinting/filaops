@@ -1424,3 +1424,37 @@ class TestRecostAllItems:
         result = item_service.recost_all_items(db)
         skipped_or_not = True  # The function skips items with total_cost == 0
         assert "skipped" in result
+
+
+class TestSliceFileExposure:
+    """gcode_file_path (the saved .gcode.3mf download path set by the PRO intake
+    flow) must be exposed on BOTH the item detail and list payloads, so an
+    operator can reprint from a persistent page rather than only the intake
+    wizard's post-create success screen."""
+
+    SLICE_PATH = "/api/v1/pro/intake/products/{id}/slice-file"
+
+    def test_detail_response_includes_gcode_file_path(self, db, make_product):
+        product = make_product(sku="SLICE-DETAIL-001")
+        product.gcode_file_path = self.SLICE_PATH.format(id=product.id)
+        db.commit()
+
+        data = item_service.build_item_response_data(product, db)
+        assert data["gcode_file_path"] == self.SLICE_PATH.format(id=product.id)
+
+    def test_detail_response_gcode_file_path_none_when_unset(self, db, make_product):
+        product = make_product(sku="SLICE-DETAIL-NONE")
+        db.commit()
+
+        data = item_service.build_item_response_data(product, db)
+        assert data["gcode_file_path"] is None
+
+    def test_list_response_includes_gcode_file_path(self, db, make_product):
+        product = make_product(sku="SLICE-LIST-001")
+        product.gcode_file_path = self.SLICE_PATH.format(id=product.id)
+        db.commit()
+
+        rows, _total = item_service.list_items(db, search="SLICE-LIST-001")
+        match = next((r for r in rows if r["sku"] == "SLICE-LIST-001"), None)
+        assert match is not None
+        assert match["gcode_file_path"] == self.SLICE_PATH.format(id=product.id)

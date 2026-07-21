@@ -256,6 +256,10 @@ class ItemListResponse(BaseModel):
     has_bom: bool = False
     has_routing: bool = False
 
+    # Slice file (populated by the PRO intake flow; full download path to the
+    # saved .gcode.3mf, e.g. /api/v1/pro/intake/products/{id}/slice-file)
+    gcode_file_path: Optional[str] = None
+
     # Material info (for filament items)
     material_type_id: Optional[int] = None
     color_id: Optional[int] = None
@@ -299,6 +303,10 @@ class ItemResponse(ItemBase):
     has_bom: bool = False
     bom_count: int = 0
     has_routing: bool = False
+
+    # Slice file (populated by the PRO intake flow; full download path to the
+    # saved .gcode.3mf, e.g. /api/v1/pro/intake/products/{id}/slice-file)
+    gcode_file_path: Optional[str] = None
 
     # Material info (for filament items)
     material_type_code: Optional[str] = None

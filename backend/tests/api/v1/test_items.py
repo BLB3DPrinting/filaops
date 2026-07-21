@@ -201,6 +201,24 @@ class TestListItems:
         body = resp.json()
         assert len(body["items"]) <= 2
 
+    def test_list_response_has_gcode_file_path(self, client, make_product):
+        product = make_product(
+            name="List Slice File Test",
+            gcode_file_path="/api/v1/pro/intake/products/456/slice-file",
+        )
+        resp = client.get(BASE_URL, params={"search": "List Slice File Test"})
+        assert resp.status_code == 200
+        body = resp.json()
+        item = next(item for item in body["items"] if item["sku"] == product.sku)
+        assert item["gcode_file_path"] == "/api/v1/pro/intake/products/456/slice-file"
+
+    def test_list_response_gcode_file_path_null_when_unset(self, client, make_product):
+        product = make_product(name="List No Slice File Test")
+        resp = client.get(BASE_URL, params={"search": "List No Slice File Test"})
+        body = resp.json()
+        item = next(item for item in body["items"] if item["sku"] == product.sku)
+        assert item["gcode_file_path"] is None
+
     def test_list_pagination_offset(self, client, make_product):
         for i in range(5):
             make_product(name=f"Offset Item {i}")
@@ -478,6 +496,21 @@ class TestGetItem:
         body = resp.json()
         assert "created_at" in body
         assert "updated_at" in body
+
+    def test_get_item_response_has_gcode_file_path(self, client, make_product):
+        product = make_product(
+            name="Slice File Test",
+            gcode_file_path="/api/v1/pro/intake/products/123/slice-file",
+        )
+        resp = client.get(f"{BASE_URL}/{product.id}")
+        body = resp.json()
+        assert body["gcode_file_path"] == "/api/v1/pro/intake/products/123/slice-file"
+
+    def test_get_item_response_gcode_file_path_null_when_unset(self, client, make_product):
+        product = make_product(name="No Slice File Test")
+        resp = client.get(f"{BASE_URL}/{product.id}")
+        body = resp.json()
+        assert body["gcode_file_path"] is None
 
 
 # =============================================================================

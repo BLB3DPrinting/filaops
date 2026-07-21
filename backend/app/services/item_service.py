@@ -598,6 +598,7 @@ def list_items(
                 "image_url": item.image_url,
                 "has_bom": item.has_bom or item.id in bom_ids,
                 "has_routing": item.id in routing_ids,
+                "gcode_file_path": item.gcode_file_path,
                 "parent_product_id": item.parent_product_id,
                 "is_template": item.is_template,
                 "variant_count": variant_count_map.get(item.id, 0),
@@ -990,6 +991,7 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         "has_bom": item.has_bom or bom_count > 0,
         "bom_count": bom_count,
         "has_routing": has_active_routing,
+        "gcode_file_path": item.gcode_file_path,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

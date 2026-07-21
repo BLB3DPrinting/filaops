@@ -155,6 +155,51 @@ class TestGetItem:
 
 
 # =============================================================================
+# gcode_file_path — slice-file download path exposed on detail + list
+# =============================================================================
+
+class TestSliceFilePath:
+    """The PRO intake flow stores a slice-file download path on the product;
+    the item API must surface it (on both detail and list responses) so a
+    persistent download button can link to the saved .gcode.3mf.
+    """
+
+    def _slice_path(self, product_id):
+        # Mirror the value the PRO wheel writes onto Product.gcode_file_path.
+        return f"/api/v1/pro/intake/products/{product_id}/slice-file"
+
+    def test_detail_exposes_gcode_file_path_when_set(self, client, make_product):
+        p = make_product(name=f"SliceDetail-{_uid()}")
+        p.gcode_file_path = self._slice_path(p.id)
+        resp = client.get(f"{BASE}/{p.id}")
+        assert resp.status_code == 200
+        assert resp.json()["gcode_file_path"] == self._slice_path(p.id)
+
+    def test_list_exposes_gcode_file_path_when_set(self, client, make_product):
+        uid = _uid()
+        p = make_product(name=f"SliceList-{uid}")
+        p.gcode_file_path = self._slice_path(p.id)
+        resp = client.get(BASE, params={"search": f"SliceList-{uid}"})
+        assert resp.status_code == 200
+        match = next(i for i in resp.json()["items"] if i["id"] == p.id)
+        assert match["gcode_file_path"] == self._slice_path(p.id)
+
+    def test_detail_gcode_file_path_null_safe_when_unset(self, client, make_product):
+        p = make_product(name=f"SliceNoneDetail-{_uid()}")
+        resp = client.get(f"{BASE}/{p.id}")
+        assert resp.status_code == 200
+        assert resp.json()["gcode_file_path"] is None
+
+    def test_list_gcode_file_path_null_safe_when_unset(self, client, make_product):
+        uid = _uid()
+        p = make_product(name=f"SliceNoneList-{uid}")
+        resp = client.get(BASE, params={"search": f"SliceNoneList-{uid}"})
+        assert resp.status_code == 200
+        match = next(i for i in resp.json()["items"] if i["id"] == p.id)
+        assert match["gcode_file_path"] is None
+
+
+# =============================================================================
 # POST /api/v1/items — create item
 # =============================================================================
 

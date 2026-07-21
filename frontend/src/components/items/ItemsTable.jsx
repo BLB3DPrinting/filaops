@@ -2,6 +2,7 @@
  * ItemsTable - Table view for items with sorting, inline editing, bulk selection, and pagination.
  */
 import { useFormatCurrency } from "../../hooks/useFormatCurrency";
+import { API_URL } from "../../config/api";
 
 // Item type options (for display labels)
 const ITEM_TYPES = [
@@ -524,6 +525,16 @@ export default function ItemsTable({
                         Route/BOM
                       </button>
                     </>
+                  )}
+                  {item.gcode_file_path && (
+                    <a
+                      href={`${API_URL}${item.gcode_file_path}`}
+                      download
+                      className="text-cyan-400 hover:text-cyan-300 text-sm"
+                      title="Download the saved slice file (.gcode.3mf) to send to a printer"
+                    >
+                      Slice file
+                    </a>
                   )}
                 </div>
               </td>
