@@ -180,6 +180,10 @@ docs/T-REX-Implementation-Report.md
 docs/T-REX-Implementation-Report.pdf
 docs/AI_Agent_Governance_Gap_Analysis.pdf
 docs/BLIND_TEST_RECOVERY.md
+
+# Demo-instance working docs (live in the private filaops-demo-deploy repo)
+docs/DEMO_*
+
 .worktrees/
 
 # Documentation assets (screenshots, logos) must be tracked despite *.png above
