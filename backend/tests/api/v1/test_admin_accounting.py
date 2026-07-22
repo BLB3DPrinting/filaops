@@ -1177,3 +1177,110 @@ class TestEdgeCases:
             assert resp.status_code == 200, (
                 f"Endpoint {endpoint} returned {resp.status_code}: {resp.text[:200]}"
             )
+
+
+# =============================================================================
+# TEST: Delivered orders anchor on the shared status set (#899)
+# =============================================================================
+
+class TestDeliveredOrderAnchorStatuses:
+    """Regression tests for #899: a 'delivered' sales order must surface on the
+    revenue/tax surfaces (sales journal, Tax Center, and both CSV exports) the
+    same way 'shipped'/'completed' orders do.
+
+    Epic #880 (PR #897) unified every COGS surface on
+    ``cogs_report_service.ANCHOR_STATUSES = ('shipped', 'completed', 'delivered')``,
+    but five inline status filters on these revenue/tax surfaces still used the
+    old ('shipped', 'completed') pair — so an order advancing to 'delivered'
+    silently vanished from the sales journal and Tax Center, understating tax
+    liability. These tests pin the widened behavior at every one of the five
+    sites (sales journal, its CSV, Tax Center collected, the pending complement,
+    and the tax CSV).
+
+    All assertions are delta-based: the shared test DB accumulates committed
+    rows across runs, so we never assert absolute counts (see MEMORY note).
+    """
+
+    def _make_delivered_taxed_order(self, make_sales_order, db):
+        """A 'delivered' order carrying tax, shipped in the current period."""
+        now = datetime.now(timezone.utc)
+        order = make_sales_order(
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            status="delivered",
+            shipped_at=now,
+            tax_amount=Decimal("8.00"),
+            tax_rate=Decimal("0.08"),
+            is_taxable=True,
+        )
+        db.commit()
+        return order
+
+    def test_delivered_order_appears_in_sales_journal(self, client, db, make_sales_order):
+        """A 'delivered' order must show in the sales journal (excluded pre-#899)."""
+        order = self._make_delivered_taxed_order(make_sales_order, db)
+
+        params = {"start_date": "2020-01-01T00:00:00", "end_date": "2030-12-31T23:59:59"}
+        resp = client.get(f"{BASE}/sales-journal", params=params)
+        assert resp.status_code == 200
+        order_numbers = {e["order_number"] for e in resp.json()["entries"]}
+        assert order.order_number in order_numbers, (
+            "delivered order must appear in the sales journal"
+        )
+
+    def test_delivered_order_contributes_to_tax_collected(self, client, db, make_sales_order):
+        """Tax Center 'collected' totals must include a delivered order's tax."""
+        before = client.get(
+            f"{BASE}/tax-summary", params={"period": "year"}
+        ).json()["summary"]
+
+        self._make_delivered_taxed_order(make_sales_order, db)
+
+        after = client.get(
+            f"{BASE}/tax-summary", params={"period": "year"}
+        ).json()["summary"]
+
+        assert round(after["tax_collected"] - before["tax_collected"], 2) == 8.00, (
+            "delivered order's tax must be counted as collected"
+        )
+        assert after["order_count"] - before["order_count"] >= 1
+
+    def test_delivered_order_not_in_pending_tax(self, client, db, make_sales_order):
+        """A delivered order counted as collected must NOT also appear as pending
+        tax — otherwise the same liability is double-counted. This pins the
+        site-4 widening: notin_(anchor + cancelled), not the old pair."""
+        before = client.get(
+            f"{BASE}/tax-summary", params={"period": "year"}
+        ).json()["pending"]
+
+        self._make_delivered_taxed_order(make_sales_order, db)
+
+        after = client.get(
+            f"{BASE}/tax-summary", params={"period": "year"}
+        ).json()["pending"]
+
+        assert round(after["tax_amount"] - before["tax_amount"], 2) == 0.00, (
+            "delivered order's tax must not land in pending (already collected)"
+        )
+        assert after["order_count"] - before["order_count"] == 0
+
+    def test_delivered_order_in_sales_journal_csv(self, client, db, make_sales_order):
+        """The sales-journal CSV export must include a delivered order."""
+        order = self._make_delivered_taxed_order(make_sales_order, db)
+
+        params = {"start_date": "2020-01-01T00:00:00", "end_date": "2030-12-31T23:59:59"}
+        resp = client.get(f"{BASE}/sales-journal/export", params=params)
+        assert resp.status_code == 200
+        assert order.order_number in resp.text, (
+            "delivered order must appear in the sales-journal CSV export"
+        )
+
+    def test_delivered_order_in_tax_summary_csv(self, client, db, make_sales_order):
+        """The tax-summary CSV export must include a delivered order."""
+        order = self._make_delivered_taxed_order(make_sales_order, db)
+
+        resp = client.get(f"{BASE}/tax-summary/export", params={"period": "year"})
+        assert resp.status_code == 200
+        assert order.order_number in resp.text, (
+            "delivered order must appear in the tax-summary CSV export"
+        )
