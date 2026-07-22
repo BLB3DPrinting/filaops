@@ -50,6 +50,13 @@ class Invoice(Base):
     external_invoice_url = Column(String(500), nullable=True)
     external_provider = Column(String(20), nullable=True)
 
+    # Void audit trail (set when an invoice is voided via POST /invoices/{id}/void).
+    # A voided invoice is terminal and out of the AR picture; if it had a posted
+    # receivable JE, a mirror reversal (source_type='invoice_void') is posted.
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    voided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    void_reason = Column(String(255), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

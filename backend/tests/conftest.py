@@ -377,6 +377,17 @@ def setup_database():
         conn.execute(text(
             "ALTER TABLE production_order_operations ADD COLUMN IF NOT EXISTS operation_type VARCHAR(30)"
         ))
+        # #894 PR-A: invoice void audit trail (migration 102). create_all won't
+        # ALTER the pre-existing invoices table in the accumulated test DB.
+        conn.execute(text(
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ"
+        ))
+        conn.execute(text(
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS voided_by_id INTEGER"
+        ))
+        conn.execute(text(
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS void_reason VARCHAR(255)"
+        ))
         conn.commit()
 
     # Seed required data

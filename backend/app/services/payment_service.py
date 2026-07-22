@@ -101,6 +101,71 @@ def post_invoice_receivable(db: Session, invoice, user_id: int | None = None) ->
     )
 
 
+def reverse_invoice_receivable(
+    db: Session,
+    invoice,
+    user_id: int | None = None,
+    reason: str | None = None,
+) -> GLJournalEntry | None:
+    """Post a one-time mirror reversal of an invoice's posted receivable JE.
+
+    Mirrors the ACTUAL posted lines with DR/CR swapped — it reads the lines
+    off the posted entry rather than recomputing from current invoice fields,
+    so a post-posting edit to the invoice still fully unwinds (a partial
+    reversal would leave the ledger unbalanced against reality). Idempotent on
+    (source_type='invoice_void', source_id=invoice.id).
+
+    Returns the reversal JE, or None when there is nothing to reverse:
+      - the invoice has no non-voided posted receivable JE (e.g. a draft), or
+      - the reversal was already posted.
+
+    entry_date defaults to today (create_journal_entry) — a void is never
+    backdated. Does NOT commit.
+    """
+    if not invoice or not invoice.id:
+        return None
+
+    posted = db.query(GLJournalEntry).filter(
+        GLJournalEntry.source_type == "invoice",
+        GLJournalEntry.source_id == invoice.id,
+        GLJournalEntry.status != "voided",
+    ).first()
+    if posted is None:
+        # No posted receivable (draft invoice) -> caller does a status-only void.
+        return None
+
+    if _posted_entry_exists(db, source_type="invoice_void", source_id=invoice.id):
+        return None
+
+    # Mirror the posted lines with DR/CR swapped. Fetch the actual lines and
+    # map account_id -> account_code (create_journal_entry works in codes).
+    reversal_lines: list[tuple[str, Decimal, str]] = []
+    for line in posted.lines:
+        account = db.get(GLAccount, line.account_id)
+        if account is None:
+            continue
+        debit = _money(line.debit_amount)
+        credit = _money(line.credit_amount)
+        if debit > 0:
+            reversal_lines.append((account.account_code, debit, "CR"))
+        if credit > 0:
+            reversal_lines.append((account.account_code, credit, "DR"))
+    if not reversal_lines:
+        return None
+
+    _ensure_core_sales_accounts(db)
+    description = f"Void invoice {invoice.invoice_number}"
+    if reason:
+        description = f"{description}: {reason}"
+    return TransactionService(db).create_journal_entry(
+        description=description[:255],
+        lines=reversal_lines,
+        source_type="invoice_void",
+        source_id=invoice.id,
+        user_id=user_id,
+    )
+
+
 def post_payment_receipt(db: Session, payment: Payment) -> GLJournalEntry | None:
     """Post a completed payment or refund to cash and AR once."""
     if not payment or not payment.id or payment.status != "completed":
