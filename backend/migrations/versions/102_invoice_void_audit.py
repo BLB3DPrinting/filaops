@@ -52,14 +52,16 @@ def upgrade() -> None:
             "invoices",
             sa.Column("voided_by_id", sa.Integer(), nullable=True),
         )
-        if not _has_fk("invoices", "fk_invoices_voided_by_id_users"):
-            op.create_foreign_key(
-                "fk_invoices_voided_by_id_users",
-                "invoices",
-                "users",
-                ["voided_by_id"],
-                ["id"],
-            )
+    # FK guard runs independently of the column-add branch so a brownfield DB
+    # that already has the column but is missing the FK gets healed on rerun.
+    if not _has_fk("invoices", "fk_invoices_voided_by_id_users"):
+        op.create_foreign_key(
+            "fk_invoices_voided_by_id_users",
+            "invoices",
+            "users",
+            ["voided_by_id"],
+            ["id"],
+        )
     if not _has_column("invoices", "void_reason"):
         op.add_column(
             "invoices",
