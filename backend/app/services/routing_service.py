@@ -399,6 +399,19 @@ def apply_template_to_product(
 
     product = get_or_404(db, Product, product_id, "Product not found")
 
+    # #904: serialize concurrent/duplicate "apply template" calls for the
+    # same product. Without this lock, two overlapping requests (double
+    # submit, client retry-after-timeout, two admins editing the same
+    # product) each pass the "existing routing" check below against the
+    # same pre-mutation snapshot and each append their own active operation
+    # set — the second call never sees the first's not-yet-committed
+    # deactivation/insert, so both generations end up active on one
+    # routing. Locking the product row forces the second caller to wait for
+    # the first to commit, then re-read the now-current (post-commit) state
+    # before deciding what to deactivate/replace. Row lock, not a table
+    # lock — concurrent applies for *different* products are unaffected.
+    db.query(Product).filter(Product.id == product.id).with_for_update().first()
+
     existing = (
         db.query(Routing)
         .filter(Routing.product_id == product_id, Routing.is_active.is_(True))

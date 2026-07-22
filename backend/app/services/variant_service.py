@@ -446,7 +446,17 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
         op.id: list(op.materials) for op in template_ops
     }
 
-    variants = db.query(Product).filter(Product.parent_product_id == template_id).all()
+    # Deterministic order matters now that each iteration takes a row lock
+    # (#904 fix below) — two concurrent sync calls must always acquire
+    # per-variant locks in the same order, or they can deadlock each other
+    # (classic lock-ordering deadlock: call A locks variant 1 then waits on
+    # variant 2 while call B locks variant 2 then waits on variant 1).
+    variants = (
+        db.query(Product)
+        .filter(Product.parent_product_id == template_id)
+        .order_by(Product.id)
+        .all()
+    )
 
     synced = 0
     errors = []
@@ -454,6 +464,16 @@ def sync_routing_to_variants(db: Session, template_id: int) -> dict:
     for variant in variants:
         savepoint = db.begin_nested()
         try:
+            # #904: serialize concurrent/duplicate "sync routing to variants"
+            # calls for the same variant. Same failure mode as
+            # apply_template_to_product — without this lock, two overlapping
+            # sync calls each pass the "get or create variant routing" check
+            # against the same pre-mutation snapshot, and the second call's
+            # `variant_routing.operations = []` clear doesn't see the
+            # first's not-yet-committed inserts, so both re-copies end up
+            # active on one routing. Row lock, not a table lock.
+            db.query(Product).filter(Product.id == variant.id).with_for_update().first()
+
             # Resolve this variant's target material from stored metadata
             meta = variant.variant_metadata or {}
             mat_type_id = meta.get("material_type_id")
