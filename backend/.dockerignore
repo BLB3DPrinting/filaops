@@ -1,0 +1,22 @@
+# Keep local environment, secrets, and user data out of image layers.
+# The Dockerfile does `COPY . .`, so anything not listed here is baked in.
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+uploads/
+static/uploads/
+logs/
+*.log
+
+# Python caches and test/coverage artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests run from the repo checkout, not inside the image
+tests/
