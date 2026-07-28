@@ -20,7 +20,7 @@ or environments where Docker is not available.
 | Software | Minimum version | Purpose |
 |---|---|---|
 | **Python** | 3.11 or newer | Backend runtime |
-| **Node.js** | 18 or newer | Frontend build |
+| **Node.js** | 24.18.0 or newer within the Node 24 LTS line | Frontend build |
 | **PostgreSQL** | **16** or newer | Database (16+ required) |
 | **Git** | any | Clone the repository |
 
