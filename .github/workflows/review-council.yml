@@ -28,12 +28,12 @@ jobs:
           fetch-depth: 0
 
       - name: Checkout Review Council
+        if: env.ANTHROPIC_API_KEY != ''
         uses: actions/checkout@v7
         with:
           repository: Blb3D/review-council
           path: .review-council-tool
-          # Pin to specific version for stability:
-          # ref: v1.0.0
+          ref: 1d11fd72dc1fb4b29de0813f5550899e04943a74
 
       - name: Run Review Council
         if: env.ANTHROPIC_API_KEY != ''
@@ -69,22 +69,17 @@ jobs:
           ./.review-council-tool/cli/ccl.ps1 @params
         continue-on-error: true
 
-      - name: Run Review Council (DryRun)
+      - name: Report skipped review
         if: env.ANTHROPIC_API_KEY == ''
         shell: pwsh
         run: |
-          Write-Host "No ANTHROPIC_API_KEY secret — running DryRun mode"
-          ./.review-council-tool/cli/ccl.ps1 `
-            -Project '${{ github.workspace }}' `
-            -Agent guardian `
-            -DryRun `
-            -OutputFormat junit `
-            -CI
-        continue-on-error: true
+          $message = "Review Council skipped: ANTHROPIC_API_KEY is unavailable."
+          Write-Host $message
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
+        if: always() && env.ANTHROPIC_API_KEY != ''
         with:
           files: .code-conclave/reviews/conclave-results.xml
           check_name: 'Review Council'
@@ -93,7 +88,7 @@ jobs:
 
       - name: Upload Reports
         uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && env.ANTHROPIC_API_KEY != ''
         with:
           name: review-council-reports
           path: .code-conclave/reviews/
