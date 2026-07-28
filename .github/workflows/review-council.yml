@@ -19,8 +19,6 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
     steps:
       - uses: actions/checkout@v7
@@ -28,8 +26,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check review configuration
+        id: review_config
+        shell: bash
+        env:
+          REVIEW_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$REVIEW_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout Review Council
-        if: env.ANTHROPIC_API_KEY != ''
+        if: steps.review_config.outputs.enabled == 'true'
         uses: actions/checkout@v7
         with:
           repository: Blb3D/review-council
@@ -38,62 +48,117 @@ jobs:
           persist-credentials: false
 
       - name: Run Review Council
-        if: env.ANTHROPIC_API_KEY != ''
-        shell: pwsh
+        id: review
+        if: steps.review_config.outputs.enabled == 'true'
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REVIEW_AGENTS: ${{ github.event.inputs.agents }}
+          REVIEW_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          REVIEW_EVENT_NAME: ${{ github.event_name }}
+          REVIEW_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          REVIEW_STANDARD: ${{ github.event.inputs.standard }}
         run: |
-          # Determine agents: full-review label → all 6, otherwise guardian + architect
-          $labels = '${{ join(github.event.pull_request.labels.*.name, ',') }}'
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            $agents = ('${{ github.event.inputs.agents }}' -split ',')
-          } elseif ($labels -match 'full-review') {
-            $agents = @('guardian','sentinel','architect','navigator','herald','operator')
+          report_path="$GITHUB_WORKSPACE/.code-conclave/reviews/conclave-results.xml"
+          rm -f "$report_path"
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+
+          set +e
+          pwsh -NoLogo -NoProfile -Command - <<'POWERSHELL'
+          $ErrorActionPreference = 'Stop'
+          $allowedAgents = @(
+            'guardian', 'sentinel', 'architect', 'navigator', 'herald', 'operator'
+          )
+          $labels = @(
+            $env:REVIEW_LABELS -split ',' |
+              ForEach-Object { $_.Trim().ToLowerInvariant() } |
+              Where-Object { $_ }
+          )
+
+          if ($env:REVIEW_EVENT_NAME -eq 'workflow_dispatch') {
+            if ([string]::IsNullOrWhiteSpace($env:REVIEW_AGENTS)) {
+              $agents = $allowedAgents
+            } else {
+              $agents = @(
+                $env:REVIEW_AGENTS -split ',' |
+                  ForEach-Object { $_.Trim().ToLowerInvariant() } |
+                  Where-Object { $_ }
+              )
+            }
+          } elseif ($labels -contains 'full-review') {
+            $agents = $allowedAgents
           } else {
-            $agents = @('guardian','architect')
+            $agents = @('guardian', 'architect')
           }
 
-          Write-Host "Running agents: $($agents -join ', ')"
+          $invalidAgents = @($agents | Where-Object { $_ -notin $allowedAgents })
+          if ($invalidAgents.Count -gt 0) {
+            throw "Unsupported Review Council agents: $($invalidAgents -join ', ')"
+          }
+          $agents = @($agents | Select-Object -Unique)
 
           $params = @{
-            Project      = '${{ github.workspace }}'
+            Project      = $env:GITHUB_WORKSPACE
             Agents       = $agents
-            OutputFormat  = 'junit'
+            OutputFormat = 'junit'
             CI           = $true
           }
 
-          # Diff-scoped review for PRs
-          $baseBranch = '${{ github.event.pull_request.base.ref }}'
+          $baseBranch = $env:REVIEW_BASE_BRANCH.Trim()
           if ($baseBranch) { $params.BaseBranch = $baseBranch }
 
-          # Compliance standard (manual dispatch only)
-          $standard = '${{ github.event.inputs.standard }}'
+          $standard = $env:REVIEW_STANDARD.Trim().ToLowerInvariant()
+          if ($standard -and $standard -notmatch '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$') {
+            throw "Unsupported compliance standard identifier"
+          }
           if ($standard) { $params.Standard = $standard }
 
-          ./.review-council-tool/cli/ccl.ps1 @params
+          Write-Host "Running agents: $($agents -join ', ')"
+          & './.review-council-tool/cli/ccl.ps1' @params
+          POWERSHELL
+          review_exit=$?
+          set -e
+          echo "exit_code=$review_exit" >> "$GITHUB_OUTPUT"
+
+          report_valid=false
+          if [ -s "$report_path" ] && python - "$report_path" <<'PYTHON'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(sys.argv[1]).getroot()
+          if root.tag not in {"testsuite", "testsuites"}:
+              raise SystemExit(f"unexpected JUnit root: {root.tag}")
+          PYTHON
+          then
+            report_valid=true
+          fi
+
+          verdict_exit=false
+          # Review Council reserves 0/1/2 for completed SHIP/HOLD/CONDITIONAL verdicts.
+          case "$review_exit" in
+            0|1|2) verdict_exit=true ;;
+          esac
+
+          if [ "$verdict_exit" = true ] && [ "$report_valid" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Review Council did not complete with a valid, newly generated JUnit report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$review_exit"
         continue-on-error: true
 
       - name: Report skipped review
-        if: env.ANTHROPIC_API_KEY == ''
+        if: steps.review_config.outputs.enabled == 'false'
         shell: pwsh
         run: |
           $message = "Review Council skipped: ANTHROPIC_API_KEY is unavailable."
           Write-Host $message
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $message
 
-      - name: Detect Review Council reports
-        id: review_reports
-        if: always() && env.ANTHROPIC_API_KEY != ''
-        shell: bash
-        run: |
-          if [ -s .code-conclave/reviews/conclave-results.xml ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Review Council did not produce a JUnit report; publishing is skipped." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always() && env.ANTHROPIC_API_KEY != '' && steps.review_reports.outputs.ready == 'true'
+        if: always() && steps.review.outputs.ready == 'true'
         with:
           files: .code-conclave/reviews/conclave-results.xml
           check_name: 'Review Council'
@@ -102,14 +167,14 @@ jobs:
 
       - name: Upload Reports
         uses: actions/upload-artifact@v6
-        if: always() && env.ANTHROPIC_API_KEY != '' && steps.review_reports.outputs.ready == 'true'
+        if: always() && steps.review.outputs.ready == 'true'
         with:
           name: review-council-reports
           path: .code-conclave/reviews/
           retention-days: 30
 
       - name: Require Review Council report
-        if: always() && env.ANTHROPIC_API_KEY != '' && steps.review_reports.outputs.ready != 'true'
+        if: always() && steps.review_config.outputs.enabled == 'true' && steps.review.outputs.ready != 'true'
         shell: bash
         run: |
           echo "Review Council execution did not produce the required JUnit report." >&2
