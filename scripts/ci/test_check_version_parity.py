@@ -103,6 +103,15 @@ class VersionParityTests(unittest.TestCase):
             any("not a valid semantic version" in error for error in errors)
         )
 
+    def test_rejects_non_ascii_digits(self) -> None:
+        for version in ("4.2\u0662.0", "4.2.0-1\u0661"):
+            with self.subTest(version=version):
+                errors = validate_repository(self.make_repository(version))
+
+                self.assertTrue(
+                    any("not a valid semantic version" in error for error in errors)
+                )
+
     def test_rejects_whitespace_in_json_metadata(self) -> None:
         root = self.make_repository()
         package_path = root / "package.json"
