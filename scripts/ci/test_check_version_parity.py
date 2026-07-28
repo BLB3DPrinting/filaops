@@ -46,6 +46,12 @@ class VersionParityTests(unittest.TestCase):
     def test_accepts_matching_prerelease(self) -> None:
         self.assertEqual(validate_repository(self.make_repository()), [])
 
+    def test_accepts_backend_version_file_newline(self) -> None:
+        root = self.make_repository()
+        (root / "backend" / "VERSION").write_text("4.2.0-rc.1\n", encoding="utf-8")
+
+        self.assertEqual(validate_repository(root), [])
+
     def test_rejects_stale_lockfile_version(self) -> None:
         root = self.make_repository()
         lock_path = root / "frontend" / "package-lock.json"
@@ -86,6 +92,28 @@ class VersionParityTests(unittest.TestCase):
 
         self.assertTrue(
             any("not a valid semantic version" in error for error in errors)
+        )
+
+    def test_rejects_numeric_prerelease_with_leading_zero(self) -> None:
+        root = self.make_repository("4.2.0-01")
+
+        errors = validate_repository(root)
+
+        self.assertTrue(
+            any("not a valid semantic version" in error for error in errors)
+        )
+
+    def test_rejects_whitespace_in_json_metadata(self) -> None:
+        root = self.make_repository()
+        package_path = root / "package.json"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["version"] = " 4.2.0-rc.1"
+        self.write_json(package_path, package)
+
+        errors = validate_repository(root)
+
+        self.assertIn(
+            "package.json: must not contain leading or trailing whitespace", errors
         )
 
 

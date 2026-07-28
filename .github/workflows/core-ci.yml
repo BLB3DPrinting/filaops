@@ -5,8 +5,8 @@
 # (which is what broke after the move to the BLB3DPrinting org).
 #
 # The original jobs mirror CircleCI, with release gates added alongside them.
-# Repoint branch protection's required checks from `ci/circleci: core-*` to
-# these Actions job names: core-diff, core-pro-guard, core-version-parity,
+# After the release-gate pilot proves stable, require these Actions job names in
+# the main ruleset: core-diff, core-pro-guard, core-version-parity,
 # core-backend-static, core-backend-tests, core-frontend-build, and
 # core-frontend-unit.
 name: core-ci

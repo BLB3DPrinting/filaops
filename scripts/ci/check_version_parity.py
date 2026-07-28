@@ -13,7 +13,8 @@ from typing import Any
 
 SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 
@@ -32,12 +33,20 @@ def _load_json(root: Path, relative_path: str, errors: list[str]) -> dict[str, A
 
 
 def _record_string(
-    values: dict[str, str], label: str, value: Any, errors: list[str]
+    values: dict[str, str],
+    label: str,
+    value: Any,
+    errors: list[str],
+    *,
+    trim: bool = False,
 ) -> None:
     if not isinstance(value, str) or not value.strip():
         errors.append(f"{label}: expected a non-empty string")
         return
-    values[label] = value.strip()
+    if not trim and value != value.strip():
+        errors.append(f"{label}: must not contain leading or trailing whitespace")
+        return
+    values[label] = value.strip() if trim else value
 
 
 def _lockfile_root_package(
@@ -67,7 +76,7 @@ def validate_repository(root: Path) -> list[str]:
     except OSError as exc:
         errors.append(f"backend/VERSION: cannot read ({exc})")
     else:
-        _record_string(versions, "backend/VERSION", backend_version, errors)
+        _record_string(versions, "backend/VERSION", backend_version, errors, trim=True)
 
     root_package = _load_json(root, "package.json", errors)
     root_lock = _load_json(root, "package-lock.json", errors)
