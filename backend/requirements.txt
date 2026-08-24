@@ -1,13 +1,13 @@
 # backend/requirements.txt
 # (optional) replace your current file with this Postgres-friendly set
-fastapi==0.139.2
-uvicorn[standard]==0.51.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
 python-multipart==0.0.32
-sqlalchemy==2.0.51
+sqlalchemy==2.0.52
 psycopg[binary]>=3.3.4
-alembic==1.18.5
+alembic==1.19.1
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 email-validator==2.3.0
 PyJWT==2.13.0
 # Direct dep (PR-05 token encryption — Fernet+HKDF in app/core/crypto.py).
@@ -15,7 +15,7 @@ PyJWT==2.13.0
 # install path doesn't always get those extras, so declare it explicitly.
 cryptography>=49.0.0
 bcrypt>=5.0.0,<6
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 slowapi==0.1.10
 python-dateutil==2.9.0.post0
 httpx==0.28.1
@@ -26,7 +26,7 @@ sentry-sdk[fastapi]>=2.63.0
 
 # AI Invoice Parsing is a PRO feature (anthropic, pypdf)
 
-mypy==2.3.0
+mypy==2.3.1
 types-python-dateutil==2.9.0.20260518
 
 # Testing
