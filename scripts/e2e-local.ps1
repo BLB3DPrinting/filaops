@@ -109,6 +109,12 @@ $DbPort = if ($dotenv.DB_PORT) { $dotenv.DB_PORT } else { '5432' }
 $DbUser = if ($dotenv.DB_USER) { $dotenv.DB_USER } else { 'postgres' }
 if (-not $dotenv.DB_PASSWORD) { throw 'DB_PASSWORD missing from backend/.env' }
 
+# $CopyFrom is interpolated into SQL below: restrict it to a plain PostgreSQL
+# identifier (letters, digits, underscore) so it can never carry quotes,
+# semicolons, or whitespace, and reject anything that looks like production.
+if ($CopyFrom -and $CopyFrom -notmatch '^[A-Za-z_][A-Za-z0-9_]{0,62}$') {
+    throw "Invalid -CopyFrom database name '$CopyFrom': only letters, digits and underscores are allowed."
+}
 if ($E2E_DB -match 'prod' -or $CopyFrom -match 'prod') {
     throw 'Refusing to touch a database whose name contains "prod".'
 }
@@ -155,7 +161,7 @@ if (-not $exists) {
         if ([int]$conns -gt 0) {
             throw "Cannot copy from '$CopyFrom': it has $conns active connection(s). Stop the dev backend (and psql sessions) first, or omit -CopyFrom for an empty migrated schema."
         }
-        Psql "CREATE DATABASE $E2E_DB TEMPLATE $CopyFrom" | Out-Null
+        Psql ('CREATE DATABASE ' + $E2E_DB + ' TEMPLATE "' + $CopyFrom + '"') | Out-Null
         Ok "Created $E2E_DB as a copy of $CopyFrom"
     } else {
         Psql "CREATE DATABASE $E2E_DB" | Out-Null
