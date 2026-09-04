@@ -3,7 +3,7 @@ uvicorn[standard]>=0.52.4
 sqlalchemy>=2.0.52
 alembic>=1.19.1
 psycopg[binary]>=3.3.4
-pydantic>=2.13.4
+pydantic>=2.13.5
 pydantic-settings>=2.15.0
 python-dotenv>=1.2.3
 
