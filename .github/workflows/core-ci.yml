@@ -4,10 +4,11 @@
 # the repo across org transfers — no OAuth app approval / "set up project" step
 # (which is what broke after the move to the BLB3DPrinting org).
 #
-# Jobs mirror the CircleCI jobs 1:1, including the dependency graph. After this
-# lands, repoint branch protection's required checks from `ci/circleci: core-*`
-# to these Actions job names: core-diff, core-pro-guard, core-backend-static,
-# core-backend-tests, core-frontend-build, core-frontend-unit.
+# The original jobs mirror CircleCI, with release gates added alongside them.
+# After the release-gate pilot proves stable, require these Actions job names in
+# the main ruleset: core-diff, core-pro-guard, core-version-parity,
+# core-backend-static, core-backend-tests, core-frontend-build, and
+# core-frontend-unit.
 name: core-ci
 
 on:
@@ -65,6 +66,19 @@ jobs:
             exit 1
           fi
           echo "No PRO code detected; public Core repo is clean."
+
+  # Release metadata guard: every runtime and lockfile must report one version.
+  core-version-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Test version parity guard
+        run: python -m unittest scripts.ci.test_check_version_parity
+      - name: Check repository version parity
+        run: python scripts/ci/check_version_parity.py
 
   # Backend syntax check (CircleCI: core-backend-static)
   core-backend-static:
