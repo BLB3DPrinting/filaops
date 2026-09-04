@@ -19,7 +19,8 @@ const quote = {
   has_image: false,
   line_count: 1,
   created_at: "2026-05-21T12:00:00Z",
-  expires_at: "2026-08-19T12:00:00Z",
+  // Relative so the "still valid" fixture never silently expires.
+  expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
   sales_order_id: null,
   updated_at: "2026-05-21T12:00:00Z",
   approved_at: null,
