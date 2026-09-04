@@ -11,10 +11,19 @@ if (-not (Test-Path $frontendDir)) {
     exit 1
 }
 
-# ensure Node is available
+# ensure Node is available and on the supported major (mirrors frontend/package.json "engines")
+$requiredNodeMajor = 24
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "[frontend] Node.js not found on PATH." -ForegroundColor Red
-    Write-Host "          Install Node 18+ from https://nodejs.org/en/download" -ForegroundColor Yellow
+    Write-Host "          Install Node $requiredNodeMajor LTS from https://nodejs.org/en/download" -ForegroundColor Yellow
+    exit 1
+}
+$nodeVersion = (& node --version).Trim()
+$nodeMajor = 0
+if ($nodeVersion -match '^v(\d+)\.') { $nodeMajor = [int]$Matches[1] }
+if ($nodeMajor -lt $requiredNodeMajor) {
+    Write-Host "[frontend] Node.js $nodeVersion is too old; $requiredNodeMajor or newer is required." -ForegroundColor Red
+    Write-Host "          Install Node $requiredNodeMajor LTS from https://nodejs.org/en/download (or: nvm install $requiredNodeMajor)" -ForegroundColor Yellow
     exit 1
 }
 
