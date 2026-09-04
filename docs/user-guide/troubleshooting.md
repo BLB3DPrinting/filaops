@@ -27,7 +27,7 @@ This page covers the issues operators encounter most often in FilaOps Core. If y
 
 | Check | Fix |
 |-------|-----|
-| Node.js version | FilaOps requires Node.js 24.18.0 or newer within the Node 24 LTS line. Run `node --version`. |
+| Node.js version | FilaOps requires Node.js 24 LTS (24.x) or newer. Run `node --version`. |
 | Missing packages | Run `npm install` in the `frontend/` directory. |
 | Backend not running | The frontend proxies all `/api/v1/…` calls to the backend. Start the backend first. |
 | Port in use | Vite defaults to port 5173 but picks another if that is taken. Check the terminal output for the actual URL. |

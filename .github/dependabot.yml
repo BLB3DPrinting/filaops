@@ -69,3 +69,28 @@ updates:
       - "dependencies"
       - "ci"
     open-pull-requests-limit: 10
+
+  # Docker base images (frontend builder node:24-slim, backend python:3.11-slim)
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps(docker):"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps(docker):"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
