@@ -621,6 +621,25 @@ class TestUpdateStatus:
         })
         assert response.status_code == 404
 
+    def test_cannot_cancel_via_status_update(self, client, db, make_sales_order, make_product):
+        """PATCH /status to 'cancelled' must be rejected — cancellation has to
+        go through POST /cancel so the reason + cancelled_at are recorded and
+        production orders / reservations are released (wi-005 bypass)."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, status="confirmed")
+        db.flush()
+
+        response = client.patch(f"{BASE_URL}/{so.id}/status", json={
+            "status": "cancelled",
+        })
+        assert response.status_code == 400
+        assert "cancel" in response.json()["detail"].lower()
+
+        # The order is untouched — no silent terminal cancellation.
+        got = client.get(f"{BASE_URL}/{so.id}").json()
+        assert got["status"] == "confirmed"
+        assert got["cancelled_at"] is None
+
     def test_update_status_with_internal_notes(self, client, db, make_sales_order, make_product):
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(product_id=product.id, status="pending")
@@ -864,13 +883,15 @@ class TestCancelSalesOrder:
         data = response.json()
         assert data["status"] == "cancelled"
 
-    def test_cancel_pending_payment_order(self, client, db, make_sales_order, make_product):
+    def test_cancel_pending_order(self, client, db, make_sales_order, make_product):
+        """Every newly created order is 'pending' — cancelling it must work
+        (regression: is_cancellable omitted 'pending', so this 400'd)."""
         product = make_product(selling_price=Decimal("10.00"))
-        so = make_sales_order(product_id=product.id, status="pending_payment")
+        so = make_sales_order(product_id=product.id, status="pending")
         db.flush()
 
         response = client.post(f"{BASE_URL}/{so.id}/cancel", json={
-            "cancellation_reason": "Payment issue",
+            "cancellation_reason": "Changed mind",
         })
         assert response.status_code == 200
         assert response.json()["status"] == "cancelled"

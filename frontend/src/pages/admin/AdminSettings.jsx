@@ -297,7 +297,7 @@ const AdminSettings = () => {
             {settings?.has_logo ? (
               <div className="relative">
                 <img
-                  src={`${API_URL}/api/v1/settings/company/logo?t=${Date.now()}`}
+                  src={`${API_URL}/api/v1/settings/company/logo?revision=${encodeURIComponent(settings.updated_at)}`}
                   alt="Company Logo"
                   className="w-32 h-32 object-contain bg-gray-700 rounded-lg"
                 />

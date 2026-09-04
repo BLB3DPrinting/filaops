@@ -836,3 +836,127 @@ class TestVoidInvoiceAPI:
             f"/api/v1/invoices/{invoice_id}", json={"status": "sent"}
         )
         assert resp.status_code == 422
+
+
+class TestVoidInvoiceConcurrency:
+    """Two concurrent voids must produce exactly one invoice_void reversal.
+
+    Same threaded two-session + Barrier pattern as the #904/PR #907 routing
+    idempotency race tests: real sessions (no savepoint fixture — each worker
+    needs its own connection so the row lock actually contends), a
+    before_cursor_execute hook that parks both workers at a barrier right
+    before the invoice SELECT executes, then assertions on the committed end
+    state. Under the FIXED code (SELECT … FOR UPDATE in void_invoice) the
+    first worker takes the row lock, voids, and commits; the second blocks on
+    the lock, re-reads status='voided', and raises 400. Under UNFIXED
+    (unlocked) code both workers pass the guards together and each posts an
+    invoice_void reversal — the JE-count assertion below catches it.
+    """
+
+    def test_concurrent_void_posts_single_reversal(self):
+        import threading
+
+        from fastapi import HTTPException
+        from sqlalchemy import event
+
+        from app.db.session import SessionLocal, engine
+        from app.models.accounting import GLJournalEntry
+        from app.models.sales_order import SalesOrder
+        from app.services.invoice_service import (
+            create_invoice,
+            mark_sent,
+            void_invoice,
+        )
+
+        # -- Setup with a REAL committed session (visible to both workers) --
+        setup = SessionLocal()
+        try:
+            so = SalesOrder(
+                order_number=f"SO-VOIDRACE-{uuid.uuid4().hex[:8]}",
+                user_id=1,
+                product_id=None,
+                product_name="Void race order",
+                quantity=1,
+                material_type="PLA",
+                unit_price=Decimal("30.00"),
+                total_price=Decimal("30.00"),
+                grand_total=Decimal("30.00"),
+                status="confirmed",
+            )
+            setup.add(so)
+            setup.commit()
+            invoice = create_invoice(setup, so.id)  # commits
+            mark_sent(setup, invoice.id)  # commits + posts the receivable JE
+            invoice_id = invoice.id
+        finally:
+            setup.close()
+
+        # -- Barrier hook: park both workers just before the invoice SELECT --
+        barrier = threading.Barrier(2)
+        thread_state = threading.local()
+
+        def sync_on_invoice_read(
+            conn, cursor, statement, parameters, context, executemany
+        ):
+            upper = statement.upper()
+            if "FROM INVOICES" not in upper or "JOIN" in upper:
+                return
+            if getattr(thread_state, "fired", False):
+                return
+            thread_state.fired = True
+            try:
+                barrier.wait(timeout=5)
+            except threading.BrokenBarrierError:
+                pass  # a worker blocked on the row lock never reaches it — fine
+
+        results = []
+
+        def worker():
+            db = SessionLocal()
+            try:
+                void_invoice(db, invoice_id, reason="race void", voided_by_id=1)
+                results.append("voided")
+            except HTTPException as exc:
+                db.rollback()
+                results.append(exc.status_code)
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                results.append(repr(exc))
+            finally:
+                db.close()
+
+        event.listen(engine, "before_cursor_execute", sync_on_invoice_read)
+        try:
+            t1 = threading.Thread(target=worker)
+            t2 = threading.Thread(target=worker)
+            t1.start()
+            t2.start()
+            t1.join(timeout=30)
+            t2.join(timeout=30)
+        finally:
+            event.remove(engine, "before_cursor_execute", sync_on_invoice_read)
+
+        assert not t1.is_alive(), "worker thread 1 hung (row-lock deadlock?)"
+        assert not t2.is_alive(), "worker thread 2 hung (row-lock deadlock?)"
+
+        # Exactly one worker voided; the loser hit the 400 already-voided path.
+        assert sorted(results, key=str) == [400, "voided"], (
+            f"expected one void winner and one 400 loser, got: {results}"
+        )
+
+        # And the ledger holds exactly ONE invoice_void reversal for this pair.
+        verify = SessionLocal()
+        try:
+            reversal_count = (
+                verify.query(GLJournalEntry)
+                .filter(
+                    GLJournalEntry.source_type == "invoice_void",
+                    GLJournalEntry.source_id == invoice_id,
+                )
+                .count()
+            )
+        finally:
+            verify.close()
+        assert reversal_count == 1, (
+            f"concurrent voids double-posted: {reversal_count} reversal JEs"
+        )

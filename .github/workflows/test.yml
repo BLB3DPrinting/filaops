@@ -116,7 +116,7 @@ jobs:
       - name: Run frontend linting
         run: |
           cd frontend
-          npm run lint -- --max-warnings 50 || echo "Lint warnings present - not blocking during active development"
+          npm run lint:ci
 
       - name: Run frontend unit tests
         run: |
