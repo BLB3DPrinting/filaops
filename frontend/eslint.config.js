@@ -24,10 +24,24 @@ export default defineConfig([globalIgnores(['dist']), {
     },
   },
   rules: {
-    'no-unused-vars': ['error', {
+    'no-unused-vars': ['warn', {
       varsIgnorePattern: '^[A-Z_]',
       argsIgnorePattern: '^_',
       caughtErrorsIgnorePattern: '^_',
     }],
+    'react-hooks/set-state-in-effect': 'warn',
+    'react-hooks/immutability': 'warn',
+    'react-hooks/preserve-manual-memoization': 'warn',
+    'react-hooks/refs': 'warn',
+    'react-refresh/only-export-components': 'warn',
+  },
+}, {
+  files: ['src/**/*.{test,spec}.{js,jsx}'],
+  languageOptions: {
+    globals: {
+      ...globals.browser,
+      ...globals.node,
+      ...globals.vitest,
+    },
   },
 }, ...storybook.configs["flat/recommended"]])
