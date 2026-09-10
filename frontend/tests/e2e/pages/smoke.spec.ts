@@ -49,11 +49,14 @@ test.describe('Smoke Tests - Critical Paths', () => {
   test('orders page loads data', async ({ page }) => {
     await page.goto('/admin/orders');
 
-    // Should see table headers or create button
-    const hasTableHeader = await page.getByRole('columnheader').first().isVisible({ timeout: 3000 }).catch(() => false);
-    const hasCreateButton = await page.getByRole('button', { name: /create|new/i }).isVisible().catch(() => false);
-
-    expect(hasTableHeader || hasCreateButton).toBeTruthy();
+    // AdminOrders is lazy-loaded behind Suspense; on a cold Vite dev server
+    // the chunk can take longer than an immediate isVisible() check. Wait for
+    // the page's own heading, then require either data columns or the
+    // Create Order action (an empty database is a valid smoke state).
+    await expect(page.getByRole('heading', { name: /order management/i })).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByRole('columnheader').first().or(page.getByRole('button', { name: /create|new/i }).first())
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('can create new order', async ({ page }) => {
@@ -182,8 +185,10 @@ test.describe('Smoke Tests - Error Handling', () => {
 
     await page.goto('/admin/orders');
 
-    // Should show error message, not crash
-    await expect(page.getByText(/error|failed|unable/i)).toBeVisible({ timeout: 3000 });
+    // Should show error message, not crash. apiClient retries network
+    // failures (status 0) twice with 2s + 4s backoff before surfacing the
+    // error, so the banner appears after ~6s; allow for that plus page load.
+    await expect(page.getByText(/error|failed|unable/i).first()).toBeVisible({ timeout: 12000 });
   });
 
   test('handles 404 gracefully', async ({ page }) => {

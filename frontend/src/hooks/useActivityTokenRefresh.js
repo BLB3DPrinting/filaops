@@ -23,7 +23,7 @@ const INACTIVITY_TIMEOUT_MINUTES = 25;
  *   useActivityTokenRefresh(); // Call once in your app root or layout
  */
 export default function useActivityTokenRefresh() {
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(null);
   const isRefreshingRef = useRef(false);
 
   // Update last activity timestamp on user interaction
@@ -77,6 +77,8 @@ export default function useActivityTokenRefresh() {
   }, [refreshToken]);
 
   useEffect(() => {
+    lastActivityRef.current = Date.now();
+
     // Activity event listeners
     const events = ["mousedown", "keydown", "mousemove", "scroll", "touchstart"];
 

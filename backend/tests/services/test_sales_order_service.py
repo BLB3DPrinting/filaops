@@ -1615,10 +1615,16 @@ class TestSalesOrderModelProperties:
         so = make_sales_order(status="in_production")
         assert so.is_cancellable is False
 
-    def test_not_cancellable_for_pending(self, db, make_sales_order):
-        """'pending' is NOT in the cancellable list (it uses 'pending_payment' instead)."""
+    def test_cancellable_for_pending(self, db, make_sales_order):
+        """'pending' — the status every newly created order gets — MUST be
+        cancellable. The old list omitted it (and referenced non-existent
+        'pending_payment'/'payment_failed'), so Cancel 400'd on new orders."""
         so = make_sales_order(status="pending")
-        assert so.is_cancellable is False
+        assert so.is_cancellable is True
+
+    def test_cancellable_for_pending_confirmation(self, db, make_sales_order):
+        so = make_sales_order(status="pending_confirmation")
+        assert so.is_cancellable is True
 
     def test_is_paid(self, db, make_sales_order):
         so = make_sales_order(payment_status="paid")

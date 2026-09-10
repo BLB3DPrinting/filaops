@@ -429,3 +429,228 @@ class TestListItemsExcludesVariants:
 
         assert "FG-TEST-TMPL" in skus
         assert "FG-TEST-TMPL-PLA_BASIC-BLU" in skus
+
+
+class TestSyncRoutingToVariants:
+    """Regression coverage for #904 — sync-routing-to-variants must never
+    silently append a second generation of operations onto an
+    already-populated variant routing. Same failure class as
+    apply_template_to_product: the "get or create variant routing" +
+    "clear + re-copy from template" sequence was a non-atomic
+    check-then-act, so two overlapping sync calls for the same variant
+    could each pass the check against the same pre-mutation state and
+    each leave their own re-copied operation set active.
+    """
+
+    def test_repeated_sync_does_not_double_active_ops(
+        self, db, template_product, material_type_pla, color_blue,
+        material_color_blue, filament_blue,
+    ):
+        """Syncing the same template to variants twice must leave each
+        variant's active op count unchanged (replace semantics)."""
+        result = variant_service.create_variant(
+            db, template_product.id, material_type_pla.id, color_blue.id,
+        )
+        variant_routing = (
+            db.query(Routing)
+            .filter(Routing.product_id == result["id"], Routing.is_active.is_(True))
+            .first()
+        )
+
+        r1 = variant_service.sync_routing_to_variants(db, template_product.id)
+        assert r1["synced"] == 1
+        ops_after_1 = db.query(RoutingOperation).filter(
+            RoutingOperation.routing_id == variant_routing.id
+        ).all()
+        assert len(ops_after_1) == 1
+
+        r2 = variant_service.sync_routing_to_variants(db, template_product.id)
+        assert r2["synced"] == 1
+        ops_after_2 = db.query(RoutingOperation).filter(
+            RoutingOperation.routing_id == variant_routing.id
+        ).all()
+        assert len(ops_after_2) == 1, (
+            f"expected 1 op on the variant routing after repeated sync, got {len(ops_after_2)}"
+        )
+
+    def test_sync_concurrent_double_submit_no_duplicate_active_ops(self):
+        """Two overlapping sync-routing-to-variants calls for the same
+        template/variant must not both leave their re-copied operation set
+        active — the #904 reproduction for the variant-copy flow. Uses two
+        independent, really-committing sessions (the transactional `db`
+        fixture shares one connection and can't model real concurrency)
+        synchronized with a barrier planted at the actual check-then-act
+        boundary (the SQL read of the variant's existing routing,
+        immediately before the operations-clear mutation) rather than at
+        the earlier template lookup — see the comment block at the barrier
+        definition for why placement matters and how the FOR UPDATE fix
+        changes which worker ever reaches it."""
+        import threading
+
+        from sqlalchemy import event
+
+        from app.db.session import SessionLocal, engine
+        from app.models.manufacturing import Routing as _Routing, RoutingOperation as _RoutingOperation
+        from app.models.product import Product
+        from app.models.work_center import WorkCenter
+        from app.services import variant_service as vs
+
+        setup_db = SessionLocal()
+        try:
+            wc = WorkCenter(code="TEST-904-SYNC-WC", name="904 Sync WC", is_active=True)
+            setup_db.add(wc)
+            setup_db.flush()
+
+            template = Product(
+                sku="TEST-904-SYNC-TMPL", name="904 Sync Template",
+                item_type="finished_good", procurement_type="make", unit="EA",
+                active=True, is_template=True,
+            )
+            variant = Product(
+                sku="TEST-904-SYNC-VARIANT", name="904 Sync Variant",
+                item_type="finished_good", procurement_type="make", unit="EA",
+                active=True,
+            )
+            setup_db.add_all([template, wc])
+            setup_db.flush()
+            variant.parent_product_id = template.id
+            setup_db.add(variant)
+            setup_db.flush()
+
+            template_routing = _Routing(
+                product_id=template.id, code="RTG-904-SYNC-TMPL", name="904 sync tmpl routing",
+                is_active=True, version=1, revision="1.0",
+            )
+            setup_db.add(template_routing)
+            setup_db.flush()
+            setup_db.add(_RoutingOperation(
+                routing_id=template_routing.id, work_center_id=wc.id, sequence=10,
+                operation_code="PRINT", operation_name="3D Print",
+                run_time_minutes=Decimal("60"), setup_time_minutes=Decimal("0"),
+            ))
+            setup_db.flush()
+            setup_db.commit()
+
+            template_id = template.id
+            variant_id = variant.id
+        finally:
+            setup_db.close()
+
+        try:
+            # Generation 1 on the variant — establishes the "already has an
+            # active routing" precondition the race needs.
+            db1 = SessionLocal()
+            try:
+                vs.sync_routing_to_variants(db1, template_id)
+            finally:
+                db1.close()
+
+            # SYNCHRONIZATION POINT: the barrier fires on the SQL that reads
+            # the variant's *existing* active routing — the check-then-act
+            # read, immediately before the "clear operations" mutation
+            # (`variant_routing.operations = []`). This is deliberately NOT
+            # the earlier `get_item(template_id)` lookup: a barrier planted
+            # that early only guarantees both threads *start* together,
+            # then lets the scheduler decide how far each runs before the
+            # other resumes. One worker can legitimately finish its entire
+            # read -> clear -> re-copy -> commit before the other thread is
+            # even scheduled, letting a broken (unlocked) implementation
+            # pass this test by luck instead of by having its race
+            # genuinely exercised. Hooking the SQL emission for the
+            # "variant's existing routing" read (via before_cursor_execute,
+            # matched by table + absence of the ORDER BY that's unique to
+            # the earlier template-routing lookup) forces both threads to
+            # reach the actual vulnerable window together.
+            #
+            # CRITICAL SUBTLETY: with the #904 FOR UPDATE fix in place, the
+            # second worker blocks *at the row lock itself* — a statement
+            # that runs BEFORE the one this barrier watches — while the
+            # first worker holds it through its whole transaction. So under
+            # FIXED code the second worker can never reach this barrier
+            # while the first is still inside its transaction: the first
+            # worker's barrier.wait() times out / raises
+            # BrokenBarrierError (expected — the assertions below, not the
+            # barrier, are the real oracle), the first worker proceeds and
+            # commits, the lock releases, and only then does the second
+            # worker reach its own (now-broken, so non-blocking) barrier
+            # call and run serialized against the first's already-committed
+            # state. Under UNFIXED (unlocked) code there's no lock to stall
+            # on, so both workers reach the barrier together, both proceed
+            # to clear+re-copy concurrently, and the final active-op-count
+            # assertion below catches the duplication.
+            barrier = threading.Barrier(2)
+            thread_state = threading.local()
+
+            def sync_on_variant_routing_read(conn, cursor, statement, parameters, context, executemany):
+                upper = statement.upper()
+                if "ROUTINGS" not in upper or "ORDER BY" in upper:
+                    return
+                if getattr(thread_state, "fired", False):
+                    return
+                thread_state.fired = True
+                try:
+                    barrier.wait(timeout=5)
+                except threading.BrokenBarrierError:
+                    pass  # expected under FIXED code — see comment block above
+
+            errors = []
+
+            def worker():
+                db = SessionLocal()
+                try:
+                    vs.sync_routing_to_variants(db, template_id)
+                except Exception as e:  # noqa: BLE001
+                    errors.append(repr(e))
+                finally:
+                    db.close()
+
+            event.listen(engine, "before_cursor_execute", sync_on_variant_routing_read)
+            try:
+                t1 = threading.Thread(target=worker)
+                t2 = threading.Thread(target=worker)
+                t1.start()
+                t2.start()
+                t1.join(timeout=30)
+                t2.join(timeout=30)
+            finally:
+                event.remove(engine, "before_cursor_execute", sync_on_variant_routing_read)
+
+            assert not t1.is_alive(), "worker thread 1 did not complete within timeout (hung)"
+            assert not t2.is_alive(), "worker thread 2 did not complete within timeout (hung)"
+            assert not errors, f"sync_routing_to_variants raised under race: {errors}"
+
+            verify_db = SessionLocal()
+            try:
+                variant_routing = verify_db.query(_Routing).filter(
+                    _Routing.product_id == variant_id, _Routing.is_active.is_(True)
+                ).first()
+                active_ops = verify_db.query(_RoutingOperation).filter(
+                    _RoutingOperation.routing_id == variant_routing.id,
+                    _RoutingOperation.is_active.is_(True),
+                ).count()
+                assert active_ops == 1, (
+                    f"expected 1 active op after concurrent double-submit, got {active_ops} "
+                    f"(#904 regression: two generations left active)"
+                )
+            finally:
+                verify_db.close()
+        finally:
+            cleanup_db = SessionLocal()
+            try:
+                routing_ids = [
+                    r.id for r in cleanup_db.query(_Routing).filter(
+                        _Routing.product_id.in_([template_id, variant_id])
+                    ).all()
+                ]
+                if routing_ids:
+                    cleanup_db.query(_RoutingOperation).filter(
+                        _RoutingOperation.routing_id.in_(routing_ids)
+                    ).delete(synchronize_session=False)
+                    cleanup_db.query(_Routing).filter(
+                        _Routing.id.in_(routing_ids)
+                    ).delete(synchronize_session=False)
+                cleanup_db.query(Product).filter(Product.id.in_([template_id, variant_id])).delete(synchronize_session=False)
+                cleanup_db.query(WorkCenter).filter(WorkCenter.code == "TEST-904-SYNC-WC").delete(synchronize_session=False)
+                cleanup_db.commit()
+            finally:
+                cleanup_db.close()

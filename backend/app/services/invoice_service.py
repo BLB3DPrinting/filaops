@@ -473,12 +473,23 @@ def void_invoice(
     (``source_type='invoice_void'``, idempotent). A draft invoice with no
     posted JE is a status-only void — no JE. Sets status='voided',
     voided_at, voided_by_id, void_reason. Commits.
+
+    Concurrency: the invoice is read under a row-level lock (SELECT … FOR
+    UPDATE, same idiom as ``_reconcile_invoice`` in payment_service) so two
+    concurrent voids serialize — the second waits on the lock, re-reads
+    status='voided', and lands on the 400 path instead of double-posting the
+    ``invoice_void`` reversal.
     """
     reason = (reason or "").strip()
     if not reason:
         raise HTTPException(status_code=422, detail="Void reason is required")
 
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    invoice = (
+        db.query(Invoice)
+        .filter(Invoice.id == invoice_id)
+        .with_for_update()
+        .first()
+    )
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 

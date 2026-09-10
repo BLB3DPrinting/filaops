@@ -388,6 +388,22 @@ def setup_database():
         conn.execute(text(
             "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS void_reason VARCHAR(255)"
         ))
+        # FK backfill so the accumulated test DB matches a fresh migration-102
+        # DB (same pg_constraint-guarded pattern as the other FK patches here).
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'fk_invoices_voided_by_id_users'
+                ) THEN
+                    ALTER TABLE invoices
+                    ADD CONSTRAINT fk_invoices_voided_by_id_users
+                    FOREIGN KEY (voided_by_id) REFERENCES users(id);
+                END IF;
+            END
+            $$;
+        """))
         conn.commit()
 
     # Seed required data
