@@ -90,6 +90,30 @@ class TestQCPhotos:
         )
         assert r.status_code == 413
 
+    def test_upload_rejects_path_outside_upload_root(
+        self,
+        client,
+        db,
+        photo_dir,
+        monkeypatch,
+        make_product,
+        make_production_order,
+    ):
+        """A filename regression must not let an upload escape its storage root."""
+        insp = _make_inspection(db, make_product, make_production_order)
+        outside_path = photo_dir.parent / "escaped-qc-photo.png"
+        monkeypatch.setattr(
+            "app.api.v1.endpoints.qc_photos._safe_filename",
+            lambda _original, _inspection_id: "../escaped-qc-photo.png",
+        )
+
+        r = client.post(
+            f"{BASE}/{insp.id}/photos",
+            files={"file": ("evidence.png", IMG, "image/png")},
+        )
+
+        assert (r.status_code, outside_path.exists()) == (400, False)
+
     def test_rejects_overlong_caption(
         self, client, db, photo_dir, make_product, make_production_order
     ):

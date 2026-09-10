@@ -47,6 +47,19 @@ def _ensure_upload_dir() -> None:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_local_path(file_name: str) -> str:
+    """Resolve a photo path and require it to remain inside ``UPLOAD_DIR``."""
+    upload_root = os.path.realpath(UPLOAD_DIR)
+    local_path = os.path.realpath(os.path.join(upload_root, file_name))
+    try:
+        is_within_upload_root = os.path.commonpath((upload_root, local_path)) == upload_root
+    except ValueError:
+        is_within_upload_root = False
+    if not is_within_upload_root:
+        raise HTTPException(status_code=400, detail="Invalid photo path")
+    return local_path
+
+
 def _safe_filename(original: str, inspection_id: int) -> str:
     """Unique on-disk name: qc<inspection>_<timestamp>_<rand>.<ext>."""
     ext = os.path.splitext(original)[1].lower() or ".jpg"
@@ -152,7 +165,7 @@ async def upload_photo(
     )
     safe_name = _safe_filename(original, inspection_id)
     _ensure_upload_dir()
-    local_path = os.path.join(UPLOAD_DIR, safe_name)
+    local_path = _resolve_local_path(safe_name)
     # Write the blob and the row together: if the commit fails, remove the file
     # we just wrote so it can't orphan under uploads/qc_photos.
     try:
