@@ -28,6 +28,7 @@ class GuardrailPolicyTests(unittest.TestCase):
         self.assertIn("Approval prompts and agent instructions are advisory", policy)
         self.assertIn("repository-scoped bot or GitHub App identities", policy)
         self.assertIn("never inherit administrator credentials", policy)
+        self.assertIn("credential-helper access", policy)
 
 
 if __name__ == "__main__":

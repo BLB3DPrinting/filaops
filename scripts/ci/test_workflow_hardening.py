@@ -39,6 +39,27 @@ class WorkflowHardeningTests(unittest.TestCase):
         self.assertIn("core-dependency-audit:", content)
         self.assertIn("check_audit_severity.py", content)
 
+    def test_pro_guard_fetches_and_compares_the_event_base(self) -> None:
+        content = (WORKFLOWS / "pro-guard.yml").read_text(encoding="utf-8")
+        self.assertRegex(content, r"(?m)^\s+fetch-depth:\s*0\s*$")
+        self.assertIn("${GITHUB_BASE_REF}", content)
+        self.assertIn('git diff --name-only "$diff_base...HEAD"', content)
+
+    def test_pro_guard_does_not_suppress_diff_failures(self) -> None:
+        content = (WORKFLOWS / "pro-guard.yml").read_text(encoding="utf-8")
+        self.assertNotRegex(content, r"git diff[^\n]*\|\|\s*true")
+
+    def test_codecov_pin_is_the_v7_commit_not_its_tag_object(self) -> None:
+        content = (WORKFLOWS / "test.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f",
+            content,
+        )
+        self.assertNotIn(
+            "codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f",
+            content,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

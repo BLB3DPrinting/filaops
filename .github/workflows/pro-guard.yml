@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Check for PRO code in public repo
         run: |
@@ -27,7 +29,16 @@ jobs:
           fi
 
           # Layer 2: Scan PR diff for any pro-related file paths
-          PR_PRO_FILES=$(git diff --name-only origin/main...HEAD | grep -E "^backend/app/pro/|^license-server/" || true)
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            diff_base="origin/${GITHUB_BASE_REF}"
+          else
+            diff_base="origin/main"
+          fi
+          if ! changed_files=$(git diff --name-only "$diff_base...HEAD"); then
+            echo "::error::Unable to compare the change against $diff_base"
+            exit 1
+          fi
+          PR_PRO_FILES=$(printf '%s\n' "$changed_files" | grep -E "^backend/app/pro/|^license-server/" || true)
           if [ -n "$PR_PRO_FILES" ]; then
             echo "::error::PR contains PRO file paths:"
             echo "$PR_PRO_FILES"
