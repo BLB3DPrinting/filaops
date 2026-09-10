@@ -7,6 +7,11 @@ small and point here instead of duplicating policy.
 If an automated hook, CI gate, or T-REX/Aeonyx gate conflicts with prose in
 this document, the mechanical gate wins.
 
+Approval prompts and agent instructions are advisory, not security boundaries.
+They do not prove that an agent cannot access a credential or take an external
+action. Agents must use repository-scoped bot or GitHub App identities and must
+never inherit administrator credentials or credential-helper access.
+
 ## Non-Negotiable Workflow
 
 Agents must follow the full PR loop for repository changes.
@@ -71,6 +76,9 @@ as memory.
 ## Mechanical Gates
 
 Comply with hook and CI feedback instead of routing around it.
+
+- Never use hook-bypass flags. If a local control blocks an action, stop and
+  request human review; server-side branch rules remain authoritative.
 
 - Session registration: no edits until session requirements are met.
 - Memory recall: no major work until relevant memory has been checked.

@@ -21,7 +21,7 @@ assignees: ''
 <!-- What actually happens? -->
 
 ## Environment
-- [ ] Working Dir (FilaOpsPRO-BLB3D_Production)
+- [ ] PRO / ecosystem (filaops-ecosystem)
 - [ ] Core (filaops)
 - [ ] Both
 
