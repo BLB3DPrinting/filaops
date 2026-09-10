@@ -32,10 +32,10 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
@@ -49,8 +49,12 @@ jobs:
         working-directory: backend
         run: |
           pip install pip-audit
-          pip-audit --strict --ignore-vuln PYSEC-2024-XXX || true
-        continue-on-error: true
+          set +e
+          pip-audit --strict --format cyclonedx-json --output pip-audit.json
+          audit_exit=$?
+          set -e
+          if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+          python ../scripts/ci/check_audit_severity.py pip pip-audit.json
 
       - name: Wait for Postgres
         run: |
@@ -97,9 +101,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Node 24
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           cache: "npm"
@@ -107,8 +111,13 @@ jobs:
       - name: Install
         run: npm ci
       - name: Security audit (npm)
-        run: npm audit --audit-level=high || true
-        continue-on-error: true
+        run: |
+          set +e
+          npm audit --json > npm-audit.json
+          audit_exit=$?
+          set -e
+          if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+          python ../scripts/ci/check_audit_severity.py npm npm-audit.json
       - name: Build (development mode)
         run: npm run build
         env:

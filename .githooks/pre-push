@@ -54,8 +54,8 @@ if [ -n "$PRO_FILES" ]; then
     echo "The following files must NOT be in the public core:"
     echo "$PRO_FILES"
     echo ""
-    echo "PRO code belongs in the private repo (Blb3D/FilaOpsPRO-BLB3D_Production)."
-    echo "If this is intentional, use --no-verify (not recommended)."
+    echo "PRO code belongs in the private repo (BLB3DPrinting/filaops-ecosystem)."
+    echo "Do not bypass this check. Stop and request human review."
     echo ""
     exit 1
 fi

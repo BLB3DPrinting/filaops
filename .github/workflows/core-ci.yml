@@ -24,11 +24,49 @@ permissions:
   contents: read
 
 jobs:
+  # Repository guardrails: immutable Actions, no local bypass guidance, and
+  # security workflows remain attached to pull requests.
+  core-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - name: Test repository hardening
+        run: python -m unittest scripts.ci.test_guardrail_policy scripts.ci.test_workflow_hardening -v
+
+  # Dependency audit gate: high/critical findings block; unclassified findings
+  # fail closed rather than being silently ignored.
+  core-dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --disable-pip-version-check pip-audit
+          set +e
+          python -m pip_audit --strict --requirement requirements.txt --format cyclonedx-json --output pip-audit.json
+          audit_exit=$?
+          set -e
+          if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+          python ../scripts/ci/check_audit_severity.py pip pip-audit.json
+      - name: Audit JavaScript dependencies
+        working-directory: frontend
+        run: |
+          set +e
+          npm audit --json > npm-audit.json
+          audit_exit=$?
+          set -e
+          if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+          python ../scripts/ci/check_audit_severity.py npm npm-audit.json
+
   # Whitespace / conflict-marker check against main (CircleCI: core-diff)
   core-diff:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -41,7 +79,7 @@ jobs:
   core-pro-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -71,8 +109,8 @@ jobs:
   core-version-parity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
       - name: Test version parity guard
@@ -84,8 +122,8 @@ jobs:
   core-backend-static:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
       - name: Compile backend Python files
@@ -121,8 +159,8 @@ jobs:
       DEBUG: "false"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
           cache: pip
@@ -139,7 +177,7 @@ jobs:
           python -m pytest -q --junitxml=../test-results/core-backend/pytest.xml
       - name: Upload backend test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: core-backend-test-results
           path: test-results/core-backend
@@ -150,8 +188,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [core-diff, core-pro-guard]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
           cache: npm
@@ -170,8 +208,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [core-diff, core-pro-guard]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
           cache: npm
@@ -185,7 +223,7 @@ jobs:
           npm run test:unit -- --run --reporter=default --reporter=junit --outputFile=../test-results/core-frontend-unit/vitest.xml
       - name: Upload frontend unit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: core-frontend-unit-results
           path: test-results/core-frontend-unit
