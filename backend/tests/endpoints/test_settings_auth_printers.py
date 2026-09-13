@@ -825,7 +825,7 @@ class TestPrinterCreateAdvanced:
             pytest.skip("Tier limit reached")
         assert resp.status_code in (200, 201)
         data = resp.json()
-        assert data["connection_config"]["access_code"] == "12345678"
+        assert data["connection_config"]["access_code"] == "********"
         assert data["capabilities"]["bed_size_x"] == 256
         assert data["capabilities"]["ams_slots"] == 4
 
@@ -862,7 +862,7 @@ class TestPrinterUpdateAdvanced:
             "connection_config": {"api_key": "test-key-123"},
         })
         assert resp.status_code == 200
-        assert resp.json()["connection_config"]["api_key"] == "test-key-123"
+        assert resp.json()["connection_config"]["api_key"] == "********"
 
     def test_update_capabilities(self, client):
         printer = _create_printer(client)

@@ -84,6 +84,7 @@ def setup_database():
         conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS locale VARCHAR(20)"))
         conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
         conn.execute(text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
+        conn.execute(text("ALTER TABLE sales_orders ALTER COLUMN unit_price DROP NOT NULL"))
         conn.execute(text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
         # Issue #362: material inventory on sales order lines
         # DROP NOT NULL is idempotent — safe to run if already nullable

@@ -148,6 +148,30 @@ def _generate_printer_code(db: Session, prefix: str = "PRT") -> str:
     return f"{prefix}-001"
 
 
+# SEC-403: Keys in connection_config whose values must never leave the server.
+_SENSITIVE_CONFIG_KEYS = frozenset({
+    "access_code", "api_key", "password", "token", "secret",
+    "auth_token", "private_key",
+})
+_MASKED = "********"
+
+
+def _sanitize_connection_config(config: dict | None) -> dict:
+    """Return a copy of *config* with sensitive values replaced by a mask.
+
+    The frontend can display ``"********"`` to indicate a value is set.
+    On update, if the client sends ``"********"`` for a key, the backend
+    preserves the existing stored value (see ``update_printer``).
+    """
+    if not config:
+        return {}
+    sanitized = dict(config)
+    for key in _SENSITIVE_CONFIG_KEYS:
+        if key in sanitized and sanitized[key]:
+            sanitized[key] = _MASKED
+    return sanitized
+
+
 def _printer_to_response(printer: Printer) -> PrinterResponse:
     """Convert Printer model to response schema"""
     return PrinterResponse(
@@ -164,7 +188,7 @@ def _printer_to_response(printer: Printer) -> PrinterResponse:
         notes=printer.notes,
         active=printer.active,
         status=PrinterStatus(printer.status) if printer.status else PrinterStatus.OFFLINE,
-        connection_config=printer.connection_config or {},
+        connection_config=_sanitize_connection_config(printer.connection_config),
         capabilities=printer.capabilities or {},
         last_seen=printer.last_seen,
         created_at=printer.created_at,
@@ -492,6 +516,13 @@ async def update_printer(
     for field, value in update_data.items():
         if field == "brand" and value:
             value = value.value if hasattr(value, "value") else value
+        elif field == "connection_config" and isinstance(value, dict):
+            existing_config = dict(printer.connection_config or {})
+            merged = dict(value)
+            for k, v in value.items():
+                if v == _MASKED and k in existing_config:
+                    merged[k] = existing_config[k]
+            value = merged
         setattr(printer, field, value)
 
     printer.updated_at = datetime.now(timezone.utc)

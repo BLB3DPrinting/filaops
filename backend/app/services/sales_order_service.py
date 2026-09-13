@@ -86,21 +86,24 @@ def generate_order_number(db: Session) -> str:
     Uses row-level locking to prevent race conditions.
     """
     year = datetime.now(timezone.utc).year
-    last_order = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.order_number.like(f"SO-{year}-%"))
-        .order_by(desc(SalesOrder.order_number))
+    prefix = f"SO-{year}-"
+    orders = (
+        db.query(SalesOrder.order_number)
+        .filter(SalesOrder.order_number.like(f"{prefix}%"))
         .with_for_update()
-        .first()
+        .all()
     )
 
-    if last_order:
-        last_num = int(last_order.order_number.split("-")[2])
-        next_num = last_num + 1
-    else:
-        next_num = 1
+    max_num = 0
+    for (order_num,) in orders:
+        parts = order_num.split("-")
+        if len(parts) >= 3 and parts[2].isdigit():
+            num = int(parts[2])
+            if num > max_num:
+                max_num = num
 
-    return f"SO-{year}-{next_num:03d}"
+    next_num = max_num + 1
+    return f"{prefix}{next_num:03d}"
 
 
 # =============================================================================

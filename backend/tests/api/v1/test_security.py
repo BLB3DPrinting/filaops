@@ -516,22 +516,21 @@ class TestOpenEnvFile:
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"]
 
-    @patch("subprocess.Popen")
     @patch("os.path.exists", return_value=True)
-    def test_open_env_file_success(self, mock_exists, mock_popen, client):
+    def test_open_env_file_success(self, mock_exists, client):
         resp = client.post(f"{BASE_URL}/remediate/open-env-file")
         assert resp.status_code == 200
 
         data = resp.json()
         assert data["success"] is True
-        assert "opened" in data["message"].lower()
+        assert "env_path" in data
 
-    @patch("subprocess.Popen", side_effect=OSError("no editor"))
+    @patch("subprocess.Popen")
     @patch("os.path.exists", return_value=True)
-    def test_open_env_file_editor_error(self, mock_exists, mock_popen, client):
+    def test_open_env_file_no_subprocess(self, mock_exists, mock_popen, client):
         resp = client.post(f"{BASE_URL}/remediate/open-env-file")
-        assert resp.status_code == 500
-        assert "Could not open" in resp.json()["detail"]
+        assert resp.status_code == 200
+        assert mock_popen.call_count == 0
 
 
 # =============================================================================
@@ -581,20 +580,20 @@ class TestUpdateSecretKey:
 class TestOpenRestartTerminal:
     """Tests for the restart terminal endpoint."""
 
-    @patch("subprocess.Popen")
-    def test_open_restart_terminal_success(self, mock_popen, client):
+    def test_open_restart_terminal_success(self, client):
         resp = client.post(f"{BASE_URL}/remediate/open-restart-terminal")
         assert resp.status_code == 200
 
         data = resp.json()
         assert data["success"] is True
-        assert "Terminal opened" in data["message"] or "terminal" in data["message"].lower()
+        assert "restart_command" in data
+        assert "project_root" in data
 
-    @patch("subprocess.Popen", side_effect=OSError("no terminal"))
-    def test_open_restart_terminal_error(self, mock_popen, client):
+    @patch("subprocess.Popen")
+    def test_open_restart_terminal_no_subprocess(self, mock_popen, client):
         resp = client.post(f"{BASE_URL}/remediate/open-restart-terminal")
-        assert resp.status_code == 500
-        assert "Could not open terminal" in resp.json()["detail"]
+        assert resp.status_code == 200
+        assert mock_popen.call_count == 0
 
 
 # =============================================================================
