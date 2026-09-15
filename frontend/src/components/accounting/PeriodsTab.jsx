@@ -52,7 +52,7 @@ export default function PeriodsTab() {
   };
 
   const closePeriod = async (periodId) => {
-    if (!confirm("Are you sure you want to close this period? No further entries can be made.")) return;
+    if (!confirm("Are you sure you want to close this period? Reporting status will be marked as closed, but new entries and edits are still allowed.")) return;
     setActionLoading(periodId);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/periods/${periodId}/close`, {
@@ -77,7 +77,7 @@ export default function PeriodsTab() {
   };
 
   const reopenPeriod = async (periodId) => {
-    if (!confirm("Are you sure? This will allow modifications to historical data.")) return;
+    if (!confirm("Are you sure you want to reopen this period? The reporting status will change back to open.")) return;
     setActionLoading(periodId);
     try {
       const res = await fetch(`${API_URL}/api/v1/accounting/periods/${periodId}/reopen`, {
@@ -86,7 +86,7 @@ export default function PeriodsTab() {
       });
       if (res.ok) {
         const result = await res.json();
-        toast.warning(result.message || "Period reopened - historical data can now be modified");
+        toast.warning(result.message || "Period reopened.");
         fetchPeriods();
       } else {
         const data = await res.json();
@@ -145,7 +145,7 @@ export default function PeriodsTab() {
         <div className="p-4 border-b border-gray-800 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-semibold text-white">Fiscal Periods</h3>
-            <HelpIcon label="Manage accounting periods. Closing a period prevents entries from being backdated. Reopen with caution - allows modifications to historical data." />
+            <HelpIcon label="Manage accounting periods. Closing a period marks the status as closed but does not block new entries, backdated entries, or edits." />
           </div>
           <div className="flex items-center gap-3">
             {lastUpdated && (

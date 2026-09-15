@@ -642,7 +642,7 @@ def reopen_fiscal_period(db: Session, period_id: int) -> dict:
         "status": "open",
         "message": f"Period {period_name} reopened successfully",
         "journal_entry_count": je_count,
-        "warnings": ["Warning: Historical data can now be modified"],
+        "warnings": ["Period status is a reporting marker; it does not block new entries, backdated entries, or edits."],
     }
 
 
