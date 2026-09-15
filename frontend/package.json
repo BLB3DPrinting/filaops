@@ -65,7 +65,7 @@
     "@testing-library/user-event": "^14.6.7",
     "jsdom": "^30.0.1",
     "vite": "^8.3.0",
-    "vitest": "4.1.11",
+    "vitest": "5.0.0",
     "storybook": "^10.6.0",
     "@storybook/react-vite": "^10.6.0",
     "@chromatic-com/storybook": "^5.3.1",
