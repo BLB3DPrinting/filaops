@@ -782,7 +782,9 @@ class TestReopenFiscalPeriod:
         assert result["status"] == "open"
         assert "reopened" in result["message"]
         assert len(result["warnings"]) >= 1
-        assert "historical" in result["warnings"][0].lower()
+        assert result["warnings"] == [
+            "Period status is a reporting marker; it does not block new entries, backdated entries, or edits."
+        ]
 
         db.refresh(fp)
         assert fp.status == "open"
