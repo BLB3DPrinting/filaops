@@ -177,7 +177,7 @@ jobs:
           python -m pytest -q --junitxml=../test-results/core-backend/pytest.xml
       - name: Upload backend test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: core-backend-test-results
           path: test-results/core-backend
@@ -223,7 +223,7 @@ jobs:
           npm run test:unit -- --run --reporter=default --reporter=junit --outputFile=../test-results/core-frontend-unit/vitest.xml
       - name: Upload frontend unit results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: core-frontend-unit-results
           path: test-results/core-frontend-unit
