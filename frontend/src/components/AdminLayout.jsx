@@ -16,6 +16,14 @@ import logoBLB3D from "../assets/logo_blb3d.svg";
 import { LogoutIcon, MenuIcon } from "./nav/navIcons";
 import { navGroups } from "./nav/navConfig";
 
+/**
+ * The admin shell: sidebar, top bar, and the outlet every /admin/* route
+ * renders into.
+ *
+ * Owns session validation on entry, the collapsible/mobile sidebar state, and
+ * the role- and tier-filtering of nav entries. The nav structure itself lives
+ * in ./nav/navConfig and its glyphs in ./nav/navIcons.
+ */
 export default function AdminLayout() {
   const navigate = useNavigate();
   const api = useApi();
