@@ -38,14 +38,32 @@ the correct thing the shorter thing.
    **0 rules**.
 2. **v3-only utilities generate nothing.** `bg-opacity-*`, `overflow-ellipsis`
    — 83 occurrences across 49 files. Visible consequence: the mobile nav scrim
-   (`AdminLayout.jsx:875`, `bg-black bg-opacity-50`) renders **solid black**.
-3. **Undefined tokens inherit instead of failing.** `var(--accent-primary)`
-   (`AdminLayout.jsx:1109`) and `--color-surface-raised`
-   (`CommandCenter.jsx:77`) are defined nowhere.
-4. **The body font is never loaded.** `index.css:161` asks for Inter;
+   (`bg-black bg-opacity-50`, `AdminLayout.jsx:229` after PR-0) renders **solid black**.
+3. **Undefined custom properties fail silently — and not uniformly.** A
+   `var()` with no fallback naming a property that does not exist makes the
+   declaration *invalid at computed-value time*. An inherited property then
+   falls back to its inherited value; a non-inherited one falls back to its
+   **initial** value. `--accent-primary` is defined nowhere, and
+   `AdminLayout.jsx` uses it for both kinds at once. Measured in Chrome:
+
+   | declaration | computed result |
+   | --- | --- |
+   | `color: var(--accent-primary)` | inherits `rgb(250,250,250)` |
+   | `border: 1px solid var(--accent-primary)` | `border-style: none`, width `0px`, **0px painted** |
+
+   A control with the property defined renders `solid` / `1px` / 2px painted.
+   So the Portal Admin button does not merely lose its accent colour — it
+   loses its outline entirely.
+4. **A token namespace that never existed, hidden behind fallbacks.**
+   `CommandCenter.jsx:77` reads
+   `bg-[var(--color-surface-raised,theme(colors.gray.800))]`. Nothing defines
+   `--color-surface-*`, so the fallback always wins and the landing screen's
+   skeletons render a fixed dark grey that no theme can move. This one does
+   not fail — it succeeds at the wrong thing, which is why it survived review.
+5. **The body font is never loaded.** `index.css:161` asks for Inter;
    `index.html` fetches Rajdhani + JetBrains Mono. Every screen falls back to
    `system-ui`, while a webfont used on one screen is paid for on all of them.
-5. **`data-theme` is never set by any JSX.** The `dim` token set in
+6. **`data-theme` is never set by any JSX.** The `dim` token set in
    `index.css:77` is unreachable, so `--paper` is always `#FAFAF7` — light
    cards inside the `#0F0F1E` shell.
 
@@ -85,20 +103,23 @@ the correct thing the shorter thing.
 
 Policy requires a plan for anything over five files, mechanical splits as
 separate PRs from behaviour changes, and no new responsibilities in a frontend
-file over 800 lines. `AdminLayout.jsx` is **1,166 lines**, so it is split
+file over 800 lines. `AdminLayout.jsx` was **1,166 lines**, so it is split
 before it is touched.
 
 ### PR-0 — mechanical split of `AdminLayout.jsx`
 
 Pure move. Zero logic edits, zero visual change.
 
-- `frontend/src/components/nav/navIcons.jsx` — the 20+ inline icon components,
+- `frontend/src/components/nav/navIcons.jsx` — the 23 inline icon components,
   verbatim.
 - `frontend/src/components/nav/navConfig.js` — the `navGroups` array, verbatim.
-- `frontend/src/components/AdminLayout.jsx` — imports them; ~530 lines after.
+- `frontend/src/components/AdminLayout.jsx` — imports them; 520 lines after.
 
-Verify: `npm run build` succeeds; existing admin tests pass; `git diff` shows
-only moves and imports.
+Verify: each moved block diffs byte-identical against its source range in the
+parent commit; build succeeds; unit suite passes.
+
+**Landed** as PR #991 — 16/16 checks green. A preceding commit removed
+`DashboardIcon`, which had zero references anywhere under `frontend/src`.
 
 ### PR-1 — the token bridge, type, and the guard
 
@@ -121,13 +142,23 @@ only moves and imports.
 - `frontend/eslint.config.js` — reject raw palette utilities
   (`bg-blue-600`, `text-gray-400`, …) so this cannot rot back.
 
-  The rule ships at **`error`**, with an `overrides` block switching it `off`
-  for the 182 files that already violate it. New and newly-touched files are
-  protected from day one; Phase 2 deletes entries from that list as it clears
-  them, and the block reaching empty is the definition of Phase 2 being done.
-  A `warn`-level rule is NOT viable — 5,433 violations would blow straight
-  through the `--max-warnings 242` ceiling in `package.json:14` and turn CI red
-  on the first commit.
+  The rule ships at **`error` with no per-file exemptions**. Enforcement is
+  scoped to *changed lines*: a CI step runs `eslint --format json` and keeps
+  only findings whose line falls inside the PR's `git diff --unified=0`
+  ranges. Pre-existing violations are exempt; every line a PR adds or edits is
+  subject to the rule, **including inside the 182 baseline files**.
+
+  A file-wide `overrides` block was considered and rejected. It would exempt
+  not just the existing violations but any *new* one added to those files —
+  which is exactly the regression the rule exists to prevent, and would make
+  the claim that touched files are protected false.
+
+  A `warn`-level rule is not viable either: 5,433 findings would blow through
+  the `--max-warnings 242` ceiling in `package.json:14` and turn CI red on the
+  first commit.
+
+  Phase 2 is done when a full-repo `eslint` run is clean. At that point the
+  changed-line scoping is removed and the rule enforces repo-wide.
 
 Additive by construction: arbitrary `var()` values keep working, so no migrated
 file breaks.
