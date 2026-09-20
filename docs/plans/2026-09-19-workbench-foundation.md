@@ -126,8 +126,19 @@ parent commit; build succeeds; unit suite passes.
 - `frontend/src/index.css`
   - `@theme inline` mapping Workbench tokens into Tailwind's colour namespace,
     so `bg-paper`, `text-ink-3`, `bg-accent`, `border-hair` exist and stay
-    theme-reactive. **`inline` is required** — plain `@theme` bakes values at
-    build time and breaks runtime theming.
+    theme-reactive.
+
+    **Correction (measured against tailwindcss 4.3.3, the installed version).**
+    An earlier draft of this plan said `inline` was *required* because plain
+    `@theme` "bakes values at build time and breaks runtime theming." That is
+    false. Plain `@theme` emits `--color-paper: var(--paper)` and stays fully
+    theme-reactive — Tailwind bakes **literals**, not indirections, which the
+    same build shows: `.bg-amber-500/5` inlines a hex because Tailwind's own
+    `--color-amber-500` is a literal. `inline` merely skips the intermediate
+    `--color-*` layer. It remains the choice here, as a preference, for one
+    fewer indirection and `--paper` as the single canonical name. The one
+    consequence: `--color-*` properties are not emitted, so nothing may
+    reference `var(--color-paper)`. Nothing does.
   - Add `--accent` / `--accent-ink` / `--accent-press` for both themes.
   - Keep `--orange: var(--accent)` as a deprecated alias so the 43 migrated
     files keep working and pick up petrol for free. The alias is removed by the
@@ -137,9 +148,16 @@ parent commit; build succeeds; unit suite passes.
     listed here and fixed in their own commit.
 - Delete `frontend/tailwind.config.js` (verified dead). Its `xs:` breakpoint is
   confirmed unused across `frontend/src`, so nothing is lost with it.
-- `frontend/index.html` — load IBM Plex Sans + IBM Plex Mono; drop Rajdhani
-  unless the open question below says otherwise.
-- `frontend/eslint.config.js` — reject raw palette utilities
+- `frontend/index.html` — load IBM Plex Sans. **Rajdhani and JetBrains Mono
+  stay**: both turned out to be live. `components/printers/hud/tokens.js` reads
+  both for the PRO fleet HUD, and JetBrains Mono backs `.font-mono-data`
+  app-wide. Retiring either would have silently degraded a working screen, so
+  the open question below is answered by the code rather than by preference.
+  Plex Sans therefore pairs with the JetBrains Mono already present rather than
+  pulling in a fourth family — a deviation from the mockup, reversible in one
+  line.
+- **Moved to PR-1b** (new CI infrastructure, unrelated to the token bridge;
+  nothing dropped): `frontend/eslint.config.js` — reject raw palette utilities
   (`bg-blue-600`, `text-gray-400`, …) so this cannot rot back.
 
   The rule ships at **`error` with no per-file exemptions**. Enforcement is
