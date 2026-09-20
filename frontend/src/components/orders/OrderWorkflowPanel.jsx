@@ -105,17 +105,19 @@ export default function OrderWorkflowPanel({
       };
     }
     if (state === "active") {
-      return {
-        panel: "border-[var(--orange)]/50 bg-[var(--orange-tint)]",
-        icon: "bg-[var(--orange-tint)] text-[var(--orange)]",
-        label: "text-[var(--orange)]",
-      };
-    }
-    if (state === "blocked") {
+      // amber is defined as in-progress/working (index.css status semantics)
       return {
         panel: "border-[var(--status-amber)]/40 bg-[var(--status-amber-tint)]",
         icon: "bg-[var(--status-amber-tint)] text-[var(--status-amber)]",
         label: "text-[var(--status-amber)]",
+      };
+    }
+    if (state === "blocked") {
+      // a blocked step is a stop condition, not work in progress
+      return {
+        panel: "border-[var(--status-red)]/40 bg-[var(--status-red-tint)]",
+        icon: "bg-[var(--status-red-tint)] text-[var(--status-red)]",
+        label: "text-[var(--status-red)]",
       };
     }
     return {

@@ -157,7 +157,7 @@ export default function AdminLogin() {
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                style={{ color: 'var(--accent)' }}
+                style={{ color: 'var(--status-amber)' }}
               >
                 <path
                   strokeLinecap="round"
@@ -167,7 +167,7 @@ export default function AdminLogin() {
                 />
               </svg>
               <div>
-                <h3 className="font-medium" style={{ color: 'var(--accent)' }}>
+                <h3 className="font-medium" style={{ color: 'var(--status-amber)' }}>
                   Connection Issue
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{apiError}</p>
