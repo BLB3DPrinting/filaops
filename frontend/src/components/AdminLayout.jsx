@@ -468,8 +468,8 @@ export default function AdminLayout() {
                     disabled={portalLinkLoading}
                     className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg transition-all"
                     style={{
-                      color: "var(--accent-primary)",
-                      border: "1px solid var(--accent-primary)",
+                      color: "var(--accent)",
+                      border: "1px solid var(--accent)",
                       opacity: portalLinkLoading ? 0.6 : 1,
                     }}
                     title="Open B2B Portal Admin"
