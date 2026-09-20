@@ -11,7 +11,15 @@ import QCInspectionModal from "../../components/QCInspectionModal";
 import Modal from "../../components/Modal";
 import { useApi } from "../../hooks/useApi";
 
-// Production Trend Chart Component
+/**
+ * Production throughput over the selected period.
+ *
+ * Two series on one plot: daily units completed as bars, and a cumulative
+ * total as a line. The bars carry neutral ink so the cumulative trend leads
+ * the eye; neither series uses the accent, which is reserved for actions.
+ *
+ * @param {{data: Array, period: string, onPeriodChange: Function, loading: boolean}} props
+ */
 function ProductionChart({ data, period, onPeriodChange, loading }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });

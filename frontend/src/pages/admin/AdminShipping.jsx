@@ -6,7 +6,15 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { API_URL } from "../../config/api";
 
-// Shipping Trend Chart Component
+/**
+ * Shipping volume and value over the selected period.
+ *
+ * Two series on one plot: daily shipments as bars, and cumulative value as a
+ * line. The bars carry neutral ink so the cumulative trend leads the eye;
+ * neither series uses the accent, which is reserved for actions.
+ *
+ * @param {{data: Array, period: string, onPeriodChange: Function, loading: boolean}} props
+ */
 function ShippingChart({ data, period, onPeriodChange, loading }) {
   const { currency_code, locale } = useLocale();
   const [hoveredIndex, setHoveredIndex] = useState(null);

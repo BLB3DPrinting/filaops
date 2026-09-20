@@ -21,6 +21,15 @@ import {
   UNCONFIRMED_ORDER_STATUSES,
 } from "./orderWorkflowUtils";
 
+/**
+ * The step ladder on an order: quote -> confirm -> produce -> ship -> invoice,
+ * each rendered from its own state and gated by the order's data.
+ *
+ * Step colours follow the status vocabulary in index.css: green = cleared,
+ * amber = in progress, red = stopped, neutral = not started yet. The accent
+ * is deliberately absent — it means "the action to take", and a step is a
+ * report on what happened, not a button.
+ */
 export default function OrderWorkflowPanel({
   order,
   orderInvoice,

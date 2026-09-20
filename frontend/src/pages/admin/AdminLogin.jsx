@@ -4,6 +4,12 @@ import { API_URL } from "../../config/api";
 import logoFull from "../../assets/logo_full.png";
 import logoBLB3D from "../../assets/logo_blb3d.svg";
 
+/**
+ * Sign-in screen, and the app's landing route — "/" redirects here.
+ *
+ * Also the first place a backend outage becomes visible, so it surfaces
+ * connection failures inline as an amber warning rather than failing silently.
+ */
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
