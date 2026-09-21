@@ -127,7 +127,12 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 grid-pattern" style={{ backgroundColor: 'var(--bg-primary)' }}>
+    // data-theme="dim" declares what this screen already is: a dark surface.
+    // It still paints from the deprecated Neo tokens, so any Workbench token
+    // used here — currently just --status-amber on the connection banner —
+    // must resolve to its dark value or it lands unreadable on this ground.
+    // Removed when the shell slice migrates this screen off the Neo palette.
+    <div data-theme="dim" className="min-h-screen flex items-center justify-center px-4 grid-pattern" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="w-full max-w-md">
         {/* Dual Logos - BLB3D + FilaOps */}
         <div className="text-center mb-8">
