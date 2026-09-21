@@ -30,7 +30,8 @@
     "test:unit": "vitest run --config vitest.unit.config.js",
     "test:watch": "vitest",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "lint:palette": "node scripts/lint-changed-lines.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
