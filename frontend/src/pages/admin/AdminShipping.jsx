@@ -6,7 +6,15 @@ import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import { API_URL } from "../../config/api";
 
-// Shipping Trend Chart Component
+/**
+ * Shipping volume and value over the selected period.
+ *
+ * Two series on one plot: daily shipments as bars, and cumulative value as a
+ * line. The bars carry neutral ink so the cumulative trend leads the eye;
+ * neither series uses the accent, which is reserved for actions.
+ *
+ * @param {{data: Array, period: string, onPeriodChange: Function, loading: boolean}} props
+ */
 function ShippingChart({ data, period, onPeriodChange, loading }) {
   const { currency_code, locale } = useLocale();
   const [hoveredIndex, setHoveredIndex] = useState(null);
@@ -162,7 +170,7 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
 
       <div className="flex gap-4 mb-2 text-xs">
         <div className="flex items-center gap-1">
-          <div className="w-2 h-3 bg-[var(--orange-tint)] rounded-sm"></div>
+          <div className="w-2 h-3 bg-[var(--ink-4)] rounded-sm"></div>
           <span className="text-[var(--ink-4)]">Daily Shipped</span>
         </div>
         <div className="flex items-center gap-1">
@@ -212,8 +220,8 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
 
             <defs>
               <linearGradient id="shippingBarGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="var(--orange)" />
-                <stop offset="100%" stopColor="var(--orange)" stopOpacity="0.15" />
+                <stop offset="0%" stopColor="var(--ink-4)" />
+                <stop offset="100%" stopColor="var(--ink-4)" stopOpacity="0.15" />
               </linearGradient>
             </defs>
           </svg>

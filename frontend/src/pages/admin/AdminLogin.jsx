@@ -4,6 +4,12 @@ import { API_URL } from "../../config/api";
 import logoFull from "../../assets/logo_full.png";
 import logoBLB3D from "../../assets/logo_blb3d.svg";
 
+/**
+ * Sign-in screen, and the app's landing route — "/" redirects here.
+ *
+ * Also the first place a backend outage becomes visible, so it surfaces
+ * connection failures inline as an amber warning rather than failing silently.
+ */
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -157,7 +163,7 @@ export default function AdminLogin() {
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                style={{ color: 'var(--accent)' }}
+                style={{ color: 'var(--status-amber)' }}
               >
                 <path
                   strokeLinecap="round"
@@ -167,7 +173,7 @@ export default function AdminLogin() {
                 />
               </svg>
               <div>
-                <h3 className="font-medium" style={{ color: 'var(--accent)' }}>
+                <h3 className="font-medium" style={{ color: 'var(--status-amber)' }}>
                   Connection Issue
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{apiError}</p>
