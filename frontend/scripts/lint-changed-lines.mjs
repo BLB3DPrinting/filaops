@@ -7,12 +7,29 @@
  * whole point: a file-wide exemption would also wave through NEW violations in
  * those files, which is the regression the guard exists to prevent.
  *
+ * Locating a finding is not as simple as trusting message.line. ESLint reports
+ * a multi-line TemplateElement at the line the element STARTS on, which is not
+ * the line the offending class sits on:
+ *
+ *     const classes = `          <- 2
+ *       rounded-lg px-3           <- 4
+ *       ${active ? 'x' : ''}      <- 5   ESLint reports HERE
+ *       bg-blue-600               <- 6   the violation is HERE
+ *     `
+ *
+ * Filtering on message.line alone would miss a class added on line 6. Widening
+ * to the node's whole span would instead flag a pre-existing violation whenever
+ * an unrelated line of the same template is edited. So we re-scan the reported
+ * node's own source text and resolve each match to its true line.
+ *
  * Base ref resolution, in order: argv[2], $PALETTE_BASE, origin/main.
  * Exits 1 if any finding lands on a changed line, 0 otherwise.
  */
 import { execFileSync } from 'node:child_process'
 import { ESLint } from 'eslint'
+import fs from 'node:fs'
 import path from 'node:path'
+import { RAW_PALETTE } from '../eslint.palette.config.js'
 
 const base = process.argv[2] || process.env.PALETTE_BASE || 'origin/main'
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -55,15 +72,46 @@ if (files.length === 0) {
 const eslint = new ESLint({ overrideConfigFile: 'eslint.palette.config.js' })
 const results = await eslint.lintFiles(files)
 
+// absolute offset of the start of each 1-based line
+function lineOffsets(src) {
+  const offs = [0, 0]
+  for (let i = 0; i < src.length; i++) if (src.charCodeAt(i) === 10) offs.push(i + 1)
+  return offs
+}
+
+// The true line(s) of the offending class text inside a reported node.
+function offendingLines(src, offs, m) {
+  const start = offs[m.line] + (m.column - 1)
+  const endLine = m.endLine ?? m.line
+  const endCol = m.endColumn ?? m.column + 1
+  const end = offs[endLine] + (endCol - 1)
+  const text = src.slice(start, end)
+  const re = new RegExp(RAW_PALETTE, 'g')
+  const hits = []
+  let match
+  while ((match = re.exec(text)) !== null) {
+    const abs = start + match.index
+    let line = m.line
+    while (line + 1 < offs.length && offs[line + 1] <= abs) line++
+    hits.push(line)
+    if (match.index === re.lastIndex) re.lastIndex++
+  }
+  return hits.length ? [...new Set(hits)] : [m.line]
+}
+
 let found = 0
 for (const res of results) {
   const rel = path.relative(process.cwd(), res.filePath).split(path.sep).join('/')
   const lines = changed.get(rel)
   if (!lines) continue
+  const src = fs.readFileSync(res.filePath, 'utf8')
+  const offs = lineOffsets(src)
   for (const m of res.messages) {
-    if (!lines.has(m.line)) continue // pre-existing: exempt
-    found++
-    console.error(`${rel}:${m.line}:${m.column}  ${m.message}`)
+    for (const line of offendingLines(src, offs, m)) {
+      if (!lines.has(line)) continue // pre-existing: exempt
+      found++
+      console.error(`${rel}:${line}  ${m.message}`)
+    }
   }
 }
 

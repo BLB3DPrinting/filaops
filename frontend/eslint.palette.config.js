@@ -29,7 +29,10 @@ const PROPERTY = [
 ].join('|')
 
 // e.g. bg-blue-600, text-gray-400, border-slate-700/50, hover:bg-red-500
-const RAW_PALETTE = String.raw`\b(${PROPERTY})-(${PALETTE})-(50|100|200|300|400|500|600|700|800|900|950)\b`
+// Exported so scripts/lint-changed-lines.mjs can locate the exact match inside
+// a reported node: ESLint reports a multi-line TemplateElement at its START
+// line, not at the line the offending class actually sits on.
+export const RAW_PALETTE = String.raw`\b(${PROPERTY})-(${PALETTE})-(50|100|200|300|400|500|600|700|800|900|950)\b`
 
 const MESSAGE =
   'Raw Tailwind palette utility. Use a Workbench token utility instead — ' +
