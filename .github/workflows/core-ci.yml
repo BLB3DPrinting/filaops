@@ -189,6 +189,10 @@ jobs:
     needs: [core-diff, core-pro-guard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # the raw-palette guard diffs against the PR base to find changed
+          # lines, so it needs more than the default shallow clone
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -198,6 +202,14 @@ jobs:
         run: cd frontend && npm ci
       - name: Lint frontend
         run: cd frontend && npm run lint:ci
+      # Raw-palette guard, changed lines only. Pre-existing violations are
+      # exempt; anything a PR adds or edits is not. Skipped on push-to-main,
+      # where there is no base to diff against.
+      - name: Guard against raw palette utilities (changed lines)
+        if: github.event_name == 'pull_request'
+        run: cd frontend && npm run lint:palette
+        env:
+          PALETTE_BASE: ${{ github.event.pull_request.base.sha }}
       - name: Build frontend
         run: cd frontend && npm run build
         env:
