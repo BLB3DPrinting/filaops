@@ -44,8 +44,10 @@ echo wheel-bytes > "$out"
 """,
     # pip prints like pip and exits $STUB_PIP_EXIT; success marks the
     # plugin as importable for the stub python below.
+    # STUB_PIP_PARTIAL makes a failed run leave the package importable.
     "pip": """#!/bin/sh
 echo "Processing /tmp/filaops_pro-0.1.0-py3-none-any.whl"
+[ -n "$STUB_PIP_PARTIAL" ] && touch "$STUB_STATE/installed"
 if [ "${STUB_PIP_EXIT:-0}" -ne 0 ]; then
     echo "ERROR: Could not find a version that satisfies the requirement httpx>=99"
     exit "$STUB_PIP_EXIT"
@@ -103,6 +105,22 @@ def test_failed_pip_install_is_reported_and_core_still_starts(tmp_path):
     assert "PRO plugin install failed (pip exit 1)" in result.stderr
     # pip's actual error reaches the logs, not just its last line
     assert "Could not find a version that satisfies" in result.stderr
+    assert "Starting in Community mode." in result.stderr
+    assert "PLUGIN_MODULE=\n" in result.stdout
+
+
+def test_partial_install_after_pip_failure_is_not_loaded(tmp_path):
+    """pip can fail after writing the package (e.g. a dependency failed), so
+    ``import filaops_pro`` succeeds. The script said "Community mode" but the
+    import check would still have enabled the broken plugin."""
+    result = _run(
+        tmp_path,
+        FILAOPS_LICENSE_KEY="<license-key>",
+        STUB_PIP_EXIT="1",
+        STUB_PIP_PARTIAL="1",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
     assert "Starting in Community mode." in result.stderr
     assert "PLUGIN_MODULE=\n" in result.stdout
 
