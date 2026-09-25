@@ -63,6 +63,16 @@ services:
       FILAOPS_VERSION: ${FILAOPS_VERSION:-}
       # PRO — set FILAOPS_LICENSE_KEY in .env to activate PRO features
       FILAOPS_LICENSE_KEY: ${FILAOPS_LICENSE_KEY:-}
+      # Email (SMTP) — set these in .env to email password reset approvals.
+      # Without SMTP_USER and SMTP_PASSWORD, reset requests stay pending.
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.com}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Your Company Name}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      ADMIN_APPROVAL_EMAIL: ${ADMIN_APPROVAL_EMAIL:-admin@example.com}
     depends_on:
       migrate:
         condition: service_completed_successfully
