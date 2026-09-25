@@ -244,14 +244,16 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
       });
 
       if (response.ok) {
-        toast.success("File opened in Notepad!");
+        // SEC-401: the server no longer opens an editor; it returns the path.
+        const data = await response.json().catch(() => ({}));
+        toast.info(data.message || "Open the file shown above in a text editor.", 15000);
       } else {
         const errorData = await response.json().catch(() => ({}));
         const errorMsg = errorData.detail || errorData.message || `Error ${response.status}`;
-        toast.error(`Could not open file: ${errorMsg}`);
+        toast.error(`Could not find the file: ${errorMsg}`);
       }
     } catch (err) {
-      toast.error(`Could not open file: ${err.message}`);
+      toast.error(`Could not find the file: ${err.message}`);
     } finally {
       setOpeningFile(false);
     }
@@ -267,14 +269,16 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
       });
 
       if (response.ok) {
-        toast.success("Terminal opened! Run the command shown to restart.");
+        // SEC-401: the server no longer opens a terminal; it returns the command.
+        const data = await response.json().catch(() => ({}));
+        toast.info(data.message || "Restart the backend to apply the change.", 20000);
       } else {
         const errorData = await response.json().catch(() => ({}));
         const errorMsg = errorData.detail || errorData.message || `Error ${response.status}`;
-        toast.error(`Could not open terminal: ${errorMsg}`);
+        toast.error(`Could not get restart instructions: ${errorMsg}`);
       }
     } catch (err) {
-      toast.error(`Could not open terminal: ${err.message}`);
+      toast.error(`Could not get restart instructions: ${err.message}`);
     } finally {
       setOpeningTerminal(false);
     }
@@ -448,12 +452,12 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         {openingTerminal ? (
                           <>
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                            Opening...
+                            Loading...
                           </>
                         ) : (
                           <>
                             <TerminalIcon />
-                            Open Terminal to Restart
+                            Show Restart Command
                           </>
                         )}
                       </button>
@@ -527,12 +531,12 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         {openingTerminal ? (
                           <>
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                            Opening...
+                            Loading...
                           </>
                         ) : (
                           <>
                             <TerminalIcon />
-                            Open Terminal to Restart
+                            Show Restart Command
                           </>
                         )}
                       </button>
@@ -556,7 +560,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-white mb-2">Set Up HTTPS Automatically</h3>
                       <p className="text-gray-300 mb-4">
-                        Enter your domain name and we'll set everything up for you - including a desktop shortcut to start FilaOps!
+                        Enter your domain name and we'll write the Caddy configuration for it. You install and start Caddy yourself.
                       </p>
 
                       <div className="mb-4">
@@ -593,7 +597,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         )}
                       </button>
                       <p className="text-xs text-gray-400 mt-2 text-center">
-                        We'll install Caddy (if needed), create the config, and add a desktop shortcut.
+                        This writes a Caddyfile. It does not install or start Caddy.
                       </p>
                     </div>
                   </div>
@@ -615,7 +619,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                     </div>
                   </div>
                   <h3 className={`text-xl font-bold ${httpsFixResult.needs_caddy_install ? "text-yellow-400" : "text-green-400"} mb-2 text-center`}>
-                    {httpsFixResult.needs_caddy_install ? "Almost Done!" : "HTTPS is Ready!"}
+                    {httpsFixResult.caddy_started ? "HTTPS is Ready!" : "Almost Done!"}
                   </h3>
                   <p className="text-gray-300 mb-4 text-center">
                     {httpsFixResult.message}
@@ -639,7 +643,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         </svg>
                       </a>
                       <p className="text-xs text-yellow-300/70 mt-2 text-center">
-                        Choose "Windows amd64" and run the installer. Then use the desktop shortcut!
+                        Choose "Windows amd64" and run the installer. Then run caddy run in your project folder.
                       </p>
                     </div>
                   )}
@@ -737,7 +741,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                     ) : (
                       <div className="text-center">
                         <p className="text-yellow-300 mb-2">
-                          ⚠️ Desktop shortcut couldn't be created automatically
+                          Start Caddy yourself
                         </p>
                         <p className="text-gray-400 text-sm">
                           You can start FilaOps manually by running:<br/>
@@ -902,18 +906,18 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                     {openingTerminal ? (
                       <>
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        Opening...
+                        Loading...
                       </>
                     ) : (
                       <>
                         <TerminalIcon />
-                        Open Terminal to Restart
+                        Show Restart Command
                       </>
                     )}
                   </button>
 
                   <p className="text-sm text-gray-400">
-                    A terminal will open with the restart command ready for you.
+                    The new key takes effect after the backend restarts. This shows the command to run.
                   </p>
                 </div>
               )}
