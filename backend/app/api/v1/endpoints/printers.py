@@ -19,6 +19,7 @@ from sqlalchemy import desc
 from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.printer import Printer
+from app.api.v1.deps import get_current_staff_user
 from app.api.v1.endpoints.auth import get_current_user
 from app.models.user import User
 from app.core.features import enforce_resource_limit, get_current_tier
@@ -41,9 +42,18 @@ from app.schemas.printer import (
     PrinterModelInfo,
 )
 from app.services.printer_discovery import get_orchestrator
+from app.services.printer_config_masking import (
+    SecretReuseError,
+    mask_connection_config,
+    restore_masked_secrets,
+)
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 
-router = APIRouter()
+# SEC-403: every printer route is staff-only (admin or operator). A plain
+# login is not enough, because anyone can self-register a customer account,
+# and these routes edit where printer credentials are sent and probe the
+# local network.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -164,7 +174,8 @@ def _printer_to_response(printer: Printer) -> PrinterResponse:
         notes=printer.notes,
         active=printer.active,
         status=PrinterStatus(printer.status) if printer.status else PrinterStatus.OFFLINE,
-        connection_config=printer.connection_config or {},
+        # SEC-403: secrets are masked at any depth; see printer_config_masking.
+        connection_config=mask_connection_config(printer.connection_config),
         capabilities=printer.capabilities or {},
         last_seen=printer.last_seen,
         created_at=printer.created_at,
@@ -438,7 +449,8 @@ async def create_printer(
         work_center_id=data.work_center_id,
         notes=data.notes,
         active=data.active if data.active is not None else True,
-        connection_config=data.connection_config or {},
+        # Never store the mask placeholder as a real secret.
+        connection_config=restore_masked_secrets(data.connection_config or {}, None),
         capabilities=data.capabilities or {},
         status="offline",
         created_at=datetime.now(timezone.utc),
@@ -487,8 +499,40 @@ async def update_printer(
                 detail=f"Printer with code '{data.code}' already exists"
             )
 
-    # Update fields
     update_data = data.model_dump(exclude_unset=True)
+
+    # The UI sends masked secrets back as "********"; keep the stored value
+    # at that path (nested keys included). Stored secrets are not reused
+    # once the printer points somewhere else: the caller must send them again.
+    ip_changed = "ip_address" in update_data and (
+        (update_data["ip_address"] or "").strip() != (printer.ip_address or "").strip()
+    )
+    try:
+        if isinstance(update_data.get("connection_config"), dict):
+            update_data["connection_config"] = restore_masked_secrets(
+                update_data["connection_config"],
+                printer.connection_config,
+                retargeted=ip_changed,
+            )
+        elif ip_changed and "connection_config" not in update_data:
+            # The stored config (and its secrets) would follow the printer to
+            # the new address. Check it as if the client had sent it back.
+            restore_masked_secrets(
+                mask_connection_config(printer.connection_config),
+                printer.connection_config,
+                retargeted=True,
+            )
+    except SecretReuseError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The printer's connection address changed, so its saved "
+                "credentials were not reused. Enter them again: "
+                + ", ".join(exc.paths)
+            ),
+        ) from exc
+
+    # Update fields
     for field, value in update_data.items():
         if field == "brand" and value:
             value = value.value if hasattr(value, "value") else value

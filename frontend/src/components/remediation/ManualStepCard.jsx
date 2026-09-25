@@ -128,7 +128,7 @@ export default function ManualStepCard({
                   </button>
                 )}
 
-                {/* File path with Open in Notepad button */}
+                {/* File path, with a button that shows how to edit it */}
                 {step.file_path && (
                   <div className="bg-gray-900 border border-gray-600 rounded-lg p-4">
                     <div className="flex items-center justify-between">
@@ -144,12 +144,12 @@ export default function ManualStepCard({
                         {openingFile ? (
                           <>
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            Opening...
+                            Loading...
                           </>
                         ) : (
                           <>
                             <NotepadIcon />
-                            Open in Notepad
+                            How to Edit
                           </>
                         )}
                       </button>

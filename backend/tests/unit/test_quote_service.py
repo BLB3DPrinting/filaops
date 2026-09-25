@@ -32,12 +32,16 @@ from app.services.quote_conversion_service import (
 # ============================================================================
 
 class TestGenerateSalesOrderNumber:
-    """Test sales order number generation"""
+    """Test sales order number generation.
+
+    The numbering itself (lock, numeric max) is covered against Postgres in
+    tests/services/test_order_number_sequence.py.
+    """
 
     def test_first_order_of_year(self):
         """Should generate SO-YYYY-001 for first order"""
         db = MagicMock()
-        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+        db.query.return_value.filter.return_value.scalar.return_value = None
 
         result = generate_sales_order_number(db)
 
@@ -45,18 +49,24 @@ class TestGenerateSalesOrderNumber:
         assert result == f"SO-{year}-001"
 
     def test_increments_existing_orders(self):
-        """Should increment from last order"""
+        """Should increment from the highest existing sequence"""
         db = MagicMock()
-
-        last_order = Mock()
-        year = datetime.now(timezone.utc).year
-        last_order.order_number = f"SO-{year}-042"
-
-        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = last_order
+        db.query.return_value.filter.return_value.scalar.return_value = 42
 
         result = generate_sales_order_number(db)
 
+        year = datetime.now(timezone.utc).year
         assert result == f"SO-{year}-043"
+
+    def test_takes_the_order_number_lock(self):
+        """Must go through the shared allocator and its advisory lock"""
+        db = MagicMock()
+        db.query.return_value.filter.return_value.scalar.return_value = 0
+
+        generate_sales_order_number(db)
+
+        lock_sql = str(db.execute.call_args.args[0])
+        assert "pg_advisory_xact_lock" in lock_sql
 
 
 # ============================================================================

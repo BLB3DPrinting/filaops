@@ -84,6 +84,7 @@ def setup_database():
         conn.execute(text("ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS locale VARCHAR(20)"))
         conn.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
         conn.execute(text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
+        conn.execute(text("ALTER TABLE sales_orders ALTER COLUMN unit_price DROP NOT NULL"))
         conn.execute(text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS tax_name VARCHAR(100)"))
         # Issue #362: material inventory on sales order lines
         # DROP NOT NULL is idempotent — safe to run if already nullable
@@ -569,6 +570,30 @@ def unauthed_client(db):
         yield c
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def role_headers(db):
+    """Factory: account_type -> Bearer headers for a new active user of that type.
+
+    Use with ``unauthed_client`` to call a route as a customer or operator,
+    e.g. ``unauthed_client.get(url, headers=role_headers("customer"))``.
+    """
+    from app.core.security import create_access_token
+    from app.models.user import User
+
+    def _factory(account_type):
+        user = User(
+            email=f"{account_type}-{_uid()}@example.com",
+            password_hash="not-a-real-hash",
+            account_type=account_type,
+            status="active",
+        )
+        db.add(user)
+        db.flush()
+        return {"Authorization": f"Bearer {create_access_token(user_id=user.id)}"}
+
+    return _factory
 
 
 # =============================================================================
