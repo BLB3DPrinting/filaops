@@ -643,7 +643,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         </svg>
                       </a>
                       <p className="text-xs text-yellow-300/70 mt-2 text-center">
-                        Choose "Windows amd64" and run the installer. Then run caddy run in your project folder.
+                        Pick the download for your operating system and install it. Then run caddy run in your project folder.
                       </p>
                     </div>
                   )}
@@ -750,7 +750,7 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                           </code>
                           {" "}then{" "}
                           <code className="text-green-400 bg-gray-800 px-2 py-1 rounded">
-                            caddy run
+                            {httpsFixResult.caddy_command || "caddy"} run
                           </code>
                         </p>
                       </div>

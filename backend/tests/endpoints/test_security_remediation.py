@@ -81,3 +81,32 @@ def test_setup_https_safe_generation_without_shell_scripts(mock_popen, mock_run,
         # Verify no remote binary download or shell scripts were executed
         assert mock_popen.call_count == 0
         assert mock_run.call_count == 0
+
+
+@patch("subprocess.run")
+@patch("subprocess.Popen")
+def test_setup_https_names_a_runnable_caddy_command(mock_popen, mock_run, client, monkeypatch):
+    r"""A caddy.exe that only sits in the project folder is shown as .\caddy.exe.
+
+    PowerShell does not run a program from the current folder by bare name,
+    so "caddy run" would fail there.
+    """
+    import os
+    import shutil
+
+    real_exists = os.path.exists
+    monkeypatch.setattr(shutil, "which", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        os.path, "exists",
+        lambda path: str(path).endswith("caddy.exe") or real_exists(path),
+    )
+
+    with patch("builtins.open", create=True):
+        resp = client.post("/api/v1/security/remediate/setup-https", json={"domain": "erp.local"})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["caddy_command"] == r".\caddy.exe"
+    assert r".\caddy.exe run" in data["message"]
+    assert mock_popen.call_count == 0
+    assert mock_run.call_count == 0

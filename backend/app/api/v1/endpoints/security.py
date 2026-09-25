@@ -786,10 +786,16 @@ async def setup_https(
     )))
     project_root = os.path.dirname(backend_dir)
 
-    caddy_installed = shutil.which("caddy") is not None or os.path.exists(os.path.join(project_root, "caddy.exe"))
+    caddy_on_path = shutil.which("caddy") is not None
+    local_caddy_exists = os.path.exists(os.path.join(project_root, "caddy.exe"))
+    caddy_installed = caddy_on_path or local_caddy_exists
+    # PowerShell won't run a program from the current folder by bare name,
+    # so a caddy.exe that only sits in the project folder needs a .\ prefix.
+    caddy_command = "caddy" if caddy_on_path or not local_caddy_exists else r".\caddy.exe"
 
     results = {
         "caddy_installed": caddy_installed,
+        "caddy_command": caddy_command,
         "caddy_was_installed": False,
         "caddyfile_created": False,
         "caddy_started": False,
@@ -876,10 +882,10 @@ async def setup_https(
         message = (
             f"Configuration created for {domain}! "
             "Please install Caddy from https://caddyserver.com/download, "
-            "then run 'caddy run' in your project directory."
+            f"then run '{caddy_command} run' in your project directory."
         )
     else:
-        message = f"HTTPS configured for {domain}! Start Caddy manually with: caddy run"
+        message = f"HTTPS configured for {domain}! Start Caddy manually with: {caddy_command} run"
 
     logger.info(f"HTTPS setup completed by {current_user.email} for domain {domain}")
 
