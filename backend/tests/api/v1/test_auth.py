@@ -351,22 +351,38 @@ class TestPasswordResetComplete:
 
 
 class TestPasswordResetFullFlow:
-    """End-to-end password reset in dev mode (no email configured = auto-approve)."""
+    """End-to-end password reset: the token only reaches the user by email
+    after an admin approves. See test_password_reset_request.py for the
+    no-SMTP and response-shape cases."""
 
-    def test_full_reset_flow(self, unauthed_client, registered_user):
-        # Step 1: Request reset
-        resp = unauthed_client.post(
-            f"{BASE_URL}/password-reset/request",
-            json={"email": registered_user.email},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
+    def test_full_reset_flow(self, unauthed_client, registered_user, monkeypatch):
+        from unittest.mock import patch
+        from app.core.config import settings
 
-        # In dev mode (no SMTP), reset_token should be returned directly
-        if "reset_token" not in data or data["reset_token"] is None:
-            pytest.skip("SMTP configured — auto-approve not available")
+        monkeypatch.setattr(settings, "SMTP_USER", "mailer@example.com")
+        monkeypatch.setattr(settings, "SMTP_PASSWORD", "not-a-real-password")
 
-        reset_token = data["reset_token"]
+        with patch("app.api.v1.endpoints.auth.email_service") as mock_email:
+            # Step 1: Request reset — the response never carries the token
+            resp = unauthed_client.post(
+                f"{BASE_URL}/password-reset/request",
+                json={"email": registered_user.email},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "reset_token" not in data
+            assert "reset_url" not in data
+
+            # Step 1b: Admin approves via the emailed approval link
+            approval_token = (
+                mock_email.send_password_reset_approval_request.call_args.kwargs["approval_token"]
+            )
+            resp = unauthed_client.post(
+                f"{BASE_URL}/password-reset/approve",
+                json={"approval_token": approval_token},
+            )
+            assert resp.status_code == 200
+            reset_token = mock_email.send_password_reset_approved.call_args.kwargs["reset_token"]
 
         # Step 2: Check status (should be approved)
         resp = unauthed_client.get(
@@ -397,17 +413,23 @@ class TestPasswordResetFullFlow:
         data = resp.json()
         assert "access_token" in data or data.get("token_type") == "cookie"
 
-    def test_reset_with_weak_password_fails(self, unauthed_client, registered_user):
-        # Request reset
-        resp = unauthed_client.post(
-            f"{BASE_URL}/password-reset/request",
-            json={"email": registered_user.email},
-        )
-        data = resp.json()
-        if "reset_token" not in data or data["reset_token"] is None:
-            pytest.skip("SMTP configured — auto-approve not available")
+    def test_reset_with_weak_password_fails(self, unauthed_client, db, registered_user):
+        # An admin-approved reset request
+        import secrets
+        from datetime import datetime, timedelta, timezone
+        from app.models.user import PasswordResetRequest
 
-        reset_token = data["reset_token"]
+        reset_token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.add(PasswordResetRequest(
+            user_id=registered_user.id,
+            token=reset_token,
+            approval_token=secrets.token_urlsafe(32),
+            status="approved",
+            approved_at=now,
+            expires_at=now + timedelta(hours=1),
+        ))
+        db.flush()
 
         # Try to complete with weak password
         resp = unauthed_client.post(

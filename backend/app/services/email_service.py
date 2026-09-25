@@ -42,8 +42,8 @@ class EmailService:
         """
         if not self.user or not self.password:
             logger.warning("SMTP credentials not configured - email not sent")
+            # Never log the body: these emails carry approval and reset links.
             logger.info(f"Would have sent email to {to_email}: {subject}")
-            logger.debug(f"Email body:\n{text_body or html_body}")
             return False
 
         try:

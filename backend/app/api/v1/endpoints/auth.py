@@ -617,16 +617,24 @@ async def request_password_reset(
     2. Admin receives approval email
     3. Admin clicks approve link
     4. User receives reset link via email
+
+    The reset token is only ever delivered by email, after an admin approves.
+    It is never returned in this response. Without SMTP the request stays
+    pending; an admin can set a new password from Team Members instead.
+
+    Every outcome returns the same body, so the response does not reveal
+    whether the account exists, whether a request is already pending, or
+    whether SMTP is configured.
     """
+    generic_response = PasswordResetRequestResponse(
+        message="If an account exists with this email, a password reset request has been submitted for review."
+    )
+
     # Find user by email
     user = db.query(User).filter(User.email == request_data.email).first()
 
-    # Always return success message to prevent email enumeration
-    success_message = "If an account exists with this email, a password reset request has been submitted for review."
-
     if not user:
-        # Don't reveal that user doesn't exist
-        return PasswordResetRequestResponse(message=success_message)
+        return generic_response
 
     # Check for existing pending request (avoid spam)
     existing_request = db.query(PasswordResetRequest).filter(
@@ -636,9 +644,7 @@ async def request_password_reset(
     ).first()
 
     if existing_request:
-        return PasswordResetRequestResponse(
-            message="A password reset request is already pending approval."
-        )
+        return generic_response
 
     # Generate tokens
     reset_token = secrets.token_urlsafe(32)
@@ -658,68 +664,47 @@ async def request_password_reset(
 
     # Check if email is configured
     email_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
-    
-    if email_configured:
-        # Send approval email to admin (normal flow)
-        email_sent = email_service.send_password_reset_approval_request(
-            admin_email=settings.ADMIN_APPROVAL_EMAIL,
-            user_email=user.email,  # type: ignore[arg-type]
-            user_name=user.full_name,
-            approval_token=approval_token,
-            frontend_url=settings.FRONTEND_URL
-        )
-        
-        if not email_sent:
-            # Email failed to send, but request was created
-            logger.warning(f"Password reset request created but email failed to send for user {user.email}")
-        
-        logger.info(
-            "Password reset requested (requires admin approval)",
+
+    if not email_configured:
+        # No SMTP means no approval email and no reset email can be sent.
+        # The request stays pending (it expires on its own). An admin can set
+        # a new password directly from Team Members > Reset Password.
+        logger.warning(
+            "Password reset requested but SMTP is not configured; the request "
+            "stays pending. An administrator can set a new password from "
+            "Team Members > Reset Password. "
+            "See: https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/",
             extra={
                 "user_id": user.id,
                 "email": user.email,
                 "request_id": reset_request.id
             }
         )
-        
-        return PasswordResetRequestResponse(
-            message=success_message,
-            request_id=reset_request.id  # type: ignore[arg-type]
-        )
-    else:
-        # No SMTP configured - auto-approve and return reset link directly
-        if settings.is_production:
-            logger.warning(
-                "SECURITY WARNING: Password reset auto-approved in production because "
-                "SMTP is not configured. This bypasses admin approval. Configure SMTP "
-                "to enable secure password resets. "
-                "See: https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/",
-                extra={"user_id": user.id, "email": user.email}
-            )
-        reset_request.status = 'approved'  # type: ignore[assignment]
-        reset_request.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
-        reset_request.expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).replace(tzinfo=None)  # type: ignore[assignment] # 24 hours to use
-        db.commit()
-        
-        # Use relative URL - frontend will construct full URL
-        reset_url = f"/reset-password/{reset_token}"
-        
-        logger.info(
-            "Password reset auto-approved (email not configured)",
-            extra={
-                "user_id": user.id,
-                "email": user.email,
-                "request_id": reset_request.id,
-                "token_prefix": reset_token[:8] + "..."
-            }
-        )
-        
-        return PasswordResetRequestResponse(
-            message="Password reset link generated. Use the link below to reset your password.",
-            request_id=reset_request.id,  # type: ignore[arg-type]
-            reset_token=reset_token,
-            reset_url=reset_url
-        )
+        return generic_response
+
+    # Send approval email to admin (normal flow)
+    email_sent = email_service.send_password_reset_approval_request(
+        admin_email=settings.ADMIN_APPROVAL_EMAIL,
+        user_email=user.email,  # type: ignore[arg-type]
+        user_name=user.full_name,
+        approval_token=approval_token,
+        frontend_url=settings.FRONTEND_URL
+    )
+
+    if not email_sent:
+        # Email failed to send, but request was created
+        logger.warning(f"Password reset request created but email failed to send for user {user.email}")
+
+    logger.info(
+        "Password reset requested (requires admin approval)",
+        extra={
+            "user_id": user.id,
+            "email": user.email,
+            "request_id": reset_request.id
+        }
+    )
+
+    return generic_response
 
 
 @router.post("/password-reset/approve", response_model=PasswordResetApprovalResponse)

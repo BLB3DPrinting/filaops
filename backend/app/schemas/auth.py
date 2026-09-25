@@ -187,11 +187,12 @@ class PasswordResetRequestCreate(BaseModel):
 
 
 class PasswordResetRequestResponse(BaseModel):
-    """Schema for password reset request response"""
+    """Schema for password reset request/complete responses.
+
+    Deliberately message-only. Reset tokens and links reach the user by
+    email after admin approval, never through an API response.
+    """
     message: str
-    request_id: Optional[int] = None
-    reset_token: Optional[str] = None  # Provided if auto-approved (no email configured)
-    reset_url: Optional[str] = None  # Full reset URL if auto-approved
 
 
 class PasswordResetApprovalResponse(BaseModel):
