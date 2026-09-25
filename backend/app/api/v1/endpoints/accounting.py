@@ -407,7 +407,7 @@ async def list_fiscal_periods(
     "/periods/{period_id}/close",
     response_model=PeriodCloseResponse,
     summary="Close a Fiscal Period",
-    description="Close a fiscal period to prevent new entries. Requires confirmation."
+    description="Mark a fiscal period as closed for reporting. This does not block new entries, backdated entries, or edits. Requires confirmation."
 )
 async def close_fiscal_period(
     period_id: int,
@@ -416,12 +416,10 @@ async def close_fiscal_period(
     current_admin: User = Depends(get_current_admin_user),
 ):
     """
-    Close a fiscal period.
+    Mark a fiscal period as closed for reporting.
 
-    Once closed:
-    - No new journal entries can be created in this period
-    - Existing entries cannot be modified
-    - Period can be reopened by admin if needed
+    Closed status does not block new journal entries, backdated entries,
+    or edits to existing entries. An admin can reopen the reporting period.
 
     Before closing, validates:
     - Period exists and is currently open
@@ -440,7 +438,7 @@ async def close_fiscal_period(
     "/periods/{period_id}/reopen",
     response_model=PeriodCloseResponse,
     summary="Reopen a Closed Period",
-    description="Reopen a previously closed fiscal period. Use with caution."
+    description="Change a previously closed fiscal period's reporting status back to open."
 )
 async def reopen_fiscal_period(
     period_id: int,
@@ -450,8 +448,8 @@ async def reopen_fiscal_period(
     """
     Reopen a closed fiscal period.
 
-    Use with caution - this allows modifications to historical data.
-    Typically used to correct errors discovered after close.
+    Changes reporting status back to open. Period status does not enforce
+    restrictions on new entries, backdated entries, or edits.
     """
     return accounting_service.reopen_fiscal_period(db, period_id)
 

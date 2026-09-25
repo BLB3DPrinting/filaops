@@ -4,6 +4,12 @@ import { API_URL } from "../../config/api";
 import logoFull from "../../assets/logo_full.png";
 import logoBLB3D from "../../assets/logo_blb3d.svg";
 
+/**
+ * Sign-in screen, and the app's landing route — "/" redirects here.
+ *
+ * Also the first place a backend outage becomes visible, so it surfaces
+ * connection failures inline as an amber warning rather than failing silently.
+ */
 export default function AdminLogin() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -121,7 +127,12 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 grid-pattern" style={{ backgroundColor: 'var(--bg-primary)' }}>
+    // data-theme="dim" declares what this screen already is: a dark surface.
+    // It still paints from the deprecated Neo tokens, so any Workbench token
+    // used here — currently just --status-amber on the connection banner —
+    // must resolve to its dark value or it lands unreadable on this ground.
+    // Removed when the shell slice migrates this screen off the Neo palette.
+    <div data-theme="dim" className="min-h-screen flex items-center justify-center px-4 grid-pattern" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <div className="w-full max-w-md">
         {/* Dual Logos - BLB3D + FilaOps */}
         <div className="text-center mb-8">
@@ -157,7 +168,7 @@ export default function AdminLogin() {
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                style={{ color: 'var(--accent)' }}
+                style={{ color: 'var(--status-amber)' }}
               >
                 <path
                   strokeLinecap="round"
@@ -167,7 +178,7 @@ export default function AdminLogin() {
                 />
               </svg>
               <div>
-                <h3 className="font-medium" style={{ color: 'var(--accent)' }}>
+                <h3 className="font-medium" style={{ color: 'var(--status-amber)' }}>
                   Connection Issue
                 </h3>
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{apiError}</p>

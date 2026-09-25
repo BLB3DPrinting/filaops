@@ -1,6 +1,10 @@
 # FilaOps Dependabot Configuration
 # Keeps Python (backend), Node (frontend), and GitHub Actions dependencies current
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# Cadence: routine version updates are monthly and grouped; security updates
+# ignore the schedule and arrive immediately. A 7-day cooldown skips releases
+# younger than a week so upstream regressions surface before they reach us.
 
 version: 2
 updates:
@@ -8,14 +12,15 @@ updates:
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps(py):"
     labels:
       - "dependencies"
       - "python"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
       pip-security:
         applies-to: security-updates
@@ -31,20 +36,28 @@ updates:
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps(js):"
     labels:
       - "dependencies"
       - "javascript"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     ignore:
       # ESLint 10 blocked until eslint-plugin-react-hooks supports it
       # Tracking: #285
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      # Vitest 5 is blocked until @storybook/addon-vitest supports it.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/browser-playwright"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
         update-types: ["version-update:semver-major"]
     groups:
       npm-security:
@@ -57,40 +70,49 @@ updates:
           - "minor"
           - "patch"
 
-  # GitHub Actions
+  # GitHub Actions — one grouped PR
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     commit-message:
       prefix: "deps(ci):"
     labels:
       - "dependencies"
       - "ci"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns:
+          - "*"
 
   # Docker base images (frontend builder node:24-slim, backend python:3.11-slim)
   - package-ecosystem: "docker"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     commit-message:
       prefix: "deps(docker):"
     labels:
       - "dependencies"
       - "docker"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      frontend-images:
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
     commit-message:
       prefix: "deps(docker):"
     labels:
       - "dependencies"
       - "docker"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      backend-images:
+        patterns:
+          - "*"

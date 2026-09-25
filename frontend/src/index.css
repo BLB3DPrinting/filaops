@@ -23,15 +23,25 @@
   --ink-2:        #3D3D38;
   --ink-3:        #6B6B66;
   --ink-4:        #94938C;
-  --orange:       #E85D1F;   /* safety-orange — PRIMARY ACTION only, never a status */
-  --orange-press: #C44C15;
-  --orange-tint:  #FBE7DC;
+  --accent:       #0F5F66;   /* petrol — PRIMARY ACTION only, never a status */
+  --accent-ink:   #FFFFFF;   /* text/icon ON --accent (7.37:1) */
+  --accent-press: #0B4A50;
+  --accent-tint:  #E2EFF0;
+
+  /* @deprecated orange aliases — kept so the 43 already-migrated files keep
+     rendering while the Phase 2 codemod rewrites them to --accent. The four
+     non-action uses of the accent were fixed first (see the audit commit), so
+     aliasing is a pure hue swap, not a semantic one. --orange-tint is not
+     aliased: after those fixes it has no consumers left. */
+  --orange:       var(--accent);
+  --orange-press: var(--accent-press);
   --rule-hair:    #E5E3DC;
   --shadow-pop:   0 1px 2px rgba(31, 31, 28, 0.06), 0 4px 12px rgba(31, 31, 28, 0.08);
 
   /* ---- Status semantics (locked decision, #846) -------------------------
      amber = in-progress/working, green = ready/cleared, red = overdue/error.
-     Orange is reserved for primary action and must never double as a status. */
+     The accent is reserved for primary action and must never double as a
+     status. Audited 2026-09-19: every var(--accent) call site is an action. */
   --status-amber:      #B45309;
   --status-amber-tint: #FEF3C7;
   --status-green:      #15803D;
@@ -39,7 +49,7 @@
   --status-red:        #DC2626;
   --status-red-tint:   #FEE2E2;
 
-  /* ---- Liquid-glass material (floating chrome only) --------------------- */
+/* ---- Liquid-glass material (floating chrome only) --------------------- */
   --glass-bg:     rgba(250, 250, 247, 0.66);
   --glass-blur:   blur(26px) saturate(200%);
   --glass-border: rgba(255, 255, 255, 0.80);
@@ -57,8 +67,11 @@
   --bg-elevated: #242440;
   --primary: #026DF8;
   --primary-light: #0088FF;
-  --accent: #EE7A08;
-  --accent-light: #FF9933;
+  /* --accent / --accent-light removed 2026-09-20: --accent collided with the
+     Workbench accent declared earlier in this same :root rule and, being
+     later, won — silently painting the new accent orange again. Its three
+     consumers were repointed (two were a status and became --status-amber);
+     --accent-light had none. */
   --success: #00c853;
   --warning: #EE7A08;
   --error: #ef4444;
@@ -81,9 +94,12 @@
   --ink-2:        #C7C2B6;
   --ink-3:        #9A958A;
   --ink-4:        #746F66;
-  --orange:       #F26C2E;
-  --orange-press: #D5571B;
-  --orange-tint:  #3A2418;
+  /* #0F5F66 reaches only 2.26:1 against this ground — under the 3:1 floor for
+     UI components — so dim gets a lightened petrol with dark text on it. */
+  --accent:       #5EB3B8;
+  --accent-ink:   #211E18;   /* text/icon ON --accent (6.82:1) */
+  --accent-press: #8FCACD;
+  --accent-tint:  #17383B;
   --rule-hair:    #34302A;
   --shadow-pop:   0 1px 2px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.40);
 
@@ -117,6 +133,45 @@
   --glass-sel:    var(--paper-sunk);
 }
 [data-theme="dim"][data-glass="off"] { --glass-scrim: rgba(0, 0, 0, 0.55); }
+
+/* =============================================================================
+   TAILWIND BRIDGE
+   -----------------------------------------------------------------------------
+   The tokens above live in :root, which means Tailwind generates no utilities
+   for them — using the system cost `bg-[var(--paper)]` with no autocomplete
+   while bypassing it cost `bg-blue-600` with autocomplete. That asymmetry, not
+   a lack of discipline, is why 182 files are off-system. This block makes the
+   system the shorter thing to type: `bg-paper`, `text-ink-3`, `bg-accent`.
+
+   `inline` is a preference, not a requirement. MEASURED against tailwindcss
+   4.3.3: plain @theme emits `--color-paper: var(--paper)` and stays fully
+   theme-reactive — Tailwind bakes literals, not indirections. `inline` simply
+   skips that middle layer so utilities reference --paper directly. The one
+   consequence: --color-* properties are NOT emitted, so nothing may reference
+   the generated `--color-*` names. Nothing does.
+
+   Additive: existing `bg-[var(--paper)]` arbitrary values keep working.
+   ============================================================================= */
+
+@theme inline {
+  --color-paper:        var(--paper);
+  --color-paper-sunk:   var(--paper-sunk);
+  --color-ink:          var(--ink);
+  --color-ink-2:        var(--ink-2);
+  --color-ink-3:        var(--ink-3);
+  --color-ink-4:        var(--ink-4);
+  --color-hair:         var(--rule-hair);
+  --color-accent:       var(--accent);
+  --color-accent-ink:   var(--accent-ink);
+  --color-accent-press: var(--accent-press);
+  --color-accent-tint:  var(--accent-tint);
+  --color-status-amber:      var(--status-amber);
+  --color-status-amber-tint: var(--status-amber-tint);
+  --color-status-green:      var(--status-green);
+  --color-status-green-tint: var(--status-green-tint);
+  --color-status-red:        var(--status-red);
+  --color-status-red-tint:   var(--status-red-tint);
+}
 
 /* ---- A11y: reduced transparency falls back to the flat material -------- */
 @media (prefers-reduced-transparency: reduce) {
@@ -157,7 +212,7 @@ html {
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -187,7 +242,7 @@ body {
 
 /* Display font for headings */
 .font-display {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -345,5 +400,6 @@ body {
 
 .nav-item-active:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(238, 122, 8, 0.3);
+  box-shadow: 0 0 0 2px var(--accent),
+              0 0 0 4px color-mix(in oklab, var(--accent) 30%, transparent);
 }

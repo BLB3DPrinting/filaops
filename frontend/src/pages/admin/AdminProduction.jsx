@@ -11,7 +11,15 @@ import QCInspectionModal from "../../components/QCInspectionModal";
 import Modal from "../../components/Modal";
 import { useApi } from "../../hooks/useApi";
 
-// Production Trend Chart Component
+/**
+ * Production throughput over the selected period.
+ *
+ * Two series on one plot: daily units completed as bars, and a cumulative
+ * total as a line. The bars carry neutral ink so the cumulative trend leads
+ * the eye; neither series uses the accent, which is reserved for actions.
+ *
+ * @param {{data: Array, period: string, onPeriodChange: Function, loading: boolean}} props
+ */
 function ProductionChart({ data, period, onPeriodChange, loading }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -148,7 +156,7 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
 
       <div className="flex gap-4 mb-2 text-xs">
         <div className="flex items-center gap-1">
-          <div className="w-2 h-3 bg-[var(--orange-tint)] rounded-sm"></div>
+          <div className="w-2 h-3 bg-[var(--ink-4)] rounded-sm"></div>
           <span className="text-[var(--ink-4)]">Daily Completed</span>
         </div>
         <div className="flex items-center gap-1">
@@ -179,8 +187,8 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
             )}
             <defs>
               <linearGradient id="productionBarGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="var(--orange)" />
-                <stop offset="100%" stopColor="var(--orange)" stopOpacity="0.2" />
+                <stop offset="0%" stopColor="var(--ink-4)" />
+                <stop offset="100%" stopColor="var(--ink-4)" stopOpacity="0.2" />
               </linearGradient>
             </defs>
           </svg>

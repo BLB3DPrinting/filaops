@@ -8,10 +8,14 @@
 # server URL and PRO-specific download logic.
 
 set -e
+# A pipeline fails if any stage fails, not just the last one. Without this,
+# `cmd | tail -1` reports tail's success even when cmd failed.
+set -o pipefail
 
 # ─── PRO Plugin Auto-Download ───
 if [ -n "$FILAOPS_LICENSE_KEY" ]; then
     LICENSE_URL="${LICENSE_SERVER_URL:-https://license.blb3dprinting.com}"
+    PRO_INSTALL_FAILED=0
 
     if ! python -c "import filaops_pro" 2>/dev/null; then
         echo "FilaOps: License key detected. Downloading PRO plugin..."
@@ -20,9 +24,22 @@ if [ -n "$FILAOPS_LICENSE_KEY" ]; then
         if curl -sf -H "X-License-Key: $FILAOPS_LICENSE_KEY" \
             "$LICENSE_URL/api/v1/download/filaops-pro" \
             -o "$WHEEL_PATH"; then
-            pip install --no-cache-dir "$WHEEL_PATH" 2>&1 | tail -1
-            rm -f "$WHEEL_PATH"
-            echo "FilaOps: PRO plugin installed."
+            # Check pip's own exit status. A failed install is handled like a
+            # failed download (log it, start in Community mode) rather than
+            # aborting under set -e, so Core still boots.
+            PIP_LOG=$(mktemp)
+            PIP_STATUS=0
+            pip install --no-cache-dir "$WHEEL_PATH" >"$PIP_LOG" 2>&1 || PIP_STATUS=$?
+            if [ "$PIP_STATUS" -eq 0 ]; then
+                tail -n 1 "$PIP_LOG"
+                echo "FilaOps: PRO plugin installed."
+            else
+                PRO_INSTALL_FAILED=1
+                echo "FilaOps: ERROR: PRO plugin install failed (pip exit $PIP_STATUS). pip output:" >&2
+                tail -n 20 "$PIP_LOG" >&2
+                echo "FilaOps: Starting in Community mode." >&2
+            fi
+            rm -f "$WHEEL_PATH" "$PIP_LOG"
         else
             echo "FilaOps: Could not download PRO plugin. Check your license key."
             echo "FilaOps: Starting in Community mode."
@@ -48,8 +65,10 @@ if [ -n "$FILAOPS_LICENSE_KEY" ]; then
         fi
     fi
 
-    # Bridge: set the generic plugin env var so Core's load_plugin finds it
-    if python -c "import filaops_pro" 2>/dev/null; then
+    # Bridge: set the generic plugin env var so Core's load_plugin finds it.
+    # A failed pip run can still leave a partial, importable package behind
+    # (e.g. a dependency missing); never load it after a reported failure.
+    if [ "$PRO_INSTALL_FAILED" -eq 0 ] && python -c "import filaops_pro" 2>/dev/null; then
         FILAOPS_PRO_MODULE=filaops_pro
     fi
 fi
