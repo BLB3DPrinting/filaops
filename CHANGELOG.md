@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Quality metrics — true first-pass yield (#784).** `GET /api/v1/quality/metrics` now derives `first_pass_yield`, `passed`, `failed`, and `total_inspections` from each order's **first `qc_inspections` row** instead of the `ProductionOrder.qc_status` cache. The cache is last-write-wins, so an order that failed initial inspection and was later re-inspected or waived to "passed" previously counted as a first-pass success and inflated the yield. **Expect FPY to move** (typically downward) where re-inspections occur — this is the corrected value, not a regression. Orders inspected before inspection rows were recorded are not counted in the metric.
 
+### Security
+
+- **Password reset requests always wait for an administrator.** `POST /api/v1/auth/password-reset/request` no longer returns a reset token or reset link in any configuration, and its response is identical whether or not the account exists, a request is already pending, or SMTP is configured. Without SMTP, requests stay pending and cannot be completed; an administrator resets the password from **Settings > Team Members > Reset Password**. With SMTP, the approval email flow is unchanged. The Forgot Password page no longer shows a reset link, and the email service no longer logs email bodies when SMTP is not configured.
+
 ## [4.1.0] - 2026-06-20
 
 ### Added

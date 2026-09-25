@@ -41,7 +41,7 @@ The `initial-admin` endpoint is rate-limited to **3 requests per minute** per IP
 
 ## Password Reset Flow
 
-FilaOps uses an **admin-approved** password reset flow by default. The behavior changes depending on whether SMTP email is configured.
+FilaOps uses an **admin-approved** password reset flow. The reset link is only ever sent by email after an administrator approves. It is never returned by the API or shown on the Forgot Password page.
 
 ### With SMTP Configured
 
@@ -59,20 +59,20 @@ This is the production flow:
 When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
 
 1. User clicks "Forgot Password" and submits their email.
-2. The backend **auto-approves** the request immediately.
-3. A reset link is returned directly in the API response and displayed on the page.
-4. User clicks the link and sets a new password.
+2. The backend records a `PasswordResetRequest` with `status=pending` and logs a warning. No email is sent.
+3. The page shows the same generic message as always. No reset link is shown.
+4. The request stays pending and expires after 24 hours. It cannot be used to set a password.
 
-No email is sent. The Forgot Password page displays the reset link directly with a "Reset My Password" button.
+To get the user back in, an administrator resets their password from **Settings > Team Members > Reset Password** (see [Option 1](#option-1-admin-resets-via-team-members-page) below) and gives them the new password. If the only administrator is locked out, use [Option 2](#option-2-reset-via-psql-when-locked-out).
 
-> **Production warning:** If SMTP is not configured in production, auto-approval still works but a **SECURITY WARNING** is logged on every password reset. This bypasses admin approval, meaning anyone who knows a valid email address can reset that account's password without inbox verification. **Configure SMTP for production deployments** — see [Email Setup](https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/).
+To let users reset their own passwords with admin approval, configure SMTP — see [Email Setup](https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/).
 
 ### Anti-Enumeration (Security Note)
 
 The password reset endpoint intentionally **does not reveal whether an email exists** in the system. If you submit a non-existent email:
 
-- **With SMTP:** You see a green success message: "If an account exists with this email, a password reset request has been submitted for review." No email is sent, but the response is identical.
-- **Without SMTP:** No reset link is generated (since no user was found), but the generic success message still appears.
+- **With or without SMTP:** You see the same success message: "If an account exists with this email, a password reset request has been submitted for review." No email is sent, but the response is identical.
+- The response is also identical when a request for that account is already pending, and it does not say whether SMTP is configured.
 
 This follows OWASP A07:2021 (Identification and Authentication Failures) best practices. If you are testing and unsure which email your admin account uses, check the database directly rather than relying on the reset form.
 
@@ -132,16 +132,7 @@ Then update the database:
 UPDATE users SET password_hash = '<paste hash here>' WHERE email = 'your-admin@example.com';
 ```
 
-### Option 3: Reset via the Forgot Password Flow (No SMTP)
-
-If SMTP is not configured (typical for dev), use the Forgot Password page:
-
-1. Go to `http://localhost:5173/forgot-password`
-2. Enter the admin email address
-3. The reset link appears directly on the page (no email needed)
-4. Click the link and set a new password
-
-### Option 4: Delete All Users to Re-trigger Setup Wizard
+### Option 3: Delete All Users to Re-trigger Setup Wizard
 
 As a last resort on a development database, you can delete all users to re-trigger the first-run setup:
 
