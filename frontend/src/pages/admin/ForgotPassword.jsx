@@ -2,7 +2,8 @@
  * ForgotPassword - Request password reset
  *
  * Allows users to request a password reset by submitting their email.
- * The request will be sent to admin for approval.
+ * The request will be sent to admin for approval. The API never returns a
+ * reset link; it only arrives by email after an administrator approves.
  */
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -14,7 +15,6 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [resetUrl, setResetUrl] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,15 +37,8 @@ export default function ForgotPassword() {
       const data = await res.json();
 
       if (res.ok) {
-        // If reset_url is provided, email is not configured - show link directly
-        if (data.reset_url) {
-          setSubmitted(true);
-          setResetUrl(data.reset_url);
-          toast.success("Password reset link generated!");
-        } else {
-          setSubmitted(true);
-          toast.success(data.message || "Password reset request submitted");
-        }
+        setSubmitted(true);
+        toast.success("Password reset request submitted");
       } else {
         const errorMsg =
           data.detail ||
@@ -93,55 +86,25 @@ export default function ForgotPassword() {
                 </svg>
               </div>
               <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-                {resetUrl ? "Password Reset Link Ready" : "Request Submitted"}
+                Request Submitted
               </h2>
-              {resetUrl ? (
-                <>
-                  <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
-                    Your password reset link has been generated. Click the
-                    button below to reset your password.
-                  </p>
-                  <div className="rounded-lg p-4 mb-4" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
-                    <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>Reset Link:</p>
-                    <p className="text-sm break-all" style={{ color: 'var(--primary)' }}>
-                      {window.location.origin}
-                      {resetUrl}
-                    </p>
-                  </div>
-                  <div className="flex gap-3">
-                    <Link
-                      to={resetUrl}
-                      className="inline-block px-6 py-2 rounded-lg transition-all"
-                      style={{ background: 'linear-gradient(90deg, #16a34a, #059669)', color: 'white' }}
-                    >
-                      Reset My Password
-                    </Link>
-                    <Link
-                      to="/admin/login"
-                      className="inline-block px-6 py-2 rounded-lg transition-all"
-                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-                    >
-                      Back to Login
-                    </Link>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
-                    If an account exists with this email, a password reset
-                    request has been submitted for review. An administrator will
-                    review your request and you will receive an email with reset
-                    instructions if approved.
-                  </p>
-                  <Link
-                    to="/admin/login"
-                    className="inline-block px-6 py-2 rounded-lg transition-all"
-                    style={{ background: 'linear-gradient(90deg, var(--primary), var(--primary-light))', color: 'white' }}
-                  >
-                    Back to Login
-                  </Link>
-                </>
-              )}
+              <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
+                If an account exists with this email, a password reset
+                request has been submitted. An administrator must approve the
+                reset before you can set a new password. If it is approved,
+                you will receive an email with a reset link.
+              </p>
+              <p className="mb-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                No email after a while? Contact your administrator. They can
+                also reset your password for you.
+              </p>
+              <Link
+                to="/admin/login"
+                className="inline-block px-6 py-2 rounded-lg transition-all"
+                style={{ background: 'linear-gradient(90deg, var(--primary), var(--primary-light))', color: 'white' }}
+              >
+                Back to Login
+              </Link>
             </div>
           </div>
         </div>
@@ -265,9 +228,10 @@ export default function ForgotPassword() {
                   How It Works
                 </h3>
                 <p className="text-sm" style={{ color: 'var(--primary-light)' }}>
-                  If email is configured, your request will be sent to an
-                  administrator for approval. Otherwise, a reset link will be
-                  generated immediately on this page.
+                  Your request is sent to an administrator. An administrator
+                  must approve the reset before you can set a new password.
+                  The reset link is sent to your email, never shown on this
+                  page.
                 </p>
               </div>
             </div>
