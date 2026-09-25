@@ -126,7 +126,7 @@ DB_PASSWORD=your_password
 
 - First-run setup wizard with admin account creation
 - Multi-user with role-based access
-- Admin-approved password reset (via SMTP email; admins can also reset passwords from Team Members)
+- Admin-approved password reset (via SMTP email; admins can also reset staff passwords from Team Members)
 - REST API (432 endpoints)
 - Shipping and order event tracking
 
