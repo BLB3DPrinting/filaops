@@ -26,6 +26,15 @@ def test_open_env_file_blocked_in_production(client, monkeypatch):
     assert "disabled in production" in resp.json()["detail"]
 
 
+def test_remediation_gate_reads_environment_like_the_startup_checks(client, monkeypatch):
+    """ENVIRONMENT=" Production " blocks too, the way settings.py's startup checks read it."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "ENVIRONMENT", " Production ")
+
+    resp = client.post("/api/v1/security/remediate/open-restart-terminal")
+    assert resp.status_code == 403
+
+
 @patch("subprocess.Popen")
 def test_open_env_file_returns_safe_info_without_subprocess(mock_popen, client, tmp_path):
     """Endpoint must return safe file path and NOT spawn OS processes."""

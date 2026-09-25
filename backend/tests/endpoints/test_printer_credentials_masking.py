@@ -56,30 +56,34 @@ def test_printer_update_preserves_masked_credentials(client, db):
         "connection_config": {
             "access_code": "original-secret-code",
             "host": "printer.local",
+            "serial": "SN-OLD",
         },
     }
     create_resp = client.post("/api/v1/printers", json=payload)
     assert create_resp.status_code == 200
     printer_id = create_resp.json()["id"]
 
-    # Update with masked access_code and new host
+    # Update with masked access_code and a new non-address field. The same
+    # IP is sent back, as the Edit Printer form does.
     update_payload = {
+        "ip_address": "192.168.1.51",
         "connection_config": {
             "access_code": "********",
-            "host": "printer-updated.local",
-        }
+            "host": "printer.local",
+            "serial": "SN-NEW",
+        },
     }
     update_resp = client.put(f"/api/v1/printers/{printer_id}", json=update_payload)
-    assert update_resp.status_code == 200
+    assert update_resp.status_code == 200, update_resp.text
     update_data = update_resp.json()
     assert update_data["connection_config"]["access_code"] == "********"
-    assert update_data["connection_config"]["host"] == "printer-updated.local"
+    assert update_data["connection_config"]["serial"] == "SN-NEW"
 
     # Verify database preserved original secret
     db.expire_all()
     printer_in_db = db.query(Printer).filter(Printer.id == printer_id).first()
     assert printer_in_db.connection_config["access_code"] == "original-secret-code"
-    assert printer_in_db.connection_config["host"] == "printer-updated.local"
+    assert printer_in_db.connection_config["serial"] == "SN-NEW"
 
 
 def test_printer_update_can_change_credentials(client, db):
@@ -220,3 +224,84 @@ def test_mask_placeholder_is_never_stored_as_a_secret(client, db):
     })
     assert resp.status_code == 200, resp.text
     assert _stored_config(db, printer_id) == {"host": "printer.local"}
+
+
+# ---------------------------------------------------------------------------
+# Re-pointing a printer must not carry its stored secret along (review on
+# PR #973). PRO's Bambu fleet and Core's MQTT monitor send access_code as
+# the MQTT password to printer.ip_address / connection_config hosts.
+# ---------------------------------------------------------------------------
+
+def _bambu_style_printer(client):
+    created = _create_printer(client, {"access_code": "SECRET12", "serial": "01P00A000000001"})
+    return created["id"]
+
+
+def _assert_unchanged(db, printer_id):
+    db.expire_all()
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    assert printer.ip_address == "192.168.1.60"
+    assert printer.connection_config == {"access_code": "SECRET12", "serial": "01P00A000000001"}
+
+
+def test_new_ip_without_config_is_rejected_while_a_secret_is_stored(client, db):
+    printer_id = _bambu_style_printer(client)
+
+    resp = client.put(f"/api/v1/printers/{printer_id}", json={"ip_address": "203.0.113.66"})
+
+    assert resp.status_code == 400, resp.text
+    assert "access_code" in resp.json()["detail"]
+    assert "SECRET12" not in resp.text
+    _assert_unchanged(db, printer_id)
+
+
+def test_new_ip_with_masked_secret_is_rejected(client, db):
+    """The Edit Printer form sends the mask back; a new IP needs the real code."""
+    printer_id = _bambu_style_printer(client)
+
+    resp = client.put(f"/api/v1/printers/{printer_id}", json={
+        "ip_address": "203.0.113.66",
+        "connection_config": {"access_code": "********", "serial": "01P00A000000001"},
+    })
+
+    assert resp.status_code == 400, resp.text
+    _assert_unchanged(db, printer_id)
+
+
+def test_new_host_inside_config_with_masked_secret_is_rejected(client, db):
+    printer_id = _bambu_style_printer(client)
+
+    resp = client.put(f"/api/v1/printers/{printer_id}", json={
+        "connection_config": {
+            "access_code": "********",
+            "serial": "01P00A000000001",
+            "mqtt_host": "203.0.113.66",
+        },
+    })
+
+    assert resp.status_code == 400, resp.text
+    _assert_unchanged(db, printer_id)
+
+
+def test_new_ip_with_the_secret_sent_again_is_saved(client, db):
+    printer_id = _bambu_style_printer(client)
+
+    resp = client.put(f"/api/v1/printers/{printer_id}", json={
+        "ip_address": "192.168.1.61",
+        "connection_config": {"access_code": "NEWCODE9", "serial": "01P00A000000001"},
+    })
+
+    assert resp.status_code == 200, resp.text
+    db.expire_all()
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    assert printer.ip_address == "192.168.1.61"
+    assert printer.connection_config["access_code"] == "NEWCODE9"
+
+
+def test_new_ip_is_fine_when_no_secret_is_stored(client, db):
+    created = _create_printer(client, {"serial": "01P00A000000002"})
+
+    resp = client.put(f"/api/v1/printers/{created['id']}", json={"ip_address": "192.168.1.62"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ip_address"] == "192.168.1.62"

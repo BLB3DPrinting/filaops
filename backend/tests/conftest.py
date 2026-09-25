@@ -572,6 +572,30 @@ def unauthed_client(db):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def role_headers(db):
+    """Factory: account_type -> Bearer headers for a new active user of that type.
+
+    Use with ``unauthed_client`` to call a route as a customer or operator,
+    e.g. ``unauthed_client.get(url, headers=role_headers("customer"))``.
+    """
+    from app.core.security import create_access_token
+    from app.models.user import User
+
+    def _factory(account_type):
+        user = User(
+            email=f"{account_type}-{_uid()}@example.com",
+            password_hash="not-a-real-hash",
+            account_type=account_type,
+            status="active",
+        )
+        db.add(user)
+        db.flush()
+        return {"Authorization": f"Bearer {create_access_token(user_id=user.id)}"}
+
+    return _factory
+
+
 # =============================================================================
 # Data factories — reusable fixtures for domain objects
 # =============================================================================

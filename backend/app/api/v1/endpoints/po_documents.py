@@ -6,6 +6,9 @@ Handles multi-file document storage for purchase orders:
 - List documents for a PO
 - Download/delete documents
 - Supports local storage and Google Drive
+
+SEC-402: every route requires a staff account (admin or operator). A plain
+login is not enough, because anyone can self-register a customer account.
 """
 import os
 import uuid
@@ -23,7 +26,7 @@ from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.purchase_order import PurchaseOrder
 from app.models.purchase_order_document import PurchaseOrderDocument
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.purchasing import (
     PODocumentResponse,
@@ -87,7 +90,7 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form("other"),
     notes: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -182,7 +185,7 @@ async def upload_document(
 async def list_documents(
     po_id: int,
     document_type: Optional[str] = Query(None, description="Filter by document type"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -215,7 +218,7 @@ async def list_documents(
 async def get_document(
     po_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get document details by ID"""
@@ -238,7 +241,7 @@ async def get_document(
 async def download_document(
     po_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -274,7 +277,7 @@ async def update_document(
     po_id: int,
     doc_id: int,
     request: PODocumentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update document metadata (type, notes)"""
@@ -309,7 +312,7 @@ async def update_document(
 async def delete_document(
     po_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -355,7 +358,7 @@ async def bulk_upload_documents(
     po_id: int,
     files: List[UploadFile] = File(...),
     document_type: str = Form("other"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
