@@ -19,6 +19,7 @@ from sqlalchemy import desc
 
 from app.models import Quote, Product, BOM, SalesOrder, ProductionOrder
 from app.services.bom_service import auto_create_product_and_bom, validate_quote_for_bom
+from app.services.sales_order_service import generate_order_number
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -53,22 +54,12 @@ class ConversionResult:
 
 
 def generate_sales_order_number(db: Session) -> str:
-    """Generate next sales order number in format SO-YYYY-NNN"""
-    year = datetime.now(timezone.utc).year
-    last_order = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.order_number.like(f"SO-{year}-%"))
-        .order_by(desc(SalesOrder.order_number))
-        .first()
-    )
+    """Generate next sales order number in format SO-YYYY-NNN.
 
-    if last_order:
-        last_num = int(last_order.order_number.split("-")[2])
-        next_num = last_num + 1
-    else:
-        next_num = 1
-
-    return f"SO-{year}-{next_num:03d}"
+    Delegates to the shared allocator so this path takes the same per-year
+    lock and numeric ordering as every other sales order creation path.
+    """
+    return generate_order_number(db)
 
 
 def generate_production_order_code(db: Session) -> str:

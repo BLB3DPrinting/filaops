@@ -182,6 +182,7 @@ async def upload_document(
 async def list_documents(
     po_id: int,
     document_type: Optional[str] = Query(None, description="Filter by document type"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -214,6 +215,7 @@ async def list_documents(
 async def get_document(
     po_id: int,
     doc_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get document details by ID"""

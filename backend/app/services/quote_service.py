@@ -18,6 +18,7 @@ from app.models.company_settings import CompanySettings
 from app.models.quote import Quote, QuoteLine
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
+from app.services.sales_order_service import generate_order_number
 from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
@@ -687,13 +688,9 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
             detail="Quote has expired"
         )
 
-    # Generate order number
-    year = datetime.now(timezone.utc).year
-    order_prefix = f"SO-{year}-"
-    max_seq = db.query(
-        func.max(cast(func.replace(SalesOrder.order_number, order_prefix, ''), Integer))
-    ).filter(SalesOrder.order_number.like(f"{order_prefix}%")).scalar() or 0
-    order_number = f"{order_prefix}{max_seq + 1:04d}"
+    # Generate order number through the shared allocator (per-year lock,
+    # numeric max). This path has always padded to four digits; keep that.
+    order_number = generate_order_number(db, width=4)
 
     subtotal = quote.subtotal or (quote.unit_price * quote.quantity if quote.unit_price else quote.total_price)
     tax = quote.tax_amount or Decimal("0")

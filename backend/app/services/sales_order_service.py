@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import desc
+from sqlalchemy import Integer, cast, desc, func, text
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 
@@ -75,35 +75,63 @@ from app.services.sales_order_production_service import (
 
 logger = get_logger(__name__)
 
+# Namespace for the transaction-scoped advisory lock that serializes sales
+# order number allocation; the second lock key is the year. Other namespaces
+# in use: 74001 payment numbers, 74002 journal entry numbers, 74003 shipment
+# guard, 74004 production completion guard.
+_ORDER_NUMBER_LOCK_NAMESPACE = 74005
+
 
 # =============================================================================
 # Code Generation Helpers
 # =============================================================================
 
-def generate_order_number(db: Session) -> str:
+def generate_order_number(db: Session, *, width: int = 3) -> str:
     """
-    Generate next sales order number (SO-2025-001, SO-2025-002, etc.)
-    Uses row-level locking to prevent race conditions.
+    Generate the next sales order number (SO-2026-001, SO-2026-002, ...).
+
+    Every sales order creation path allocates through this function, so they
+    all share one lock:
+
+    - A transaction-scoped Postgres advisory lock keyed on the year makes
+      concurrent callers wait until the holder's transaction commits or rolls
+      back. Unlike SELECT ... FOR UPDATE on existing rows, this also covers
+      the first order of a year, when there are no rows to lock. Callers must
+      insert the order in the same transaction, with no commit in between.
+    - The next number is the numeric max of the sequence part plus one, so
+      SO-2026-999 is followed by SO-2026-1000, and mixed widths such as
+      SO-2026-042 and SO-2026-0042 compare by value, not as text. Numbers
+      whose suffix is not all digits are ignored.
+
+    ``width`` is the minimum zero-padded width of the sequence part.
     """
     year = datetime.now(timezone.utc).year
     prefix = f"SO-{year}-"
-    orders = (
-        db.query(SalesOrder.order_number)
-        .filter(SalesOrder.order_number.like(f"{prefix}%"))
-        .with_for_update()
-        .all()
+
+    db.execute(
+        text(
+            """
+            SELECT pg_advisory_xact_lock(
+                CAST(:namespace AS integer),
+                CAST(:year AS integer)
+            )
+            """
+        ),
+        {"namespace": _ORDER_NUMBER_LOCK_NAMESPACE, "year": year},
     )
 
-    max_num = 0
-    for (order_num,) in orders:
-        parts = order_num.split("-")
-        if len(parts) >= 3 and parts[2].isdigit():
-            num = int(parts[2])
-            if num > max_num:
-                max_num = num
+    sequence_value = cast(func.replace(SalesOrder.order_number, prefix, ""), Integer)
+    max_seq = (
+        db.query(func.max(sequence_value))
+        .filter(
+            SalesOrder.order_number.like(f"{prefix}%"),
+            SalesOrder.order_number.op("~")(rf"^SO-{year}-\d+$"),
+        )
+        .scalar()
+        or 0
+    )
 
-    next_num = max_num + 1
-    return f"{prefix}{next_num:03d}"
+    return f"{prefix}{max_seq + 1:0{width}d}"
 
 
 # =============================================================================

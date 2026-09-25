@@ -7,8 +7,6 @@ Verifies:
 - Safe configuration generation works as expected
 """
 
-import os
-import pytest
 from unittest.mock import patch
 
 
@@ -64,7 +62,7 @@ def test_setup_https_safe_generation_without_shell_scripts(mock_popen, mock_run,
     assert bad_resp.status_code == 400
 
     # Test valid domain execution
-    with patch("builtins.open", create=True) as mock_open:
+    with patch("builtins.open", create=True):
         resp = client.post("/api/v1/security/remediate/setup-https", json={"domain": "erp.local"})
         assert resp.status_code == 200
         data = resp.json()

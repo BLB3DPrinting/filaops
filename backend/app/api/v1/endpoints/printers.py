@@ -41,6 +41,10 @@ from app.schemas.printer import (
     PrinterModelInfo,
 )
 from app.services.printer_discovery import get_orchestrator
+from app.services.printer_config_masking import (
+    mask_connection_config,
+    restore_masked_secrets,
+)
 from app.models.production_order import ProductionOrder, ProductionOrderOperation
 
 router = APIRouter()
@@ -148,30 +152,6 @@ def _generate_printer_code(db: Session, prefix: str = "PRT") -> str:
     return f"{prefix}-001"
 
 
-# SEC-403: Keys in connection_config whose values must never leave the server.
-_SENSITIVE_CONFIG_KEYS = frozenset({
-    "access_code", "api_key", "password", "token", "secret",
-    "auth_token", "private_key",
-})
-_MASKED = "********"
-
-
-def _sanitize_connection_config(config: dict | None) -> dict:
-    """Return a copy of *config* with sensitive values replaced by a mask.
-
-    The frontend can display ``"********"`` to indicate a value is set.
-    On update, if the client sends ``"********"`` for a key, the backend
-    preserves the existing stored value (see ``update_printer``).
-    """
-    if not config:
-        return {}
-    sanitized = dict(config)
-    for key in _SENSITIVE_CONFIG_KEYS:
-        if key in sanitized and sanitized[key]:
-            sanitized[key] = _MASKED
-    return sanitized
-
-
 def _printer_to_response(printer: Printer) -> PrinterResponse:
     """Convert Printer model to response schema"""
     return PrinterResponse(
@@ -188,7 +168,8 @@ def _printer_to_response(printer: Printer) -> PrinterResponse:
         notes=printer.notes,
         active=printer.active,
         status=PrinterStatus(printer.status) if printer.status else PrinterStatus.OFFLINE,
-        connection_config=_sanitize_connection_config(printer.connection_config),
+        # SEC-403: secrets are masked at any depth; see printer_config_masking.
+        connection_config=mask_connection_config(printer.connection_config),
         capabilities=printer.capabilities or {},
         last_seen=printer.last_seen,
         created_at=printer.created_at,
@@ -462,7 +443,8 @@ async def create_printer(
         work_center_id=data.work_center_id,
         notes=data.notes,
         active=data.active if data.active is not None else True,
-        connection_config=data.connection_config or {},
+        # Never store the mask placeholder as a real secret.
+        connection_config=restore_masked_secrets(data.connection_config or {}, None),
         capabilities=data.capabilities or {},
         status="offline",
         created_at=datetime.now(timezone.utc),
@@ -517,12 +499,9 @@ async def update_printer(
         if field == "brand" and value:
             value = value.value if hasattr(value, "value") else value
         elif field == "connection_config" and isinstance(value, dict):
-            existing_config = dict(printer.connection_config or {})
-            merged = dict(value)
-            for k, v in value.items():
-                if v == _MASKED and k in existing_config:
-                    merged[k] = existing_config[k]
-            value = merged
+            # The UI sends masked secrets back as "********"; keep the
+            # stored value at that path (nested keys included).
+            value = restore_masked_secrets(value, printer.connection_config)
         setattr(printer, field, value)
 
     printer.updated_at = datetime.now(timezone.utc)
