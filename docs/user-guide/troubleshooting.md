@@ -98,7 +98,7 @@ Common causes of unexpected logouts:
 
 ### Password reset says "submitted for review" but no email arrives
 
-This is expected behavior. The reset form deliberately returns the same success message whether or not the email address exists in the system, to prevent account enumeration (OWASP A07:2021). If no account matches the email you entered, no email is sent and no error is shown.
+This is expected behavior. The reset form deliberately returns the same success message whether or not the email address exists in the system, to make it harder to find out which accounts exist (OWASP A07:2021). If no account matches the email you entered, no email is sent and no error is shown. If SMTP is not configured, no email is ever sent; see below.
 
 To confirm the email address on the admin account, query the database directly:
 
@@ -116,17 +116,20 @@ The `email-validator` library rejects `.local` domains (RFC 6762 reserved). If y
 
 When `SMTP_USER` and `SMTP_PASSWORD` are not set in your `.env`, a password reset request is recorded as pending and nothing else happens. No email is sent and no reset link is shown.
 
-**Fix:** Ask an administrator to reset your password from **Settings > Team Members > Reset Password**. If you are the only administrator and you are locked out, see the recovery options below.
+**Fix:** Ask an administrator to reset your password from **Admin > Team Members > Reset PW**. This works for admin and operator accounts. If you are the only administrator and you are locked out, see the recovery options below.
+
+Customer portal accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email, which needs SMTP.
 
 !!! tip "Let users reset their own passwords"
     Configure SMTP and set `ADMIN_APPROVAL_EMAIL` to a real administrator. Reset requests are then emailed to that administrator for approval, and the user gets the reset link by email.
-    The Settings page shows an amber warning banner when SMTP is not configured.
+    With Docker, put these settings in the project `.env` and run `docker compose up -d` so the backend container picks them up (`docker compose restart` does not).
+    The Settings page shows an amber warning banner while SMTP is not configured. It disappears once the backend sees `SMTP_USER` and `SMTP_PASSWORD`.
 
 ![Settings page showing the amber "Email (SMTP) Not Configured" banner](../assets/screenshots/troubleshooting/02-settings-smtp-warning.png)
 
-### Locked out of the admin account on a dev database
+### Locked out of the admin account
 
-If no users can log in and the setup wizard does not appear (because users already exist in the database), see the [First-Run Setup Guide](../FIRST-RUN-SETUP.md#dev-environment-resetting-admin-credentials) for recovery options including direct database credential reset.
+If no administrator can log in and the setup wizard does not appear (because users already exist in the database), see the [First-Run Setup Guide](../FIRST-RUN-SETUP.md#resetting-admin-credentials) for recovery options, including a direct database reset for Docker and manual installs.
 
 ---
 
