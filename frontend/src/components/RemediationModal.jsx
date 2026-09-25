@@ -643,7 +643,8 @@ const RemediationModal = ({ isOpen, onClose, check, onComplete }) => {
                         </svg>
                       </a>
                       <p className="text-xs text-yellow-300/70 mt-2 text-center">
-                        Pick the download for your operating system and install it. Then run caddy run in your project folder.
+                        Pick the download for your operating system and install it. Then run caddy run in your project folder
+                        (in PowerShell, .\caddy.exe run if you saved caddy.exe in that folder).
                       </p>
                     </div>
                   )}

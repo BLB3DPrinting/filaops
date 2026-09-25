@@ -110,3 +110,30 @@ def test_setup_https_names_a_runnable_caddy_command(mock_popen, mock_run, client
     assert r".\caddy.exe run" in data["message"]
     assert mock_popen.call_count == 0
     assert mock_run.call_count == 0
+
+
+@patch("subprocess.run")
+@patch("subprocess.Popen")
+def test_setup_https_install_hint_covers_a_caddy_exe_in_the_project(mock_popen, mock_run, client, monkeypatch):
+    """With no Caddy yet, the hint gives both "caddy run" and the PowerShell form."""
+    import os
+    import shutil
+
+    real_exists = os.path.exists
+    monkeypatch.setattr(shutil, "which", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        os.path, "exists",
+        lambda path: False if str(path).endswith("caddy.exe") else real_exists(path),
+    )
+
+    with patch("builtins.open", create=True):
+        resp = client.post("/api/v1/security/remediate/setup-https", json={"domain": "erp.local"})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["needs_caddy_install"] is True
+    assert data["caddy_command"] == "caddy"
+    assert "'caddy run'" in data["message"]
+    assert r"'.\caddy.exe run'" in data["message"]
+    assert mock_popen.call_count == 0
+    assert mock_run.call_count == 0

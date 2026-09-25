@@ -882,7 +882,8 @@ async def setup_https(
         message = (
             f"Configuration created for {domain}! "
             "Please install Caddy from https://caddyserver.com/download, "
-            f"then run '{caddy_command} run' in your project directory."
+            "then run 'caddy run' in your project directory. If you saved "
+            r"caddy.exe in that folder instead, run '.\caddy.exe run' in PowerShell."
         )
     else:
         message = f"HTTPS configured for {domain}! Start Caddy manually with: {caddy_command} run"
