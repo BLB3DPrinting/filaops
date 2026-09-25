@@ -7,15 +7,21 @@ The request endpoint is public. These tests pin down that it:
 - returns the same body whether or not the account exists, whether a request
   is already pending, and whether SMTP is configured;
 - leaves no-SMTP requests pending, so /password-reset/complete rejects them;
+- does not let a request whose approval email never went out block the
+  next one;
 - keeps the SMTP (admin approval email) flow working end to end;
+- refuses tokens that older versions approved without an administrator;
 - never writes the full reset token to the logs.
 
-They also cover the admin-only recovery path that no-SMTP shops use instead:
-POST /api/v1/admin/users/{id}/reset-password (Team Members > Reset Password).
+They also cover the admin-only recovery path that no-SMTP shops use instead
+for staff accounts: POST /api/v1/admin/users/{id}/reset-password
+(Admin > Team Members > Reset PW).
 """
 import logging
+import secrets
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -119,6 +125,27 @@ def _reset_rows(db, user_id):
 
 def _request_reset(client, email):
     return client.post(f"{AUTH_URL}/password-reset/request", json={"email": email})
+
+
+def _utcnow_naive():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _approved_row(db, user, *, approved_at, expires_at):
+    """Insert an approved reset request with the given window."""
+    from app.models.user import PasswordResetRequest
+
+    row = PasswordResetRequest(
+        user_id=user.id,
+        token=secrets.token_urlsafe(32),
+        approval_token=secrets.token_urlsafe(32),
+        status="approved",
+        approved_at=approved_at,
+        expires_at=expires_at,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 @contextmanager
@@ -268,6 +295,77 @@ class TestNoSmtpRequestStaysPending:
 
 
 # =============================================================================
+# Only a request whose approval email went out blocks repeat requests
+# =============================================================================
+
+class TestUnsentRequestDoesNotBlock:
+
+    def test_emailed_request_is_not_emailed_again(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        _configure(monkeypatch, smtp=True)
+
+        _request_reset(unauthed_client, staff_user.email)
+        _request_reset(unauthed_client, staff_user.email)
+
+        assert mock_email.send_password_reset_approval_request.call_count == 1
+        rows = _reset_rows(db, staff_user.id)
+        assert len(rows) == 1
+        assert rows[0].admin_notes is None
+
+    def test_request_made_without_smtp_does_not_block_after_smtp_enabled(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.api.v1.endpoints.auth import APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        _configure(monkeypatch, smtp=False)
+        _request_reset(unauthed_client, staff_user.email)
+        _request_reset(unauthed_client, staff_user.email)
+        rows = _reset_rows(db, staff_user.id)
+        # Repeat no-SMTP requests reuse the one recorded request.
+        assert len(rows) == 1
+        assert rows[0].admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        # The admin turns SMTP on; the user's next request reaches the admin.
+        _configure(monkeypatch, smtp=True)
+        resp = _request_reset(unauthed_client, staff_user.email)
+
+        assert resp.json() == {"message": GENERIC_MESSAGE}
+        mock_email.send_password_reset_approval_request.assert_called_once()
+        rows = _reset_rows(db, staff_user.id)
+        assert len(rows) == 2
+        emailed = rows[1]
+        assert emailed.admin_notes is None
+        kwargs = mock_email.send_password_reset_approval_request.call_args.kwargs
+        assert kwargs["approval_token"] == emailed.approval_token
+
+        # From here on the emailed request blocks repeats as usual.
+        _request_reset(unauthed_client, staff_user.email)
+        assert mock_email.send_password_reset_approval_request.call_count == 1
+        assert len(_reset_rows(db, staff_user.id)) == 2
+
+    def test_failed_approval_email_is_retried_on_next_request(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.api.v1.endpoints.auth import APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        _configure(monkeypatch, smtp=True)
+        mock_email.send_password_reset_approval_request.side_effect = [False, True]
+
+        first = _request_reset(unauthed_client, staff_user.email)
+        rows = _reset_rows(db, staff_user.id)
+        assert rows[0].admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        second = _request_reset(unauthed_client, staff_user.email)
+
+        assert first.json() == second.json() == {"message": GENERIC_MESSAGE}
+        assert mock_email.send_password_reset_approval_request.call_count == 2
+        rows = _reset_rows(db, staff_user.id)
+        assert len(rows) == 2
+        assert rows[1].admin_notes is None
+
+
+# =============================================================================
 # The SMTP (admin approval email) flow is unchanged
 # =============================================================================
 
@@ -367,6 +465,105 @@ class TestSmtpApprovalFlow:
 
 
 # =============================================================================
+# Tokens approved without an administrator by older versions are refused
+# =============================================================================
+
+class TestLegacyAutoApprovedTokens:
+    """Versions up to 4.1.0 auto-approved no-SMTP requests with a 24h window."""
+
+    def _legacy_row(self, db, user):
+        now = _utcnow_naive()
+        return _approved_row(
+            db, user,
+            approved_at=now - timedelta(hours=2),
+            expires_at=now + timedelta(hours=22),
+        )
+
+    def test_complete_rejects_auto_approved_token(
+        self, unauthed_client, db, staff_user, mock_email
+    ):
+        row = self._legacy_row(db, staff_user)
+        old_hash = staff_user.password_hash
+
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/complete",
+            json={"token": row.token, "new_password": "Hijacked123!"},
+        )
+
+        assert resp.status_code == 400
+        assert "expired" in resp.json()["detail"].lower()
+        db.refresh(staff_user)
+        assert staff_user.password_hash == old_hash
+        assert _reset_rows(db, staff_user.id)[0].status == "expired"
+        mock_email.send_password_reset_completed.assert_not_called()
+
+    def test_status_reports_auto_approved_token_expired(
+        self, unauthed_client, db, staff_user
+    ):
+        row = self._legacy_row(db, staff_user)
+
+        resp = unauthed_client.get(f"{AUTH_URL}/password-reset/status/{row.token}")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "expired"
+        assert resp.json()["can_reset"] is False
+
+    def test_complete_rejects_approved_row_without_approval_time(
+        self, unauthed_client, db, staff_user, mock_email
+    ):
+        row = _approved_row(
+            db, staff_user,
+            approved_at=None,
+            expires_at=_utcnow_naive() + timedelta(minutes=30),
+        )
+
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/complete",
+            json={"token": row.token, "new_password": "Hijacked123!"},
+        )
+
+        assert resp.status_code == 400
+
+    def test_admin_approval_sets_one_hour_window(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.api.v1.endpoints.auth import RESET_APPROVAL_WINDOW
+
+        _configure(monkeypatch, smtp=True)
+        _request_reset(unauthed_client, staff_user.email)
+        approval_token = mock_email.send_password_reset_approval_request.call_args.kwargs[
+            "approval_token"
+        ]
+
+        unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": approval_token},
+        )
+
+        row = _reset_rows(db, staff_user.id)[0]
+        assert row.status == "approved"
+        assert row.expires_at - row.approved_at == RESET_APPROVAL_WINDOW
+
+    def test_token_approved_by_older_admin_flow_still_completes(
+        self, unauthed_client, db, staff_user, mock_email
+    ):
+        """Older approvals read the clock twice; a few microseconds over 1h is fine."""
+        now = _utcnow_naive()
+        row = _approved_row(
+            db, staff_user,
+            approved_at=now,
+            expires_at=now + timedelta(hours=1, microseconds=250),
+        )
+
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/complete",
+            json={"token": row.token, "new_password": "BrandNewPass456!"},
+        )
+
+        assert resp.status_code == 200
+
+
+# =============================================================================
 # The full reset token never reaches the logs
 # =============================================================================
 
@@ -440,7 +637,20 @@ class TestTokenNotLogged:
 # =============================================================================
 
 class TestAdminResetPasswordRequiresAdmin:
-    """POST /admin/users/{id}/reset-password is the documented no-SMTP recovery path."""
+    """POST /admin/users/{id}/reset-password is the documented no-SMTP recovery path.
+
+    It covers staff accounts (admin, operator) only.
+    """
+
+    def test_customer_accounts_are_not_covered(self, client, db):
+        customer = _make_user(db, account_type="customer")
+
+        resp = client.post(
+            f"{ADMIN_USERS_URL}/{customer.id}/reset-password",
+            json={"new_password": "AdminSet123!"},
+        )
+
+        assert resp.status_code == 404
 
     def test_unauthenticated_is_rejected(self, unauthed_client, staff_user):
         resp = unauthed_client.post(

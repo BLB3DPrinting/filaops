@@ -599,6 +599,31 @@ async def logout(
 # PASSWORD RESET ENDPOINTS (Admin-Approved)
 # ============================================================================
 
+# An administrator's approval gives the user this long to finish the reset.
+RESET_APPROVAL_WINDOW = timedelta(hours=1)
+# Slack for older approvals, which read the clock twice.
+_RESET_APPROVAL_WINDOW_SLACK = timedelta(minutes=5)
+# Stored in admin_notes when no approval email went out (SMTP not configured,
+# or the send failed). Nobody can approve such a request, so it must not hold
+# the one-open-request-per-user slot that keeps repeat requests from
+# spamming the administrator.
+APPROVAL_EMAIL_NOT_SENT_NOTE = "Approval email not sent"
+
+
+def _approved_by_admin(reset_request: PasswordResetRequest) -> bool:
+    """True if an approved request has the short window an admin approval sets.
+
+    Versions up to 4.1.0 approved requests on their own when SMTP was not
+    configured, with a 24-hour window, and returned the token to the caller.
+    Tokens approved that way must not complete a reset after an upgrade.
+    """
+    approved_at = reset_request.approved_at
+    expires_at = reset_request.expires_at
+    if approved_at is None or expires_at is None:
+        return False
+    return expires_at - approved_at <= RESET_APPROVAL_WINDOW + _RESET_APPROVAL_WINDOW_SLACK
+
+
 @router.post("/password-reset/request", response_model=PasswordResetRequestResponse)
 @limiter.limit("3/minute")  # type: ignore
 async def request_password_reset(
@@ -620,11 +645,13 @@ async def request_password_reset(
 
     The reset token is only ever delivered by email, after an admin approves.
     It is never returned in this response. Without SMTP the request stays
-    pending; an admin can set a new password from Team Members instead.
+    pending; an admin can set a new password for a staff account from
+    Team Members instead.
 
-    Every outcome returns the same body, so the response does not reveal
-    whether the account exists, whether a request is already pending, or
-    whether SMTP is configured.
+    Every outcome returns the same response body, whether or not the account
+    exists, a request is already pending, or SMTP is configured. Response
+    time can still differ (the SMTP path sends mail before it responds), so
+    this reduces account discovery but does not rule it out.
     """
     generic_response = PasswordResetRequestResponse(
         message="If an account exists with this email, a password reset request has been submitted for review."
@@ -636,14 +663,22 @@ async def request_password_reset(
     if not user:
         return generic_response
 
-    # Check for existing pending request (avoid spam)
-    existing_request = db.query(PasswordResetRequest).filter(
+    open_requests = db.query(PasswordResetRequest).filter(
         PasswordResetRequest.user_id == user.id,
         PasswordResetRequest.status == 'pending',
         PasswordResetRequest.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
-    ).first()
+    ).all()
 
-    if existing_request:
+    # One emailed request per user at a time, so repeat requests can't spam
+    # the admin. A request whose approval email never went out doesn't count:
+    # otherwise a request made while SMTP was off would swallow the next one.
+    if any(r.admin_notes != APPROVAL_EMAIL_NOT_SENT_NOTE for r in open_requests):
+        return generic_response
+
+    email_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
+
+    if not email_configured and open_requests:
+        # Already recorded, and there is still no way to email an admin.
         return generic_response
 
     # Generate tokens
@@ -656,23 +691,21 @@ async def request_password_reset(
         token=reset_token,
         approval_token=approval_token,
         status='pending',
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+        admin_notes=None if email_configured else APPROVAL_EMAIL_NOT_SENT_NOTE,
     )
     db.add(reset_request)
     db.commit()
     db.refresh(reset_request)
 
-    # Check if email is configured
-    email_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
-
     if not email_configured:
         # No SMTP means no approval email and no reset email can be sent.
         # The request stays pending (it expires on its own). An admin can set
-        # a new password directly from Team Members > Reset Password.
+        # a new password for a staff account from Admin > Team Members.
         logger.warning(
             "Password reset requested but SMTP is not configured; the request "
-            "stays pending. An administrator can set a new password from "
-            "Team Members > Reset Password. "
+            "stays pending. An administrator can set a new password for a "
+            "staff account from Admin > Team Members > Reset PW. "
             "See: https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/",
             extra={
                 "user_id": user.id,
@@ -692,7 +725,10 @@ async def request_password_reset(
     )
 
     if not email_sent:
-        # Email failed to send, but request was created
+        # The request was created but no admin got it. Mark it so the user's
+        # next request tries the email again instead of being swallowed.
+        reset_request.admin_notes = APPROVAL_EMAIL_NOT_SENT_NOTE
+        db.commit()
         logger.warning(f"Password reset request created but email failed to send for user {user.email}")
 
     logger.info(
@@ -754,10 +790,11 @@ async def approve_password_reset(
         )
 
     # Approve the request
+    approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     reset_request.status = 'approved'  # type: ignore[assignment]
-    reset_request.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
-    # Extend expiry for 1 hour after approval for user to complete reset
-    reset_request.expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None)  # type: ignore[assignment]
+    reset_request.approved_at = approved_at  # type: ignore[assignment]
+    # The user gets a short window after approval to complete the reset
+    reset_request.expires_at = approved_at + RESET_APPROVAL_WINDOW  # type: ignore[assignment]
     db.commit()
 
     # Send reset link to user
@@ -901,6 +938,12 @@ async def check_reset_status(
         )
 
     if reset_request.status == 'approved':  # type: ignore[comparison-overlap]
+        if not _approved_by_admin(reset_request):
+            return PasswordResetStatus(
+                status="expired",
+                message="This reset link has expired",
+                can_reset=False
+            )
         return PasswordResetStatus(
             status="approved",
             message="You can now reset your password",
@@ -941,7 +984,12 @@ async def complete_password_reset(
             detail=f"Cannot reset password. Request status: {reset_request.status}"
         )
 
-    if reset_request.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+    # Tokens that older versions approved without an administrator are
+    # treated as expired, the same as tokens past their window.
+    if (
+        reset_request.expires_at < datetime.now(timezone.utc).replace(tzinfo=None)
+        or not _approved_by_admin(reset_request)
+    ):
         reset_request.status = 'expired'  # type: ignore[assignment]
         db.commit()
         raise HTTPException(
