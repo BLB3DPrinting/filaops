@@ -399,10 +399,12 @@ export default function QuoteDetailModal({
                     <span className="text-white">${parseFloat(q.tax_amount).toFixed(2)}</span>
                   </div>
                 )}
-                {q.shipping_cost && parseFloat(q.shipping_cost) > 0 && (
+                {/* A quote with a ship-to address always shows its shipping,
+                    so an approver sees a Quoter quote that has none ($0.00). */}
+                {(parseFloat(q.shipping_cost || 0) > 0 || Boolean(q.shipping_address_line1)) && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Shipping:</span>
-                    <span className="text-white">${parseFloat(q.shipping_cost).toFixed(2)}</span>
+                    <span className="text-white">${parseFloat(q.shipping_cost || 0).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-medium pt-2 border-t border-gray-700">
