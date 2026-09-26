@@ -62,6 +62,22 @@ _USE_COOKIES = settings.AUTH_MODE.lower() == "cookie"
 # ENDPOINT: User Registration
 # ============================================================================
 
+def _require_self_registration_enabled() -> None:
+    """Refuse customer self-registration unless the public Quoter is on.
+
+    SEC-411: open sign-up hands a customer token to anyone who can reach the
+    API. Only the public Quoter needs self-registration, and the Quoter
+    already requires ENABLE_PUBLIC_QUOTER, so both register routes follow
+    that flag. Staff accounts are created by an admin (POST /admin/users) or
+    by first-run setup, never here.
+    """
+    if not bool(getattr(settings, "ENABLE_PUBLIC_QUOTER", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Customer self-registration is disabled",
+        )
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")  # type: ignore
 async def register_user(
@@ -71,12 +87,15 @@ async def register_user(
     db: Session = Depends(get_db),
 ):
     """
-    Register a new user
+    Register a new customer account
 
-    Creates a new user account with the provided email and password.
+    Creates a customer account (never staff) with the provided email and
+    password. Returns 403 unless ENABLE_PUBLIC_QUOTER is on.
     In cookie mode, tokens are set as httpOnly cookies.
     In header mode, tokens are returned in the response body.
     """
+    _require_self_registration_enabled()
+
     # Check if email already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
@@ -265,11 +284,15 @@ async def login_user(
 # ============================================================================
 #
 # Sibling endpoints to /auth/register + /auth/login above. NOT replacements:
-#   /auth/register + /auth/login    serve admin/staff via OAuth2 form data
+#   /auth/login                     staff (and customer) login via OAuth2 form data
+#   /auth/register                  JSON; creates a customer account, never staff
 #   /auth/portal/register + /login  serve customer-facing SPAs via JSON
 #
+# Both register routes are off (403) unless ENABLE_PUBLIC_QUOTER is on; see
+# _require_self_registration_enabled.
+#
 # Both write/read the same User table. account_type distinguishes them:
-#   - portal/register always creates account_type="customer"
+#   - register and portal/register always create account_type="customer"
 #     (UserRegister body has no account_type field; can't be escalated)
 #   - portal/login authenticates ONLY account_type="customer" users.
 #     Admin users get the same 401-with-generic-message that wrong-password
@@ -296,13 +319,17 @@ async def register_portal_customer(
 ):
     """Register a portal customer account from a public-facing SPA.
 
-    Identical to ``/auth/register`` except:
-      - This is the customer-flow entry point (e.g. quote.<customer>.com).
+    The customer-flow entry point (e.g. quote.<customer>.com). It behaves
+    exactly like ``/auth/register``:
+      - Returns 403 unless ENABLE_PUBLIC_QUOTER is on (the Quoter needs the
+        flag anyway).
       - The account_type is hardcoded to ``"customer"`` regardless of body
         content (UserRegister has no account_type field; admin escalation
         is impossible at this layer).
       - Cookie / bearer token behavior is the same: respects AUTH_MODE.
     """
+    _require_self_registration_enabled()
+
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(

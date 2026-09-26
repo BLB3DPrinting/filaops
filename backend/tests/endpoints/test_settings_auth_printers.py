@@ -716,6 +716,12 @@ class TestPasswordResetDuplicatePending:
 class TestAuthRegisterOptionalFields:
     """Test registration with optional fields populated."""
 
+    @pytest.fixture(autouse=True)
+    def _enable_self_registration(self, monkeypatch):
+        """Self-registration is only open when the public Quoter is on."""
+        from app.core.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "ENABLE_PUBLIC_QUOTER", True)
+
     def test_register_with_all_optional_fields(self, unauthed_client):
         uid = uuid.uuid4().hex[:8]
         resp = unauthed_client.post(
