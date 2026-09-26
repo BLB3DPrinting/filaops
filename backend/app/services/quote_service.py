@@ -678,11 +678,18 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
 
     old_status = quote.status
     quote.status = request.status
+    cleared_review_reason = None
 
     if request.status == "approved":
         quote.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
         quote.approved_by = current_user_id
         quote.approval_method = "manual"
+        # Staff approving the quote is the review. Clear the reason (customer
+        # notes, colour choice, a Stripe amount mismatch from PRO) so the
+        # customer can go on to checkout, which refuses a quote with a reason
+        # set. PRO keeps the Stripe ids of a mismatched payment in admin_notes.
+        cleared_review_reason = quote.requires_review_reason
+        quote.requires_review_reason = None
 
     if request.status == "pending":
         # Staff put the quote on hold. It is no longer auto-approved: the
@@ -701,6 +708,13 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
     db.refresh(quote)
 
     logger.info(f"Quote {quote.quote_number} status changed from {old_status} to {request.status}")
+    if cleared_review_reason:
+        logger.info(
+            "Quote %s approved by user %s; review reason cleared: %r",
+            quote.quote_number,
+            current_user_id,
+            cleared_review_reason,
+        )
     return quote
 
 

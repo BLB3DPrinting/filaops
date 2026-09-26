@@ -563,6 +563,35 @@ class TestUpdateQuoteStatus:
 
         assert result.admin_notes == "Looks good"
 
+    def test_approve_clears_the_review_reason(self, db):
+        """Staff approval is the review; PRO checkout refuses a quote with a reason."""
+        q = _make_quote(
+            db, quote_number="Q-STAT-REV-01", status="pending", approval_method="manual",
+            requires_review_reason="Customer notes require manual review; Stripe payment amount mismatch",
+            admin_notes="Stripe checkout session cs_test_1 / payment pi_test_1",
+        )
+        request = self._make_status_request("approved")
+        result = quote_service.update_quote_status(db, q.id, request, current_user_id=1)
+
+        assert result.status == "approved"
+        assert result.approval_method == "manual"
+        assert result.requires_review_reason is None
+        assert result.admin_notes == "Stripe checkout session cs_test_1 / payment pi_test_1"
+
+    @pytest.mark.parametrize("new_status", ["pending", "rejected", "accepted", "cancelled"])
+    def test_other_statuses_keep_the_review_reason(self, db, new_status):
+        q = _make_quote(
+            db, quote_number=f"Q-STAT-REV-{new_status}", status="approved", approval_method="auto",
+            requires_review_reason="Colour selection needs review",
+        )
+        request = self._make_status_request(new_status)
+        result = quote_service.update_quote_status(db, q.id, request, current_user_id=1)
+
+        assert result.status == new_status
+        assert result.requires_review_reason == "Colour selection needs review"
+        if new_status == "pending":
+            assert result.approval_method == "manual"
+
 
 # =============================================================================
 # convert_quote_to_order

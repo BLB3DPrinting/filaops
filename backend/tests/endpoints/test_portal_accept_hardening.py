@@ -421,6 +421,9 @@ def test_portal_quote_approved_by_staff_keeps_the_staff_price(unauthed_client, d
     approved = unauthed_client.patch(f"{BASE}/{quote.id}/status", json={"status": "approved"}, headers=staff)
     assert approved.status_code == 200, approved.text
     assert quote.total_price == Decimal("40.00")
+    # Approval is the review, so PRO's checkout (which refuses a quote with a
+    # review reason) lets the customer pay.
+    assert quote.requires_review_reason is None
 
     response = _accept(unauthed_client, quote, owner, adjusted_unit_price="12.50", shipping_cost="0.00")
 
