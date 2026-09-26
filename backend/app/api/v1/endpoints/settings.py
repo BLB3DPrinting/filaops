@@ -6,6 +6,12 @@ Manage company-wide settings including:
 - Logo upload
 - Tax configuration
 - Quote settings
+
+SEC-408: reading settings needs a staff account (admin or operator) and
+changing them needs an admin. A plain login is not enough, because anyone can
+self-register a customer account. The one exception is GET /company/logo,
+which stays public because PDFs and the PRO B2B portal load it anonymously.
+This router mixes public and staff routes, so each route carries its own gate.
 """
 import json
 import re
@@ -23,8 +29,7 @@ from pydantic import BaseModel, Field
 from app.db.session import get_db
 from app.models.user import User
 from app.models.company_settings import CompanySettings
-from app.api.v1.deps import get_current_staff_user
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_admin_user, get_current_staff_user
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -201,7 +206,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
 
 @router.get("/company", response_model=CompanySettingsResponse)
 async def get_company_settings(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get company settings"""
@@ -212,17 +217,10 @@ async def get_company_settings(
 @router.patch("/company", response_model=CompanySettingsResponse)
 async def update_company_settings(
     data: CompanySettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update company settings"""
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     # Update fields
@@ -250,17 +248,10 @@ async def update_company_settings(
 @router.post("/company/logo")
 async def upload_company_logo(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Upload company logo"""
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     # Validate file type
     allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
     if file.content_type not in allowed_types:
@@ -294,7 +285,10 @@ async def upload_company_logo(
 async def get_company_logo(
     db: Session = Depends(get_db),
 ):
-    """Get company logo image (no auth required for PDF generation)"""
+    """Get company logo image.
+
+    Public on purpose: PDFs and the PRO B2B portal load it without a login.
+    """
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
     if not settings or not settings.logo_data:
@@ -314,16 +308,10 @@ async def get_company_logo(
 
 @router.delete("/company/logo")
 async def delete_company_logo(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Delete company logo"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
     settings.logo_data = None
     settings.logo_filename = None
@@ -540,16 +528,10 @@ async def get_ai_settings(
 @router.patch("/ai", response_model=AISettingsResponse)
 async def update_ai_settings(
     data: AISettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update AI configuration settings"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     # Update fields
@@ -603,16 +585,10 @@ async def update_ai_settings(
 
 @router.post("/ai/test")
 def test_ai_connection(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Test the configured AI connection"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     if not settings.ai_provider:
@@ -655,18 +631,12 @@ def test_ai_connection(
 
 @router.post("/ai/start-ollama")
 def start_ollama(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Attempt to start the Ollama service"""
     import subprocess
     import platform
-
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
 
     settings = get_or_create_settings(db)
     ollama_url = _normalize_ollama_url(settings.ai_ollama_url or _OLLAMA_DEFAULT_URL)
@@ -748,17 +718,11 @@ async def check_anthropic_status(
 
 @router.post("/ai/install-anthropic", response_model=PackageInstallResponse)
 async def install_anthropic_package(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ) -> PackageInstallResponse:
     """Install the anthropic Python package."""
     import subprocess
     import sys
-
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
 
     # Check if already installed
     try:
