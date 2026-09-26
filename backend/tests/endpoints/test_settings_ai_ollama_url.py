@@ -1,0 +1,273 @@
+"""SEC: the server fetches ai_ollama_url (low-severity SSRF hardening).
+
+Ollama normally runs on localhost or the LAN, so private addresses must keep
+working. These must not work: other schemes, credentials in the URL, query or
+fragment tricks that change the fetched path, redirects, and echoing back
+whatever the URL answered with. Customers must not read the AI settings.
+
+Stub servers bind 127.0.0.1 on ephemeral ports only.
+"""
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
+
+import pytest
+
+from app.api.v1.endpoints.settings import (
+    _OLLAMA_URL_HELP,
+    _normalize_ollama_url,
+    get_or_create_settings,
+)
+
+SETTINGS_URL = "/api/v1/settings"
+MARK = "INTERNAL-SECRET-7f3a"
+
+
+# =============================================================================
+# URL rules
+# =============================================================================
+
+@pytest.mark.parametrize("raw,expected", [
+    ("http://localhost:11434", "http://localhost:11434"),
+    ("http://localhost:11434/", "http://localhost:11434"),
+    ("http://127.0.0.1:11434", "http://127.0.0.1:11434"),
+    ("http://192.168.1.50:11434", "http://192.168.1.50:11434"),
+    ("http://10.0.0.5:11434", "http://10.0.0.5:11434"),
+    ("http://[::1]:11434", "http://[::1]:11434"),
+    ("http://host.docker.internal:11434", "http://host.docker.internal:11434"),
+    ("http://myhost:11434", "http://myhost:11434"),
+    ("https://ollama.lan", "https://ollama.lan"),
+    ("https://proxy.lan/ollama/", "https://proxy.lan/ollama"),
+])
+def test_local_and_lan_urls_are_allowed(raw, expected):
+    assert _normalize_ollama_url(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [
+    None, "",
+    "localhost:11434", "127.0.0.1:11434",            # no scheme
+    "file:///etc/passwd", "gopher://127.0.0.1:6379/_x", "ftp://host", "dict://host:11211/",
+    "javascript:alert(1)",
+    "http://", "http://:11434", "http:///x",          # no host
+    "http://user:pass@host:11434", "http://host:11434@evil.example", "http://@host",
+    "http://host/x?y=", "http://host?", "http://host/x#", "http://host#frag",
+    "http://host:99999", "http://host:abc",
+    "http://host/a b", " http://host", "http://host\t", "http://host\r\nX: y",
+    "http://host\\@evil", "http://hóst", "http://host＠evil",
+    "http://host/%3F", "http://host/;x",
+])
+def test_other_urls_are_refused(raw):
+    assert _normalize_ollama_url(raw) is None
+
+
+# =============================================================================
+# Local stub servers
+# =============================================================================
+
+@pytest.fixture
+def stubs():
+    """Start one stub per behaviour. Yields ({kind: base_url}, hits list)."""
+    hits = []
+    urls = {}
+    servers = []
+
+    def handler(kind):
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                hits.append((kind, self.path))
+                if kind == "redirect":
+                    self.send_response(302)
+                    self.send_header("Location", f"{urls['ollama']}/leak")
+                    self.end_headers()
+                    return
+                if kind == "404":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = {
+                    "ollama": json.dumps({"models": [{"name": "llama3.2:latest"}, {"name": "mistral:7b"}]}),
+                    "json_secret": json.dumps({"secret": MARK, "models": "nope"}),
+                    "html_secret": f"<html>{MARK}</html>",
+                    "big": '{"models": [' + " " * (2 * 1024 * 1024) + "]}",
+                }[kind].encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        return H
+
+    for kind in ("ollama", "json_secret", "html_secret", "big", "redirect", "404"):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(kind))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+        urls[kind] = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    yield urls, hits
+
+    for srv in servers:
+        srv.shutdown()
+        srv.server_close()
+
+
+def _store(db, url, provider="ollama"):
+    """Write straight to the row, as a value saved before the fix would be."""
+    settings = get_or_create_settings(db)
+    settings.ai_provider = provider
+    settings.ai_ollama_url = url
+    settings.ai_ollama_model = "llama3.2"
+    db.flush()
+    return settings
+
+
+# =============================================================================
+# PATCH /settings/ai
+# =============================================================================
+
+class TestOllamaUrlOnSave:
+    @pytest.mark.parametrize("bad", [
+        "http://169.254.169.254/latest/meta-data?x=",
+        "http://127.0.0.1:6379/#",
+        "file:///etc/passwd",
+        "http://user:pass@ollama.lan:11434",
+        "ollama.lan:11434",
+    ])
+    def test_bad_url_rejected_and_not_stored(self, client, db, bad):
+        _store(db, "http://localhost:11434")
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_ollama_url": bad})
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == _OLLAMA_URL_HELP  # a string, so the toast can show it
+        assert client.get(f"{SETTINGS_URL}/ai").json()["ai_ollama_url"] == "http://localhost:11434"
+
+    def test_lan_url_saved_without_trailing_slash(self, client):
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={
+            "ai_provider": "ollama", "ai_ollama_url": "http://192.168.1.50:11434/",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["ai_ollama_url"] == "http://192.168.1.50:11434"
+
+    def test_empty_url_resets_to_default(self, client):
+        client.patch(f"{SETTINGS_URL}/ai", json={"ai_ollama_url": "http://myhost:11434"})
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_ollama_url": ""})
+        assert resp.status_code == 200
+        assert resp.json()["ai_ollama_url"] == "http://localhost:11434"
+
+
+# =============================================================================
+# POST /settings/ai/test
+# =============================================================================
+
+class TestOllamaConnectionTest:
+    def test_real_ollama_only_api_tags_fetched(self, client, db, stubs):
+        urls, hits = stubs
+        _store(db, urls["ollama"])
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is True
+        assert "available" in data["message"]
+        assert hits == [("ollama", "/api/tags")]
+
+    def test_missing_model_lists_names(self, client, db, stubs):
+        urls, _ = stubs
+        settings = _store(db, urls["ollama"])
+        settings.ai_ollama_model = "phi3"
+        db.flush()
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is True
+        assert "llama3.2" in data["message"] and "mistral" in data["message"]
+
+    def test_redirect_not_followed(self, client, db, stubs):
+        urls, hits = stubs
+        _store(db, urls["redirect"])
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is False
+        assert "302" in data["message"]
+        assert ("ollama", "/leak") not in hits
+
+    @pytest.mark.parametrize("kind", ["json_secret", "html_secret"])
+    def test_non_ollama_answer_not_echoed(self, client, db, stubs, kind):
+        urls, _ = stubs
+        _store(db, urls[kind])
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is False
+        assert MARK not in data["message"]
+
+    def test_oversized_answer_refused(self, client, db, stubs):
+        urls, _ = stubs
+        _store(db, urls["big"])
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is False
+
+    def test_status_reported_without_body(self, client, db, stubs):
+        urls, _ = stubs
+        _store(db, urls["404"])
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is False
+        assert "404" in data["message"]
+
+    @pytest.mark.parametrize("suffix", ["/internal/admin?x=", "/internal#"])
+    def test_legacy_stored_url_refused_before_any_request(self, client, db, stubs, suffix):
+        urls, hits = stubs
+        _store(db, urls["ollama"] + suffix)
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data == {"success": False, "provider": "ollama", "message": _OLLAMA_URL_HELP}
+        assert hits == []
+
+    def test_exception_text_not_echoed(self, client, db):
+        _store(db, "http://localhost:11434")
+        with patch("requests.get", side_effect=RuntimeError(f"boom {MARK}")):
+            data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["message"] == "Connection test failed"
+
+
+# =============================================================================
+# POST /settings/ai/start-ollama
+# =============================================================================
+
+class TestStartOllamaUrl:
+    def test_legacy_bad_url_no_request_no_spawn(self, client, db, stubs):
+        urls, hits = stubs
+        _store(db, urls["ollama"] + "/x?y=")
+        with patch("subprocess.Popen") as popen:
+            data = client.post(f"{SETTINGS_URL}/ai/start-ollama").json()
+        assert data["success"] is False
+        assert not popen.called
+        assert hits == []
+
+    def test_running_ollama_detected_without_spawn(self, client, db, stubs):
+        urls, _ = stubs
+        _store(db, urls["ollama"])
+        with patch("subprocess.Popen") as popen:
+            data = client.post(f"{SETTINGS_URL}/ai/start-ollama").json()
+        assert data["success"] is True
+        assert not popen.called
+
+
+# =============================================================================
+# Who can read AI settings
+# =============================================================================
+
+class TestAiSettingsReadAccess:
+    @pytest.mark.parametrize("path", ["/ai", "/ai/anthropic-status"])
+    def test_customer_forbidden(self, unauthed_client, role_headers, path):
+        resp = unauthed_client.get(f"{SETTINGS_URL}{path}", headers=role_headers("customer"))
+        assert resp.status_code == 403
+
+    @pytest.mark.parametrize("path", ["/ai", "/ai/anthropic-status"])
+    def test_operator_allowed(self, unauthed_client, role_headers, path):
+        # AdminLayout's security badge reads GET /settings/ai for every staff user.
+        resp = unauthed_client.get(f"{SETTINGS_URL}{path}", headers=role_headers("operator"))
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("method,path", [
+        ("patch", "/ai"), ("post", "/ai/test"), ("post", "/ai/start-ollama"),
+    ])
+    def test_operator_cannot_set_or_trigger_fetch(self, unauthed_client, role_headers, method, path):
+        kwargs = {"json": {"ai_ollama_url": "http://x:1"}} if method == "patch" else {}
+        resp = getattr(unauthed_client, method)(
+            f"{SETTINGS_URL}{path}", headers=role_headers("operator"), **kwargs
+        )
+        assert resp.status_code == 403
