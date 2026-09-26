@@ -12,7 +12,7 @@ from decimal import Decimal
 import logging
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.invoice import Invoice
 from app.models.user import User
 from app.models.payment import Payment
@@ -37,7 +37,15 @@ from app.schemas.payment import (
     PaymentDashboardStats,
 )
 
-router = APIRouter(prefix="/payments", tags=["payments"])
+# SEC-405: every payment route is staff-only (admin or operator). A plain
+# login is not enough, because anyone can self-register a customer account,
+# and these routes record, refund and void payments (order paid state and
+# GL entries) and list every customer's payments.
+router = APIRouter(
+    prefix="/payments",
+    tags=["payments"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +76,7 @@ def payment_to_response(payment: Payment) -> PaymentResponse:
 @router.post("", response_model=PaymentResponse, status_code=status.HTTP_201_CREATED)
 async def record_payment(
     payment_data: PaymentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -112,7 +120,7 @@ async def record_payment(
 @router.post("/refund", response_model=PaymentResponse, status_code=status.HTTP_201_CREATED)
 async def record_refund(
     refund_data: RefundCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -213,7 +221,7 @@ async def list_payments(
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
     search: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -272,7 +280,7 @@ async def list_payments(
 
 @router.get("/dashboard", response_model=PaymentDashboardStats)
 async def get_payment_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -345,7 +353,7 @@ async def get_payment_dashboard(
 @router.get("/order/{order_id}/summary", response_model=PaymentSummary)
 async def get_order_payment_summary(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -388,7 +396,7 @@ async def get_order_payment_summary(
 @router.get("/{payment_id}", response_model=PaymentResponse)
 async def get_payment(
     payment_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -412,7 +420,7 @@ async def get_payment(
 async def update_payment(
     payment_id: int,
     update_data: PaymentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -466,7 +474,7 @@ async def update_payment(
 @router.delete("/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def void_payment(
     payment_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
