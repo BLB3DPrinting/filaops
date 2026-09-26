@@ -9,6 +9,8 @@ A placeholder SECRET_KEY must never sign tokens: the placeholders are
 public, so anyone could forge an access token for any user id with them.
 Outside production the key is replaced with a random per-process key, an
 error is logged and the security audit fails until a real key is set.
+The other well-known weak keys the security audit fails on (for example
+'changeme') are treated the same way outside production.
 """
 import logging
 import os
@@ -18,12 +20,17 @@ import sys
 import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import jwt
 import pytest
 
-from app.core.settings import Settings
+from app.core.settings import (
+    KNOWN_WEAK_SECRET_KEYS,
+    Settings,
+    _SECRET_KEY_PLACEHOLDERS,
+)
 from scripts.security_audit import CheckStatus, SecurityAuditor
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -41,6 +48,19 @@ _PLACEHOLDER_SECRET_KEYS = [
     "Your-Secret-Key-Here",
     "  change-in-production  ",
     "\tchange-this-to-a-random-secret-key-in-production\n",
+]
+
+# Well-known weak keys that are not shipped defaults. The security audit has
+# always failed on them; outside production they are now replaced too.
+_COMMON_WEAK_SECRET_KEYS = [
+    "secret",
+    "changeme",
+    "development-secret-key",
+    "test-secret-key",
+    "supersecretkey",
+    "mysecretkey",
+    "CHANGEME",
+    "  Secret\n",
 ]
 
 
@@ -321,6 +341,72 @@ class TestShortSecretKey:
         assert not [r for r in caplog.records if "SECRET_KEY" in r.getMessage()]
 
 
+class TestCommonWeakSecretKey:
+    """The startup check and the security audit agree on which keys are weak.
+
+    A key the audit calls weak (for example 'changeme' or 'secret') is as easy
+    to guess as a placeholder, so outside production it is replaced with a
+    temporary key too. Production keeps starting with it, because short keys
+    are not refused there yet, but it logs an error.
+    """
+
+    def test_one_list_covers_every_placeholder(self):
+        assert _SECRET_KEY_PLACEHOLDERS <= KNOWN_WEAK_SECRET_KEYS
+        for value in _COMMON_WEAK_SECRET_KEYS:
+            assert value.strip().lower() in KNOWN_WEAK_SECRET_KEYS
+
+    @pytest.mark.parametrize("weak_key", _COMMON_WEAK_SECRET_KEYS)
+    @pytest.mark.parametrize("environment", ["development", "test"])
+    def test_weak_key_is_replaced_outside_production(self, environment, weak_key, caplog):
+        caplog.set_level(logging.WARNING, logger="app.core.settings")
+        s = _build(environment, secret_key=weak_key)
+
+        assert s.SECRET_KEY != weak_key
+        assert re.fullmatch(r"[0-9a-f]{64,}", s.SECRET_KEY)
+        assert s.secret_key_is_temporary is True
+        assert any(
+            record.levelno == logging.ERROR and "SECRET_KEY" in record.getMessage()
+            for record in caplog.records
+        ), "expected an error naming SECRET_KEY"
+
+    def test_token_signed_with_a_weak_key_is_rejected(self):
+        s = _build("development", secret_key="changeme")
+        forged = _forged_token("changeme")
+        with pytest.raises(jwt.InvalidSignatureError):
+            jwt.decode(forged, s.SECRET_KEY, algorithms=["HS256"])
+
+    @pytest.mark.parametrize("weak_key", ["changeme", "test-secret-key"])
+    def test_production_keeps_starting_but_logs_an_error(self, weak_key, caplog):
+        caplog.set_level(logging.WARNING, logger="app.core.settings")
+        s = _build("production", secret_key=weak_key)
+
+        assert s.SECRET_KEY == weak_key
+        assert s.secret_key_is_temporary is False
+        assert any(
+            record.levelno == logging.ERROR
+            and "SECRET_KEY" in record.getMessage()
+            and "well-known weak value" in record.getMessage()
+            for record in caplog.records
+        ), "expected an error about the well-known weak SECRET_KEY"
+
+    def test_production_audit_fails_on_a_weak_key(self):
+        result = TestSecurityAuditTemporaryKey._secret_key_check(
+            _build("production", secret_key="changeme")
+        )
+        assert result.status == CheckStatus.FAIL
+        assert "known weak" in result.message.lower()
+
+    def test_production_audit_fails_on_the_compose_placeholder_spelling(self):
+        # 'change-in-production' was missing from the audit's own list. It
+        # cannot reach the audit through Settings (production refuses it,
+        # other environments replace it), so check the list directly.
+        result = TestSecurityAuditTemporaryKey._secret_key_check(
+            SimpleNamespace(SECRET_KEY=" Change-In-Production ", secret_key_is_temporary=False)
+        )
+        assert result.status == CheckStatus.FAIL
+        assert "known weak" in result.message.lower()
+
+
 class TestSecurityAuditTemporaryKey:
     """The Security page keeps asking for a real key while a temporary one is in use."""
 
@@ -333,6 +419,15 @@ class TestSecurityAuditTemporaryKey:
         (result,) = auditor.results
         return result
 
+    @staticmethod
+    def _entropy_check(settings_obj):
+        auditor = SecurityAuditor()
+        auditor._settings = settings_obj
+        auditor.results = []
+        auditor._check_secret_key_entropy()
+        (result,) = auditor.results
+        return result
+
     def test_temporary_key_fails_the_audit(self):
         result = self._secret_key_check(_build("development", secret_key=""))
         assert result.id == "secret_key_not_default"
@@ -342,6 +437,21 @@ class TestSecurityAuditTemporaryKey:
 
     def test_real_key_passes_the_audit(self):
         result = self._secret_key_check(_build("development", secret_key="a1" * 32))
+        assert result.status == CheckStatus.PASS
+
+    def test_temporary_key_does_not_pass_the_entropy_check(self):
+        # The random replacement is 64 hex characters; the entropy check used
+        # to pass it next to the FAIL above for the same missing key.
+        result = self._entropy_check(_build("development", secret_key=""))
+        assert result.id == "secret_key_entropy"
+        assert result.status == CheckStatus.FAIL
+        assert "temporary" in result.message.lower()
+        assert "openssl rand -hex 32" in (result.remediation or "")
+
+    def test_real_long_key_passes_the_entropy_check(self):
+        result = self._entropy_check(
+            _build("development", secret_key="9f2c4e7a1b3d5f6e8a0c2e4f6b8d0a1c3e5f7b9d1a3c5e7f9b2d4f6a8c0e2b4d")
+        )
         assert result.status == CheckStatus.PASS
 
 

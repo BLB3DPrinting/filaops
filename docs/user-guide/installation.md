@@ -406,7 +406,7 @@ Key differences when setting `ENVIRONMENT=production`:
 - The Swagger UI (`/docs`, `/redoc`, `/openapi.json`) is disabled to prevent API schema exposure.
 - `Strict-Transport-Security` headers are added to every response (HSTS).
 - `COOKIE_SECURE=true` must be set — auth cookies require HTTPS.
-- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` is empty or set to any known placeholder value (e.g. `changeme`, `change-in-production`). In other environments a placeholder `SECRET_KEY` is replaced by a temporary random key (see the warning in Step 2), and a placeholder `DB_PASSWORD` only logs a warning.
+- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` is empty or set to any known placeholder value (e.g. `changeme`, `change-in-production`). In other environments a placeholder `SECRET_KEY`, or a well-known weak one such as `changeme` or `secret`, is replaced by a temporary random key (see the warning in Step 2), and a placeholder `DB_PASSWORD` only logs a warning. In production a well-known weak `SECRET_KEY` that is not a placeholder still starts but logs an error.
 
 ---
 

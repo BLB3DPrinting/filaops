@@ -49,6 +49,26 @@ _DB_PASSWORD_PLACEHOLDERS = frozenset({
     "your-secure-password-here",
 })
 
+# Other SECRET_KEY values that are common in tutorials and sample configs.
+# They are as easy to guess as the placeholders, so outside production they
+# are replaced with a temporary random key in the same way. All of them are
+# shorter than _SECRET_KEY_MIN_LENGTH, and short keys are not refused in
+# production yet, so production logs an error for them instead of refusing
+# to start.
+_SECRET_KEY_COMMON_WEAK_VALUES = frozenset({
+    "secret",
+    "changeme",
+    "development-secret-key",
+    "test-secret-key",
+    "supersecretkey",
+    "mysecretkey",
+})
+
+# Every SECRET_KEY value that is public or easy to guess (compared after
+# strip().lower()). The security audit fails on all of them, so this is the
+# one list both the startup check and scripts/security_audit.py use.
+KNOWN_WEAK_SECRET_KEYS = _SECRET_KEY_PLACEHOLDERS | _SECRET_KEY_COMMON_WEAK_VALUES
+
 # A real SECRET_KEY shorter than this logs a warning at startup. It is not
 # refused yet, so an upgraded install with an existing short key keeps
 # starting.
@@ -211,15 +231,18 @@ class Settings(BaseSettings):
 
         Outside production a placeholder SECRET_KEY is never used either:
         the placeholders are public, so anyone could sign an access token for
-        any user id with them. The key is replaced with a random one for this
-        process (logins do not survive a restart), an error is logged and
+        any user id with them. The same goes for the other well-known weak
+        keys in KNOWN_WEAK_SECRET_KEYS (the ones the security audit fails
+        on). The key is replaced with a random one for this process (logins
+        do not survive a restart), an error is logged and
         `secret_key_is_temporary` is set so the security audit fails until a
         real key is configured. A placeholder DB_PASSWORD only warns there.
         """
+        is_production = self.ENVIRONMENT.strip().lower() == "production"
         offenders = []
-        secret_key_is_placeholder = (
-            self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS
-        )
+        normalized_secret_key = self.SECRET_KEY.strip().lower()
+        secret_key_is_placeholder = normalized_secret_key in _SECRET_KEY_PLACEHOLDERS
+        secret_key_is_known_weak = normalized_secret_key in KNOWN_WEAK_SECRET_KEYS
         if secret_key_is_placeholder:
             offenders.append("SECRET_KEY")
 
@@ -247,23 +270,34 @@ class Settings(BaseSettings):
             offenders.append("DB_PASSWORD")
 
         hint = "Generate a real value with: openssl rand -hex 32"
-        if offenders and self.ENVIRONMENT.strip().lower() == "production":
+        if offenders and is_production:
             raise RuntimeError(
                 f"Refusing to start in production: placeholder credential(s) "
                 f"detected for {', '.join(offenders)}. {hint}"
             )
 
-        if secret_key_is_placeholder:
+        if secret_key_is_known_weak and not is_production:
             # app.core.security copies settings.SECRET_KEY at import time,
             # after this validator has run, so tokens are only ever signed
             # with the replacement.
             self.SECRET_KEY = secrets.token_hex(32)
             self._secret_key_is_temporary = True
             logger.error(
-                "SECRET_KEY is not set (it is empty or a known placeholder); "
-                "using a temporary random key for this process. Logins will "
-                "not survive a restart, and production startup refuses this "
-                "configuration. Set SECRET_KEY in .env. %s",
+                "SECRET_KEY is not set (it is empty, a known placeholder or a "
+                "well-known weak value); using a temporary random key for this "
+                "process. Logins will not survive a restart, and production "
+                "startup refuses a placeholder key. Set SECRET_KEY in .env. %s",
+                hint,
+            )
+        elif secret_key_is_known_weak:
+            # Production with one of the common weak keys (never a
+            # placeholder: those raised above). Short keys are not refused in
+            # production yet, so an upgraded install keeps starting.
+            logger.error(
+                "SECRET_KEY is a well-known weak value that anyone can guess, "
+                "so anyone could sign a login token for any account. A future "
+                "release will refuse it in production. Set a random "
+                "SECRET_KEY in .env. %s",
                 hint,
             )
         elif len(self.SECRET_KEY.strip()) < _SECRET_KEY_MIN_LENGTH:

@@ -229,7 +229,7 @@ For checks that support it, a **Fix This** button appears in the fix block. Clic
 | Check | Category | What It Verifies |
 |---|---|---|
 | Secret key not default | Critical | `SECRET_KEY` has been changed from any known-weak default values. Fails with "Temporary SECRET_KEY in use" when no key is configured and FilaOps is signing logins with a temporary key that changes on every restart |
-| Secret key entropy | Critical | `SECRET_KEY` is long enough to be cryptographically safe |
+| Secret key entropy | Critical | `SECRET_KEY` is long enough to be cryptographically safe. Also fails while a temporary key is in use, because no key is configured |
 | Environment is production | Critical | `ENVIRONMENT=production` (not `development`) |
 | Debug mode disabled | Critical | `DEBUG` is off so stack traces are not exposed to browsers |
 | HTTPS enabled | Critical | Traffic is served over HTTPS (detected via reverse-proxy headers) |
