@@ -944,7 +944,12 @@ class TestPortalQuoteContract:
         finally:
             self._clear_auto_quote_provider(client, provider_state)
 
-    def test_portal_accept_persists_quote_handoff_snapshots(self, client, db):
+    def test_portal_accept_persists_customer_snapshots_only(self, client, db):
+        """Accept saves the packaging and shipping snapshots the Quoter sends.
+
+        Pricing, component and artifact snapshots and slicer_diagnostics are
+        written by PRO when it prices the quote; accept ignores client copies.
+        """
         from app.models.quote import Quote
 
         provider_state = self._install_auto_quote_provider(client)
@@ -999,12 +1004,12 @@ class TestPortalQuoteContract:
 
             assert response.status_code == 200, response.text
             quote = db.get(Quote, created["quote_id"])
-            assert quote.pricing_snapshot["source"] == "core_backed"
-            assert quote.component_snapshot["items"][0]["sku"] == "COMP-LED"
             assert quote.packaging_snapshot["sku"] == "BOX-8"
             assert quote.shipping_snapshot["package"]["sku"] == "BOX-8"
-            assert quote.artifact_snapshot["files"][0]["kind"] == "gcode"
-            assert quote.slicer_diagnostics["source"] == "real_slicer"
+            assert quote.pricing_snapshot is None
+            assert quote.component_snapshot is None
+            assert quote.artifact_snapshot is None
+            assert quote.slicer_diagnostics is None
         finally:
             self._clear_auto_quote_provider(client, provider_state)
 
@@ -1083,6 +1088,24 @@ class TestPortalQuoteContract:
         from app.models.quote import Quote, QuoteMaterial
 
         provider_state = self._install_auto_quote_provider(client)
+        auto_provider = client.app.state.quote_automation_provider
+
+        def multi_colour_provider(**kwargs):
+            # PRO stores the slots it priced; accept checks the choice against them.
+            result = auto_provider(**kwargs)
+            kwargs["quote"].pricing_snapshot = {"active_material_slots": 3}
+            kwargs["quote"].slicer_diagnostics = {
+                "slice": {
+                    "multi_material": {
+                        "is_multi_material": True,
+                        "material_count": 3,
+                        "filament_weights_grams": [10.2, 9.1, 7.9],
+                    },
+                },
+            }
+            return result
+
+        client.app.state.quote_automation_provider = multi_colour_provider
         try:
             create_response = client.post(
                 f"{BASE_URL}/portal",
@@ -1139,6 +1162,8 @@ class TestPortalQuoteContract:
             )
 
             assert response.status_code == 200, response.text
+            assert response.json()["status"] == "approved"
+            assert response.json()["requires_review"] is False
             quote = db.get(Quote, created["quote_id"])
             assert quote.color == "MULTI_COLOR"
 

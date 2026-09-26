@@ -199,6 +199,32 @@ def _calculate_quote_tax_amount(
     ).tax_amount
 
 
+def recompute_portal_quote_total(db: Session, quote: Quote) -> None:
+    """Set total_price = subtotal + tax + shipping for a portal accept.
+
+    Used after the customer picks a ship-to and a shipping rate. The total is
+    never taken from the client, tax is recomputed for the new ship-to
+    whenever the quote carries a tax rate (so it is never dropped), and
+    repeated accepts never add shipping twice.
+    """
+    subtotal = (
+        quote.subtotal
+        if quote.subtotal is not None
+        else (quote.unit_price or Decimal("0")) * (quote.quantity or 1)
+    )
+    shipping = quote.shipping_cost or Decimal("0")
+    if quote.tax_rate is not None:
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+        quote.tax_amount = _calculate_quote_tax_amount(
+            subtotal=subtotal,
+            tax_rate=quote.tax_rate,
+            shipping_cost=shipping,
+            ship_to_state=quote.shipping_state,
+            company_settings=company_settings,
+        )
+    quote.total_price = subtotal + (quote.tax_amount or Decimal("0")) + shipping
+
+
 def _get_customer_discount(db: Session, customer_id: int) -> Optional[Decimal]:
     """Look up customer's price level discount (PRO feature, graceful degradation)."""
     from app.services.customer_service import get_customer_discount_percent

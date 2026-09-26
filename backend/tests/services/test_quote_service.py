@@ -15,6 +15,7 @@ Covers:
 - get_quote_image: with image, without image, quote 404
 - delete_quote_image: happy path, quote 404
 - generate_quote_pdf: basic generation, 404
+- recompute_portal_quote_total: shipping, tax for the ship-to, no compounding
 """
 import pytest
 from datetime import datetime, timezone, timedelta
@@ -936,3 +937,61 @@ class TestGenerateQuotePdf:
         with pytest.raises(HTTPException) as exc_info:
             quote_service.generate_quote_pdf(db, 999999)
         assert exc_info.value.status_code == 404
+
+
+# =============================================================================
+# recompute_portal_quote_total
+# =============================================================================
+
+class TestRecomputePortalQuoteTotal:
+    """Portal accept derives the total server-side: subtotal + tax + shipping."""
+
+    def test_total_is_subtotal_plus_shipping_without_tax(self, db):
+        q = _make_quote(
+            db, quote_number="Q-PORTAL-TOT-01", quantity=2,
+            unit_price=Decimal("12.50"), subtotal=Decimal("25.00"),
+            total_price=Decimal("999.00"), shipping_cost=Decimal("8.50"),
+        )
+
+        quote_service.recompute_portal_quote_total(db, q)
+
+        assert q.total_price == Decimal("33.50")
+        assert q.tax_amount is None
+
+    def test_repeated_calls_never_add_shipping_twice(self, db):
+        q = _make_quote(
+            db, quote_number="Q-PORTAL-TOT-02", quantity=2,
+            unit_price=Decimal("12.50"), subtotal=Decimal("25.00"),
+            total_price=Decimal("25.00"), shipping_cost=Decimal("8.50"),
+        )
+
+        quote_service.recompute_portal_quote_total(db, q)
+        quote_service.recompute_portal_quote_total(db, q)
+
+        assert q.total_price == Decimal("33.50")
+
+    def test_tax_is_recomputed_for_the_ship_to(self, db):
+        _make_company_settings(db, company_state="IN")
+        q = _make_quote(
+            db, quote_number="Q-PORTAL-TOT-03", quantity=2,
+            unit_price=Decimal("12.50"), subtotal=Decimal("25.00"),
+            total_price=Decimal("25.00"), shipping_cost=Decimal("10.00"),
+            shipping_state="IN", tax_rate=Decimal("0.0700"), tax_amount=Decimal("0.00"),
+        )
+
+        quote_service.recompute_portal_quote_total(db, q)
+
+        # Indiana taxes seller-billed delivery, so shipping is in the base.
+        assert q.tax_amount == Decimal("2.45")
+        assert q.total_price == Decimal("37.45")
+
+    def test_subtotal_falls_back_to_unit_price_times_quantity(self, db):
+        q = _make_quote(
+            db, quote_number="Q-PORTAL-TOT-04", quantity=2,
+            unit_price=Decimal("12.50"), subtotal=None,
+            total_price=Decimal("0.00"), shipping_cost=None,
+        )
+
+        quote_service.recompute_portal_quote_total(db, q)
+
+        assert q.total_price == Decimal("25.00")

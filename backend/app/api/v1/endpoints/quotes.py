@@ -508,12 +508,9 @@ def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShip
     quote.shipping_carrier = payload.shipping_carrier
     quote.shipping_service = payload.shipping_service
     quote.shipping_cost = payload.shipping_cost
-    if payload.adjusted_unit_price is not None:
-        quote.unit_price = payload.adjusted_unit_price
-        quote.subtotal = payload.adjusted_unit_price * quote.quantity
-        quote.total_price = quote.subtotal + (quote.shipping_cost or Decimal("0"))
-    elif quote.shipping_cost is not None:
-        quote.total_price = (quote.subtotal or quote.total_price) + quote.shipping_cost
+    # The price and the total are never taken from the client: the caller has
+    # already refused a changed price, and quote_service
+    # .recompute_portal_quote_total derives the total from the stored subtotal.
 
     current_user.shipping_address_line1 = payload.shipping_address_line1
     current_user.shipping_address_line2 = payload.shipping_address_line2
@@ -557,33 +554,25 @@ def _fallback_shipping_snapshot(
 
 
 def _apply_portal_snapshots(quote: Quote, payload: PortalShippingSelection) -> None:
-    if payload.pricing_snapshot is not None:
-        quote.pricing_snapshot = payload.pricing_snapshot
-    if payload.component_snapshot is not None:
-        quote.component_snapshot = payload.component_snapshot
+    # SEC-412: pricing, component and artifact snapshots and slicer_diagnostics
+    # are written by PRO when it prices the quote (the Quoter never sends
+    # them). Accept ignores them, so a client cannot rewrite the record of what
+    # was priced or the slot data the colour check below relies on.
     if payload.packaging_snapshot is not None:
         quote.packaging_snapshot = payload.packaging_snapshot
     shipping_snapshot = payload.shipping_snapshot or _fallback_shipping_snapshot(quote, payload)
     if shipping_snapshot is not None:
         quote.shipping_snapshot = shipping_snapshot
-    if payload.artifact_snapshot is not None:
-        quote.artifact_snapshot = payload.artifact_snapshot
-    if payload.slicer_diagnostics is not None:
-        quote.slicer_diagnostics = payload.slicer_diagnostics
 
 
-def _apply_portal_print_selection(
-    db: Session,
-    quote: Quote,
-    payload: PortalShippingSelection,
-) -> None:
-    """Persist customer print-mode choices captured before checkout."""
+def _parse_portal_slots(quote: Quote, payload: PortalShippingSelection) -> list[dict[str, Any]]:
+    """Parse the customer's multi-colour choice; malformed slots are skipped."""
     if payload.print_mode != "multi" or not payload.multi_color_info:
-        return
+        return []
 
     slot_colors = payload.multi_color_info.get("slot_colors") or []
     if not isinstance(slot_colors, list) or not slot_colors:
-        return
+        return []
 
     def _coerce_int(value: Any) -> Optional[int]:
         try:
@@ -610,7 +599,9 @@ def _apply_portal_print_selection(
         except (TypeError, ValueError, InvalidOperation):
             continue
 
-        if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
+        if slot_number is None or slot_number < 1 or slot_number > 16:
+            continue
+        if not grams.is_finite() or grams < 0:
             continue
 
         color_code = str(slot.get("color_code") or "").strip()
@@ -627,7 +618,12 @@ def _apply_portal_print_selection(
             "material_grams": grams,
         })
 
-    if not parsed_slots:
+    return parsed_slots
+
+
+def _replace_portal_quote_materials(db: Session, quote: Quote, slots: list[dict[str, Any]]) -> None:
+    """Persist the customer's (already validated) colour slots."""
+    if not slots:
         return
 
     db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
@@ -635,11 +631,141 @@ def _apply_portal_print_selection(
     )
 
     quote.color = "MULTI_COLOR"
-    for slot in parsed_slots:
+    for slot in slots:
         db.add(QuoteMaterial(
             quote_id=quote.id,
             **slot,
         ))
+
+
+# ----------------------------------------------------------------------------
+# SEC-412: portal accept checks. Accept only saves the customer's ship-to,
+# shipping choice and colour slots on a quote the customer created through
+# POST /quotes/portal. It never re-prices a quote: every check below runs
+# before anything is written, and the total is recomputed server-side.
+# ----------------------------------------------------------------------------
+
+PORTAL_ACCEPTABLE_STATUSES = {"pending", "approved"}
+_CENT = Decimal("0.01")
+# Tolerance on the grams a customer may assign to a priced colour slot.
+_SLOT_GRAMS_FACTOR = Decimal("1.01")
+_SLOT_GRAMS_SLACK = Decimal("0.5")
+_COLOUR_REVIEW_REASON = "Colour selection needs review"
+
+
+def _require_portal_quote_acceptable(quote: Quote, current_user: User) -> None:
+    # Only quotes this customer created through POST /quotes/portal. A
+    # shop-drafted quote (user_id = staff author, customer_id = buyer) is paid
+    # at its stored total through /checkout; accept must never re-price it (it
+    # used to drop tax_amount and replace the shop's shipping with the
+    # client's value).
+    if quote.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This quote was prepared by the shop and cannot be changed here",
+        )
+    if quote.sales_order_id is not None or quote.status not in PORTAL_ACCEPTABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote can no longer be accepted",
+        )
+    if quote.status == "approved" and quote.approval_method != "auto":
+        # Staff reviewed and approved it: price, tax and shipping are final.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote was approved by the shop; continue to checkout",
+        )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if quote.expires_at is not None and quote.expires_at.replace(tzinfo=None) <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote has expired",
+        )
+
+
+def _require_unchanged_price(quote: Quote, payload: PortalShippingSelection) -> None:
+    """The server never takes a price from the client."""
+    if payload.adjusted_unit_price is None:
+        return
+    try:
+        unchanged = (
+            payload.adjusted_unit_price.quantize(_CENT)
+            == Decimal(str(quote.unit_price or 0)).quantize(_CENT)
+        )
+    except InvalidOperation:
+        unchanged = False
+    if not unchanged:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote price changed; refresh the quote",
+        )
+
+
+def _priced_slots(quote: Quote) -> Optional[dict[int, Decimal]]:
+    """1-based slot -> grams PRO priced, read from the STORED slicer_diagnostics."""
+    diag = quote.slicer_diagnostics if isinstance(quote.slicer_diagnostics, dict) else {}
+    slice_result = diag.get("slice") if isinstance(diag.get("slice"), dict) else {}
+    multi = slice_result.get("multi_material")
+    multi = multi if isinstance(multi, dict) else {}
+    weights = multi.get("filament_weights_grams")
+    if not multi.get("is_multi_material") or not isinstance(weights, list):
+        return None
+
+    priced: dict[int, Decimal] = {}
+    for index, raw in enumerate(weights):
+        try:
+            grams = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if grams.is_finite() and grams > 0:
+            priced[index + 1] = grams
+    return priced or None
+
+
+def _priced_for_single_colour(quote: Quote) -> bool:
+    snapshot = quote.pricing_snapshot if isinstance(quote.pricing_snapshot, dict) else {}
+    try:
+        return int(snapshot.get("active_material_slots") or 0) == 1
+    except (TypeError, ValueError):
+        return False
+
+
+def _validated_print_selection(quote: Quote, payload: PortalShippingSelection) -> list[dict[str, Any]]:
+    """Parse multi_color_info, then check it against what PRO priced.
+
+    Raises 409 before anything is written. The slots become the BOM, so a
+    customer must not be able to add colours or grams that were never priced.
+    """
+    slots = _parse_portal_slots(quote, payload)
+    if not slots:
+        return []
+
+    priced = _priced_slots(quote)
+    if priced is None:
+        if _priced_for_single_colour(quote):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Quote was priced for a single colour",
+            )
+        # Older PRO wrote no slot data: keep the choice, but staff check it
+        # before payment (PRO checkout refuses quotes that need review).
+        quote.requires_review_reason = quote.requires_review_reason or _COLOUR_REVIEW_REASON
+        return slots
+
+    numbers = [slot["slot_number"] for slot in slots]
+    if len(set(numbers)) != len(numbers) or not set(numbers) <= priced.keys():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Colour slots do not match the quoted print",
+        )
+    for slot in slots:
+        limit = priced[slot["slot_number"]] * _SLOT_GRAMS_FACTOR + _SLOT_GRAMS_SLACK
+        if slot["material_grams"] > limit:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Colour slots do not match the quoted print",
+            )
+    return slots
 
 
 # ============================================================================
@@ -766,11 +892,19 @@ async def accept_portal_quote(
     """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
     _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
-    _apply_portal_shipping(quote, current_user, payload)
-    _apply_portal_snapshots(quote, payload)
-    _apply_portal_print_selection(db, quote, payload)
+    # SEC-412: every refusal happens before anything is written.
+    _require_portal_quote_acceptable(quote, current_user)
+    _require_unchanged_price(quote, payload)
+    slots = _validated_print_selection(quote, payload)
 
-    requires_review = bool(quote.requires_review_reason)
+    _apply_portal_shipping(quote, current_user, payload)
+    quote_service.recompute_portal_quote_total(db, quote)
+    _apply_portal_snapshots(quote, payload)
+    _replace_portal_quote_materials(db, quote, slots)
+
+    # Only an auto-approved quote with nothing to review goes (or stays)
+    # straight to checkout; anything else waits for staff.
+    requires_review = bool(quote.requires_review_reason) or quote.approval_method != "auto"
     if requires_review:
         quote.status = "pending"
         quote.approval_method = "manual"
