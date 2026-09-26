@@ -254,9 +254,11 @@ class PortalShippingSelection(BaseModel):
     shipping_rate_id: Optional[str] = Field(None, max_length=100)
     shipping_carrier: Optional[str] = Field(None, max_length=50)
     shipping_service: Optional[str] = Field(None, max_length=100)
-    shipping_cost: Optional[Decimal] = Field(None, ge=0)
+    # Money fields match the Numeric(10, 2) quote columns, so a value the
+    # database cannot hold is a 422 here rather than a 500 at flush time.
+    shipping_cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     print_mode: Optional[str] = Field(None, max_length=20)
-    adjusted_unit_price: Optional[Decimal] = Field(None, ge=0)
+    adjusted_unit_price: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     multi_color_info: Optional[dict[str, Any]] = None
     pricing_snapshot: Optional[dict[str, Any]] = None
     component_snapshot: Optional[dict[str, Any]] = None
@@ -701,6 +703,26 @@ def _require_unchanged_price(quote: Quote, payload: PortalShippingSelection) -> 
         )
 
 
+# Largest value a Numeric(10, 2) quote money column can hold.
+_MAX_QUOTE_MONEY = Decimal("99999999.99")
+
+
+def _require_total_fits(db: Session, quote: Quote, payload: PortalShippingSelection) -> None:
+    """The schema bounds shipping_cost to its column, but subtotal + tax +
+    shipping must also fit total_price, or the flush fails with a 500."""
+    _, total = quote_service.portal_quote_total(
+        db,
+        quote,
+        shipping_cost=payload.shipping_cost,
+        ship_to_state=payload.shipping_state,
+    )
+    if total > _MAX_QUOTE_MONEY:
+        raise HTTPException(
+            status_code=422,
+            detail="Shipping cost is too large",
+        )
+
+
 def _priced_slots(quote: Quote) -> Optional[dict[int, Decimal]]:
     """1-based slot -> grams PRO priced, read from the STORED slicer_diagnostics."""
     diag = quote.slicer_diagnostics if isinstance(quote.slicer_diagnostics, dict) else {}
@@ -895,6 +917,7 @@ async def accept_portal_quote(
     # SEC-412: every refusal happens before anything is written.
     _require_portal_quote_acceptable(quote, current_user)
     _require_unchanged_price(quote, payload)
+    _require_total_fits(db, quote, payload)
     slots = _validated_print_selection(quote, payload)
 
     _apply_portal_shipping(quote, current_user, payload)

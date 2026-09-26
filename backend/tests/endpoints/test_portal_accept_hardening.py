@@ -234,6 +234,54 @@ def test_lower_price_from_the_client_is_refused(unauthed_client, db):
     _assert_nothing_written(db, quote, owner, status="approved")
 
 
+@pytest.mark.parametrize("field", ["shipping_cost", "adjusted_unit_price"])
+@pytest.mark.parametrize(
+    "value",
+    [1e30, "1E+30", "100000000.00", "8.505"],
+    ids=["float_1e30", "string_1e30", "one_whole_digit_over", "third_decimal_place"],
+)
+def test_money_the_columns_cannot_hold_is_refused_with_422(unauthed_client, db, field, value):
+    """shipping_cost and unit_price are Numeric(10, 2). A larger value used to
+    reach the tax maths or Postgres and come back as a 500."""
+    owner = _customer(db)
+    quote = _portal_quote(db, owner)
+    _keep_material(db, quote)
+
+    response = _accept(unauthed_client, quote, owner, **{field: value})
+
+    assert response.status_code == 422, response.text
+    assert [e["field"] for e in response.json()["details"]["errors"]] == [field]
+    _assert_nothing_written(db, quote, owner, status="approved")
+
+
+def test_largest_column_value_is_still_a_valid_shipping_cost(unauthed_client, db):
+    owner = _customer(db)
+    quote = _portal_quote(
+        db, owner, weights=None,
+        unit_price=Decimal("0.00"), subtotal=Decimal("0.00"), total_price=Decimal("0.00"),
+    )
+
+    response = _accept(unauthed_client, quote, owner, shipping_cost="99999999.99")
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert db.get(Quote, quote.id).total_price == Decimal("99999999.99")
+
+
+def test_shipping_that_would_overflow_the_total_is_refused_with_422(unauthed_client, db):
+    """Each value fits its own column, but subtotal + shipping would not fit
+    total_price (also Numeric(10, 2)). Refused before anything is written."""
+    owner = _customer(db)
+    quote = _portal_quote(db, owner)
+    _keep_material(db, quote)
+
+    response = _accept(unauthed_client, quote, owner, shipping_cost="99999999.99")
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Shipping cost is too large"
+    _assert_nothing_written(db, quote, owner, status="approved")
+
+
 @pytest.mark.parametrize("sent_price", ["12.50", 12.5, "12.500"])
 def test_unchanged_price_is_accepted(unauthed_client, db, sent_price):
     owner = _customer(db)

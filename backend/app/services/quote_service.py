@@ -199,6 +199,37 @@ def _calculate_quote_tax_amount(
     ).tax_amount
 
 
+def portal_quote_total(
+    db: Session,
+    quote: Quote,
+    *,
+    shipping_cost: Optional[Decimal],
+    ship_to_state: Optional[str],
+) -> tuple[Optional[Decimal], Decimal]:
+    """Return (tax_amount, total_price) a portal accept would store. Writes nothing.
+
+    Tax is recomputed for the ship-to whenever the quote carries a tax rate;
+    otherwise the stored tax_amount is kept.
+    """
+    subtotal = (
+        quote.subtotal
+        if quote.subtotal is not None
+        else (quote.unit_price or Decimal("0")) * (quote.quantity or 1)
+    )
+    shipping = shipping_cost or Decimal("0")
+    tax_amount = quote.tax_amount
+    if quote.tax_rate is not None:
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+        tax_amount = _calculate_quote_tax_amount(
+            subtotal=subtotal,
+            tax_rate=quote.tax_rate,
+            shipping_cost=shipping,
+            ship_to_state=ship_to_state,
+            company_settings=company_settings,
+        )
+    return tax_amount, subtotal + (tax_amount or Decimal("0")) + shipping
+
+
 def recompute_portal_quote_total(db: Session, quote: Quote) -> None:
     """Set total_price = subtotal + tax + shipping for a portal accept.
 
@@ -207,22 +238,15 @@ def recompute_portal_quote_total(db: Session, quote: Quote) -> None:
     whenever the quote carries a tax rate (so it is never dropped), and
     repeated accepts never add shipping twice.
     """
-    subtotal = (
-        quote.subtotal
-        if quote.subtotal is not None
-        else (quote.unit_price or Decimal("0")) * (quote.quantity or 1)
+    tax_amount, total_price = portal_quote_total(
+        db,
+        quote,
+        shipping_cost=quote.shipping_cost,
+        ship_to_state=quote.shipping_state,
     )
-    shipping = quote.shipping_cost or Decimal("0")
     if quote.tax_rate is not None:
-        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-        quote.tax_amount = _calculate_quote_tax_amount(
-            subtotal=subtotal,
-            tax_rate=quote.tax_rate,
-            shipping_cost=shipping,
-            ship_to_state=quote.shipping_state,
-            company_settings=company_settings,
-        )
-    quote.total_price = subtotal + (quote.tax_amount or Decimal("0")) + shipping
+        quote.tax_amount = tax_amount
+    quote.total_price = total_price
 
 
 def _get_customer_discount(db: Session, customer_id: int) -> Optional[Decimal]:

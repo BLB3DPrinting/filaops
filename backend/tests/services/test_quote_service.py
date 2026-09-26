@@ -985,6 +985,25 @@ class TestRecomputePortalQuoteTotal:
         assert q.tax_amount == Decimal("2.45")
         assert q.total_price == Decimal("37.45")
 
+    def test_portal_quote_total_previews_without_writing(self, db):
+        """Accept checks the prospective total before it writes anything."""
+        _make_company_settings(db, company_state="IN")
+        q = _make_quote(
+            db, quote_number="Q-PORTAL-TOT-05", quantity=2,
+            unit_price=Decimal("12.50"), subtotal=Decimal("25.00"),
+            total_price=Decimal("25.00"), shipping_cost=None,
+            shipping_state="OH", tax_rate=Decimal("0.0700"), tax_amount=Decimal("0.00"),
+        )
+
+        tax_amount, total = quote_service.portal_quote_total(
+            db, q, shipping_cost=Decimal("10.00"), ship_to_state="IN",
+        )
+
+        assert (tax_amount, total) == (Decimal("2.45"), Decimal("37.45"))
+        assert q.tax_amount == Decimal("0.00")
+        assert q.total_price == Decimal("25.00")
+        assert q.shipping_cost is None
+
     def test_subtotal_falls_back_to_unit_price_times_quantity(self, db):
         q = _make_quote(
             db, quote_number="Q-PORTAL-TOT-04", quantity=2,
