@@ -33,6 +33,9 @@ services:
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       SECRET_KEY: ${SECRET_KEY:-change-in-production}
+      # Same as the backend, so with ENVIRONMENT=production a placeholder
+      # SECRET_KEY or DB_PASSWORD stops here with the production message.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       # PRO — set FILAOPS_LICENSE_KEY in .env to activate PRO features
       FILAOPS_LICENSE_KEY: ${FILAOPS_LICENSE_KEY:-}
       DATABASE_URL: postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-changeme}@db:5432/${DB_NAME:-filaops}
@@ -61,6 +64,9 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       FILAOPS_VERSION: ${FILAOPS_VERSION:-}
+      # Public Quoter: customer quote routes and self-registration. Set
+      # ENABLE_PUBLIC_QUOTER=true in .env only if you run the Quoter.
+      ENABLE_PUBLIC_QUOTER: ${ENABLE_PUBLIC_QUOTER:-false}
       # PRO — set FILAOPS_LICENSE_KEY in .env to activate PRO features
       FILAOPS_LICENSE_KEY: ${FILAOPS_LICENSE_KEY:-}
       # Email (SMTP) — set these in .env to email password reset approvals.

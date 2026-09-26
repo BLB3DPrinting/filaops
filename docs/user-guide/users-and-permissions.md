@@ -46,7 +46,7 @@ A customer account cannot use the staff app: the staff sign-in page turns it awa
 Customer accounts cannot read sales orders through the Core API, not even their own. PRO B2B buyers see their orders in the PRO portal, which has its own screens.
 
 !!! warning "Self-registration needs the public Quoter"
-    Customers can register themselves only when the public Quoter is turned on (`ENABLE_PUBLIC_QUOTER=true` in the backend's environment). Otherwise both registration routes answer 403. For a manual install, set the value in `backend/.env`. The stock `docker-compose.yml` does not pass this variable to the backend, so a Docker install that runs the Quoter must add it to the backend service's `environment:` block (for example in a `docker-compose.override.yml`).
+    Customers can register themselves only when the public Quoter is turned on (`ENABLE_PUBLIC_QUOTER=true` in the backend's environment). Otherwise both registration routes answer 403. For a manual install, set the value in `backend/.env`. For Docker, set it in the project `.env` (the stock `docker-compose.yml` passes it to the backend, default `false`) and run `docker compose up -d`.
 
 ---
 
