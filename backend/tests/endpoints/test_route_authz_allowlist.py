@@ -39,8 +39,11 @@ ROLE_GATES = (get_current_staff_user, get_current_admin_user)
 CATEGORIES = ("public", "customer", "service")
 
 # Fewer /api/v1 routes than this means the walker lost routes (for example a
-# FastAPI upgrade changed how included routers are stored). About 530 today.
-MIN_API_ROUTES = 450
+# FastAPI upgrade changed how included routers are stored, or a router module
+# stopped being included). 528 are served in every environment, plus the four
+# /api/v1/test routes when test endpoints are enabled (532 in this suite).
+# Raise this when a large router is added.
+MIN_API_ROUTES = 500
 
 
 class Entry(NamedTuple):
