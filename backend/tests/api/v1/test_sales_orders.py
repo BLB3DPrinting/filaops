@@ -135,17 +135,21 @@ class TestSalesOrderAuth:
 
 class TestShippingEventsAuthorization:
     """Owner-or-admin guard on shipping-events (#872 CodeRabbit follow-up):
-    an authenticated non-owner must not read/write another customer's shipment
-    events, matching get_sales_order_details."""
+    an authenticated non-owner must not read/write another user's shipment
+    events, matching get_sales_order_details.
 
-    def _as_new_customer(self, client, db, suffix):
+    Customers are now stopped earlier by the router-level staff gate (they
+    have no Core sales-order access at all), so the owner-or-admin guard is
+    exercised here with an operator who does not own the order."""
+
+    def _as_new_user(self, client, db, suffix, account_type):
         from app.core.security import create_access_token
         from app.models.user import User
         other = User(
-            email=f"outsider-{suffix}@filaops.dev",
+            email=f"outsider-{account_type}-{suffix}@filaops.dev",
             password_hash="not-a-real-hash",
             first_name="Out", last_name="Sider",
-            account_type="customer",
+            account_type=account_type,
         )
         db.add(other)
         db.flush()
@@ -156,22 +160,42 @@ class TestShippingEventsAuthorization:
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
         db.flush()  # order is owned by the seeded admin (user_id=1)
-        self._as_new_customer(client, db, f"list-{so.id}")
+        self._as_new_user(client, db, f"list-{so.id}", "operator")
 
         response = client.get(f"{BASE_URL}/{so.id}/shipping-events")
         assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized to view this order"
 
     def test_non_owner_cannot_add_shipping_event(self, client, db, make_product, make_sales_order):
         product = make_product(selling_price=Decimal("10.00"))
         so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
         db.flush()
-        self._as_new_customer(client, db, f"add-{so.id}")
+        self._as_new_user(client, db, f"add-{so.id}", "operator")
 
         response = client.post(
             f"{BASE_URL}/{so.id}/shipping-events",
             json={"event_type": "delivered", "title": "Delivered"},
         )
         assert response.status_code == 403
+        assert response.json()["detail"] == "Not authorized to modify this order"
+
+    def test_customer_cannot_list_or_add_shipping_events(self, client, db, make_product, make_sales_order):
+        """A customer is refused by the staff gate before any owner check."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(product_id=product.id, quantity=1, unit_price=Decimal("10.00"))
+        db.flush()
+        self._as_new_user(client, db, f"cust-{so.id}", "customer")
+
+        response = client.get(f"{BASE_URL}/{so.id}/shipping-events")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Staff access required"
+
+        response = client.post(
+            f"{BASE_URL}/{so.id}/shipping-events",
+            json={"event_type": "delivered", "title": "Delivered"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Staff access required"
 
     def test_admin_can_list_shipping_events(self, client, db, make_product, make_sales_order):
         """The default client is the seeded admin — the guard must not block it."""

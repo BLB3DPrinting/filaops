@@ -44,8 +44,7 @@ from app.schemas.shipping_event import (
     ShippingEventResponse,
     ShippingEventListResponse,
 )
-from app.api.v1.endpoints.auth import get_current_user
-from app.api.v1.deps import get_current_staff_user
+from app.api.v1.deps import get_current_admin_user, get_current_staff_user
 from app.services.event_service import record_shipping_event
 from app.core.status_config import (
     SalesOrderStatus,
@@ -60,7 +59,17 @@ from app.services import sales_order_service
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/sales-orders", tags=["Sales Orders"])
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and imported
+# orders attach to any user with a matching email. Buyers see their orders
+# through the PRO portal, not these routes. Admin-only actions add
+# get_current_admin_user; the owner-or-admin checks inside the list, detail,
+# material-requirements, cancel and event handlers are kept as they were.
+router = APIRouter(
+    prefix="/sales-orders",
+    tags=["Sales Orders"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # =============================================================================
@@ -188,7 +197,7 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
 @router.get("/status-transitions")
 async def get_sales_order_status_transitions(
     current_status: Optional[str] = Query(None, description="Get transitions for a specific status"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get valid status transitions for sales orders.
@@ -229,7 +238,7 @@ async def get_sales_order_status_transitions(
 
 @router.get("/payment-statuses")
 async def get_payment_statuses(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get valid payment status values for sales orders."""
     return {
@@ -320,7 +329,7 @@ async def get_can_ship_batch(
 @router.post("/", response_model=SalesOrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_sales_order(
     request: SalesOrderCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -381,7 +390,7 @@ async def create_sales_order(
 async def convert_quote_to_sales_order(
     quote_id: int,
     convert_request: SalesOrderConvert,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -440,7 +449,7 @@ async def get_user_sales_orders(
         None, description="Only orders shipped on or after this date (YYYY-MM-DD)"
     ),
     source: Optional[str] = Query(None, description="Filter by source (manual, portal, api, squarespace, woocommerce)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -569,7 +578,7 @@ async def get_user_sales_orders(
 @router.get("/{order_id}", response_model=SalesOrderResponse)
 async def get_sales_order_details(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get detailed information about a specific sales order."""
@@ -591,14 +600,10 @@ async def get_sales_order_details(
 async def get_packing_slip_pdf(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """Generate and return a packing slip PDF for a sales order."""
     from starlette.responses import StreamingResponse
-
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can generate packing slips")
 
     pdf_buffer = sales_order_service.generate_packing_slip_pdf(db, order_id)
 
@@ -622,7 +627,7 @@ async def get_packing_slip_pdf(
 @router.get("/{order_id}/required-orders")
 async def get_required_orders_for_sales_order(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -630,17 +635,13 @@ async def get_required_orders_for_sales_order(
 
     Admin only.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can view MRP requirements")
-
     return sales_order_service.get_required_orders_for_sales_order(db, order_id)
 
 
 @router.get("/{order_id}/blocking-issues", response_model=SalesOrderBlockingIssues)
 async def get_blocking_issues(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get blocking issues analysis for a sales order."""
@@ -653,7 +654,7 @@ async def get_blocking_issues(
 @router.get("/{order_id}/fulfillment-status", response_model=FulfillmentStatus)
 async def get_order_fulfillment_status(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get fulfillment status for a sales order."""
@@ -720,7 +721,7 @@ class MaterialRequirementsResponse(BaseModel):
 @router.get("/{order_id}/material-requirements", response_model=MaterialRequirementsResponse)
 async def get_material_requirements(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -741,7 +742,7 @@ async def get_material_requirements(
 @router.post("/{order_id}/pre-flight-check")
 async def pre_flight_check(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -794,14 +795,10 @@ async def pre_flight_check(
 async def update_order_status(
     order_id: int,
     update: SalesOrderUpdateStatus,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update sales order status (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can update order status")
-
     order = sales_order_service.update_sales_order_status(
         db,
         order_id=order_id,
@@ -822,14 +819,10 @@ async def update_order_status(
 async def update_payment_info(
     order_id: int,
     update: SalesOrderUpdatePayment,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update payment information for an order (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can update payment information")
-
     order = sales_order_service.update_payment_info(
         db,
         order_id=order_id,
@@ -849,14 +842,10 @@ async def update_payment_info(
 async def update_shipping_info(
     order_id: int,
     update: SalesOrderUpdateShipping,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update shipping information for an order (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can update shipping information")
-
     order = sales_order_service.update_shipping_info(
         db,
         order_id=order_id,
@@ -876,14 +865,10 @@ async def update_shipping_info(
 async def update_shipping_address(
     order_id: int,
     update: SalesOrderUpdateAddress,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update shipping address for an order (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can update shipping address")
-
     order = sales_order_service.update_shipping_address(
         db,
         order_id=order_id,
@@ -911,7 +896,7 @@ async def update_shipping_address(
 async def cancel_sales_order(
     order_id: int,
     cancel_request: SalesOrderCancel,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -944,7 +929,7 @@ async def cancel_sales_order(
 async def edit_order_lines(
     order_id: int,
     edit_request: SalesOrderEditLines,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -953,10 +938,6 @@ async def edit_order_lines(
     Admin only. Allowed on orders with status: confirmed, in_production, on_hold.
     Cannot reduce quantity below already-shipped amount.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     line_updates = [
         {
             "line_id": ln.line_id,
@@ -977,7 +958,7 @@ async def edit_order_lines(
 async def remove_order_line(
     order_id: int,
     line_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -987,10 +968,6 @@ async def remove_order_line(
     The line must not have been shipped and must have no active production orders.
     Cannot remove the last line — cancel the order instead.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     order = sales_order_service.remove_sales_order_line(
         db, order_id=order_id, line_id=line_id, user_id=current_user.id
     )
@@ -1000,7 +977,7 @@ async def remove_order_line(
 @router.get("/{order_id}/close-short-preview")
 async def close_short_preview(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Preview close-short: shows per-line achievable quantities and PO status.
@@ -1008,10 +985,6 @@ async def close_short_preview(
     Admin only. Read-only. Returns breakdown for the close-short confirmation modal.
     Includes unresolved PO warnings so the frontend can disable confirm.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     order = sales_order_service.get_sales_order(db, order_id)
     return sales_order_service._compute_close_short_quantities(db, order)
 
@@ -1020,7 +993,7 @@ async def close_short_preview(
 async def close_short_order(
     order_id: int,
     close_request: SalesOrderCloseShort,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -1029,10 +1002,6 @@ async def close_short_order(
     Admin only. Adjusts line quantities to actual produced/shipped amounts,
     recalculates totals. All linked POs must be complete/cancelled first.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     order = sales_order_service.close_short_sales_order(
         db, order_id=order_id, user_id=current_user.id, reason=close_request.reason
     )
@@ -1047,7 +1016,7 @@ class RejectRequest(BaseModel):
 @router.post("/{order_id}/confirm", response_model=SalesOrderResponse)
 async def confirm_external_order(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -1056,10 +1025,6 @@ async def confirm_external_order(
     Transitions the order from pending_confirmation to confirmed and sets confirmed_at.
     Admin only.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can confirm orders")
-
     order = sales_order_service.confirm_external_order(
         db,
         order_id=order_id,
@@ -1072,7 +1037,7 @@ async def confirm_external_order(
 async def reject_external_order(
     order_id: int,
     reject_request: RejectRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -1081,10 +1046,6 @@ async def reject_external_order(
     Transitions the order from pending_confirmation to cancelled with a reason.
     Admin only.
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can reject orders")
-
     if not reject_request.reason.strip():
         raise HTTPException(status_code=400, detail="Rejection reason cannot be empty")
 
@@ -1100,14 +1061,10 @@ async def reject_external_order(
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_sales_order(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Delete a sales order (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can delete sales orders")
-
     sales_order_service.delete_sales_order(db, order_id)
     db.commit()
 
@@ -1129,14 +1086,10 @@ class ShipOrderRequest(BaseModel):
 async def ship_order(
     order_id: int,
     request: ShipOrderRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Create shipping label and mark order as shipped."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can ship orders")
-
     result = sales_order_service.ship_order(
         db,
         order_id=order_id,
@@ -1161,7 +1114,7 @@ class ResolveLegacyFulfillmentRequest(BaseModel):
 async def resolve_legacy_fulfillment(
     order_id: int,
     request: ResolveLegacyFulfillmentRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -1176,10 +1129,6 @@ async def resolve_legacy_fulfillment(
 
     Returns 409 if the mismatch does not exist (re-validated server-side).
     """
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can resolve legacy fulfillment")
-
     order = sales_order_service.resolve_legacy_fulfillment(
         db,
         order_id=order_id,
@@ -1197,14 +1146,10 @@ async def resolve_legacy_fulfillment(
 @router.post("/{order_id}/generate-production-orders")
 async def generate_production_orders(
     order_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Generate production orders from a sales order (admin only)."""
-    is_admin = getattr(current_user, "account_type", None) == "admin" or getattr(current_user, "is_admin", False)
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only administrators can generate production orders")
-
     result = sales_order_service.generate_production_orders(
         db,
         order_id=order_id,
@@ -1225,7 +1170,7 @@ async def get_order_events(
     order_id: int,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get activity timeline for a sales order."""
@@ -1268,7 +1213,7 @@ async def get_order_events(
 async def add_order_event(
     order_id: int,
     event_data: OrderEventCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add an event to a sales order's activity timeline."""
@@ -1321,7 +1266,7 @@ async def list_shipping_events(
     order_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List shipping events for a sales order.
@@ -1379,7 +1324,7 @@ async def list_shipping_events(
 async def add_shipping_event(
     order_id: int,
     request: ShippingEventCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add a shipping event to a sales order (owner-or-admin only)."""
