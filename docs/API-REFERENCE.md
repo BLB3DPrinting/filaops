@@ -92,12 +92,13 @@ that operator owns (the list returns only those, the others answer 403).
 
 **Tier**: Core
 **File**: `endpoints/sales_orders.py`
-**Endpoints**: 30
+**Endpoints**: 33
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
 | GET | `/sales-orders/status-transitions` | Get valid status transitions for sales orders. | STAFF |
 | GET | `/sales-orders/payment-statuses` | Get valid payment status values for sales orders. | STAFF |
+| GET | `/sales-orders/can-ship` | Preflight: which ready_to_ship orders can ship right now (batch, read-only). | STAFF |
 | POST | `/sales-orders/` | Create a manual sales order (line_item type). | STAFF |
 | POST | `/sales-orders/convert/{quote_id}` | Convert an accepted quote to a sales order. | STAFF |
 | GET | `/sales-orders/` | Get list of sales orders. | STAFF (OWN) |
@@ -106,6 +107,7 @@ that operator owns (the list returns only those, the others answer 403).
 | GET | `/sales-orders/{order_id}/required-orders` | Get full MRP cascade of WOs and POs needed to fulfill this sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/blocking-issues` | Get blocking issues analysis for a sales order. | STAFF |
 | GET | `/sales-orders/{order_id}/fulfillment-status` | Get fulfillment status for a sales order. | STAFF |
+| GET | `/sales-orders/{order_id}/can-ship` | Preflight for one order in any status: can it ship right now, and if not, why. | STAFF |
 | GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | STAFF (OWN) |
 | POST | `/sales-orders/{order_id}/pre-flight-check` | Pre-flight check before confirming a sales order. | STAFF |
 | PATCH | `/sales-orders/{order_id}/status` | Update sales order status (admin only). | ADMIN |
@@ -121,6 +123,7 @@ that operator owns (the list returns only those, the others answer 403).
 | POST | `/sales-orders/{order_id}/reject` | Reject a pending_confirmation order from an external source. | ADMIN |
 | DELETE | `/sales-orders/{order_id}` | Delete a sales order (admin only). | ADMIN |
 | POST | `/sales-orders/{order_id}/ship` | Create shipping label and mark order as shipped. | ADMIN |
+| POST | `/sales-orders/{order_id}/resolve-legacy-fulfillment` | Close out or reopen a legacy order marked shipped/delivered/completed that has no shipment record (admin only). | ADMIN |
 | POST | `/sales-orders/{order_id}/generate-production-orders` | Generate production orders from a sales order (admin only). | ADMIN |
 | GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | STAFF (OWN) |
 | POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | STAFF (OWN) |
