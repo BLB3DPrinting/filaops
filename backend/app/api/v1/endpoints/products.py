@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.models.product import Product
 from app.models.user import User
 from app.logging_config import get_logger
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.services.operation_generation import get_product_routing_details
 from app.services import product_service
 from app.schemas.routing_operations import (
@@ -21,7 +21,10 @@ from app.schemas.routing_operations import (
     RoutingOperationInfo,
 )
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes expose the item master with standard costs and change selling prices.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -96,7 +99,7 @@ async def list_products(
     procurement_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -157,7 +160,7 @@ async def list_products(
 @router.get("/{id}", response_model=ProductResponse)
 async def get_product(
     id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific product by ID"""
@@ -167,7 +170,7 @@ async def get_product(
 @router.get("/sku/{sku}", response_model=ProductResponse)
 async def get_product_by_sku(
     sku: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific product by SKU"""
@@ -178,7 +181,7 @@ async def get_product_by_sku(
 @router.post("", response_model=ProductResponse)
 async def create_product(
     request: ProductCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db)
 ):
     """Create a new product"""
@@ -198,7 +201,7 @@ async def create_product(
 async def update_product(
     id: int,
     request: ProductUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db)
 ):
     """Update an existing product"""
@@ -229,7 +232,7 @@ async def update_product(
 def get_product_routing(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """Get routing details for a product."""
     product = db.get(Product, product_id)

@@ -175,7 +175,7 @@ class TestSecurityAuth:
     def test_audit_forbidden_for_non_admin(self, non_admin_client):
         resp = non_admin_client.get(f"{BASE_URL}/audit")
         assert resp.status_code == 403
-        assert "Admin role required" in resp.json()["detail"]
+        assert resp.json()["detail"] == "Admin access required"
 
     def test_export_forbidden_for_non_admin(self, non_admin_client):
         resp = non_admin_client.get(f"{BASE_URL}/audit/export")

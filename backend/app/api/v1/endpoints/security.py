@@ -20,13 +20,20 @@ from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_admin_user
 from app.core.config import settings
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/security", tags=["Security"])
+# SEC-409: every route here is admin-only. The gate sits on the router so it
+# runs before require_local_remediation and any other check, and a new route
+# added here cannot forget it.
+router = APIRouter(
+    prefix="/security",
+    tags=["Security"],
+    dependencies=[Depends(get_current_admin_user)],
+)
 
 
 def require_local_remediation():
@@ -162,7 +169,7 @@ def run_security_audit() -> dict:
 
 @router.get("/audit", response_model=SecurityAuditResponse)
 async def get_security_audit(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -170,13 +177,6 @@ async def get_security_audit(
 
     Requires admin authentication.
     """
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     logger.info(f"Security audit requested by {current_user.email}")
 
     result = run_security_audit()
@@ -208,7 +208,7 @@ async def get_security_audit(
 @router.get("/audit/export")
 async def export_security_audit(
     format: str = "json",
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -219,13 +219,6 @@ async def export_security_audit(
 
     Requires admin authentication.
     """
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     if format not in ["json"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,21 +252,15 @@ async def export_security_audit(
 
 @router.get("/status")
 async def get_security_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """
     Get quick security status overview.
 
     Returns a simplified status for display in navigation/header.
-    Requires authentication.
+    Requires admin authentication.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     try:
         result = run_security_audit()
         summary = result.get("summary", {})
@@ -319,7 +306,7 @@ async def get_security_status(
 
 @router.post("/remediate/generate-secret-key")
 async def generate_secret_key(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -329,12 +316,6 @@ async def generate_secret_key(
     Does NOT automatically update the .env file - user must do that manually.
     This is intentional for security (we don't want to auto-modify config files).
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import secrets
     new_key = secrets.token_urlsafe(64)
 
@@ -355,7 +336,7 @@ async def generate_secret_key(
 
 @router.post("/remediate/open-env-file")
 async def open_env_file(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -364,12 +345,6 @@ async def open_env_file(
 
     Makes it easy for non-technical users to edit configuration.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     # Find the .env file path (backend/.env, same as settings.py)
     backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -394,7 +369,7 @@ async def open_env_file(
 
 @router.post("/remediate/update-secret-key")
 async def update_secret_key(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -404,12 +379,6 @@ async def update_secret_key(
     This is the easy mode for non-technical users.
     Generates a new key and updates the file automatically.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import secrets
     import re
 
@@ -480,7 +449,7 @@ async def update_secret_key(
 
 @router.post("/remediate/open-restart-terminal")
 async def open_restart_terminal(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -489,12 +458,6 @@ async def open_restart_terminal(
 
     Makes it easy for non-technical users who may not have a terminal open.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     # Find the project root
     backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -514,7 +477,7 @@ async def open_restart_terminal(
 
 @router.post("/remediate/fix-dependencies")
 async def fix_dependencies(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -524,12 +487,6 @@ async def fix_dependencies(
     This uses pip-audit to identify and upgrade vulnerable packages.
     Non-technical users don't need to know about venvs or pip.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import subprocess
 
     # Find the venv path (backend/venv)
@@ -679,7 +636,7 @@ async def fix_dependencies(
 
 @router.post("/remediate/fix-rate-limiting")
 async def fix_rate_limiting(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -688,12 +645,6 @@ async def fix_rate_limiting(
 
     FilaOps auto-detects slowapi on startup and enables rate limiting.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import subprocess
 
     # Find the venv pip path
@@ -760,7 +711,7 @@ class SetupHTTPSRequest(BaseModel):
 @router.post("/remediate/setup-https")
 async def setup_https(
     request: SetupHTTPSRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -770,12 +721,6 @@ async def setup_https(
     Generates Caddyfile and updates Vite configuration without executing
     arbitrary shell scripts or downloading remote binaries (SEC-401).
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import shutil
 
     domain = validate_domain(request.domain)
@@ -899,17 +844,11 @@ async def setup_https(
 
 @router.get("/remediate/check-caddy")
 async def check_caddy_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
     """Check if Caddy is installed and get its version."""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import subprocess
 
     try:
@@ -934,7 +873,7 @@ async def check_caddy_status(
 
 @router.post("/remediate/fix-dotfile-blocking")
 async def fix_dotfile_blocking(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -943,12 +882,6 @@ async def fix_dotfile_blocking(
 
     This prevents sensitive files from being exposed through the web server.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     import subprocess
 
     # Find the project root and Caddyfile
@@ -1107,7 +1040,7 @@ async def fix_dotfile_blocking(
 @router.get("/remediate/{check_id}")
 async def get_remediation_steps(
     check_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
     _gate=Depends(require_local_remediation),
 ):
@@ -1116,12 +1049,6 @@ async def get_remediation_steps(
 
     Returns step-by-step instructions, code snippets, and file paths.
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     # Remediation guides for each check
     remediation_guides = {
         "secret_key_not_default": {

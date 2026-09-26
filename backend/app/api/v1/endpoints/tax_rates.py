@@ -1,8 +1,8 @@
 """
 Tax Rate CRUD endpoints.
 
-GET  /tax-rates          → list active rates (auth required)
-GET  /tax-rates/{id}     → single rate (auth required)
+GET  /tax-rates          → list active rates (staff: admin or operator)
+GET  /tax-rates/{id}     → single rate (staff: admin or operator)
 POST /tax-rates          → create (admin only)
 PATCH /tax-rates/{id}   → update (admin only)
 DELETE /tax-rates/{id}  → soft-delete (admin only)
@@ -13,16 +13,23 @@ as CompanySettings tax fields.
 from decimal import Decimal
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_admin_user, get_current_staff_user
 from app.services import tax_rate_service
 
-router = APIRouter(prefix="/tax-rates", tags=["Tax Rates"])
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account. Writes are
+# admin-only.
+router = APIRouter(
+    prefix="/tax-rates",
+    tags=["Tax Rates"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +81,7 @@ class TaxRateUpdate(BaseModel):
 @router.get("", response_model=List[TaxRateResponse])
 async def list_tax_rates(
     include_inactive: bool = False,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List active tax rates. Pass include_inactive=true to see all."""
@@ -85,7 +92,7 @@ async def list_tax_rates(
 @router.get("/{tax_rate_id}", response_model=TaxRateResponse)
 async def get_tax_rate(
     tax_rate_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     rate = tax_rate_service.get_tax_rate(db, tax_rate_id)
@@ -95,11 +102,9 @@ async def get_tax_rate(
 @router.post("", response_model=TaxRateResponse, status_code=status.HTTP_201_CREATED)
 async def create_tax_rate(
     data: TaxRateCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     rate = tax_rate_service.create_tax_rate(
         db,
         name=data.name,
@@ -114,11 +119,9 @@ async def create_tax_rate(
 async def update_tax_rate(
     tax_rate_id: int,
     data: TaxRateUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     kwargs = {}
     if data.name is not None:
         kwargs["name"] = data.name
@@ -135,9 +138,7 @@ async def update_tax_rate(
 @router.delete("/{tax_rate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tax_rate(
     tax_rate_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     tax_rate_service.delete_tax_rate(db, tax_rate_id)

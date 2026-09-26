@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_db, get_current_user
+from app.api.v1.deps import get_db, get_current_staff_user
 from app.models.manufacturing import Resource
 from app.schemas.resource_scheduling import (
     ResourceScheduleResponse,
@@ -25,7 +25,10 @@ from app.services.resource_scheduling import (
     find_window_conflicts,
 )
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes expose the internal production schedule.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 @router.get(
@@ -38,7 +41,7 @@ def get_schedule(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Get scheduled operations for a resource.
@@ -87,7 +90,7 @@ def check_conflicts(
     end: datetime,
     exclude_operation_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Check if a time range conflicts with existing scheduled operations.

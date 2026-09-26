@@ -25,7 +25,7 @@ from app.schemas.scheduling import (
     AvailableSlotResponse,
     MachineAvailabilityResponse,
 )
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.core.licensing_gate import require_feature
 from app.models.user import User
 from app.services.resource_compatibility_service import (
@@ -42,7 +42,10 @@ from app.services.resource_scheduling import (
     schedule_operation,
 )
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes expose the shop schedule and reschedule production orders.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 def _naive_utc(dt: datetime) -> datetime:
@@ -117,7 +120,7 @@ async def get_scheduler_board(
     start_date: datetime = Query(..., description="Window start (ISO 8601)"),
     end_date: datetime = Query(..., description="Window end (ISO 8601)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     SCHED-5: One-call payload for the Scheduler (Gantt) view.
@@ -375,7 +378,7 @@ def _op_unscheduled_block(op) -> dict:
 async def check_capacity(
     request: CapacityCheckRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Check if a machine has capacity for a production order at a given time.
@@ -446,7 +449,7 @@ async def get_available_slots(
     duration_hours: float = Query(2.0, description="Required duration in hours"),
     is_printer: bool = Query(False, description="True if resource_id is a printer"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Find available time slots for a machine within a date range.
@@ -503,7 +506,7 @@ async def get_machine_availability(
     end_date: datetime = Query(..., description="End date"),
     work_center_id: Optional[int] = Query(None, description="Filter by work center"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get availability status for all machines in a date range.
@@ -581,12 +584,13 @@ async def get_machine_availability(
 
 @router.post(
     "/auto-schedule",
-    # Auth runs FIRST so an anonymous request gets 401 (not authenticated) — it
-    # must not learn that this is a PRO-gated feature. FastAPI caches identical
-    # sub-dependencies per request, so the current_user param below does not
-    # re-execute get_current_user.
+    # Auth runs FIRST so an anonymous request gets 401 (not authenticated) and
+    # a customer gets 403 — neither may learn that this is a PRO-gated feature.
+    # The router-level staff gate already runs before this list; repeating it
+    # here keeps the order explicit. FastAPI caches identical sub-dependencies
+    # per request, so the current_user param below does not re-execute it.
     dependencies=[
-        Depends(get_current_user),
+        Depends(get_current_staff_user),
         Depends(require_feature("production_advanced")),
     ],
 )
@@ -595,7 +599,7 @@ async def auto_schedule_order(
     preferred_start: Optional[datetime] = Query(None, description="Preferred start time"),
     work_center_id: Optional[int] = Query(None, description="Preferred work center"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Automatically find the best available slot for a production order.
@@ -793,7 +797,7 @@ async def get_resource_conflicts(
     end: str = Query(..., description="End time (ISO 8601)"),
     is_printer: bool = Query(False, description="True if resource is a printer"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Check for scheduling conflicts on a resource/printer in a time range.
