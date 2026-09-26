@@ -21,6 +21,7 @@ from app.models.quote import Quote, QuoteFile, QuoteMaterial
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
@@ -28,6 +29,12 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = get_logger(__name__)
 
+# SEC-404: this router mixes staff routes with the customer portal routes the
+# public Quoter and PRO call with customer tokens, so it has no router-level
+# gate. Every staff route depends on get_current_staff_user (admin or
+# operator). A plain login is not enough, because anyone can self-register a
+# customer account. The customer routes (portal create/accept/checkout,
+# archive, file list/download) keep get_current_user plus an ownership check.
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
 PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 
@@ -351,14 +358,6 @@ def _is_staff_or_admin(current_user: User) -> bool:
     )
 
 
-def _require_staff_or_admin(current_user: User) -> None:
-    if not _is_staff_or_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or staff role required",
-        )
-
-
 def _customer_display_name(user: User) -> str:
     """Return a stable customer display name without inventing a new customer table."""
     full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
@@ -653,7 +652,7 @@ async def list_quotes(
     search: Optional[str] = Query(None, description="Search by quote number, product name, or customer"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List all quotes with optional filtering"""
@@ -662,7 +661,7 @@ async def list_quotes(
 
 @router.get("/stats", response_model=QuoteStatsResponse)
 async def get_quote_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get quote statistics for dashboard"""
@@ -830,8 +829,12 @@ async def get_quote_archive(
         .order_by(QuoteMaterial.slot_number)
         .all()
     )
+    detail = QuoteDetail.model_validate(quote)
+    if not _is_staff_or_admin(current_user):
+        # admin_notes are staff-only; the owning customer gets everything else.
+        detail = detail.model_copy(update={"admin_notes": None})
     return {
-        "quote": quote,
+        "quote": detail,
         "files": files,
         "materials": materials,
         "read_only": True,
@@ -843,11 +846,10 @@ async def get_quote_archive(
 async def create_item_from_quote(
     quote_id: int,
     response: Response,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: create a Core item/product from an approved quote."""
-    _require_staff_or_admin(current_user)
     quote = quote_service.get_quote_detail(db, quote_id)
     if quote.product_id:
         product = db.get(Product, quote.product_id)
@@ -959,11 +961,10 @@ async def list_quote_files(
 async def upload_quote_file(
     quote_id: int,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: attach a retained file to a manual or online quote."""
-    _require_staff_or_admin(current_user)
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -1002,11 +1003,10 @@ async def upload_quote_file(
 async def delete_quote_file(
     quote_id: int,
     file_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: remove a retained file from a quote."""
-    _require_staff_or_admin(current_user)
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -1049,7 +1049,7 @@ async def delete_quote_file(
 @router.get("/{quote_id}", response_model=QuoteDetail)
 async def get_quote(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get quote details"""
@@ -1059,7 +1059,7 @@ async def get_quote(
 @router.post("/", response_model=QuoteDetail, status_code=status.HTTP_201_CREATED)
 async def create_quote(
     request: ManualQuoteCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new manual quote"""
@@ -1072,7 +1072,7 @@ async def create_quote(
 async def update_quote(
     quote_id: int,
     request: ManualQuoteUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update quote details"""
@@ -1085,7 +1085,7 @@ async def update_quote(
 async def update_quote_status(
     quote_id: int,
     request: QuoteStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update quote status (approve, reject, cancel, accept)"""
@@ -1097,7 +1097,7 @@ async def update_quote_status(
 @router.post("/{quote_id}/convert", status_code=status.HTTP_201_CREATED)
 async def convert_quote_to_order(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Convert an accepted/approved quote to a sales order"""
@@ -1109,7 +1109,7 @@ async def convert_quote_to_order(
 @router.delete("/{quote_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_quote(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a quote (only if not converted)"""
@@ -1125,7 +1125,7 @@ async def delete_quote(
 async def upload_quote_image(
     quote_id: int,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Upload an image for a quote (product photo/render)"""
@@ -1138,7 +1138,7 @@ async def upload_quote_image(
 @router.get("/{quote_id}/image")
 async def get_quote_image(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get the image for a quote"""
@@ -1155,7 +1155,7 @@ async def get_quote_image(
 @router.delete("/{quote_id}/image")
 async def delete_quote_image(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete the image for a quote"""
@@ -1171,7 +1171,7 @@ async def delete_quote_image(
 @router.get("/{quote_id}/pdf")
 async def generate_quote_pdf(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Generate a PDF for a quote using ReportLab with company logo, image, and tax"""
