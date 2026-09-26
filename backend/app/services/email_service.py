@@ -16,6 +16,11 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# How long to wait for the SMTP server before giving up. Without a limit an
+# unreachable host holds the caller for the operating system's connect
+# timeout, which can be minutes.
+SMTP_TIMEOUT_SECONDS = 10
+
 
 class EmailService:
     """Service for sending emails via SMTP"""
@@ -60,7 +65,7 @@ class EmailService:
             msg.attach(MIMEText(html_body, "html"))
 
             # Connect and send
-            with smtplib.SMTP(self.host, self.port) as server:
+            with smtplib.SMTP(self.host, self.port, timeout=SMTP_TIMEOUT_SECONDS) as server:
                 server.starttls()
                 server.login(self.user, self.password)
                 server.sendmail(self.from_email, to_email, msg.as_string())

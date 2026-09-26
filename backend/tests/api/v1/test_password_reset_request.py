@@ -8,7 +8,9 @@ The request endpoint is public. These tests pin down that it:
   is already pending, and whether SMTP is configured;
 - leaves no-SMTP requests pending, so /password-reset/complete rejects them;
 - does not let a request whose approval email never went out block the
-  next one;
+  next one, but waits a cooldown before retrying a failed send;
+- sends email from a worker thread with an SMTP connect timeout, so a mail
+  server that is down cannot stall the API;
 - keeps the SMTP (admin approval email) flow working end to end;
 - refuses tokens that older versions approved without an administrator;
 - never writes the full reset token to the logs.
@@ -316,7 +318,7 @@ class TestUnsentRequestDoesNotBlock:
     def test_request_made_without_smtp_does_not_block_after_smtp_enabled(
         self, unauthed_client, db, staff_user, mock_email, monkeypatch
     ):
-        from app.api.v1.endpoints.auth import APPROVAL_EMAIL_NOT_SENT_NOTE
+        from app.api.v1.endpoints.auth import EMAIL_OFF_NOTE
 
         _configure(monkeypatch, smtp=False)
         _request_reset(unauthed_client, staff_user.email)
@@ -324,9 +326,11 @@ class TestUnsentRequestDoesNotBlock:
         rows = _reset_rows(db, staff_user.id)
         # Repeat no-SMTP requests reuse the one recorded request.
         assert len(rows) == 1
-        assert rows[0].admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+        assert rows[0].admin_notes == EMAIL_OFF_NOTE
 
-        # The admin turns SMTP on; the user's next request reaches the admin.
+        # The admin turns SMTP on; the user's next request reaches the admin
+        # straight away. No send was tried while SMTP was off, so the retry
+        # cooldown for failed sends does not apply.
         _configure(monkeypatch, smtp=True)
         resp = _request_reset(unauthed_client, staff_user.email)
 
@@ -344,17 +348,45 @@ class TestUnsentRequestDoesNotBlock:
         assert mock_email.send_password_reset_approval_request.call_count == 1
         assert len(_reset_rows(db, staff_user.id)) == 2
 
-    def test_failed_approval_email_is_retried_on_next_request(
+    def test_failed_approval_email_is_not_retried_inside_cooldown(
         self, unauthed_client, db, staff_user, mock_email, monkeypatch
     ):
+        """A mail server that is down is not contacted on every request."""
         from app.api.v1.endpoints.auth import APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        _configure(monkeypatch, smtp=True)
+        mock_email.send_password_reset_approval_request.return_value = False
+
+        first = _request_reset(unauthed_client, staff_user.email)
+        rows = _reset_rows(db, staff_user.id)
+        assert rows[0].admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        second = _request_reset(unauthed_client, staff_user.email)
+        third = _request_reset(unauthed_client, staff_user.email)
+
+        # Same answer as a pending request; no new row, no new send.
+        assert first.json() == second.json() == third.json() == {"message": GENERIC_MESSAGE}
+        assert mock_email.send_password_reset_approval_request.call_count == 1
+        assert len(_reset_rows(db, staff_user.id)) == 1
+
+    def test_failed_approval_email_is_retried_after_cooldown(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.api.v1.endpoints.auth import (
+            APPROVAL_EMAIL_NOT_SENT_NOTE,
+            APPROVAL_EMAIL_RETRY_COOLDOWN,
+        )
 
         _configure(monkeypatch, smtp=True)
         mock_email.send_password_reset_approval_request.side_effect = [False, True]
 
         first = _request_reset(unauthed_client, staff_user.email)
-        rows = _reset_rows(db, staff_user.id)
-        assert rows[0].admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+        failed = _reset_rows(db, staff_user.id)[0]
+        assert failed.admin_notes == APPROVAL_EMAIL_NOT_SENT_NOTE
+
+        # The failed request is now older than the cooldown.
+        failed.created_at = failed.created_at - APPROVAL_EMAIL_RETRY_COOLDOWN - timedelta(minutes=1)
+        db.flush()
 
         second = _request_reset(unauthed_client, staff_user.email)
 
@@ -363,6 +395,113 @@ class TestUnsentRequestDoesNotBlock:
         rows = _reset_rows(db, staff_user.id)
         assert len(rows) == 2
         assert rows[1].admin_notes is None
+        kwargs = mock_email.send_password_reset_approval_request.call_args.kwargs
+        assert kwargs["approval_token"] == rows[1].approval_token
+
+        # The emailed request now blocks repeats as usual.
+        _request_reset(unauthed_client, staff_user.email)
+        assert mock_email.send_password_reset_approval_request.call_count == 2
+
+
+# =============================================================================
+# A slow or unreachable mail server does not stall the API
+# =============================================================================
+
+class TestEmailSendDoesNotBlock:
+
+    def test_smtp_connect_has_a_timeout(self):
+        from app.services import email_service as email_module
+        from app.services.email_service import SMTP_TIMEOUT_SECONDS, EmailService
+
+        assert SMTP_TIMEOUT_SECONDS == 10
+        service = EmailService()
+        service.user = "mailer@example.com"
+        service.password = "not-a-real-password"
+
+        with patch.object(email_module.smtplib, "SMTP") as smtp:
+            assert service._send_email("someone@filaops.dev", "Subject", "<p>Body</p>") is True
+
+        smtp.assert_called_once_with(service.host, service.port, timeout=SMTP_TIMEOUT_SECONDS)
+
+    def test_smtp_timeout_is_reported_as_not_sent(self):
+        from app.services import email_service as email_module
+        from app.services.email_service import EmailService
+
+        service = EmailService()
+        service.user = "mailer@example.com"
+        service.password = "not-a-real-password"
+
+        with patch.object(email_module.smtplib, "SMTP", side_effect=TimeoutError("timed out")):
+            assert service._send_email("someone@filaops.dev", "Subject", "<p>Body</p>") is False
+
+    @staticmethod
+    def _record_event_loop(mock_email, seen):
+        """Make every mocked send note whether it ran on the event loop thread."""
+        import asyncio
+
+        def _recorder(name):
+            def _send(**kwargs):
+                try:
+                    asyncio.get_running_loop()
+                    seen[name] = "event loop"
+                except RuntimeError:
+                    seen[name] = "worker thread"
+                return True
+            return _send
+
+        for name in (
+            "send_password_reset_approval_request",
+            "send_password_reset_approved",
+            "send_password_reset_denied",
+            "send_password_reset_completed",
+        ):
+            getattr(mock_email, name).side_effect = _recorder(name)
+
+    def test_approval_email_is_sent_off_the_event_loop(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        _configure(monkeypatch, smtp=True)
+        seen = {}
+        self._record_event_loop(mock_email, seen)
+
+        resp = _request_reset(unauthed_client, staff_user.email)
+
+        assert resp.status_code == 200
+        assert seen == {"send_password_reset_approval_request": "worker thread"}
+
+    def test_approve_deny_and_complete_emails_are_sent_off_the_event_loop(
+        self, unauthed_client, db, mock_email, monkeypatch
+    ):
+        _configure(monkeypatch, smtp=True)
+        seen = {}
+        self._record_event_loop(mock_email, seen)
+
+        approved_user = _make_user(db)
+        _request_reset(unauthed_client, approved_user.email)
+        row = _reset_rows(db, approved_user.id)[0]
+        assert unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": row.approval_token},
+        ).status_code == 200
+        assert unauthed_client.post(
+            f"{AUTH_URL}/password-reset/complete",
+            json={"token": row.token, "new_password": "BrandNewPass456!"},
+        ).status_code == 200
+
+        denied_user = _make_user(db)
+        _request_reset(unauthed_client, denied_user.email)
+        denied_row = _reset_rows(db, denied_user.id)[0]
+        assert unauthed_client.post(
+            f"{AUTH_URL}/password-reset/deny",
+            json={"approval_token": denied_row.approval_token, "reason": "Not me"},
+        ).status_code == 200
+
+        assert seen == {
+            "send_password_reset_approval_request": "worker thread",
+            "send_password_reset_approved": "worker thread",
+            "send_password_reset_completed": "worker thread",
+            "send_password_reset_denied": "worker thread",
+        }
 
 
 # =============================================================================

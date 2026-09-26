@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.core.limiter import limiter
@@ -630,11 +631,29 @@ async def logout(
 RESET_APPROVAL_WINDOW = timedelta(hours=1)
 # Slack for older approvals, which read the clock twice.
 _RESET_APPROVAL_WINDOW_SLACK = timedelta(minutes=5)
-# Stored in admin_notes when no approval email went out (SMTP not configured,
-# or the send failed). Nobody can approve such a request, so it must not hold
-# the one-open-request-per-user slot that keeps repeat requests from
-# spamming the administrator.
+# Stored in admin_notes when no approval email went out. Nobody can approve
+# such a request, so it must not hold the one-open-request-per-user slot that
+# keeps repeat requests from spamming the administrator.
+# - APPROVAL_EMAIL_NOT_SENT_NOTE: the send was tried and failed.
+# - EMAIL_OFF_NOTE: email was not configured, so no send was tried.
 APPROVAL_EMAIL_NOT_SENT_NOTE = "Approval email not sent"
+EMAIL_OFF_NOTE = "Approval email not sent: email not configured"
+_UNSENT_NOTES = frozenset({APPROVAL_EMAIL_NOT_SENT_NOTE, EMAIL_OFF_NOTE})
+# After a failed send, the user's next request tries the email again, but not
+# until the failed request is this old. Every try opens an SMTP connection, so
+# without a pause a mail server that is down or misconfigured would be
+# contacted on every request for a known address.
+APPROVAL_EMAIL_RETRY_COOLDOWN = timedelta(minutes=15)
+
+
+def _failed_send_in_cooldown(reset_request: PasswordResetRequest, now: datetime) -> bool:
+    """True if the request's approval email failed less than the cooldown ago."""
+    if reset_request.admin_notes != APPROVAL_EMAIL_NOT_SENT_NOTE:
+        return False
+    created_at = reset_request.created_at
+    if created_at is None:
+        return False
+    return now - created_at < APPROVAL_EMAIL_RETRY_COOLDOWN
 
 
 def _approved_by_admin(reset_request: PasswordResetRequest) -> bool:
@@ -679,6 +698,9 @@ async def request_password_reset(
     exists, a request is already pending, or SMTP is configured. Response
     time can still differ (the SMTP path sends mail before it responds), so
     this reduces account discovery but does not rule it out.
+
+    The email is sent from a worker thread with a connect timeout, so a slow
+    or unreachable mail server never blocks other requests.
     """
     generic_response = PasswordResetRequestResponse(
         message="If an account exists with this email, a password reset request has been submitted for review."
@@ -690,22 +712,28 @@ async def request_password_reset(
     if not user:
         return generic_response
 
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     open_requests = db.query(PasswordResetRequest).filter(
         PasswordResetRequest.user_id == user.id,
         PasswordResetRequest.status == 'pending',
-        PasswordResetRequest.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
+        PasswordResetRequest.expires_at > now
     ).all()
 
     # One emailed request per user at a time, so repeat requests can't spam
     # the admin. A request whose approval email never went out doesn't count:
     # otherwise a request made while SMTP was off would swallow the next one.
-    if any(r.admin_notes != APPROVAL_EMAIL_NOT_SENT_NOTE for r in open_requests):
+    if any(r.admin_notes not in _UNSENT_NOTES for r in open_requests):
         return generic_response
 
     email_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
 
     if not email_configured and open_requests:
         # Already recorded, and there is still no way to email an admin.
+        return generic_response
+
+    if any(_failed_send_in_cooldown(r, now) for r in open_requests):
+        # A recent send failed. Wait out the cooldown before opening another
+        # SMTP connection, and answer as if the request were still pending.
         return generic_response
 
     # Generate tokens
@@ -719,7 +747,7 @@ async def request_password_reset(
         approval_token=approval_token,
         status='pending',
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        admin_notes=None if email_configured else APPROVAL_EMAIL_NOT_SENT_NOTE,
+        admin_notes=None if email_configured else EMAIL_OFF_NOTE,
     )
     db.add(reset_request)
     db.commit()
@@ -742,8 +770,10 @@ async def request_password_reset(
         )
         return generic_response
 
-    # Send approval email to admin (normal flow)
-    email_sent = email_service.send_password_reset_approval_request(
+    # Send approval email to admin (normal flow). smtplib blocks, so it runs
+    # in the threadpool instead of on the event loop.
+    email_sent = await run_in_threadpool(
+        email_service.send_password_reset_approval_request,
         admin_email=settings.ADMIN_APPROVAL_EMAIL,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
@@ -753,7 +783,8 @@ async def request_password_reset(
 
     if not email_sent:
         # The request was created but no admin got it. Mark it so the user's
-        # next request tries the email again instead of being swallowed.
+        # next request after the cooldown tries the email again instead of
+        # being swallowed.
         reset_request.admin_notes = APPROVAL_EMAIL_NOT_SENT_NOTE
         db.commit()
         logger.warning(f"Password reset request created but email failed to send for user {user.email}")
@@ -825,7 +856,8 @@ async def approve_password_reset(
     db.commit()
 
     # Send reset link to user
-    email_service.send_password_reset_approved(
+    await run_in_threadpool(
+        email_service.send_password_reset_approved,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
         reset_token=reset_request.token,  # type: ignore[arg-type]
@@ -892,7 +924,8 @@ async def deny_password_reset(
     db.commit()
 
     # Notify user
-    email_service.send_password_reset_denied(
+    await run_in_threadpool(
+        email_service.send_password_reset_denied,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
         reason=body.reason
@@ -1048,7 +1081,8 @@ async def complete_password_reset(
     db.commit()
 
     # Send confirmation email
-    email_service.send_password_reset_completed(
+    await run_in_threadpool(
+        email_service.send_password_reset_completed,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name
     )
