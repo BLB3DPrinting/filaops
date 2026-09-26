@@ -122,6 +122,7 @@ Customer portal accounts are not listed on Team Members, so an administrator can
 
 !!! tip "Let users reset their own passwords"
     Configure SMTP and set `ADMIN_APPROVAL_EMAIL` to a real administrator. Reset requests are then emailed to that administrator for approval, and the user gets the reset link by email.
+    Requests made while email was off are not emailed later. After turning email on, ask the user to request a reset again.
     With Docker, put these settings in the project `.env` and run `docker compose up -d` so the backend container picks them up (`docker compose restart` does not).
     The Settings page shows an amber warning banner while SMTP is not configured. It disappears once the backend sees `SMTP_USER`, `SMTP_PASSWORD` and a real `ADMIN_APPROVAL_EMAIL`.
 

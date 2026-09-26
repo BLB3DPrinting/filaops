@@ -54,6 +54,8 @@ This is the production flow:
 5. **Admin denies:** The user receives a denial notification email.
 6. User clicks the reset link, enters a new password, and all existing sessions are invalidated.
 
+If the approval email cannot be sent (for example, the mail server is down), the request stays pending and nobody is emailed. A new request made at least 15 minutes later tries the email again.
+
 ### Without SMTP Configured
 
 When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder such as `admin@example.com`:
@@ -62,6 +64,8 @@ When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`, or `ADMIN_APPROVAL_E
 2. The backend records a `PasswordResetRequest` with `status=pending` and logs a warning. No email is sent.
 3. The page shows the same generic message as always. No reset link is shown.
 4. The request stays pending and expires after 24 hours. It cannot be used to set a password.
+
+Requests recorded while email is off are not emailed later, even after email is turned on. Once email works, the user requests a reset again.
 
 To get a staff user (admin or operator) back in, an administrator resets their password from **Admin > Team Members > Reset PW** (see [Option 1](#option-1-admin-resets-via-team-members-page) below) and gives them the new password. If the only administrator is locked out, use [Option 2](#option-2-reset-via-psql-when-locked-out).
 

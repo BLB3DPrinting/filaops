@@ -401,12 +401,12 @@ Click **Go to Dashboard** to enter the Command Center. Setup is complete.
 This guide covers getting FilaOps running. For a hardened deployment with
 HTTPS, a reverse proxy, and backups, see the [Deployment Guide](../deployment/index.md).
 
-Key differences when setting `ENVIRONMENT=production`:
+Key differences when setting `ENVIRONMENT=production` (any case; spaces around the value are ignored):
 
 - The Swagger UI (`/docs`, `/redoc`, `/openapi.json`) is disabled to prevent API schema exposure.
 - `Strict-Transport-Security` headers are added to every response (HSTS).
 - `COOKIE_SECURE=true` must be set — auth cookies require HTTPS.
-- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` is empty or set to any known placeholder value (e.g. `changeme`, `change-in-production`). In other environments a placeholder `SECRET_KEY`, or a well-known weak one such as `changeme` or `secret`, is replaced by a temporary random key (see the warning in Step 2), and a placeholder `DB_PASSWORD` only logs a warning. In production a well-known weak `SECRET_KEY` that is not a placeholder still starts but logs an error.
+- Startup refuses to boot if `SECRET_KEY` is empty or a shipped placeholder (such as `change-in-production` or `your-secret-key-here`), or if `DB_PASSWORD` is empty or a placeholder (such as `changeme` or `postgres`). A well-known weak `SECRET_KEY` that is not a placeholder, such as `changeme` or `secret`, does not stop production: it starts and logs an error. In other environments a placeholder or well-known weak `SECRET_KEY` is replaced by a temporary random key (see the warning in Step 2), and a placeholder `DB_PASSWORD` only logs a warning.
 
 ---
 
