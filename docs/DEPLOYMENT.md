@@ -79,7 +79,7 @@ Copy `backend/.env.example` to `.env` in the project root. Docker Compose reads 
 | `DB_NAME` | `filaops` | Database name |
 | `DB_USER` | `postgres` | Database user |
 | `DB_PASSWORD` | - | Database password. **Must change in production.** |
-| `SECRET_KEY` | - | JWT signing key. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `SECRET_KEY` | - | JWT signing key. Generate: `openssl rand -hex 32` or `python -c "import secrets; print(secrets.token_hex(32))"`. If it is empty or a placeholder, production refuses to start and other environments use a temporary key that changes on every restart, which signs everyone out. |
 | `ALLOWED_ORIGINS` | `http://localhost` | Comma-separated CORS origins (match your frontend URL/port) |
 | `ENVIRONMENT` | `development` | Set to `production` for deployments |
 

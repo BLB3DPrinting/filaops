@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-09
+
+### Upgrade notes
+
+This release fixes several security problems (see **Security** below). Read these notes before you upgrade.
+
+- **Set `SECRET_KEY`.** It signs every login, so it must be a secret random value. If it is empty or still a placeholder (for example the `change-in-production` fallback in `docker-compose.yml`), production (`ENVIRONMENT=production`) still refuses to start, and every other environment now starts with a temporary random key instead. That key changes on every restart, so each restart signs everyone out, and the Security Audit reports "Temporary SECRET_KEY in use" until a real key is set. To set one, run `openssl rand -hex 32` (or `python -c "import secrets; print(secrets.token_hex(32))"`), add `SECRET_KEY=<output>` to the project `.env` (Docker) or `backend/.env` (manual install), then run `docker compose up -d` or restart the backend. Setting or changing the key signs everyone out once. A key shorter than 32 characters still works but now logs a warning.
+- **Customer self-registration is off unless the public Quoter is on.** `POST /api/v1/auth/register` and `POST /api/v1/auth/portal/register` return 403 unless `ENABLE_PUBLIC_QUOTER=true`. The Quoter already needs that setting to create quotes. Staff accounts still come from first-run setup or **Admin > Team Members**.
+- **Customer accounts can no longer call staff APIs.** Every Core API route now needs a staff account (admin or operator), except sign-in, password reset, first-run setup, version and health checks, the company logo, `GET /api/v1/auth/me` and the Quoter's routes for the caller's own quotes. Customer accounts get 403 everywhere else, including the Core sales-order routes for their own orders; PRO B2B buyers keep using the PRO portal. Some item and routing reads and the order import CSV template worked without a login; they now need a staff login. If a script or integration calls the API with a customer account, give it a staff account.
+- **Scrap reasons are admin-only.** Only admins can create, edit or delete scrap reasons. Operators still pick from the list when they scrap work. The Scrap Reasons page was already admin-only.
+- **FilaOps PRO:** install the PRO update released alongside 4.2.0.
+- **Check for changes made by customer accounts.** Before this release a customer account could change shop records. After upgrading, run the read-only queries below against the FilaOps database, for example in `docker compose exec db psql -U postgres -d filaops` (use your own `DB_USER` and `DB_NAME` if you changed them). They change nothing.
+
+```sql
+-- 1. Customer accounts that registered themselves. Look for ones you do not recognise.
+SELECT id, email, created_at
+FROM users
+WHERE account_type = 'customer' AND created_by IS NULL
+ORDER BY created_at DESC;
+
+-- 2. Records created or changed by a customer account.
+WITH customer AS (
+    SELECT id, lower(email) AS email FROM users WHERE account_type = 'customer'
+)
+SELECT 'payments' AS table_name, t.id AS record_id, c.email, t.created_at AS happened_at
+  FROM payments t JOIN customer c ON c.id = t.recorded_by_id
+UNION ALL SELECT 'quotes (approved)', t.id, c.email, t.approved_at
+  FROM quotes t JOIN customer c ON c.id = t.approved_by
+UNION ALL SELECT 'sales_order_lines', t.id, c.email, so.created_at
+  FROM sales_order_lines t JOIN sales_orders so ON so.id = t.sales_order_id
+  JOIN customer c ON c.id = t.created_by
+UNION ALL SELECT 'order_events', t.id, c.email, t.created_at
+  FROM order_events t JOIN customer c ON c.id = t.user_id
+UNION ALL SELECT 'shipping_events', t.id, c.email, t.created_at
+  FROM shipping_events t JOIN customer c ON c.id = t.user_id
+UNION ALL SELECT 'purchasing_events', t.id, c.email, t.created_at
+  FROM purchasing_events t JOIN customer c ON c.id = t.user_id
+UNION ALL SELECT 'scrap_records', t.id, c.email, t.created_at
+  FROM scrap_records t JOIN customer c ON c.id = t.created_by_user_id
+UNION ALL SELECT 'qc_inspections', t.id, c.email, t.inspected_at
+  FROM qc_inspections t JOIN customer c ON c.id IN (t.inspector_user_id, t.waiver_user_id)
+UNION ALL SELECT 'close_short_records', t.id, c.email, t.performed_at
+  FROM close_short_records t JOIN customer c ON c.id = t.performed_by
+UNION ALL SELECT 'production_order_operation_materials', t.id, c.email, t.consumed_at
+  FROM production_order_operation_materials t JOIN customer c ON c.id = t.consumed_by
+UNION ALL SELECT 'gl_journal_entries', t.id, c.email, t.created_at
+  FROM gl_journal_entries t JOIN customer c ON c.id = t.created_by
+UNION ALL SELECT 'inventory_transactions', t.id, c.email, t.created_at
+  FROM inventory_transactions t JOIN customer c ON c.email = lower(t.created_by)
+UNION ALL SELECT 'production_orders', t.id, c.email, t.created_at
+  FROM production_orders t JOIN customer c ON c.email = lower(t.created_by)
+UNION ALL SELECT 'purchase_orders', t.id, c.email, t.created_at
+  FROM purchase_orders t JOIN customer c ON c.email = lower(t.created_by)
+UNION ALL SELECT 'material_spools', t.id, c.email, t.created_at
+  FROM material_spools t JOIN customer c ON c.email = lower(t.created_by)
+ORDER BY happened_at DESC;
+
+-- 3. Quotes whose total is less than subtotal + tax + shipping.
+SELECT id, quote_number, status, subtotal, tax_amount, shipping_cost, total_price, updated_at
+FROM quotes
+WHERE total_price < COALESCE(subtotal, 0) + COALESCE(tax_amount, 0) + COALESCE(shipping_cost, 0) - 0.01
+ORDER BY updated_at DESC;
+```
+
+The second query lists records a customer account created or changed; the `email` column names the account. On installs that use the PRO B2B portal, buyers' own portal orders also appear there (`sales_order_lines`, and `order_events` for orders created, confirmed or cancelled in the portal), which is expected. The third query lists quotes whose stored total is less than their subtotal, tax and shipping added up; compare them with what the customer paid. None of these queries can show what a customer account read.
+
 ### Added
 
 - **Item Quality Plans (#784).** New per-product inspection plans: `quality_plans` + `quality_plan_characteristics` (migration 097) with CRUD at `/api/v1/quality-plans` (list / create / get / patch / deactivate). A plan defines which characteristics to measure (nominal + LSL/USL + unit + minor/major/critical severity), each optionally pinned to a routing operation; a plan with no `product_id` is a reusable template. Each characteristic also carries an optional stable `code` (migration 098), unique within a plan — the rename-/edit-proof key that future SPC series will key on. A later PR seeds the QC measurement form from a product's active plan.
@@ -28,9 +94,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Quality metrics — true first-pass yield (#784).** `GET /api/v1/quality/metrics` now derives `first_pass_yield`, `passed`, `failed`, and `total_inspections` from each order's **first `qc_inspections` row** instead of the `ProductionOrder.qc_status` cache. The cache is last-write-wins, so an order that failed initial inspection and was later re-inspected or waived to "passed" previously counted as a first-pass success and inflated the yield. **Expect FPY to move** (typically downward) where re-inspections occur — this is the corrected value, not a regression. Orders inspected before inspection rows were recorded are not counted in the metric.
+- **Role refusals use the shared checks.** Most routes that checked the admin or staff role inside the handler now use the shared dependencies. A refused caller gets 403 `Admin access required` or `Staff access required`, and gets it before the request body is validated (some routes answered 422 first). Operators keep the access they had, except for scrap-reason changes (see **Upgrade notes**).
 
 ### Security
 
+- **Staff API routes require a staff account.** Customer accounts are ordinary user accounts, and many staff routes only checked for a login, so a customer account could read or change quotes, payments, purchase orders, vendors, production and quality records, items, routings, sales orders, traceability data and settings. Every Core route now requires a staff (admin or operator) or admin account unless it is on a short reviewed list of public and customer routes, and a new test fails when a route is added without one of those checks.
+- **Routes that answered without a login now need one.** Some item and routing reads, the consolidated shipping-rate lookup (`POST /api/v1/admin/fulfillment/ship/consolidate/get-rates`) and the order import template answered anonymous requests. They now need a staff account, and so does everything else under `/api/v1/admin`.
+- **A placeholder `SECRET_KEY` no longer signs logins.** Outside production, an empty or placeholder key was used as is to sign login tokens, and those placeholder values are public. FilaOps now uses a temporary random key instead (see **Upgrade notes**).
+- **Customer self-registration follows `ENABLE_PUBLIC_QUOTER`.** Both registration routes return 403 unless the public Quoter is on.
+- **Quoter quote acceptance is checked on the server.** `POST /api/v1/quotes/portal/{quote_id}/accept` now refuses (409) a changed unit price; quotes that are no longer pending or approved, have expired or already have an order; quotes the shop drafted or approved; and colour selections that were not priced. The total is computed on the server as subtotal + tax + shipping, and pricing and slicer data sent by the client is ignored.
+- **The Ollama URL is validated before the server contacts it.** The AI settings Ollama URL must be a plain `http://` or `https://` address, without credentials, a query string or a fragment. The server checks it again before every request, no longer follows redirects, and returns only model names. `GET /api/v1/settings/ai` and `GET /api/v1/settings/ai/anthropic-status` now need a staff account.
+- **Staff-only details are hidden from customer accounts.** `GET /api/v1/settings/company` now needs a staff account, and a customer viewing the archive of their own quote no longer sees the staff-only admin notes.
 - **Password reset requests always wait for an administrator.** `POST /api/v1/auth/password-reset/request` no longer returns a reset token or reset link in any configuration. Its response body is the same whether or not the account exists, a request is already pending, or SMTP is configured. Without SMTP, requests stay pending and cannot be completed. An administrator can reset a staff (admin or operator) password from **Admin > Team Members > Reset PW**. Customer portal accounts are not on Team Members, so they need SMTP to reset a password. With SMTP, the approval email flow is unchanged, and a request whose approval email could not be sent no longer blocks the user's next request. Reset tokens that earlier versions approved without an administrator no longer work. The Forgot Password page no longer shows a reset link, and the email service no longer logs email bodies when SMTP is not configured.
 - **Docker Compose passes SMTP settings to the backend.** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `SMTP_TLS` and `ADMIN_APPROVAL_EMAIL` set in the project `.env` now reach the backend container. Before this, the stock `docker-compose.yml` did not pass them, so email could not be turned on in a Docker install. Run `docker compose up -d` after changing them.
 

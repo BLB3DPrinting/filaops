@@ -57,8 +57,9 @@ cd filaops
 cp backend/.env.example .env
 ```
 
-Then open `.env` and set **two required secrets**. The application refuses to
-start in production if either is left at a placeholder value:
+Then open `.env` and set **two required secrets**. With
+`ENVIRONMENT=production` the application refuses to start if either is empty
+or left at a placeholder value:
 
 ```bash
 # Generate a secure random SECRET_KEY:
@@ -85,6 +86,16 @@ DB_PASSWORD=<paste output here>
     python -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" >> .env
     python -c "import secrets; print('DB_PASSWORD=' + secrets.token_hex(24))" >> .env
     ```
+
+!!! warning "Do not skip `SECRET_KEY`"
+    `SECRET_KEY` signs every login token, so keep it secret and never reuse a
+    value from an example. `docker compose up` does not stop you if it is
+    missing, but FilaOps never signs logins with an empty or placeholder key.
+    Outside production it starts with a temporary random key instead and logs
+    an error. That key changes on every restart, so every restart signs
+    everyone out, and the [Security Audit](users-and-permissions.md#security-audit)
+    reports a failed check until you set a real key. Setting or changing the key
+    later signs everyone out once.
 
 The full list of supported environment variables is in `backend/.env.example`
 with inline comments. The most common ones to review before first boot:
@@ -395,7 +406,7 @@ Key differences when setting `ENVIRONMENT=production`:
 - The Swagger UI (`/docs`, `/redoc`, `/openapi.json`) is disabled to prevent API schema exposure.
 - `Strict-Transport-Security` headers are added to every response (HSTS).
 - `COOKIE_SECURE=true` must be set — auth cookies require HTTPS.
-- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` are set to any known placeholder value (e.g. `changeme`, `change-in-production`).
+- Startup refuses to boot if `SECRET_KEY` or `DB_PASSWORD` is empty or set to any known placeholder value (e.g. `changeme`, `change-in-production`). In other environments a placeholder `SECRET_KEY` is replaced by a temporary random key (see the warning in Step 2), and a placeholder `DB_PASSWORD` only logs a warning.
 
 ---
 
@@ -425,16 +436,22 @@ docker compose up --build -d
     Removing `filaops_pgdata` permanently deletes your database. Export any
     data you need before running this command.
 
-### "Secret key is a placeholder" startup error
+### "SECRET_KEY is not set" or "placeholder credential" errors, or everyone is signed out after a restart
 
-`SECRET_KEY` must be a randomly generated value. The application logs a clear
-error and refuses to start if a known placeholder is detected. Fix it:
+`SECRET_KEY` must be a randomly generated value. If it is empty or a known
+placeholder, production refuses to start ("Refusing to start in production:
+placeholder credential(s) detected"). Any other environment starts, logs
+"SECRET_KEY is not set ... using a temporary random key", and signs everyone
+out on every restart. Fix it by setting a real key:
 
 ```bash
 echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
-docker compose restart backend   # Docker
-# or restart uvicorn for manual installs
+docker compose up -d   # Docker: recreates the backend with the new value
+# or add it to backend/.env and restart uvicorn for manual installs
 ```
+
+`docker compose restart` does not pick up changes to `.env`; use
+`docker compose up -d`.
 
 ### Frontend cannot reach the backend
 

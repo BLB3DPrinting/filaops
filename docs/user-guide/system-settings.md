@@ -246,7 +246,7 @@ The parent's code is shown in the **Parent** column for easy reference.
 
 ## Scrap Reasons
 
-Navigate to **Admin > Scrap Reasons** in the sidebar to define the failure modes tracked when scrapping production orders.
+Navigate to **Admin > Scrap Reasons** in the sidebar to define the failure modes tracked when scrapping production orders. Only Admins can add, edit, or delete scrap reasons; Operators pick from the list when they scrap work.
 
 ![Scrap Reasons page showing the reasons table with Order, Code, Name, Description, Status columns, and the Add Reason button](../assets/screenshots/settings/04-scrap-reasons.png)
 

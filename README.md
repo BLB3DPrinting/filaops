@@ -15,12 +15,21 @@ Open-source ERP for 3D print farms. Manage inventory, production, sales, purchas
 git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 cp backend/.env.example .env
-# Generate secrets (required — production startup refuses to boot without these):
+# Generate secrets (do not skip these):
 echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
 echo "DB_PASSWORD=$(openssl rand -hex 24)" >> .env
 docker compose up -d
 # Open http://localhost — create your admin account on first visit
 ```
+
+**Always set `SECRET_KEY`.** It signs every login, so it must be a long random
+value that only your server knows. Generate one with `openssl rand -hex 32`, or
+with `python -c "import secrets; print(secrets.token_hex(32))"` where OpenSSL is
+not installed. `docker compose up` still starts without it, but FilaOps will not
+sign logins with an empty or placeholder key: production refuses to start, and
+any other environment uses a temporary key that changes on every restart, which
+signs everyone out each time. Upgrading from an earlier release? Read the
+[4.2.0 upgrade notes](CHANGELOG.md#420---2026-10-09).
 
 ## Quick Start (Manual)
 
@@ -32,7 +41,7 @@ python -m venv venv
 # Windows: .\venv\Scripts\Activate
 # Linux/Mac: source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # Edit with your database credentials
+cp .env.example .env  # Set your database credentials and SECRET_KEY
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
