@@ -13,6 +13,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.sales_order import SalesOrder
+from app.models.scrap_reason import ScrapReason
 from app.models.tax_rate import TaxRate
 
 MISSING = 999_999_999
@@ -146,3 +147,55 @@ class TestAdminOnlyRoutesStillRefuseOperators:
     def test_security_status(self, unauthed_client, operator_headers):
         resp = unauthed_client.get("/api/v1/security/status", headers=operator_headers)
         assert resp.status_code == 403
+
+
+class TestScrapReasonWritesAreAdminOnly:
+    """Intentional change (owner decision 3): scrap-reason writes are admin-only.
+
+    Their only UI (AdminScrapReasons) is admin-only already; operators keep
+    reading the list they pick from when scrapping an operation.
+    """
+
+    def _reason(self, db):
+        reason = ScrapReason(
+            code=f"op-test-{uuid.uuid4().hex[:8]}",
+            name="Operator regression reason",
+            active=True,
+            sequence=0,
+        )
+        db.add(reason)
+        db.flush()
+        return reason
+
+    def test_operator_can_still_read_scrap_reasons(self, unauthed_client, operator_headers):
+        resp = unauthed_client.get("/api/v1/production-orders/scrap-reasons", headers=operator_headers)
+        assert resp.status_code == 200, resp.text
+
+    def test_operator_cannot_create_scrap_reason(self, unauthed_client, db, operator_headers):
+        code = f"op-new-{uuid.uuid4().hex[:8]}"
+        resp = unauthed_client.post(
+            "/api/v1/production-orders/scrap-reasons",
+            json={"code": code, "name": "Operator reason"},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Admin access required"
+        assert db.query(ScrapReason).filter(ScrapReason.code == code).count() == 0
+
+    def test_operator_cannot_update_or_delete_scrap_reason(self, unauthed_client, db, operator_headers):
+        reason = self._reason(db)
+        resp = unauthed_client.put(
+            f"/api/v1/production-orders/scrap-reasons/{reason.id}",
+            json={"name": "Renamed by operator", "active": False},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 403
+        resp = unauthed_client.delete(
+            f"/api/v1/production-orders/scrap-reasons/{reason.id}", headers=operator_headers
+        )
+        assert resp.status_code == 403
+        db.expire_all()
+        refreshed = db.get(ScrapReason, reason.id)
+        assert refreshed is not None
+        assert refreshed.name == "Operator regression reason"
+        assert refreshed.active is True
