@@ -281,7 +281,7 @@ const AdminSettings = () => {
             <h3 className="text-sm font-medium text-amber-400">Email (SMTP) Not Configured</h3>
             <p className="text-sm text-amber-400/80 mt-1">
               Forgot-password requests can't be emailed, so they stay pending. To help a team member who is locked out, use Reset PW on the Team Members page. Customer portal accounts can't reset a password until email is set up.
-              Configure SMTP_USER and SMTP_PASSWORD in your .env file to enable email-based password resets with admin approval.
+              Set SMTP_USER, SMTP_PASSWORD and ADMIN_APPROVAL_EMAIL (a real administrator's address, not admin@example.com) in your .env file to enable email-based password resets with admin approval.
             </p>
           </div>
         </div>

@@ -159,6 +159,15 @@ def log_startup_configuration():
     logger.info(f"Environment: {getattr(settings, 'ENVIRONMENT', 'development')}")
     logger.info(f"Debug Mode: {getattr(settings, 'DEBUG', False)}")
     logger.info(f"Tier: {getattr(settings, 'TIER', 'open')}")
+
+    # Email: an SMTP login alone is not enough (see Settings.email_configured).
+    if getattr(settings, "SMTP_USER", None) and not settings.email_configured:
+        logger.warning(
+            "SMTP_USER is set but email is off: SMTP_PASSWORD must be set too, "
+            "and ADMIN_APPROVAL_EMAIL must be a real address (not empty and "
+            "not a placeholder such as admin@example.com). Password reset "
+            "requests wait for an administrator until then."
+        )
     logger.info("=" * 60)
 
 

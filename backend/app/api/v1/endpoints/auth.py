@@ -725,7 +725,8 @@ async def request_password_reset(
     if any(r.admin_notes not in _UNSENT_NOTES for r in open_requests):
         return generic_response
 
-    email_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD)
+    # SMTP login set and ADMIN_APPROVAL_EMAIL a real address (not a placeholder).
+    email_configured = settings.email_configured
 
     if not email_configured and open_requests:
         # Already recorded, and there is still no way to email an admin.
@@ -754,12 +755,13 @@ async def request_password_reset(
     db.refresh(reset_request)
 
     if not email_configured:
-        # No SMTP means no approval email and no reset email can be sent.
+        # Without email no approval email and no reset email can be sent.
         # The request stays pending (it expires on its own). An admin can set
         # a new password for a staff account from Admin > Team Members.
         logger.warning(
-            "Password reset requested but SMTP is not configured; the request "
-            "stays pending. An administrator can set a new password for a "
+            "Password reset requested but email is not configured (SMTP_USER, "
+            "SMTP_PASSWORD and a real ADMIN_APPROVAL_EMAIL are needed); the "
+            "request stays pending. An administrator can set a new password for a "
             "staff account from Admin > Team Members > Reset PW. "
             "See: https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/",
             extra={

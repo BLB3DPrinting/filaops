@@ -114,7 +114,7 @@ The `email-validator` library rejects `.local` domains (RFC 6762 reserved). If y
 
 ### Forgot password when SMTP is not configured
 
-When `SMTP_USER` and `SMTP_PASSWORD` are not set in your `.env`, a password reset request is recorded as pending and nothing else happens. No email is sent and no reset link is shown.
+When `SMTP_USER` and `SMTP_PASSWORD` are not set in your `.env`, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder such as `admin@example.com`, a password reset request is recorded as pending and nothing else happens. No email is sent and no reset link is shown.
 
 **Fix:** Ask an administrator to reset your password from **Admin > Team Members > Reset PW**. This works for admin and operator accounts. If you are the only administrator and you are locked out, see the recovery options below.
 
@@ -123,7 +123,7 @@ Customer portal accounts are not listed on Team Members, so an administrator can
 !!! tip "Let users reset their own passwords"
     Configure SMTP and set `ADMIN_APPROVAL_EMAIL` to a real administrator. Reset requests are then emailed to that administrator for approval, and the user gets the reset link by email.
     With Docker, put these settings in the project `.env` and run `docker compose up -d` so the backend container picks them up (`docker compose restart` does not).
-    The Settings page shows an amber warning banner while SMTP is not configured. It disappears once the backend sees `SMTP_USER` and `SMTP_PASSWORD`.
+    The Settings page shows an amber warning banner while SMTP is not configured. It disappears once the backend sees `SMTP_USER`, `SMTP_PASSWORD` and a real `ADMIN_APPROVAL_EMAIL`.
 
 ![Settings page showing the amber "Email (SMTP) Not Configured" banner](../assets/screenshots/troubleshooting/02-settings-smtp-warning.png)
 

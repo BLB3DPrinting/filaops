@@ -417,6 +417,7 @@ class TestPasswordResetFullFlow:
 
         monkeypatch.setattr(settings, "SMTP_USER", "mailer@example.com")
         monkeypatch.setattr(settings, "SMTP_PASSWORD", "not-a-real-password")
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", "owner@filaops.dev")
 
         with patch("app.api.v1.endpoints.auth.email_service") as mock_email:
             # Step 1: Request reset — the response never carries the token

@@ -12,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional
 
 from app.core.config import settings
+from app.core.settings import email_is_configured
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ class EmailService:
         self.password = settings.SMTP_PASSWORD
         self.from_email = settings.SMTP_FROM_EMAIL
         self.from_name = settings.SMTP_FROM_NAME
+        self.admin_approval_email = settings.ADMIN_APPROVAL_EMAIL
 
     def _send_email(
         self,
@@ -45,8 +47,11 @@ class EmailService:
 
         Returns True if successful, False otherwise
         """
-        if not self.user or not self.password:
-            logger.warning("SMTP credentials not configured - email not sent")
+        if not email_is_configured(self.user, self.password, self.admin_approval_email):
+            logger.warning(
+                "Email is not configured (SMTP_USER, SMTP_PASSWORD and a real "
+                "ADMIN_APPROVAL_EMAIL are needed) - email not sent"
+            )
             # Never log the body: these emails carry approval and reset links.
             logger.info(f"Would have sent email to {to_email}: {subject}")
             return False

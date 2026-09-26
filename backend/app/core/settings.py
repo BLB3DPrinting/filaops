@@ -74,6 +74,52 @@ KNOWN_WEAK_SECRET_KEYS = _SECRET_KEY_PLACEHOLDERS | _SECRET_KEY_COMMON_WEAK_VALU
 # starting.
 _SECRET_KEY_MIN_LENGTH = 32
 
+# Mail domains that cannot be a shop's own mailbox: the example domains and
+# the reserved top-level names (RFC 2606), and localhost. ADMIN_APPROVAL_EMAIL
+# defaults to admin@example.com, and password reset approve/deny links go to
+# that address, so a placeholder there must not count as configured email.
+_PLACEHOLDER_EMAIL_DOMAINS = frozenset({"example.com", "example.org", "example.net"})
+_PLACEHOLDER_EMAIL_TLDS = frozenset({"example", "test", "invalid", "localhost", "localdomain"})
+
+
+def is_placeholder_email(address: Optional[str]) -> bool:
+    """True if ``address`` is empty, malformed or a placeholder address.
+
+    Placeholders are addresses at example.com/.org/.net (or a subdomain), at
+    a reserved top-level name (.example, .test, .invalid, .localhost), or at
+    localhost.
+    """
+    value = (address or "").strip().lower()
+    local, at, domain = value.rpartition("@")
+    domain = domain.rstrip(".")
+    if not at or not local or not domain:
+        return True
+    if any(domain == d or domain.endswith("." + d) for d in _PLACEHOLDER_EMAIL_DOMAINS):
+        return True
+    return domain.rsplit(".", 1)[-1] in _PLACEHOLDER_EMAIL_TLDS
+
+
+def email_is_configured(
+    smtp_user: Optional[str],
+    smtp_password: Optional[str],
+    admin_approval_email: Optional[str],
+) -> bool:
+    """The one rule for whether FilaOps sends email.
+
+    Email counts as configured only when the SMTP login (SMTP_USER and
+    SMTP_PASSWORD) is set and ADMIN_APPROVAL_EMAIL is a real address. The
+    approval email carries the approve/deny links for password resets, so
+    sending it to a placeholder such as admin@example.com would hand them to
+    whoever controls that domain. Without email, reset requests wait for an
+    administrator.
+
+    Use ``Settings.email_configured`` for the running settings.
+    """
+    return (
+        bool((smtp_user or "").strip() and (smtp_password or "").strip())
+        and not is_placeholder_email(admin_approval_email)
+    )
+
 
 class Settings(BaseSettings):
     """
@@ -421,6 +467,8 @@ class Settings(BaseSettings):
     # ===================
     # Admin & Business
     # ===================
+    # Password reset approve/deny links are emailed here. Email stays off
+    # (see email_configured) until this is a real address.
     ADMIN_APPROVAL_EMAIL: str = "admin@example.com"
     BUSINESS_EMAIL: str = "info@yourcompany.com"
     BUSINESS_NAME: str = "Your Company Name"
@@ -666,6 +714,13 @@ class Settings(BaseSettings):
                 "rush_24h": self.RUSH_24H_REDUCTION_DAYS,
             },
         }
+
+    @property
+    def email_configured(self) -> bool:
+        """True when FilaOps can send email; see email_is_configured()."""
+        return email_is_configured(
+            self.SMTP_USER, self.SMTP_PASSWORD, self.ADMIN_APPROVAL_EMAIL
+        )
 
     @property
     def is_production(self) -> bool:

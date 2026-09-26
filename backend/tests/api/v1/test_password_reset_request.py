@@ -12,6 +12,7 @@ The request endpoint is public. These tests pin down that it:
 - sends email from a worker thread with an SMTP connect timeout, so a mail
   server that is down cannot stall the API;
 - keeps the SMTP (admin approval email) flow working end to end;
+- treats email as off while ADMIN_APPROVAL_EMAIL is empty or a placeholder;
 - refuses tokens that older versions approved without an administrator;
 - never writes the full reset token to the logs.
 
@@ -81,12 +82,17 @@ def mock_email():
         yield mocked
 
 
+ADMIN_APPROVAL_ADDRESS = "owner@filaops.dev"
+
+
 def _configure(monkeypatch, *, smtp: bool, environment: str = "development"):
+    """smtp=True: SMTP login set and ADMIN_APPROVAL_EMAIL a real address."""
     from app.core.config import settings
     monkeypatch.setattr(settings, "ENVIRONMENT", environment)
     if smtp:
         monkeypatch.setattr(settings, "SMTP_USER", "mailer@example.com")
         monkeypatch.setattr(settings, "SMTP_PASSWORD", "not-a-real-password")
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", ADMIN_APPROVAL_ADDRESS)
     else:
         monkeypatch.setattr(settings, "SMTP_USER", None)
         monkeypatch.setattr(settings, "SMTP_PASSWORD", None)
@@ -404,6 +410,87 @@ class TestUnsentRequestDoesNotBlock:
 
 
 # =============================================================================
+# A placeholder ADMIN_APPROVAL_EMAIL means email is off
+# =============================================================================
+
+PLACEHOLDER_APPROVAL_ADDRESSES = [
+    pytest.param("admin@example.com", id="stock-default"),
+    pytest.param("", id="empty"),
+    pytest.param("   ", id="blank"),
+    pytest.param("owner@shop.example.org", id="example-subdomain"),
+    pytest.param("admin@filaops.example", id="example-tld"),
+    pytest.param("admin@localhost", id="localhost"),
+    pytest.param("not-an-address", id="no-at-sign"),
+]
+
+
+class TestPlaceholderApprovalAddress:
+    """With a placeholder approval address the approve/deny links would go to
+    a domain the shop does not control, so FilaOps treats email as off."""
+
+    @pytest.mark.parametrize("address", PLACEHOLDER_APPROVAL_ADDRESSES)
+    def test_request_stays_pending_and_nothing_is_sent(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch, address
+    ):
+        from app.api.v1.endpoints.auth import EMAIL_OFF_NOTE
+        from app.core.config import settings
+
+        _configure(monkeypatch, smtp=True)
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", address)
+
+        resp = _request_reset(unauthed_client, staff_user.email)
+
+        assert resp.json() == {"message": GENERIC_MESSAGE}
+        mock_email.send_password_reset_approval_request.assert_not_called()
+        rows = _reset_rows(db, staff_user.id)
+        assert len(rows) == 1
+        assert rows[0].status == "pending"
+        assert rows[0].admin_notes == EMAIL_OFF_NOTE
+
+    def test_real_address_gets_the_approval_email(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        _configure(monkeypatch, smtp=True)
+
+        _request_reset(unauthed_client, staff_user.email)
+
+        mock_email.send_password_reset_approval_request.assert_called_once()
+        kwargs = mock_email.send_password_reset_approval_request.call_args.kwargs
+        assert kwargs["admin_email"] == ADMIN_APPROVAL_ADDRESS
+
+    def test_request_is_emailed_once_a_real_address_is_set(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.core.config import settings
+
+        _configure(monkeypatch, smtp=True)
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", "admin@example.com")
+        _request_reset(unauthed_client, staff_user.email)
+        mock_email.send_password_reset_approval_request.assert_not_called()
+
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", ADMIN_APPROVAL_ADDRESS)
+        _request_reset(unauthed_client, staff_user.email)
+
+        mock_email.send_password_reset_approval_request.assert_called_once()
+        assert len(_reset_rows(db, staff_user.id)) == 2
+
+    @pytest.mark.parametrize("address", PLACEHOLDER_APPROVAL_ADDRESSES)
+    def test_email_service_sends_nothing(self, address):
+        from app.services import email_service as email_module
+        from app.services.email_service import EmailService
+
+        service = EmailService()
+        service.user = "mailer@example.com"
+        service.password = "not-a-real-password"
+        service.admin_approval_email = address
+
+        with patch.object(email_module.smtplib, "SMTP") as smtp:
+            assert service._send_email("someone@filaops.dev", "Subject", "<p>Body</p>") is False
+
+        smtp.assert_not_called()
+
+
+# =============================================================================
 # A slow or unreachable mail server does not stall the API
 # =============================================================================
 
@@ -417,6 +504,7 @@ class TestEmailSendDoesNotBlock:
         service = EmailService()
         service.user = "mailer@example.com"
         service.password = "not-a-real-password"
+        service.admin_approval_email = ADMIN_APPROVAL_ADDRESS
 
         with patch.object(email_module.smtplib, "SMTP") as smtp:
             assert service._send_email("someone@filaops.dev", "Subject", "<p>Body</p>") is True
@@ -430,6 +518,7 @@ class TestEmailSendDoesNotBlock:
         service = EmailService()
         service.user = "mailer@example.com"
         service.password = "not-a-real-password"
+        service.admin_approval_email = ADMIN_APPROVAL_ADDRESS
 
         with patch.object(email_module.smtplib, "SMTP", side_effect=TimeoutError("timed out")):
             assert service._send_email("someone@filaops.dev", "Subject", "<p>Body</p>") is False
@@ -738,7 +827,9 @@ class TestTokenNotLogged:
         _request_reset(unauthed_client, staff_user.email)
 
         assert any(
-            "SMTP is not configured" in r.getMessage() and "Team Members" in r.getMessage()
+            "email is not configured" in r.getMessage()
+            and "ADMIN_APPROVAL_EMAIL" in r.getMessage()
+            and "Team Members" in r.getMessage()
             for r in caplog.records
         )
 

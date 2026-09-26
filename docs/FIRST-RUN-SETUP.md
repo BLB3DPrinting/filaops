@@ -56,7 +56,7 @@ This is the production flow:
 
 ### Without SMTP Configured
 
-When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
+When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder such as `admin@example.com`:
 
 1. User clicks "Forgot Password" and submits their email.
 2. The backend records a `PasswordResetRequest` with `status=pending` and logs a warning. No email is sent.

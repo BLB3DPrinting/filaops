@@ -17,11 +17,11 @@ SMTP_TLS=true
 ADMIN_APPROVAL_EMAIL=admin@yourcompany.com
 ```
 
-Set `ADMIN_APPROVAL_EMAIL` to a real administrator's address. Password reset approval requests are sent there.
+Set `ADMIN_APPROVAL_EMAIL` to a real administrator's address. Password reset approval requests, with their Approve and Deny links, are sent there. FilaOps treats email as off until it is set: while it is empty or a placeholder, reset requests stay pending as if SMTP were not configured. Placeholders are the stock `admin@example.com`, any address at `example.com`, `example.org` or `example.net`, and addresses at `localhost` or a reserved test domain (`.example`, `.test`, `.invalid`, `.localhost`).
 
 Then restart the backend. With Docker, run `docker compose up -d`, which recreates the backend container with the new values. `docker compose restart` keeps the old values.
 
-To check that the backend sees the settings, open **Admin > Settings**. The amber "Email (SMTP) Not Configured" banner disappears once `SMTP_USER` and `SMTP_PASSWORD` are set.
+To check that the backend sees the settings, open **Admin > Settings**. The amber "Email (SMTP) Not Configured" banner disappears once `SMTP_USER` and `SMTP_PASSWORD` are set and `ADMIN_APPROVAL_EMAIL` is a real address.
 
 ## Gmail Setup
 
@@ -31,7 +31,7 @@ To check that the backend sees the settings, open **Admin > Settings**. The ambe
 
 ## Disabling Email
 
-If SMTP is not configured, FilaOps will:
+If SMTP is not configured, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder, FilaOps will:
 - Keep password reset requests pending. No reset link is sent or shown. An administrator resets a staff (admin or operator) password from **Admin > Team Members > Reset PW** instead. Customer portal accounts are not on Team Members, so they cannot reset a password until SMTP is configured.
 - Log the recipient and subject of each email instead of sending it. The email body is not logged, because it contains approval and reset links.
 
