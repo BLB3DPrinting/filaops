@@ -1127,47 +1127,45 @@ class TestDemandSummary:
 
 
 # =============================================================================
-# Public endpoints — no auth required
+# Read endpoints — formerly anonymous, now need a login (staff-only router)
 # =============================================================================
 
-class TestPublicEndpoints:
-    """Some read endpoints don't require auth (categories, list)."""
+class TestReadEndpointsRequireAuth:
+    """These reads used to answer without any login; the items router is now
+    staff-only, so an anonymous caller gets 401."""
 
-    def test_list_categories_no_auth(self, unauthed_client):
-        """Category listing is public (no get_current_user dependency)."""
+    def test_list_categories_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/categories")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_category_tree_no_auth(self, unauthed_client):
+    def test_category_tree_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/categories/tree")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_get_category_no_auth(self, unauthed_client, make_category):
+    def test_get_category_requires_auth(self, unauthed_client, make_category):
         cat = make_category(code="PUB-CAT", name="Public Cat")
         resp = unauthed_client.get(f"{BASE_URL}/categories/{cat.id}")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_list_items_no_auth(self, unauthed_client):
-        """Item listing is public (no get_current_user dependency)."""
+    def test_list_items_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(BASE_URL)
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_get_item_no_auth(self, unauthed_client, make_product):
+    def test_get_item_requires_auth(self, unauthed_client, make_product):
         product = make_product(name="Public Item")
         resp = unauthed_client.get(f"{BASE_URL}/{product.id}")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_get_item_by_sku_no_auth(self, unauthed_client, make_product):
-        product = make_product(sku="PUB-SKU-001", name="Public SKU Item")
+    def test_get_item_by_sku_requires_auth(self, unauthed_client, make_product):
+        make_product(sku="PUB-SKU-001", name="Public SKU Item")
         resp = unauthed_client.get(f"{BASE_URL}/sku/PUB-SKU-001")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_low_stock_no_auth(self, unauthed_client):
+    def test_low_stock_requires_auth(self, unauthed_client):
         resp = unauthed_client.get(f"{BASE_URL}/low-stock")
-        assert resp.status_code == 200
+        assert resp.status_code == 401
 
-    def test_demand_summary_no_auth(self, unauthed_client, make_product):
+    def test_demand_summary_requires_auth(self, unauthed_client, make_product):
         product = make_product(name="Public Demand")
         resp = unauthed_client.get(f"{BASE_URL}/{product.id}/demand-summary")
-        # This endpoint may or may not require auth -- test the contract
-        assert resp.status_code in (200, 401)
+        assert resp.status_code == 401

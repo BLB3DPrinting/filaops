@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.models.product import Product
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.manufacturing import (
     RoutingCreate,
@@ -36,7 +36,9 @@ from app.schemas.manufacturing import (
 )
 from app.services import routing_service
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -96,7 +98,7 @@ async def list_routings(
 @router.post("/", response_model=RoutingResponse, status_code=status.HTTP_201_CREATED)
 async def create_routing(
     data: RoutingCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new routing for a product or a template routing."""
@@ -124,7 +126,7 @@ async def create_routing(
 
 @router.post("/seed-templates")
 async def seed_routing_templates(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -140,7 +142,7 @@ async def seed_routing_templates(
 @router.post("/apply-template", response_model=ApplyTemplateResponse)
 async def apply_template_to_product(
     data: ApplyTemplateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -213,7 +215,7 @@ async def get_product_routing(
 async def update_routing(
     routing_id: int,
     data: RoutingUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a routing."""
@@ -226,7 +228,7 @@ async def update_routing(
 @router.delete("/{routing_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_routing(
     routing_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a routing (soft delete - marks as inactive)."""
@@ -252,7 +254,7 @@ async def list_routing_operations(
 async def add_routing_operation(
     routing_id: int,
     data: RoutingOperationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add a new operation to a routing."""
@@ -266,7 +268,7 @@ async def add_routing_operation(
 async def update_routing_operation(
     operation_id: int,
     data: RoutingOperationUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a routing operation."""
@@ -279,7 +281,7 @@ async def update_routing_operation(
 @router.delete("/operations/{operation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_routing_operation(
     operation_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a routing operation (soft delete)."""
@@ -304,7 +306,7 @@ async def list_operation_materials(
 async def add_operation_material(
     operation_id: int,
     data: RoutingOperationMaterialCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add a material to a routing operation."""
@@ -318,7 +320,7 @@ async def add_operation_material(
 async def update_operation_material(
     material_id: int,
     data: RoutingOperationMaterialUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a routing operation material."""
@@ -331,7 +333,7 @@ async def update_operation_material(
 @router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_operation_material(
     material_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a routing operation material."""
