@@ -18,7 +18,7 @@ from app.logging_config import get_logger
 from app.models.vendor import Vendor
 from app.models.product import Product
 from app.models.purchase_order_document import VendorItem
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.purchasing import (
     VendorItemCreate,
@@ -26,7 +26,11 @@ from app.schemas.purchasing import (
     VendorItemResponse,
 )
 
-router = APIRouter()
+# SEC-407: every vendor-item route is staff-only (admin or operator). They
+# share the /purchase-orders prefix and hold supplier SKU mappings and costs
+# used by invoice parsing; a self-registered customer must not read or edit
+# them.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -58,7 +62,7 @@ async def list_vendor_items(
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     List all SKU mappings for a vendor.
@@ -98,7 +102,7 @@ async def create_vendor_item(
     vendor_id: int,
     request: VendorItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Create a new vendor SKU mapping.
@@ -156,7 +160,7 @@ async def get_vendor_item(
     vendor_id: int,
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get a specific vendor item mapping."""
     item = db.query(VendorItem).options(
@@ -178,7 +182,7 @@ async def update_vendor_item(
     item_id: int,
     request: VendorItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Update a vendor item mapping.
@@ -224,7 +228,7 @@ async def delete_vendor_item(
     vendor_id: int,
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Delete a vendor item mapping."""
     item = db.query(VendorItem).filter(
@@ -249,7 +253,7 @@ async def search_vendor_items(
     unmapped_only: bool = Query(False, description="Only show unmapped items"),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Search vendor items across all vendors.
@@ -285,7 +289,7 @@ async def suggest_product_match(
     vendor_description: Optional[str] = Query(None, description="Vendor description for fuzzy matching"),
     limit: int = Query(5, le=20),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get product suggestions for a vendor SKU.
@@ -366,7 +370,7 @@ async def suggest_product_match(
 async def bulk_update_last_seen(
     items: List[dict],
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Bulk update last_seen_at and increment times_ordered for vendor items.
