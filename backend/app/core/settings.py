@@ -8,13 +8,14 @@ FilaOps ERP - Configuration Management with pydantic-settings
 """
 import json
 import logging
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 from urllib.parse import unquote, urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,9 @@ _VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0
 # backend/app/core/settings.py -> backend/.env
 _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
-# Placeholder credential values rejected in production (audit finding F12).
+# Placeholder credential values rejected in production (audit finding F12);
+# outside production a placeholder SECRET_KEY is replaced with a temporary
+# random key (see validate_no_placeholder_credentials).
 # Covers docker-compose fallbacks (changeme, change-in-production), the
 # Settings field defaults below (postgres, change-this-...), the .env.example
 # sample text (your-secret-key-here, your-secure-password-here), and "" for
@@ -45,6 +48,11 @@ _DB_PASSWORD_PLACEHOLDERS = frozenset({
     "postgres",
     "your-secure-password-here",
 })
+
+# A real SECRET_KEY shorter than this logs a warning at startup. It is not
+# refused yet, so an upgraded install with an existing short key keeps
+# starting.
+_SECRET_KEY_MIN_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -103,7 +111,10 @@ class Settings(BaseSettings):
     # ===================
     SECRET_KEY: str = Field(
         default="change-this-to-a-random-secret-key-in-production",
-        description="JWT signing key - MUST change in production",
+        description=(
+            "JWT signing key - required. Production refuses to start with a "
+            "placeholder; other environments swap in a temporary random key"
+        ),
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=30, description="JWT token expiration in minutes"
@@ -121,6 +132,17 @@ class Settings(BaseSettings):
     # (model_validator at the bottom of the class). Both SECRET_KEY and
     # DB_PASSWORD share one post-init check so production startup fails
     # for either placeholder rather than only the first one Pydantic sees.
+
+    # Set by `validate_no_placeholder_credentials` when it replaced a
+    # placeholder SECRET_KEY with a random key for this process only.
+    _secret_key_is_temporary: bool = PrivateAttr(default=False)
+
+    @property
+    def secret_key_is_temporary(self) -> bool:
+        """True when no real SECRET_KEY was configured and this process signs
+        tokens with a random key that is lost on restart. The security audit
+        reports this as a failure."""
+        return self._secret_key_is_temporary
 
     # ===================
     # CORS Settings
@@ -179,16 +201,26 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_no_placeholder_credentials(self):
-        """Reject placeholder SECRET_KEY/DB_PASSWORD in production; warn in dev.
+        """Keep placeholder SECRET_KEY/DB_PASSWORD values out of a running app.
 
         Audit finding F12 (Portainer compatibility review): docker-compose has
         :-defaults of `changeme` / `change-in-production`, so a fresh
         `git clone && docker compose up -d` previously produced a "running"
         stack with insecure credentials. This validator turns that footgun
-        into a fail-fast at config load.
+        into a fail-fast at config load in production.
+
+        Outside production a placeholder SECRET_KEY is never used either:
+        the placeholders are public, so anyone could sign an access token for
+        any user id with them. The key is replaced with a random one for this
+        process (logins do not survive a restart), an error is logged and
+        `secret_key_is_temporary` is set so the security audit fails until a
+        real key is configured. A placeholder DB_PASSWORD only warns there.
         """
         offenders = []
-        if self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS:
+        secret_key_is_placeholder = (
+            self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS
+        )
+        if secret_key_is_placeholder:
             offenders.append("SECRET_KEY")
 
         # The effective DB password is whatever `database_url` will hand to
@@ -214,22 +246,41 @@ class Settings(BaseSettings):
         ):
             offenders.append("DB_PASSWORD")
 
-        if not offenders:
-            return self
-
-        names = ", ".join(offenders)
         hint = "Generate a real value with: openssl rand -hex 32"
-        if self.ENVIRONMENT.strip().lower() == "production":
+        if offenders and self.ENVIRONMENT.strip().lower() == "production":
             raise RuntimeError(
                 f"Refusing to start in production: placeholder credential(s) "
-                f"detected for {names}. {hint}"
+                f"detected for {', '.join(offenders)}. {hint}"
             )
-        logger.warning(
-            "Insecure placeholder credential(s) detected for %s. "
-            "This is allowed in development but will block production startup. %s",
-            names,
-            hint,
-        )
+
+        if secret_key_is_placeholder:
+            # app.core.security copies settings.SECRET_KEY at import time,
+            # after this validator has run, so tokens are only ever signed
+            # with the replacement.
+            self.SECRET_KEY = secrets.token_hex(32)
+            self._secret_key_is_temporary = True
+            logger.error(
+                "SECRET_KEY is not set (it is empty or a known placeholder); "
+                "using a temporary random key for this process. Logins will "
+                "not survive a restart, and production startup refuses this "
+                "configuration. Set SECRET_KEY in .env. %s",
+                hint,
+            )
+        elif len(self.SECRET_KEY.strip()) < _SECRET_KEY_MIN_LENGTH:
+            logger.warning(
+                "SECRET_KEY is shorter than %d characters. A short key is "
+                "easier to guess, and a future release will refuse it in "
+                "production. %s",
+                _SECRET_KEY_MIN_LENGTH,
+                hint,
+            )
+
+        if "DB_PASSWORD" in offenders:
+            logger.warning(
+                "Insecure placeholder credential(s) detected for DB_PASSWORD. "
+                "This is allowed in development but will block production startup. %s",
+                hint,
+            )
         return self
 
     # ===================

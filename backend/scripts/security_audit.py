@@ -220,6 +220,26 @@ class SecurityAuditor:
             ))
             return
 
+        # No real key configured: outside production, Settings replaced the
+        # placeholder with a random key for this process. That key is strong,
+        # but every restart logs everyone out and the setup is still wrong.
+        if getattr(self._settings, "secret_key_is_temporary", False) is True:
+            self.results.append(CheckResult(
+                id=check_id, name=name, category=category,
+                status=CheckStatus.FAIL,
+                message="Temporary SECRET_KEY in use: no SECRET_KEY is configured",
+                details=(
+                    "SECRET_KEY is empty or a known placeholder, so this process "
+                    "signs logins with a random key that changes on every restart. "
+                    "Production refuses to start like this."
+                ),
+                remediation=(
+                    "Set SECRET_KEY in .env to the output of: openssl rand -hex 32, "
+                    "then restart the backend"
+                ),
+            ))
+            return
+
         secret = self._settings.SECRET_KEY
 
         # Check against known weak secrets
