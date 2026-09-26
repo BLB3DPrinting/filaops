@@ -40,6 +40,26 @@ _SECRET_KEY_PLACEHOLDERS = frozenset({
     "change-in-production",
     "your-secret-key-here",
     "change-this-to-a-random-secret-key-in-production",
+    # Example values that earlier FilaOps compose files, .env examples and
+    # docs shipped, plus the old built-in fallback in app/core/security.py.
+    # They are just as public, so they are treated the same way.
+    "dev-only-change-in-production",
+    "change-this-in-production-use-openssl-rand-hex-32",
+    "change-me-generate-with-command-above",
+    "another-64-char-random-string-here",
+    "change-this-to-a-random-string",
+    "change-this-to-any-random-text-you-want",
+    "your-super-secret-key-change-this-in-production",
+    "your-secret-key-here-change-in-production",
+    "dev-secret-key-change-in-production",
+    "paste-your-generated-key-here",
+    "your_generated_secret_key_here",
+    "generate-a-random-string-here",
+    "<your-generated-key>",
+    "<paste output here>",
+    "<64-char-hex-string>",
+    "<output of openssl rand -hex 32>",
+    "<a different output of openssl rand -hex 32>",
 })
 _DB_PASSWORD_PLACEHOLDERS = frozenset({
     "",

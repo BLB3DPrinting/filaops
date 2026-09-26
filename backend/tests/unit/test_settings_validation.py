@@ -50,6 +50,29 @@ _PLACEHOLDER_SECRET_KEYS = [
     "\tchange-this-to-a-random-secret-key-in-production\n",
 ]
 
+# Example keys that earlier FilaOps files published (compose files, .env
+# examples, setup and deployment docs, the old built-in fallback).
+_LEGACY_EXAMPLE_SECRET_KEYS = [
+    "dev-only-change-in-production",
+    "change-this-in-production-use-openssl-rand-hex-32",
+    "change-me-generate-with-command-above",
+    "another-64-char-random-string-here",
+    "change-this-to-a-random-string",
+    "change-this-to-any-random-text-you-want",
+    "your-super-secret-key-change-this-in-production",
+    "your-secret-key-here-change-in-production",
+    "dev-secret-key-change-in-production",
+    "paste-your-generated-key-here",
+    "your_generated_secret_key_here",
+    "generate-a-random-string-here",
+    "<your-generated-key>",
+    "<paste output here>",
+    "<64-char-hex-string>",
+    "<output of openssl rand -hex 32>",
+    "<a different output of openssl rand -hex 32>",
+    "  Another-64-Char-Random-String-Here\n",
+]
+
 # Well-known weak keys that are not shipped defaults. The security audit has
 # always failed on them; outside production they are now replaced too.
 _COMMON_WEAK_SECRET_KEYS = [
@@ -258,6 +281,25 @@ class TestTemporarySecretKeyOutsideProduction:
             record.levelno == logging.ERROR and "SECRET_KEY" in record.getMessage()
             for record in caplog.records
         ), "expected an error naming SECRET_KEY"
+
+    @pytest.mark.parametrize("example", _LEGACY_EXAMPLE_SECRET_KEYS)
+    def test_legacy_example_key_is_replaced_in_development(self, example):
+        s = _build("development", secret_key=example)
+        assert s.SECRET_KEY != example
+        assert re.fullmatch(r"[0-9a-f]{64,}", s.SECRET_KEY)
+        assert s.secret_key_is_temporary is True
+
+    @pytest.mark.parametrize("example", _LEGACY_EXAMPLE_SECRET_KEYS)
+    def test_legacy_example_key_refused_in_production(self, example):
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            _build("production", secret_key=example)
+
+    def test_legacy_example_keys_are_in_the_shared_list(self):
+        # The security audit reads KNOWN_WEAK_SECRET_KEYS, so it fails on
+        # these too.
+        for example in _LEGACY_EXAMPLE_SECRET_KEYS:
+            assert example.strip().lower() in _SECRET_KEY_PLACEHOLDERS
+            assert example.strip().lower() in KNOWN_WEAK_SECRET_KEYS
 
     def test_settings_default_is_replaced(self, monkeypatch):
         # No SECRET_KEY anywhere: the field default (itself a placeholder) is
