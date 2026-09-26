@@ -75,7 +75,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Permissions policy
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         # HSTS in production
-        if getattr(settings, "ENVIRONMENT", "development") == "production":
+        if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
@@ -189,17 +189,23 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down FilaOps ERP API")
 
 
+def _api_docs_urls(app_settings) -> dict:
+    """Swagger UI, ReDoc and the OpenAPI schema, or None for each in production.
+
+    Disabled in production to prevent API schema exposure.
+    """
+    if app_settings.is_production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
 # Create FastAPI app
-# Disable Swagger/OpenAPI in production to prevent API schema exposure
-_is_production = getattr(settings, "ENVIRONMENT", "development") == "production"
 app = FastAPI(
     title="FilaOps ERP API",
     description="Open-source ERP for 3D print farms",
     version=settings.VERSION,
     lifespan=lifespan,
-    docs_url="/docs" if not _is_production else None,
-    redoc_url="/redoc" if not _is_production else None,
-    openapi_url="/openapi.json" if not _is_production else None,
+    **_api_docs_urls(settings),
 )
 
 # Optional rate limiting (no crash if slowapi isn't installed)

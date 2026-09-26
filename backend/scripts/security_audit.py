@@ -355,9 +355,11 @@ class SecurityAuditor:
             ))
             return
 
-        env = self._settings.ENVIRONMENT.lower()
+        from app.core.settings import is_production_environment
 
-        if env == "production":
+        env = (self._settings.ENVIRONMENT or "").strip().lower()
+
+        if is_production_environment(env):
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.PASS,

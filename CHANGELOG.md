@@ -96,6 +96,7 @@ The second query lists records a customer account created or changed; the `email
 
 - **Quality metrics — true first-pass yield (#784).** `GET /api/v1/quality/metrics` now derives `first_pass_yield`, `passed`, `failed`, and `total_inspections` from each order's **first `qc_inspections` row** instead of the `ProductionOrder.qc_status` cache. The cache is last-write-wins, so an order that failed initial inspection and was later re-inspected or waived to "passed" previously counted as a first-pass success and inflated the yield. **Expect FPY to move** (typically downward) where re-inspections occur — this is the corrected value, not a regression. Orders inspected before inspection rows were recorded are not counted in the metric.
 - **Role refusals use the shared checks.** Most routes that checked the admin or staff role inside the handler now use the shared dependencies. A refused caller gets 403 `Admin access required` or `Staff access required`, and gets it before the request body is validated (some routes answered 422 first). Operators keep the access they had, except for scrap-reason changes (see **Upgrade notes**).
+- **`ENVIRONMENT` is read the same way everywhere.** Every production check now ignores case and surrounding spaces. `ENVIRONMENT=Production` or `production ` already refused a placeholder `SECRET_KEY`; it now also turns off the API docs (`/docs`, `/redoc`, `/openapi.json`), sends the HSTS header and keeps the test endpoints off, as `ENVIRONMENT=production` does.
 
 ### Security
 

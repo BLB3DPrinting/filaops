@@ -39,13 +39,12 @@ router = APIRouter(
 def require_local_remediation():
     """Dependency that blocks remediation endpoints in production.
 
-    Reads ENVIRONMENT the same way as the startup production checks in
-    settings.py (trimmed, any case), so "production " or "Production" also
-    block. It is only an environment check: a Docker install keeps the
-    default ENVIRONMENT=development, so these routes stay open to admins there.
+    Uses settings.is_production, like every other production check
+    (trimmed, any case), so "production " or "Production" also block. It is
+    only an environment check: a Docker install keeps the default
+    ENVIRONMENT=development, so these routes stay open to admins there.
     """
-    environment = str(getattr(settings, "ENVIRONMENT", "development") or "")
-    if environment.strip().lower() == "production":
+    if settings.is_production:
         raise HTTPException(
             status_code=403,
             detail="This endpoint is disabled in production environments"

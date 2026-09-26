@@ -74,6 +74,18 @@ KNOWN_WEAK_SECRET_KEYS = _SECRET_KEY_PLACEHOLDERS | _SECRET_KEY_COMMON_WEAK_VALU
 # starting.
 _SECRET_KEY_MIN_LENGTH = 32
 
+
+def is_production_environment(environment: Optional[str]) -> bool:
+    """The one rule for whether an ENVIRONMENT value means production.
+
+    The value is trimmed and compared in any case, so "Production" and
+    " production " count. Use ``Settings.is_production`` for the running
+    settings; this function is for code that reads ENVIRONMENT from the
+    process environment itself.
+    """
+    return (environment or "").strip().lower() == "production"
+
+
 # Mail domains that cannot be a shop's own mailbox: the example domains and
 # the reserved top-level names (RFC 2606), and localhost. ADMIN_APPROVAL_EMAIL
 # defaults to admin@example.com, and password reset approve/deny links go to
@@ -284,7 +296,7 @@ class Settings(BaseSettings):
         `secret_key_is_temporary` is set so the security audit fails until a
         real key is configured. A placeholder DB_PASSWORD only warns there.
         """
-        is_production = self.ENVIRONMENT.strip().lower() == "production"
+        is_production = self.is_production
         offenders = []
         normalized_secret_key = self.SECRET_KEY.strip().lower()
         secret_key_is_placeholder = normalized_secret_key in _SECRET_KEY_PLACEHOLDERS
@@ -724,11 +736,14 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT.lower() == "production"
+        """True in production. Every production check goes through this
+        (or is_production_environment()): Swagger off, HSTS on, placeholder
+        credentials refused."""
+        return is_production_environment(self.ENVIRONMENT)
 
     @property
     def is_development(self) -> bool:
-        return self.ENVIRONMENT.lower() == "development"
+        return (self.ENVIRONMENT or "").strip().lower() == "development"
 
     @property
     def is_pro_tier(self) -> bool:
