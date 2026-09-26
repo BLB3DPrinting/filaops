@@ -388,6 +388,48 @@ def test_portal_quote_approved_by_staff_keeps_the_staff_price(unauthed_client, d
     assert [c["total_price"] for c in checkout_calls] == [Decimal("40.00")]
 
 
+def test_staff_hold_on_an_auto_approved_quote_survives_accept(unauthed_client, db, checkout_calls):
+    """Staff moving an auto-approved quote back to pending is a hold: the
+    customer's next accept must not re-approve it."""
+    owner = _customer(db)
+    quote = _portal_quote(db, owner, weights=None)
+    assert (quote.status, quote.approval_method) == ("approved", "auto")
+
+    staff = _headers(ADMIN_HEADERS_USER_ID)
+    held = unauthed_client.patch(f"{BASE}/{quote.id}/status", json={"status": "pending"}, headers=staff)
+    assert held.status_code == 200, held.text
+    assert quote.status == "pending"
+    assert quote.approval_method == "manual"
+
+    response = _accept(unauthed_client, quote, owner)
+
+    # The shipping choice is still saved, but the quote waits for staff
+    # (PRO's checkout refuses a quote that is not approved).
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "pending"
+    assert data["requires_review"] is True
+    assert data["message"] == "Quote requires manual review"
+    db.expire_all()
+    stored = db.get(Quote, quote.id)
+    assert stored.status == "pending"
+    assert stored.approval_method == "manual"
+    assert stored.unit_price == Decimal("12.50")
+    assert stored.shipping_cost == Decimal("8.50")
+    assert stored.total_price == Decimal("33.50")
+
+    # Once staff approve it, accept refuses to change it and the customer
+    # pays the stored total at checkout.
+    approved = unauthed_client.patch(f"{BASE}/{quote.id}/status", json={"status": "approved"}, headers=staff)
+    assert approved.status_code == 200, approved.text
+    again = _accept(unauthed_client, stored, owner, shipping_cost="0.00")
+    assert again.status_code == 409, again.text
+    assert again.json()["detail"] == "Quote was approved by the shop; continue to checkout"
+    checkout = unauthed_client.post(f"{BASE}/portal/{quote.id}/checkout", headers=_headers(owner.id))
+    assert checkout.status_code == 200, checkout.text
+    assert [c["total_price"] for c in checkout_calls] == [Decimal("33.50")]
+
+
 # ---------------------------------------------------------------------------
 # Honest Quoter flows keep working
 # ---------------------------------------------------------------------------

@@ -660,6 +660,12 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
         quote.approved_by = current_user_id
         quote.approval_method = "manual"
 
+    if request.status == "pending":
+        # Staff put the quote on hold. It is no longer auto-approved: the
+        # customer's next portal accept keeps it pending (it only re-approves
+        # quotes whose approval_method is "auto") until staff approve it.
+        quote.approval_method = "manual"
+
     if request.status == "rejected":
         quote.rejection_reason = request.rejection_reason
 
