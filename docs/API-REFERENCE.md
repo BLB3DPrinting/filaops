@@ -37,6 +37,7 @@ Authorization: Bearer <access_token>
 - **PUBLIC**: No authentication required
 - **CUSTOMER**: Requires valid JWT (any user type); the route only returns or changes the caller's own records
 - **STAFF**: Requires `account_type` in ['admin', 'operator']
+- **STAFF (OWN)**: Requires a staff account; an admin reaches every record, an operator only the records that operator owns (403 otherwise)
 - **ADMIN**: Requires `account_type` = 'admin'
 
 Since 4.2.0, every route that is not marked PUBLIC or CUSTOMER refuses customer
@@ -45,10 +46,10 @@ quote routes (`POST /quotes/portal`, `POST /quotes/portal/{quote_id}/accept`,
 `POST /quotes/portal/{quote_id}/checkout`, `GET /quotes/{quote_id}/archive`,
 `GET /quotes/{quote_id}/files`, `GET /quotes/{quote_id}/files/{file_id}/download`).
 
-Eight sales-order routes are marked ADMIN but also let an operator through for
-orders that operator owns: the order list, order detail, material
-requirements, cancel, and the `events` and `shipping-events` routes (GET and
-POST). The list returns only the operator's own orders.
+Eight sales-order routes are marked STAFF (OWN): the order list, order detail,
+material requirements, cancel, and the `events` and `shipping-events` routes
+(GET and POST). An admin reaches every order; an operator gets only the orders
+that operator owns (the list returns only those, the others answer 403).
 
 ---
 
@@ -99,19 +100,19 @@ POST). The list returns only the operator's own orders.
 | GET | `/sales-orders/payment-statuses` | Get valid payment status values for sales orders. | STAFF |
 | POST | `/sales-orders/` | Create a manual sales order (line_item type). | STAFF |
 | POST | `/sales-orders/convert/{quote_id}` | Convert an accepted quote to a sales order. | STAFF |
-| GET | `/sales-orders/` | Get list of sales orders. | ADMIN |
-| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | ADMIN |
+| GET | `/sales-orders/` | Get list of sales orders. | STAFF (OWN) |
+| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | STAFF (OWN) |
 | GET | `/sales-orders/{order_id}/packing-slip/pdf` | Generate and return a packing slip PDF for a sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/required-orders` | Get full MRP cascade of WOs and POs needed to fulfill this sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/blocking-issues` | Get blocking issues analysis for a sales order. | STAFF |
 | GET | `/sales-orders/{order_id}/fulfillment-status` | Get fulfillment status for a sales order. | STAFF |
-| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | ADMIN |
+| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | STAFF (OWN) |
 | POST | `/sales-orders/{order_id}/pre-flight-check` | Pre-flight check before confirming a sales order. | STAFF |
 | PATCH | `/sales-orders/{order_id}/status` | Update sales order status (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/payment` | Update payment information for an order (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/shipping` | Update shipping information for an order (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/address` | Update shipping address for an order (admin only). | ADMIN |
-| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | ADMIN |
+| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | STAFF (OWN) |
 | PATCH | `/sales-orders/{order_id}/lines` | Edit line item quantities on a sales order. | ADMIN |
 | DELETE | `/sales-orders/{order_id}/lines/{line_id}` | Remove a line item from a sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/close-short-preview` | Preview close-short: shows per-line achievable quantities and PO status. | ADMIN |
@@ -121,10 +122,10 @@ POST). The list returns only the operator's own orders.
 | DELETE | `/sales-orders/{order_id}` | Delete a sales order (admin only). | ADMIN |
 | POST | `/sales-orders/{order_id}/ship` | Create shipping label and mark order as shipped. | ADMIN |
 | POST | `/sales-orders/{order_id}/generate-production-orders` | Generate production orders from a sales order (admin only). | ADMIN |
-| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | ADMIN |
-| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | ADMIN |
-| GET | `/sales-orders/{order_id}/shipping-events` | List shipping events for a sales order. | ADMIN |
-| POST | `/sales-orders/{order_id}/shipping-events` | Add a shipping event to a sales order. | ADMIN |
+| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | STAFF (OWN) |
+| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | STAFF (OWN) |
+| GET | `/sales-orders/{order_id}/shipping-events` | List shipping events for a sales order. | STAFF (OWN) |
+| POST | `/sales-orders/{order_id}/shipping-events` | Add a shipping event to a sales order. | STAFF (OWN) |
 
 ---
 
@@ -132,7 +133,7 @@ POST). The list returns only the operator's own orders.
 
 **Tier**: Core
 **File**: `endpoints/quotes.py`
-**Endpoints**: 12
+**Endpoints**: 21
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -148,6 +149,15 @@ POST). The list returns only the operator's own orders.
 | GET | `/quotes/{quote_id}/image` | Get the image for a quote | STAFF |
 | DELETE | `/quotes/{quote_id}/image` | Delete the image for a quote | STAFF |
 | GET | `/quotes/{quote_id}/pdf` | Generate a PDF for a quote using ReportLab with company logo, image, and tax | STAFF |
+| POST | `/quotes/{quote_id}/create-item` | Create a Core item/product from an approved quote | STAFF |
+| POST | `/quotes/{quote_id}/files` | Attach a retained file to a manual or online quote | STAFF |
+| DELETE | `/quotes/{quote_id}/files/{file_id}` | Remove a retained file from a quote | STAFF |
+| POST | `/quotes/portal` | Upload a file and create a quote for the logged-in customer (403 unless `ENABLE_PUBLIC_QUOTER=true`) | CUSTOMER |
+| POST | `/quotes/portal/{quote_id}/accept` | Save the customer's ship-to, shipping choice and colour slots on a quote the customer created; never changes the price (409 for closed, expired, shop-drafted or shop-approved quotes) | CUSTOMER |
+| POST | `/quotes/portal/{quote_id}/checkout` | Start payment for the customer's quote through the payment provider (PRO) | CUSTOMER |
+| GET | `/quotes/{quote_id}/archive` | Read-only quote archive; customers get their own quotes only, without staff notes | CUSTOMER |
+| GET | `/quotes/{quote_id}/files` | List a quote's files (the customer's own quotes, or any quote for staff) | CUSTOMER |
+| GET | `/quotes/{quote_id}/files/{file_id}/download` | Download a quote file (the customer's own quotes, or any quote for staff) | CUSTOMER |
 
 ---
 
