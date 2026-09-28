@@ -2,12 +2,15 @@
 
 Ollama normally runs on localhost or the LAN, so private addresses must keep
 working. These must not work: other schemes, credentials in the URL, query or
-fragment tricks that change the fetched path, redirects, and echoing back
-whatever the URL answered with. Customers must not read the AI settings.
+fragment tricks that change the fetched path, redirects, link-local and cloud
+metadata addresses (literal, or a host name that resolves to one), and echoing
+back whatever the URL answered with. Customers must not read the AI settings.
 
-Stub servers bind 127.0.0.1 on ephemeral ports only.
+Stub servers bind 127.0.0.1 on ephemeral ports only. Tests that use host
+names get a fake resolver (the `net` fixture), so no DNS query leaves.
 """
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
@@ -15,8 +18,10 @@ from unittest.mock import patch
 import pytest
 
 from app.api.v1.endpoints.settings import (
+    _OLLAMA_BLOCKED_HELP,
     _OLLAMA_URL_HELP,
     _normalize_ollama_url,
+    _ollama_is_up,
     get_or_create_settings,
 )
 
@@ -218,7 +223,7 @@ class TestOllamaConnectionTest:
 
     def test_exception_text_not_echoed(self, client, db):
         _store(db, "http://localhost:11434")
-        with patch("requests.get", side_effect=RuntimeError(f"boom {MARK}")):
+        with patch("requests.Session.get", side_effect=RuntimeError(f"boom {MARK}")):
             data = client.post(f"{SETTINGS_URL}/ai/test").json()
         assert data["message"] == "Connection test failed"
 
@@ -244,6 +249,173 @@ class TestStartOllamaUrl:
             data = client.post(f"{SETTINGS_URL}/ai/start-ollama").json()
         assert data["success"] is True
         assert not popen.called
+
+
+# =============================================================================
+# Link-local and cloud metadata addresses (app.core.outbound_guard)
+# =============================================================================
+
+_real_getaddrinfo = socket.getaddrinfo
+_real_connect = socket.socket.connect
+
+
+@pytest.fixture
+def net(monkeypatch):
+    """Fake DNS plus a connect guard. Yields (table, lookups, connects).
+
+    Host names resolve only from `table`; numeric hosts are parsed locally.
+    A socket connect to anything but 127.0.0.1 fails the test. Request it
+    after client/db so the database connection is already open.
+    """
+    table = {"localhost": ["127.0.0.1"]}
+    lookups = []
+    connects = []
+
+    def getaddrinfo(host, port, family=0, socktype=0, proto=0, flags=0):
+        lookups.append(host)
+        if host not in table:
+            return _real_getaddrinfo(host, port, family, socktype, proto, flags | socket.AI_NUMERICHOST)
+        return [
+            info
+            for ip in table[host]
+            for info in _real_getaddrinfo(ip, port, 0, socktype, proto, socket.AI_NUMERICHOST)
+        ]
+
+    def connect(sock, address):
+        connects.append(address[0])
+        if address[0] != "127.0.0.1":
+            raise AssertionError(f"test tried to connect to {address[0]}")
+        return _real_connect(sock, address)
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    return table, lookups, connects
+
+
+def _port(base_url):
+    return base_url.rsplit(":", 1)[1]
+
+
+class TestBlockedOllamaAddresses:
+    @pytest.mark.parametrize("url", [
+        "http://169.254.169.254",
+        "http://169.254.169.254:11434",
+        "https://169.254.0.1/ollama",
+        "http://[fe80::1]:11434",
+        "http://[fe80::1%25eth0]:11434",
+        "http://[::ffff:169.254.169.254]:11434",
+        "http://[64:ff9b::a9fe:a9fe]:11434",
+        "http://[fd00:ec2::254]",
+        "http://100.100.100.200",
+        "http://168.63.129.16",
+        "http://0.0.0.0:11434",
+        "http://[::]:11434",
+        "http://224.0.0.251:11434",
+        "http://2852039166:11434",
+        "http://0xa9fea9fe:11434",
+    ])
+    def test_literal_blocked_address_rejected_on_save(self, client, db, net, url):
+        _store(db, "http://localhost:11434")
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_ollama_url": url})
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == _OLLAMA_BLOCKED_HELP
+        assert client.get(f"{SETTINGS_URL}/ai").json()["ai_ollama_url"] == "http://localhost:11434"
+        _, lookups, connects = net
+        assert lookups == [] and connects == []
+
+    @pytest.mark.parametrize("url", [
+        "http://127.0.0.1:11434",
+        "http://[::1]:11434",
+        "http://10.0.0.5:11434",
+        "http://172.16.0.5:11434",
+        "http://192.168.1.50:11434",
+        "http://100.64.0.1:11434",         # Tailscale (CGNAT range)
+        "http://100.101.102.103:11434",
+        "http://[fd12::1]:11434",          # IPv6 ULA
+        "http://[fd7a:115c:a1e0::1]:11434",  # Tailscale IPv6
+    ])
+    def test_lan_tailscale_and_ula_addresses_saved(self, client, url):
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_provider": "ollama", "ai_ollama_url": url})
+        assert resp.status_code == 200
+        assert resp.json()["ai_ollama_url"] == url
+
+    def test_host_name_saved_without_dns(self, client, db, net):
+        # Host names are judged when the server connects, not when saved.
+        table, lookups, _ = net
+        table["metadata.example.test"] = ["169.254.169.254"]
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_ollama_url": "http://metadata.example.test:11434"})
+        assert resp.status_code == 200
+        assert lookups == []
+
+    @pytest.mark.parametrize("url", [
+        "http://169.254.169.254",
+        "http://[fd00:ec2::254]:11434",
+        "http://0.0.0.0:11434",
+    ])
+    def test_stored_blocked_address_reported_on_test(self, client, db, net, url):
+        _store(db, url)  # saved before this check existed
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data == {"success": False, "provider": "ollama", "message": _OLLAMA_BLOCKED_HELP}
+        assert net[2] == []
+
+    @pytest.mark.parametrize("answers", [
+        ["169.254.169.254"],
+        ["127.0.0.1", "169.254.169.254"],  # one blocked answer refuses the name
+        ["::ffff:169.254.169.254"],
+    ])
+    def test_name_resolving_to_blocked_address_reported_on_test(self, client, db, stubs, net, answers):
+        urls, hits = stubs
+        table, _, connects = net
+        table["ollama.example.test"] = answers
+        _store(db, f"http://ollama.example.test:{_port(urls['ollama'])}")
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data == {"success": False, "provider": "ollama", "message": _OLLAMA_BLOCKED_HELP}
+        assert hits == [] and connects == []
+
+    def test_name_resolving_to_lan_address_still_works(self, client, db, stubs, net):
+        urls, hits = stubs
+        table, lookups, connects = net
+        table["ollama.lan.test"] = ["127.0.0.1"]
+        _store(db, f"http://ollama.lan.test:{_port(urls['ollama'])}")
+        data = client.post(f"{SETTINGS_URL}/ai/test").json()
+        assert data["success"] is True
+        assert hits == [("ollama", "/api/tags")]
+        assert lookups == ["ollama.lan.test"]
+        assert connects == ["127.0.0.1"]
+
+    def test_blocked_message_is_not_the_not_running_message(self, client, db, net):
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+        probe.close()
+        _store(db, f"http://127.0.0.1:{closed_port}")
+        not_running = client.post(f"{SETTINGS_URL}/ai/test").json()["message"]
+        assert "not running" in not_running
+        assert not_running != _OLLAMA_BLOCKED_HELP
+
+    @pytest.mark.parametrize("stored,name,answers", [
+        ("http://169.254.169.254:11434", None, None),
+        ("http://[fe80::1]:11434", None, None),
+        ("http://metadata.example.test:11434", "metadata.example.test", ["169.254.169.254"]),
+        ("http://mixed.example.test:11434", "mixed.example.test", ["127.0.0.1", "169.254.169.254"]),
+    ])
+    def test_start_ollama_does_not_spawn_for_blocked_address(self, client, db, net, stored, name, answers):
+        table, _, connects = net
+        if name:
+            table[name] = answers
+        _store(db, stored)
+        with patch("subprocess.Popen") as popen:
+            data = client.post(f"{SETTINGS_URL}/ai/start-ollama").json()
+        assert data == {"success": False, "message": _OLLAMA_BLOCKED_HELP}
+        assert not popen.called
+        assert connects == []
+
+    def test_ollama_is_up_false_for_blocked_address(self, net):
+        table, _, connects = net
+        table["metadata.example.test"] = ["169.254.169.254"]
+        assert _ollama_is_up("http://169.254.169.254", timeout=1) is False
+        assert _ollama_is_up("http://metadata.example.test:11434", timeout=1) is False
+        assert connects == []
 
 
 # =============================================================================

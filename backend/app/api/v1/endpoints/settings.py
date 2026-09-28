@@ -30,6 +30,12 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.company_settings import CompanySettings
 from app.api.v1.deps import get_current_admin_user, get_current_staff_user
+from app.core.outbound_guard import (
+    BlockedDestinationError,
+    guarded_session,
+    is_blocked_destination,
+    parse_ip_literal,
+)
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -390,11 +396,18 @@ def _test_anthropic_connection(api_key: str) -> tuple[bool, str]:
 # SEC: ai_ollama_url is fetched by the server. Ollama normally runs on
 # localhost or the LAN, so private addresses stay allowed. What is refused is
 # anything that lets the setting reach more than <base>/api/tags: other
-# schemes, credentials in the URL, query strings, fragments, redirects.
+# schemes, credentials in the URL, query strings, fragments, redirects, and
+# (app.core.outbound_guard) link-local and cloud metadata addresses, checked
+# on the address the server actually connects to.
 _OLLAMA_DEFAULT_URL = "http://localhost:11434"
 _OLLAMA_URL_HELP = (
     "Ollama URL must look like http://host:port (http or https, "
     "no username/password, no ? or #)."
+)
+_OLLAMA_BLOCKED_HELP = (
+    "That address can't be used for Ollama: link-local, cloud metadata and "
+    "other special addresses (such as 0.0.0.0) are blocked. Use localhost or "
+    "the Ollama machine's LAN address."
 )
 _OLLAMA_PATH_RE = re.compile(r"[A-Za-z0-9._~/-]*")
 _OLLAMA_MAX_TAGS_BYTES = 1024 * 1024
@@ -419,17 +432,26 @@ def _normalize_ollama_url(raw: Optional[str]) -> Optional[str]:
     return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
 
 
+def _ollama_host_is_blocked_ip(base_url: str) -> bool:
+    """True if the URL's host is a blocked IP address written out (no DNS).
+
+    Host names are left to the connect-time check in _fetch_ollama_models.
+    """
+    ip = parse_ip_literal(urlsplit(base_url).hostname or "")
+    return ip is not None and is_blocked_destination(ip)
+
+
 def _fetch_ollama_models(base_url: str, timeout=(3, 5)) -> tuple[int, Optional[list[str]]]:
     """GET <base_url>/api/tags. No redirects, bounded size and time.
 
     Returns (status_code, model names) where names is None unless the answer
     is a 200 shaped like Ollama's {"models": [{"name": ...}]}. The raw body is
     never returned, so nothing else the URL answers with reaches the caller.
+    Raises BlockedDestinationError if the host is, or resolves to, a
+    link-local, cloud metadata or other blocked address.
     """
-    import requests
-
     deadline = time.monotonic() + _OLLAMA_DEADLINE_SECONDS
-    with requests.get(
+    with guarded_session() as session, session.get(
         f"{base_url}/api/tags",
         timeout=timeout,
         allow_redirects=False,
@@ -463,6 +485,8 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
         return False, _OLLAMA_URL_HELP
     try:
         status_code, names = _fetch_ollama_models(base_url)
+    except BlockedDestinationError:  # before ConnectionError, its base class
+        return False, _OLLAMA_BLOCKED_HELP
     except requests.exceptions.ConnectionError:
         return False, "Ollama is not running. Click 'Start Ollama' below or launch the Ollama app."
     except requests.exceptions.Timeout:
@@ -488,7 +512,7 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
 def _ollama_is_up(base_url: str, timeout) -> bool:
     try:
         _, names = _fetch_ollama_models(base_url, timeout=timeout)
-    except Exception:
+    except Exception:  # includes BlockedDestinationError: a blocked address is never up
         return False
     return names is not None
 
@@ -545,6 +569,12 @@ async def update_ai_settings(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=_OLLAMA_URL_HELP,
+            )
+        # A host name is checked when the server connects (no DNS here).
+        if _ollama_host_is_blocked_ip(normalized):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=_OLLAMA_BLOCKED_HELP,
             )
         update_data["ai_ollama_url"] = normalized
     elif "ai_ollama_url" in update_data:
@@ -644,7 +674,16 @@ def start_ollama(
         return {"success": False, "message": _OLLAMA_URL_HELP}
 
     # First check if already running
-    if _ollama_is_up(ollama_url, timeout=2):
+    try:
+        _, names = _fetch_ollama_models(ollama_url, timeout=2)
+    except BlockedDestinationError:
+        # SEC: a blocked address never answers. Say so, rather than falling
+        # through to launching a local 'ollama serve' for a URL the server
+        # will never contact.
+        return {"success": False, "message": _OLLAMA_BLOCKED_HELP}
+    except Exception:
+        names = None
+    if names is not None:
         return {
             "success": True,
             "message": "Ollama is already running!"
