@@ -120,7 +120,6 @@ def _ipv4_is_blocked(addr: ipaddress.IPv4Address) -> bool:
     return (
         addr in _LINK_LOCAL_V4
         or addr in _METADATA_ADDRESSES
-        or addr.is_unspecified          # 0.0.0.0
         or addr.is_multicast            # 224.0.0.0/4
         or addr.is_reserved             # 240.0.0.0/4, including 255.255.255.255
     )
@@ -130,13 +129,20 @@ def is_blocked_destination(ip: Union[str, IPAddress]) -> bool:
     """True if a fetch of a user-configured URL must not connect to *ip*.
 
     Blocked: IPv4 and IPv6 link-local (169.254.0.0/16, fe80::/10), known cloud
-    metadata addresses, unspecified (0.0.0.0, ::), multicast, and reserved
-    IPv4 (240.0.0.0/4, which includes the broadcast address). IPv4-mapped,
-    IPv4-compatible and NAT64 (64:ff9b::/96) IPv6 addresses are also judged
-    by the IPv4 address they carry.
+    metadata addresses, multicast, and reserved IPv4 (240.0.0.0/4, which
+    includes the broadcast address). IPv4-mapped, IPv4-compatible and NAT64
+    (64:ff9b::/96) IPv6 addresses are also judged by the IPv4 address they
+    carry.
 
     Allowed: everything else, including loopback, RFC 1918, ULA (fc00::/7)
     and CGNAT (100.64.0.0/10), apart from the metadata addresses in them.
+
+    The unspecified addresses 0.0.0.0 and :: are allowed because they count
+    as loopback: connecting to them reaches this host (Linux, macOS) or
+    fails, depending on the OS, and never reaches another machine. People
+    copy http://0.0.0.0:11434 from OLLAMA_HOST=0.0.0.0. A future policy that
+    blocks loopback must block 0.0.0.0 and :: (and their IPv4-mapped forms)
+    as well.
 
     Raises ValueError if *ip* is not an IP address.
     """
@@ -149,7 +155,6 @@ def is_blocked_destination(ip: Union[str, IPAddress]) -> bool:
     return (
         addr in _LINK_LOCAL_V6
         or addr in _METADATA_ADDRESSES
-        or addr.is_unspecified
         or addr.is_multicast
     )
 

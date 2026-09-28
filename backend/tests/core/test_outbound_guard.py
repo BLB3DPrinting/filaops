@@ -152,14 +152,14 @@ BLOCKED = [
     # metadata addresses outside link-local
     "fd00:ec2::254", "100.100.100.200", "168.63.129.16",
     "::ffff:100.100.100.200", "64:ff9b::6464:64c8", "::ffff:168.63.129.16",
-    # unspecified, multicast, reserved and broadcast
-    "0.0.0.0", "::", "::ffff:0.0.0.0",
+    # multicast, reserved and broadcast
     "224.0.0.1", "239.255.255.250", "ff02::1", "ff05::c", "::ffff:224.0.0.1",
     "240.0.0.1", "255.255.255.255",
 ]
 
 ALLOWED = [
     "127.0.0.1", "127.8.9.10", "::1", "::ffff:127.0.0.1",                 # loopback
+    "0.0.0.0", "::", "::ffff:0.0.0.0",                                    # unspecified: this host
     "10.0.0.5", "172.16.0.5", "172.31.255.254", "192.168.1.50",          # RFC 1918
     "::ffff:192.168.1.50", "64:ff9b::a00:5",                             # LAN inside IPv6
     "100.64.0.1", "100.100.100.199", "100.127.255.254",                  # CGNAT / Tailscale
@@ -246,7 +246,7 @@ def test_name_resolving_to_loopback_works(dns, server, connects, name):
 @pytest.mark.parametrize("host", [
     "169.254.169.254", "169.254.0.1", "[fe80::1]", "[::ffff:169.254.169.254]",
     "[::ffff:a9fe:a9fe]", "[64:ff9b::a9fe:a9fe]", "[fd00:ec2::254]",
-    "100.100.100.200", "168.63.129.16", "0.0.0.0", "[::]", "224.0.0.1",
+    "100.100.100.200", "168.63.129.16", "224.0.0.1",
     "[ff02::1]", "255.255.255.255",
 ])
 def test_blocked_literal_refused(dns, connects, host):

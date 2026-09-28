@@ -317,7 +317,7 @@ The **AI Assistant** card configures the AI provider used for features like invo
     5. Save.
 
     !!! note "Which Ollama URLs work"
-        Use a plain address such as `http://localhost:11434`, `http://192.168.1.20:11434` or a host name on your network, with `http://` or `https://`, and without a username, password, `?` or `#`. Addresses on the same machine, your LAN or Tailscale work. Link-local and cloud metadata addresses (such as `169.254.169.254`) are refused, and so is `0.0.0.0`: if Ollama was started with `OLLAMA_HOST=0.0.0.0`, point FilaOps at `localhost` or the machine's LAN address instead.
+        Use a plain address such as `http://localhost:11434`, `http://192.168.1.20:11434` or a host name on your network, with `http://` or `https://`, and without a username, password, `?` or `#`. Addresses on the same machine, your LAN or Tailscale work. Link-local, cloud metadata (such as `169.254.169.254`) and multicast addresses are refused.
 
 ---
 

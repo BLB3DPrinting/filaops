@@ -406,7 +406,7 @@ _OLLAMA_URL_HELP = (
 )
 _OLLAMA_BLOCKED_HELP = (
     "That address can't be used for Ollama: link-local, cloud metadata and "
-    "other special addresses (such as 0.0.0.0) are blocked. Use localhost or "
+    "multicast addresses (such as 169.254.x.x) are blocked. Use localhost or "
     "the Ollama machine's LAN address."
 )
 _OLLAMA_PATH_RE = re.compile(r"[A-Za-z0-9._~/-]*")

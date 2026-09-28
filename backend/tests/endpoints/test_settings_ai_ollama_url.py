@@ -308,8 +308,6 @@ class TestBlockedOllamaAddresses:
         "http://[fd00:ec2::254]",
         "http://100.100.100.200",
         "http://168.63.129.16",
-        "http://0.0.0.0:11434",
-        "http://[::]:11434",
         "http://224.0.0.251:11434",
         "http://2852039166:11434",
         "http://0xa9fea9fe:11434",
@@ -333,11 +331,25 @@ class TestBlockedOllamaAddresses:
         "http://100.101.102.103:11434",
         "http://[fd12::1]:11434",          # IPv6 ULA
         "http://[fd7a:115c:a1e0::1]:11434",  # Tailscale IPv6
+        "http://0.0.0.0:11434",            # reaches this host, like localhost
+        "http://[::]:11434",
     ])
     def test_lan_tailscale_and_ula_addresses_saved(self, client, url):
         resp = client.patch(f"{SETTINGS_URL}/ai", json={"ai_provider": "ollama", "ai_ollama_url": url})
         assert resp.status_code == 200
         assert resp.json()["ai_ollama_url"] == url
+
+    def test_stored_0000_url_does_not_block_saving_other_ai_settings(self, client, db):
+        # The settings page sends the stored URL back on every save, so a URL
+        # refused on save would make every AI setting unsaveable.
+        _store(db, "http://0.0.0.0:11434")
+        resp = client.patch(f"{SETTINGS_URL}/ai", json={
+            "ai_provider": "ollama",
+            "ai_ollama_url": "http://0.0.0.0:11434",
+            "ai_ollama_model": "mistral",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["ai_ollama_model"] == "mistral"
 
     def test_host_name_saved_without_dns(self, client, db, net):
         # Host names are judged when the server connects, not when saved.
@@ -350,7 +362,7 @@ class TestBlockedOllamaAddresses:
     @pytest.mark.parametrize("url", [
         "http://169.254.169.254",
         "http://[fd00:ec2::254]:11434",
-        "http://0.0.0.0:11434",
+        "http://[::ffff:100.100.100.200]:11434",
     ])
     def test_stored_blocked_address_reported_on_test(self, client, db, net, url):
         _store(db, url)  # saved before this check existed
