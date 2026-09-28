@@ -360,10 +360,12 @@ class TestBlockedOllamaAddresses:
 
     @pytest.mark.parametrize("answers", [
         ["169.254.169.254"],
-        ["127.0.0.1", "169.254.169.254"],  # one blocked answer refuses the name
+        ["169.254.169.254", "fe80::1"],  # every answer blocked
         ["::ffff:169.254.169.254"],
     ])
-    def test_name_resolving_to_blocked_address_reported_on_test(self, client, db, stubs, net, answers):
+    def test_name_resolving_only_to_blocked_addresses_reported_on_test(
+        self, client, db, stubs, net, answers
+    ):
         urls, hits = stubs
         table, _, connects = net
         table["ollama.example.test"] = answers
@@ -372,15 +374,23 @@ class TestBlockedOllamaAddresses:
         assert data == {"success": False, "provider": "ollama", "message": _OLLAMA_BLOCKED_HELP}
         assert hits == [] and connects == []
 
-    def test_name_resolving_to_lan_address_still_works(self, client, db, stubs, net):
+    @pytest.mark.parametrize("answers", [
+        ["127.0.0.1"],
+        # mDNS (.local) and Windows LLMNR names often resolve to the LAN
+        # address plus an fe80:: address; only the LAN address is used.
+        ["127.0.0.1", "fe80::1c2d:3e4f:5a6b:7c8d"],
+        ["fe80::1c2d:3e4f:5a6b:7c8d", "127.0.0.1"],
+        ["169.254.169.254", "127.0.0.1"],
+    ])
+    def test_name_with_a_lan_address_works(self, client, db, stubs, net, answers):
         urls, hits = stubs
         table, lookups, connects = net
-        table["ollama.lan.test"] = ["127.0.0.1"]
-        _store(db, f"http://ollama.lan.test:{_port(urls['ollama'])}")
+        table["ollama-mac.local"] = answers
+        _store(db, f"http://ollama-mac.local:{_port(urls['ollama'])}")
         data = client.post(f"{SETTINGS_URL}/ai/test").json()
         assert data["success"] is True
         assert hits == [("ollama", "/api/tags")]
-        assert lookups == ["ollama.lan.test"]
+        assert lookups == ["ollama-mac.local"]
         assert connects == ["127.0.0.1"]
 
     def test_blocked_message_is_not_the_not_running_message(self, client, db, net):
@@ -397,7 +407,7 @@ class TestBlockedOllamaAddresses:
         ("http://169.254.169.254:11434", None, None),
         ("http://[fe80::1]:11434", None, None),
         ("http://metadata.example.test:11434", "metadata.example.test", ["169.254.169.254"]),
-        ("http://mixed.example.test:11434", "mixed.example.test", ["127.0.0.1", "169.254.169.254"]),
+        ("http://mixed.example.test:11434", "mixed.example.test", ["fe80::1", "169.254.169.254"]),
     ])
     def test_start_ollama_does_not_spawn_for_blocked_address(self, client, db, net, stored, name, answers):
         table, _, connects = net
@@ -409,6 +419,17 @@ class TestBlockedOllamaAddresses:
         assert data == {"success": False, "message": _OLLAMA_BLOCKED_HELP}
         assert not popen.called
         assert connects == []
+
+    def test_start_ollama_finds_ollama_behind_a_name_with_an_fe80_answer(self, client, db, stubs, net):
+        urls, _ = stubs
+        table, _, connects = net
+        table["ollama-mac.local"] = ["fe80::1", "127.0.0.1"]
+        _store(db, f"http://ollama-mac.local:{_port(urls['ollama'])}")
+        with patch("subprocess.Popen") as popen:
+            data = client.post(f"{SETTINGS_URL}/ai/start-ollama").json()
+        assert data == {"success": True, "message": "Ollama is already running!"}
+        assert not popen.called
+        assert connects == ["127.0.0.1"]
 
     def test_ollama_is_up_false_for_blocked_address(self, net):
         table, _, connects = net

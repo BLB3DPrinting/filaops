@@ -10,11 +10,13 @@ services such as Ollama live there.
 The check runs when the socket is opened, on the addresses the host name
 actually resolved to:
 
-* the host is resolved once and every address is checked. One blocked address
-  refuses the whole request, so a name that resolves to both a LAN address
-  and a metadata address is refused;
-* the socket connects only to the addresses that were checked, so a second
-  DNS answer (DNS rebinding) cannot swap in another one;
+* the host is resolved once and every address is checked. Blocked answers
+  are dropped and never contacted; if every answer is blocked the request is
+  refused. A name that also has an allowed answer connects to that one only,
+  so an mDNS (.local) or Windows LLMNR name that comes back with both its LAN
+  address and its fe80:: address still works;
+* the socket connects only to the addresses that were checked and allowed,
+  so a second DNS answer (DNS rebinding) cannot swap in another one;
 * numeric spellings, IPv4-mapped/-compatible and NAT64 IPv6 forms are caught
   because the check sees the address the OS resolved, not the text of the URL;
 * TLS still uses the host name for SNI and certificate checks;
@@ -85,11 +87,11 @@ _NUMERIC_V4_RE = re.compile(r"[0-9A-Fa-fXx.]+")
 
 
 class BlockedDestinationError(requests.exceptions.ConnectionError):
-    """The URL's host is, or resolves to, an address outbound fetches may not reach."""
+    """The URL's host is, or resolves only to, addresses outbound fetches may not reach."""
 
 
 class _BlockedAtConnect(Exception):
-    """Raised inside urllib3 when a host resolves to a blocked address.
+    """Raised inside urllib3 when a host resolves only to blocked addresses.
 
     Deliberately not an OSError: urllib3 retries and re-wraps OSErrors, which
     would bury it. _GuardedAdapter.send turns it into BlockedDestinationError.
@@ -179,17 +181,23 @@ def parse_ip_literal(host: str) -> Optional[IPAddress]:
 # =============================================================================
 
 def _resolve_checked(host: str, port: int) -> list:
-    """Resolve *host* once. Refuse if any answer is blocked, else return them all."""
+    """Resolve *host* once and return only the answers that may be contacted.
+
+    Blocked answers are dropped, so they are never tried, not even after the
+    allowed ones fail. Refuses the request if every answer is blocked.
+    """
     infos = socket.getaddrinfo(host, port, allowed_gai_family(), socket.SOCK_STREAM)
+    allowed, blocked = [], []
     for info in infos:
-        address = info[4][0]
         try:
-            blocked = is_blocked_destination(address)
+            refused = is_blocked_destination(info[4][0])
         except ValueError:
-            blocked = True  # not an IP we can judge: fail closed
-        if blocked:
-            raise _BlockedAtConnect(f"{host} resolves to {address}, which is blocked")
-    return infos
+            refused = True  # not an IP we can judge: fail closed
+        (blocked if refused else allowed).append(info)
+    if blocked and not allowed:
+        addresses = ", ".join(dict.fromkeys(str(info[4][0]) for info in blocked))
+        raise _BlockedAtConnect(f"{host} resolves only to blocked addresses ({addresses})")
+    return allowed
 
 
 def _connect_to_checked(infos: list, timeout, source_address, socket_options) -> socket.socket:

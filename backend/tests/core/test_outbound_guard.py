@@ -257,13 +257,12 @@ def test_blocked_literal_refused(dns, connects, host):
 
 @pytest.mark.parametrize("answers", [
     ["169.254.169.254"],
-    ["127.0.0.1", "169.254.169.254"],  # one blocked answer refuses the whole name
-    ["169.254.169.254", "127.0.0.1"],
-    ["192.168.1.50", "fd00:ec2::254"],
+    ["169.254.169.254", "fe80::1"],  # every answer blocked
+    ["fd00:ec2::254", "100.100.100.200"],
     ["::ffff:169.254.169.254"],
     ["64:ff9b::a9fe:a9fe"],
 ])
-def test_name_resolving_to_blocked_address_refused(dns, server, connects, answers):
+def test_name_resolving_only_to_blocked_addresses_refused(dns, server, connects, answers):
     table, _ = dns
     table["metadata.example.test"] = answers
     port, hits = server
@@ -271,6 +270,42 @@ def test_name_resolving_to_blocked_address_refused(dns, server, connects, answer
         _get(f"http://metadata.example.test:{port}/api/tags")
     assert connects == []
     assert hits == []
+
+
+@pytest.mark.parametrize("answers", [
+    # mDNS (.local) and Windows LLMNR names often come back with the host's
+    # LAN address and its fe80:: address. The fe80:: answer is dropped.
+    ["127.0.0.1", "fe80::1c2d:3e4f:5a6b:7c8d"],
+    ["fe80::1c2d:3e4f:5a6b:7c8d", "127.0.0.1"],
+    ["169.254.169.254", "127.0.0.1"],
+    ["127.0.0.1", "fd00:ec2::254"],
+])
+def test_name_with_an_allowed_answer_connects_to_that_one_only(dns, server, connects, answers):
+    table, lookups = dns
+    table["ollama-mac.local"] = answers
+    port, hits = server
+    resp = _get(f"http://ollama-mac.local:{port}/api/tags")
+    assert resp.status_code == 200
+    assert hits == [("/api/tags", f"ollama-mac.local:{port}")]
+    assert lookups == ["ollama-mac.local"]
+    # A blocked answer is never tried (the connects fixture fails the test if
+    # it is), including when it comes first.
+    assert connects == ["127.0.0.1"]
+
+
+def test_blocked_answer_not_tried_when_the_allowed_one_fails(dns, connects):
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    closed_port = probe.getsockname()[1]
+    probe.close()
+    table, _ = dns
+    table["mixed.example.test"] = ["127.0.0.1", "169.254.169.254", "fe80::1"]
+    with pytest.raises(requests.exceptions.ConnectionError) as info:
+        _get(f"http://mixed.example.test:{closed_port}/api/tags")
+    # An ordinary "could not connect", not a refusal: the allowed address was
+    # tried and nothing else was.
+    assert not isinstance(info.value, BlockedDestinationError)
+    assert connects == ["127.0.0.1"]
 
 
 @pytest.mark.parametrize("spelling", ["2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "169.254.43518"])

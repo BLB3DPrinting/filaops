@@ -447,8 +447,8 @@ def _fetch_ollama_models(base_url: str, timeout=(3, 5)) -> tuple[int, Optional[l
     Returns (status_code, model names) where names is None unless the answer
     is a 200 shaped like Ollama's {"models": [{"name": ...}]}. The raw body is
     never returned, so nothing else the URL answers with reaches the caller.
-    Raises BlockedDestinationError if the host is, or resolves to, a
-    link-local, cloud metadata or other blocked address.
+    Raises BlockedDestinationError if the host is, or resolves only to,
+    link-local, cloud metadata or other blocked addresses.
     """
     deadline = time.monotonic() + _OLLAMA_DEADLINE_SECONDS
     with guarded_session() as session, session.get(
