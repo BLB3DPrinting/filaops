@@ -305,6 +305,7 @@ class TestBlockedOllamaAddresses:
         "http://[fe80::1%25eth0]:11434",
         "http://[::ffff:169.254.169.254]:11434",
         "http://[64:ff9b::a9fe:a9fe]:11434",
+        "http://[64:ff9b:1::a9fe:a9fe]:11434",
         "http://[fd00:ec2::254]",
         "http://100.100.100.200",
         "http://168.63.129.16",

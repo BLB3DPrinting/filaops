@@ -149,6 +149,9 @@ BLOCKED = [
     # IPv4 carried inside IPv6
     "::ffff:169.254.169.254", "::ffff:a9fe:a9fe", "::169.254.169.254",
     "64:ff9b::a9fe:a9fe", "64:ff9b::169.254.169.254",
+    # local-use NAT64 (64:ff9b:1::/48), /96 layout, including a /96 inside it
+    "64:ff9b:1::a9fe:a9fe", "64:ff9b:1:ab:cd::a9fe:a9fe",
+    "64:ff9b:1::6464:64c8", "64:ff9b:1::a83f:8110",
     # metadata addresses outside link-local
     "fd00:ec2::254", "100.100.100.200", "168.63.129.16",
     "::ffff:100.100.100.200", "64:ff9b::6464:64c8", "::ffff:168.63.129.16",
@@ -162,6 +165,10 @@ ALLOWED = [
     "0.0.0.0", "::", "::ffff:0.0.0.0",                                    # unspecified: this host
     "10.0.0.5", "172.16.0.5", "172.31.255.254", "192.168.1.50",          # RFC 1918
     "::ffff:192.168.1.50", "64:ff9b::a00:5",                             # LAN inside IPv6
+    # LAN addresses through a local-use NAT64: /96 layout, then the /48 and
+    # /64 layouts (192.168.1.50, 10.0.0.240), whose last 32 bits read as
+    # 0.0.0.0 and 240.0.0.0 and must not be mistaken for blocked addresses
+    "64:ff9b:1::c0a8:132", "64:ff9b:1:c0a8:1:3200::", "64:ff9b:1:0:a:0:f000:0",
     "100.64.0.1", "100.100.100.199", "100.127.255.254",                  # CGNAT / Tailscale
     "fd12::1", "fc00::1", "fd00:ec2::1", "fd00:ec2::253",                # ULA
     "8.8.8.8", "2001:db8::1",                                            # not this guard's concern
@@ -245,7 +252,7 @@ def test_name_resolving_to_loopback_works(dns, server, connects, name):
 
 @pytest.mark.parametrize("host", [
     "169.254.169.254", "169.254.0.1", "[fe80::1]", "[::ffff:169.254.169.254]",
-    "[::ffff:a9fe:a9fe]", "[64:ff9b::a9fe:a9fe]", "[fd00:ec2::254]",
+    "[::ffff:a9fe:a9fe]", "[64:ff9b::a9fe:a9fe]", "[64:ff9b:1::a9fe:a9fe]", "[fd00:ec2::254]",
     "100.100.100.200", "168.63.129.16", "224.0.0.1",
     "[ff02::1]", "255.255.255.255",
 ])
@@ -261,6 +268,7 @@ def test_blocked_literal_refused(dns, connects, host):
     ["fd00:ec2::254", "100.100.100.200"],
     ["::ffff:169.254.169.254"],
     ["64:ff9b::a9fe:a9fe"],
+    ["64:ff9b:1::a9fe:a9fe"],  # what a local-use DNS64 would synthesize
 ])
 def test_name_resolving_only_to_blocked_addresses_refused(dns, server, connects, answers):
     table, _ = dns

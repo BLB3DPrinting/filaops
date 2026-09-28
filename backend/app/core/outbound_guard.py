@@ -66,6 +66,9 @@ IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 _LINK_LOCAL_V4 = ipaddress.ip_network("169.254.0.0/16")
 _LINK_LOCAL_V6 = ipaddress.ip_network("fe80::/10")
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
+# RFC 8215 local-use NAT64 prefix. The operator picks where the IPv4 address
+# sits inside it (RFC 6052); the usual /96 layout puts it in the last 32 bits.
+_NAT64_LOCAL_USE = ipaddress.ip_network("64:ff9b:1::/48")
 _V4_COMPATIBLE = ipaddress.ip_network("::/96")
 
 # Metadata endpoints outside the link-local ranges above. AWS, Google Cloud,
@@ -116,12 +119,28 @@ def _embedded_ipv4(addr: ipaddress.IPv6Address) -> Optional[ipaddress.IPv4Addres
     return None
 
 
+def _ipv4_is_link_local_or_metadata(addr: ipaddress.IPv4Address) -> bool:
+    return addr in _LINK_LOCAL_V4 or addr in _METADATA_ADDRESSES
+
+
 def _ipv4_is_blocked(addr: ipaddress.IPv4Address) -> bool:
     return (
-        addr in _LINK_LOCAL_V4
-        or addr in _METADATA_ADDRESSES
+        _ipv4_is_link_local_or_metadata(addr)
         or addr.is_multicast            # 224.0.0.0/4
         or addr.is_reserved             # 240.0.0.0/4, including 255.255.255.255
+    )
+
+
+def _local_use_nat64_is_blocked(addr: ipaddress.IPv6Address) -> bool:
+    """Judge a 64:ff9b:1::/48 address by its last 32 bits, the /96 layout.
+
+    Only link-local and metadata are checked there. In the other RFC 6052
+    layouts (/48 to /64) those bits are zero or hold one stray octet (d.0.0.0),
+    which is never link-local or metadata, so a working translation of a LAN
+    address is not refused by mistake.
+    """
+    return addr in _NAT64_LOCAL_USE and _ipv4_is_link_local_or_metadata(
+        ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
     )
 
 
@@ -132,7 +151,8 @@ def is_blocked_destination(ip: Union[str, IPAddress]) -> bool:
     metadata addresses, multicast, and reserved IPv4 (240.0.0.0/4, which
     includes the broadcast address). IPv4-mapped, IPv4-compatible and NAT64
     (64:ff9b::/96) IPv6 addresses are also judged by the IPv4 address they
-    carry.
+    carry, and local-use NAT64 (64:ff9b:1::/48) addresses carrying a
+    link-local or metadata address in the usual /96 layout are blocked too.
 
     Allowed: everything else, including loopback, RFC 1918, ULA (fc00::/7)
     and CGNAT (100.64.0.0/10), apart from the metadata addresses in them.
@@ -151,6 +171,8 @@ def is_blocked_destination(ip: Union[str, IPAddress]) -> bool:
         return _ipv4_is_blocked(addr)
     embedded = _embedded_ipv4(addr)
     if embedded is not None and _ipv4_is_blocked(embedded):
+        return True
+    if _local_use_nat64_is_blocked(addr):
         return True
     return (
         addr in _LINK_LOCAL_V6
