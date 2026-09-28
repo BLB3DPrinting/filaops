@@ -563,6 +563,34 @@ class TestUpdateQuoteStatus:
 
         assert result.admin_notes == "Looks good"
 
+    def test_admin_notes_are_added_not_replaced(self, db):
+        """PRO records a held Stripe payment in admin_notes; a status note must keep it."""
+        q = _make_quote(
+            db, quote_number="Q-STAT-NOTE-02", status="pending", approval_method="manual",
+            admin_notes="Stripe checkout session cs_test_2 / payment pi_test_2",
+        )
+        request = self._make_status_request("approved", admin_notes="Refunded pi_test_2")
+        result = quote_service.update_quote_status(db, q.id, request, current_user_id=1)
+
+        assert result.status == "approved"
+        assert result.admin_notes == (
+            "Stripe checkout session cs_test_2 / payment pi_test_2\nRefunded pi_test_2"
+        )
+
+    def test_admin_note_that_does_not_fit_changes_nothing(self, db):
+        q = _make_quote(
+            db, quote_number="Q-STAT-NOTE-03", status="pending", approval_method="manual",
+            admin_notes="x" * 990,
+        )
+        request = self._make_status_request("approved", admin_notes="y" * 20)
+
+        with pytest.raises(HTTPException) as exc_info:
+            quote_service.update_quote_status(db, q.id, request, current_user_id=1)
+        assert exc_info.value.status_code == 400
+        db.refresh(q)
+        assert q.status == "pending"
+        assert q.admin_notes == "x" * 990
+
     def test_approve_clears_the_review_reason(self, db):
         """Staff approval is the review; PRO checkout refuses a quote with a reason."""
         q = _make_quote(

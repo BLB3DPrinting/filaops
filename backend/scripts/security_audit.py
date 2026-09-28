@@ -397,7 +397,7 @@ class SecurityAuditor:
 
         if self._settings.DEBUG:
             # Check if we're in development
-            if self._settings.ENVIRONMENT.lower() == "development":
+            if (self._settings.ENVIRONMENT or "").strip().lower() == "development":
                 self.results.append(CheckResult(
                     id=check_id, name=name, category=category,
                     status=CheckStatus.INFO,
@@ -442,7 +442,7 @@ class SecurityAuditor:
                         break
 
         # Check for localhost (development)
-        if self._settings and self._settings.ENVIRONMENT.lower() == "development":
+        if self._settings and (self._settings.ENVIRONMENT or "").strip().lower() == "development":
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.INFO,
@@ -578,7 +578,7 @@ class SecurityAuditor:
         category = CheckCategory.CRITICAL
 
         # In development, this is less critical
-        if self._settings and self._settings.ENVIRONMENT.lower() == "development":
+        if self._settings and (self._settings.ENVIRONMENT or "").strip().lower() == "development":
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.INFO,
@@ -691,7 +691,7 @@ class SecurityAuditor:
                 remediation="Set specific origins in ALLOWED_ORIGINS"
             ))
         elif has_localhost:
-            if self._settings.ENVIRONMENT.lower() == "development":
+            if (self._settings.ENVIRONMENT or "").strip().lower() == "development":
                 self.results.append(CheckResult(
                     id=check_id, name=name, category=category,
                     status=CheckStatus.PASS,

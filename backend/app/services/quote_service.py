@@ -26,6 +26,9 @@ logger = get_logger(__name__)
 
 LOCKED_QUOTE_STATUSES = {"accepted", "converted"}
 
+# Size of the quotes.admin_notes column.
+_ADMIN_NOTES_MAX_LENGTH = Quote.__table__.c.admin_notes.type.length
+
 
 def _raise_if_quote_locked_for_modification(quote: Quote) -> None:
     if quote.status in LOCKED_QUOTE_STATUSES:
@@ -676,6 +679,25 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
             detail="Cannot change status of a converted quote"
         )
 
+    # A note sent with a status change is added to the existing admin notes,
+    # never written over them: PRO records the Stripe ids of a held payment
+    # there, and staff need them to refund it. Checked before anything changes
+    # so a note that doesn't fit leaves the quote as it was.
+    new_admin_notes = None
+    if request.admin_notes:
+        existing_notes = (quote.admin_notes or "").rstrip()
+        new_admin_notes = (
+            f"{existing_notes}\n{request.admin_notes}" if existing_notes else request.admin_notes
+        )
+        if len(new_admin_notes) > _ADMIN_NOTES_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Admin notes can't exceed {_ADMIN_NOTES_MAX_LENGTH} characters with this "
+                    "note added. Shorten the quote's admin notes first."
+                ),
+            )
+
     old_status = quote.status
     quote.status = request.status
     cleared_review_reason = None
@@ -700,8 +722,8 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
     if request.status == "rejected":
         quote.rejection_reason = request.rejection_reason
 
-    if request.admin_notes:
-        quote.admin_notes = request.admin_notes
+    if new_admin_notes is not None:
+        quote.admin_notes = new_admin_notes
 
     quote.updated_at = datetime.now(timezone.utc)
     db.commit()

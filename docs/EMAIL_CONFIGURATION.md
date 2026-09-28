@@ -17,7 +17,7 @@ SMTP_TLS=true
 ADMIN_APPROVAL_EMAIL=admin@yourcompany.com
 ```
 
-Set `ADMIN_APPROVAL_EMAIL` to a real administrator's address. Password reset approval requests, with their Approve and Deny links, are sent there. FilaOps treats email as off until it is set: while it is empty or a placeholder, reset requests stay pending as if SMTP were not configured. Placeholders are the stock `admin@example.com`, any address at `example.com`, `example.org` or `example.net`, and addresses at `localhost` or a reserved test domain (`.example`, `.test`, `.invalid`, `.localhost`).
+Set `ADMIN_APPROVAL_EMAIL` to a real administrator's address. Password reset approval requests, with their Approve and Deny links, are sent there. FilaOps treats email as off until it is set: while it is empty or a placeholder, reset requests stay pending as if SMTP were not configured. Placeholders are the stock `admin@example.com`, any address at `example.com`, `example.org` or `example.net`, and addresses at `localhost` or a reserved test domain (`.example`, `.test`, `.invalid`, `.localhost`, `.localdomain`).
 
 Then restart the backend. With Docker, run `docker compose up -d`, which recreates the backend container with the new values. `docker compose restart` keeps the old values.
 
