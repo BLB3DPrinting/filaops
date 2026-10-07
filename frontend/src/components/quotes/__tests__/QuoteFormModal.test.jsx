@@ -131,6 +131,54 @@ describe("QuoteFormModal editing", () => {
     });
   });
 
+  const addFeeLine = (description, price, { discount = false } = {}) => {
+    fireEvent.change(screen.getByPlaceholderText("Engineering fee"), {
+      target: { value: description },
+    });
+    fireEvent.change(screen.getByPlaceholderText("75.00"), {
+      target: { value: price },
+    });
+    if (discount) {
+      fireEvent.click(screen.getByLabelText(/This line is a discount/));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  };
+
+  it("submits a discount line as a negative price without a product id", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    addFeeLine("Engineering fee", "75.00");
+    addFeeLine("Multi-buy discount", "5.00", { discount: true });
+
+    expect(screen.getByText("DISCOUNT")).toBeTruthy();
+    expect(screen.getByText("-$5.00")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        lines: [
+          expect.objectContaining({ product_id: null, product_name: "Engineering fee", unit_price: 75 }),
+          expect.objectContaining({ product_id: null, product_name: "Multi-buy discount", unit_price: -5 }),
+        ],
+      }));
+    });
+  });
+
+  it("blocks continuing when a discount is larger than the subtotal", () => {
+    renderModal({ quote: null });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    addFeeLine("Engineering fee", "10.00");
+    addFeeLine("Too generous", "25.00", { discount: true });
+
+    expect(screen.getByRole("alert").textContent).toMatch(/Discounts can't be more than the subtotal/);
+    expect(screen.getByRole("button", { name: "Continue" }).disabled).toBe(true);
+  });
+
   it("includes taxable shipping in the quote tax preview", async () => {
     companySettingsResponse = {
       tax_enabled: true,

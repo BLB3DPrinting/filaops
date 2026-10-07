@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import { formatSignedMoney, isDiscountLine, toDiscountPrice } from "./quoteLineDiscount";
 
 const STATE_ALIASES = {
   INDIANA: "IN",
@@ -41,6 +42,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   const [feeDescription, setFeeDescription] = useState("");
   const [feeQuantity, setFeeQuantity] = useState(1);
   const [feePrice, setFeePrice] = useState("");
+  const [feeIsDiscount, setFeeIsDiscount] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveAsCustomer, setSaveAsCustomer] = useState(false);
@@ -226,8 +228,10 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
   const handleAddFeeLine = () => {
     const description = feeDescription.trim();
-    const unitPrice = parseFloat(feePrice);
-    if (!description || Number.isNaN(unitPrice) || unitPrice < 0) return;
+    const unitPrice = feeIsDiscount ? toDiscountPrice(feePrice) : parseFloat(feePrice);
+    if (!description || Number.isNaN(unitPrice)) return;
+    // Fees must be >= 0; discounts must take something off (< 0).
+    if (feeIsDiscount ? unitPrice >= 0 : unitPrice < 0) return;
 
     setLineItems((prev) => [
       ...prev,
@@ -246,6 +250,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     setFeeDescription("");
     setFeeQuantity(1);
     setFeePrice("");
+    setFeeIsDiscount(false);
   };
 
   const handleRemoveLine = (index) => {
@@ -295,7 +300,8 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
         toast.error("Each line item needs a description and unit price");
         return;
       }
-      if (unitPrice < 0) {
+      // Only fee/discount lines (no product) may carry a negative price.
+      if (unitPrice < 0 && li.line_type !== "service") {
         toast.error("Line item unit prices cannot be negative");
         return;
       }
@@ -383,6 +389,8 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
     return sum + linePrice * (li.quantity || 1);
   }, 0);
+  // Compare in whole cents so float noise can't flag an exact-zero subtotal.
+  const subtotalBelowZero = Math.round(subtotal * 100) < 0;
   const taxRate = form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0;
   const shippingCost = parseFloat(form.shipping_cost) || 0;
   const taxableBase = subtotal + (isShippingTaxable(companySettings?.company_state) ? shippingCost : 0);
@@ -574,7 +582,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-400 mb-1">
-                        Unit Price
+                        {feeIsDiscount ? "Amount off" : "Unit Price"}
                       </label>
                       <input
                         type="number"
@@ -593,13 +601,22 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                         !feeDescription.trim() ||
                         feePrice === "" ||
                         Number.isNaN(parseFloat(feePrice)) ||
-                        parseFloat(feePrice) < 0
+                        parseFloat(feePrice) < 0 ||
+                        (feeIsDiscount && parseFloat(feePrice) === 0)
                       }
                       className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Add
                     </button>
                   </div>
+                  <label className="mt-3 flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={feeIsDiscount}
+                      onChange={(e) => setFeeIsDiscount(e.target.checked)}
+                    />
+                    This line is a discount (enter the amount to take off)
+                  </label>
                 </div>
               )}
 
@@ -616,7 +633,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                           <div className="flex items-center gap-2">
                             {li.line_type === "service" && (
                               <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
-                                FEE
+                                {isDiscountLine(li) ? "DISCOUNT" : "FEE"}
                               </span>
                             )}
                             {li.line_type === "service" ? (
@@ -651,7 +668,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                           <input
                             type="number"
                             step="0.01"
-                            min="0"
+                            min={li.line_type === "service" ? undefined : "0"}
                             value={li.unit_price}
                             onChange={(e) =>
                               handleUpdateLine(idx, "unit_price", e.target.value)
@@ -660,7 +677,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                           />
                         </div>
                         <div className="text-green-400 font-medium w-24 text-right">
-                          ${((parseFloat(li.unit_price) || 0) * (li.quantity || 1)).toFixed(2)}
+                          {formatSignedMoney((parseFloat(li.unit_price) || 0) * (li.quantity || 1))}
                         </div>
                         <button
                           onClick={() => handleRemoveLine(idx)}
@@ -675,9 +692,14 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                     ))}
                     <div className="p-3 flex justify-between bg-gray-800/80">
                       <span className="text-white font-medium">Subtotal</span>
-                      <span className="text-green-400 font-bold">${subtotal.toFixed(2)}</span>
+                      <span className="text-green-400 font-bold">{formatSignedMoney(subtotal)}</span>
                     </div>
                   </div>
+                  {subtotalBelowZero && (
+                    <p role="alert" className="mt-2 text-sm text-red-400">
+                      Discounts can't be more than the subtotal. Reduce a discount to continue.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -690,7 +712,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 </button>
                 <button
                   onClick={() => setStep(2)}
-                  disabled={lineItems.length === 0}
+                  disabled={lineItems.length === 0 || subtotalBelowZero}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Continue
@@ -724,13 +746,13 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                         <span className="text-gray-300 truncate flex items-center gap-2">
                           {li.line_type === "service" && (
                             <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
-                              FEE
+                              {isDiscountLine(li) ? "DISCOUNT" : "FEE"}
                             </span>
                           )}
                           <span>{li.product_name} x{li.quantity}</span>
                         </span>
                         <span className="text-gray-400">
-                          ${((parseFloat(li.unit_price) || 0) * li.quantity).toFixed(2)}
+                          {formatSignedMoney((parseFloat(li.unit_price) || 0) * li.quantity)}
                         </span>
                       </div>
                     ))}
