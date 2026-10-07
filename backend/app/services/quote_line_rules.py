@@ -34,6 +34,16 @@ def _get(line: Any, key: str) -> Any:
     return getattr(line, key, None)
 
 
+def line_discount_percent(line: Any, quote_discount_percent: Any) -> float:
+    """Discount % to show for a quote line.
+
+    A line's own discount wins. Otherwise the quote-wide (customer price-level)
+    discount applies to product lines only, never to fee/discount lines.
+    """
+    fallback = quote_discount_percent if _get(line, "product_id") else 0
+    return float(_get(line, "discount_percent") or fallback or 0)
+
+
 def check_line_price(product_id: Optional[int], unit_price: Decimal) -> None:
     """Raise ValueError if a product line has a negative unit price.
 

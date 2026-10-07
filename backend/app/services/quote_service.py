@@ -18,7 +18,7 @@ from app.models.company_settings import CompanySettings
 from app.models.quote import Quote, QuoteLine
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
-from app.services.quote_line_rules import validate_quote_lines
+from app.services.quote_line_rules import line_discount_percent, validate_quote_lines
 from app.services.sales_order_service import generate_order_number
 from app.services.tax_calculation_service import calculate_sales_tax
 
@@ -1242,7 +1242,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             line_total = float(ql.total)
             subtotal += ql.total
 
-            disc_pct = float(ql.discount_percent or quote.discount_percent or 0)
+            disc_pct = line_discount_percent(ql, quote.discount_percent)
             unit_price_f = float(ql.unit_price)
             list_price_f = _list_price(unit_price_f, disc_pct)
 

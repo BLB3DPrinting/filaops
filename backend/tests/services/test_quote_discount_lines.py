@@ -341,3 +341,36 @@ class TestDiscountLineDownstream:
         pdf = quote_service.generate_quote_pdf(db, quote.id)
 
         assert pdf.read()[:4] == b"%PDF"
+
+    def test_quote_pdf_with_quote_wide_discount_and_a_discount_line(self, db, make_product):
+        """A quote-wide % discount must not be applied to the discount line in the PDF."""
+        _company_settings(db, company_name="TestCo PDF")
+        product = make_product(name="Standard Widget", selling_price=Decimal("20.00"))
+        quote = _make_quote(
+            db,
+            quote_number="Q-DISC-PDF-02",
+            product_name="Standard Widget",
+            quantity=1,
+            unit_price=None,
+            subtotal=Decimal("13.00"),
+            total_price=Decimal("13.00"),
+            discount_percent=Decimal("10"),
+        )
+        db.add_all([
+            QuoteLine(
+                quote_id=quote.id, product_id=product.id, line_number=1,
+                product_name="Standard Widget", quantity=1,
+                unit_price=Decimal("18.00"), total=Decimal("18.00"),
+            ),
+            QuoteLine(
+                quote_id=quote.id, product_id=None, line_number=2,
+                product_name="Multi-buy discount", quantity=1,
+                unit_price=Decimal("-5.00"), total=Decimal("-5.00"),
+            ),
+        ])
+        db.flush()
+        db.refresh(quote)
+
+        pdf = quote_service.generate_quote_pdf(db, quote.id)
+
+        assert pdf.read()[:4] == b"%PDF"

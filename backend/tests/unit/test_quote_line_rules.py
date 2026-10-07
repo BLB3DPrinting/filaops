@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.api.v1.endpoints.quotes import QuoteLineCreate
 from app.services.quote_line_rules import (
     check_line_price,
+    line_discount_percent,
     lines_subtotal,
     validate_quote_lines,
 )
@@ -33,6 +34,24 @@ class TestCheckLinePrice:
     def test_zero_and_positive_prices_allowed_with_product(self):
         check_line_price(12, Decimal("0"))
         check_line_price(12, Decimal("19.99"))
+
+
+class TestLineDiscountPercent:
+    def test_quote_discount_applies_to_product_lines(self):
+        line = SimpleNamespace(product_id=3, discount_percent=None)
+        assert line_discount_percent(line, Decimal("10")) == 10.0
+
+    def test_quote_discount_never_applies_to_product_less_lines(self):
+        discount_line = SimpleNamespace(product_id=None, discount_percent=None)
+        assert line_discount_percent(discount_line, Decimal("10")) == 0.0
+
+    def test_line_own_discount_wins(self):
+        line = SimpleNamespace(product_id=3, discount_percent=Decimal("25"))
+        assert line_discount_percent(line, Decimal("10")) == 25.0
+
+    def test_no_discounts_gives_zero(self):
+        line = SimpleNamespace(product_id=3, discount_percent=None)
+        assert line_discount_percent(line, None) == 0.0
 
 
 class TestLinesSubtotal:
