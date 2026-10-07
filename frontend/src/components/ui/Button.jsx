@@ -2,19 +2,19 @@ import { forwardRef } from "react";
 
 const VARIANT_CLASSES = {
   primary:
-    "bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-600/50",
+    "bg-accent hover:bg-accent-press text-accent-ink font-semibold disabled:bg-paper-sunk disabled:text-ink-4 disabled:border-hair",
   secondary:
-    "bg-gray-700 hover:bg-gray-600 text-white disabled:bg-gray-700/50",
+    "bg-paper hover:bg-paper-sunk text-ink border-hair disabled:bg-paper-sunk disabled:text-ink-4",
   danger:
-    "bg-red-600 hover:bg-red-700 text-white disabled:bg-red-600/50",
+    "bg-status-red hover:brightness-90 text-paper font-semibold disabled:bg-paper-sunk disabled:text-ink-4 disabled:border-hair",
   ghost:
-    "bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white disabled:text-gray-600",
+    "bg-transparent border-transparent hover:bg-paper-sunk text-ink-2 hover:text-ink disabled:text-ink-4",
 };
 
 const SIZE_CLASSES = {
-  sm: "px-3 py-1.5 text-sm gap-1.5",
-  md: "px-4 py-2 text-sm gap-2",
-  lg: "px-5 py-2.5 text-base gap-2",
+  sm: "h-7 px-3 text-xs gap-1.5 rounded",
+  md: "h-10 px-4 text-sm gap-2",
+  lg: "h-11 px-5 text-base gap-2",
 };
 
 function Spinner() {
@@ -64,7 +64,7 @@ const Button = forwardRef(function Button(
       ref={ref}
       type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed ${variantClasses} ${sizeClasses} ${className}`}
+      className={`inline-flex items-center justify-center font-medium rounded-lg border border-transparent transition-colors disabled:cursor-not-allowed ${variantClasses} ${sizeClasses} ${className}`}
       {...rest}
     >
       {loading ? <Spinner /> : icon}

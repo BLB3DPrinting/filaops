@@ -161,14 +161,14 @@ const TONES = {
     clear: "bg-gray-700 hover:bg-gray-600 text-white",
   },
   workbench: {
-    surface: "bg-[var(--paper-sunk)] border border-[var(--rule-hair)]",
-    surfaceCompact: "bg-[var(--paper-sunk)]",
-    icon: "text-[var(--ink-4)]",
-    title: "text-[var(--ink)]",
-    text: "text-[var(--ink-3)]",
-    cta: "bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white",
+    surface: "bg-paper-sunk border border-hair rounded-xl",
+    surfaceCompact: "bg-paper-sunk rounded-xl",
+    icon: "text-ink-4",
+    title: "text-ink",
+    text: "text-ink-3",
+    cta: "bg-accent hover:bg-accent-press text-accent-ink",
     clear:
-      "bg-[var(--paper)] border border-[var(--rule-hair)] text-[var(--ink-2)] hover:text-[var(--ink)]",
+      "bg-paper border border-hair text-ink-2 hover:text-ink",
   },
 };
 

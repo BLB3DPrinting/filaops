@@ -97,12 +97,12 @@ export function PaginationControls({
   return (
     <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 ${className}`}>
       {/* Results info */}
-      <div className="text-sm text-gray-400">
+      <div className="text-sm text-ink-3">
         {total > 0 ? (
           <>
-            Showing <span className="font-medium text-white">{startItem}</span> to{" "}
-            <span className="font-medium text-white">{endItem}</span> of{" "}
-            <span className="font-medium text-white">{total}</span> results
+            Showing <span className="font-medium text-ink">{startItem}</span> to{" "}
+            <span className="font-medium text-ink">{endItem}</span> of{" "}
+            <span className="font-medium text-ink">{total}</span> results
           </>
         ) : (
           "No results"
@@ -112,11 +112,11 @@ export function PaginationControls({
       {/* Page size selector */}
       {showPageSize && onPageSizeChange && (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-400">Show:</span>
+          <span className="text-sm text-ink-3">Show:</span>
           <select
             value={limit}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="px-2 py-1 bg-gray-800 text-white border border-gray-700 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="h-8 px-2 bg-paper text-ink border border-hair rounded text-sm"
           >
             {pageSizeOptions.map((size) => (
               <option key={size} value={size}>
@@ -124,7 +124,7 @@ export function PaginationControls({
               </option>
             ))}
           </select>
-          <span className="text-sm text-gray-400">per page</span>
+          <span className="text-sm text-ink-3">per page</span>
         </div>
       )}
 
@@ -134,7 +134,7 @@ export function PaginationControls({
         <button
           onClick={prevPage}
           disabled={!hasPrev}
-          className="px-3 py-1 bg-gray-800 text-white rounded border border-gray-700 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          className="h-8 px-3 bg-paper text-ink rounded border border-hair hover:bg-paper-sunk disabled:bg-paper-sunk disabled:text-ink-4 disabled:cursor-not-allowed transition-colors text-sm"
           aria-label="Previous page"
         >
           Previous
@@ -145,7 +145,7 @@ export function PaginationControls({
           {pageNumbers.map((page, index) => {
             if (page === "...") {
               return (
-                <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
+                <span key={`ellipsis-${index}`} className="px-2 text-ink-3">
                   ...
                 </span>
               );
@@ -157,10 +157,10 @@ export function PaginationControls({
               <button
                 key={page}
                 onClick={() => goToPage(page)}
-                className={`px-3 py-1 rounded text-sm transition-colors ${
+                className={`h-8 min-w-8 px-3 rounded text-sm transition-colors ${
                   isActive
-                    ? "bg-blue-600 text-white font-medium"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700"
+                    ? "bg-ink text-paper border border-ink font-medium font-mono-data"
+                    : "bg-paper text-ink hover:bg-paper-sunk border border-hair font-mono-data"
                 }`}
                 aria-label={`Go to page ${page}`}
                 aria-current={isActive ? "page" : undefined}
@@ -172,7 +172,7 @@ export function PaginationControls({
         </div>
 
         {/* Mobile page indicator */}
-        <div className="sm:hidden px-3 py-1 text-sm text-gray-300">
+        <div className="sm:hidden px-3 py-1 text-sm text-ink-2">
           Page {currentPage} of {totalPages}
         </div>
 
@@ -180,7 +180,7 @@ export function PaginationControls({
         <button
           onClick={nextPage}
           disabled={!hasNext}
-          className="px-3 py-1 bg-gray-800 text-white rounded border border-gray-700 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          className="h-8 px-3 bg-paper text-ink rounded border border-hair hover:bg-paper-sunk disabled:bg-paper-sunk disabled:text-ink-4 disabled:cursor-not-allowed transition-colors text-sm"
           aria-label="Next page"
         >
           Next
@@ -206,19 +206,19 @@ export function SimplePaginationControls({ pagination, className = "" }) {
       <button
         onClick={prevPage}
         disabled={!hasPrev}
-        className="px-4 py-2 bg-gray-800 text-white rounded border border-gray-700 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="h-10 px-4 bg-paper text-ink rounded border border-hair hover:bg-paper-sunk disabled:bg-paper-sunk disabled:text-ink-4 disabled:cursor-not-allowed transition-colors"
       >
         Previous
       </button>
 
-      <span className="text-sm text-gray-400">
+      <span className="text-sm text-ink-3">
         Page {currentPage} of {totalPages}
       </span>
 
       <button
         onClick={nextPage}
         disabled={!hasNext}
-        className="px-4 py-2 bg-gray-800 text-white rounded border border-gray-700 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="h-10 px-4 bg-paper text-ink rounded border border-hair hover:bg-paper-sunk disabled:bg-paper-sunk disabled:text-ink-4 disabled:cursor-not-allowed transition-colors"
       >
         Next
       </button>
