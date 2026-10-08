@@ -1,15 +1,15 @@
 # backend/requirements.txt
 # (optional) replace your current file with this Postgres-friendly set
-fastapi==0.141.1
-uvicorn[standard]==0.52.4
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
 python-multipart==0.0.32
-sqlalchemy==2.0.52
+sqlalchemy==2.1.1
 psycopg[binary]>=3.3.5
 alembic==1.20.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
 email-validator==2.3.0
-PyJWT==2.15.0
+PyJWT==2.15.1
 # Direct dep (PR-05 token encryption — Fernet+HKDF in app/core/crypto.py).
 # Pulled in transitively by PyJWT/passlib in many envs, but CI's
 # install path doesn't always get those extras, so declare it explicitly.
@@ -20,7 +20,7 @@ slowapi==0.1.10
 python-dateutil==2.9.0.post0
 httpx==0.28.1
 requests==2.34.2
-semver==3.0.4
+semver==3.1.0
 reportlab==5.0.1
 sentry-sdk[fastapi]>=2.69.1
 
