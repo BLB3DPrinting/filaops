@@ -364,7 +364,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
         <div className="xl:col-span-3 bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl overflow-x-auto shadow-[var(--shadow-pop)]">
           {loading && !board ? (
             <div className="h-48 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]" />
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]" />
             </div>
           ) : lanes.length === 0 ? (
             <div className="p-8 text-center text-[var(--ink-4)] text-sm">
@@ -531,7 +531,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                     type="button"
                     title="Auto-schedule — pick a slot for the next operation"
                     onClick={() => handleUnscheduledClick(item)}
-                    className="shrink-0 px-2 py-1 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white text-xs rounded transition-colors"
+                    className="shrink-0 px-2 py-1 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink text-xs rounded transition-colors"
                   >
                     ⚡ Schedule
                   </button>
