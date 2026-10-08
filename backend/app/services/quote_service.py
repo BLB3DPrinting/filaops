@@ -18,6 +18,7 @@ from app.models.company_settings import CompanySettings
 from app.models.quote import Quote, QuoteLine
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
+from app.services.quote_line_rules import line_discount_percent, validate_quote_lines
 from app.services.sales_order_service import generate_order_number
 from app.services.tax_calculation_service import calculate_sales_tax
 
@@ -253,6 +254,9 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     if request.customer_id:
         discount_percent = _get_customer_discount(db, request.customer_id)
 
+    if has_lines:
+        validate_quote_lines(request.lines, discount_percent)
+
     # Calculate subtotal — from lines or header
     if has_lines:
         subtotal = Decimal("0")
@@ -462,6 +466,12 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="lines array cannot be empty"
             )
+
+        # Validate discount lines before touching the existing lines
+        validate_quote_lines(
+            lines_data,
+            _get_customer_discount(db, quote.customer_id) if quote.customer_id else None,
+        )
 
         # Delete existing lines
         for existing_line in list(quote.lines):
@@ -958,7 +968,8 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     _sym = _CURRENCY_SYMBOLS.get(_currency, f"{_currency}\u00a0")
 
     def _fmt(amount: float) -> str:
-        return f"{_sym}{amount:,.2f}"
+        sign = "-" if amount < 0 else ""
+        return f"{sign}{_sym}{abs(amount):,.2f}"
 
     # -- Brand colors --
     BRAND_DARK = colors.HexColor('#0f172a')    # slate-900
@@ -1231,7 +1242,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             line_total = float(ql.total)
             subtotal += ql.total
 
-            disc_pct = float(ql.discount_percent or quote.discount_percent or 0)
+            disc_pct = line_discount_percent(ql, quote.discount_percent)
             unit_price_f = float(ql.unit_price)
             list_price_f = _list_price(unit_price_f, disc_pct)
 
