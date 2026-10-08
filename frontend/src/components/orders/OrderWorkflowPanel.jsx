@@ -353,7 +353,7 @@ export default function OrderWorkflowPanel({
                   <button
                     onClick={step.action.onClick}
                     disabled={step.action.disabled}
-                    className="mt-4 w-full rounded-lg bg-[var(--orange)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--orange-press)] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-4 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-accent-ink hover:bg-[var(--accent-press)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {step.action.label}
                   </button>

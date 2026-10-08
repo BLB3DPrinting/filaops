@@ -101,7 +101,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                           onChange={(e) => setEditQty(e.target.value)}
                           min={shipped}
                           step="1"
-                          className="w-20 bg-[var(--paper-sunk)] border border-[var(--orange)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
+                          className="w-20 bg-[var(--paper-sunk)] border border-[var(--accent)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
                           autoFocus
                         />
                       ) : (
@@ -124,7 +124,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                           onChange={(e) => setEditPrice(e.target.value)}
                           min="0"
                           step="0.01"
-                          className="w-24 bg-[var(--paper-sunk)] border border-[var(--orange)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
+                          className="w-24 bg-[var(--paper-sunk)] border border-[var(--accent)] rounded px-2 py-1 text-right text-[var(--ink)] text-sm"
                         />
                       ) : (
                         `$${parseFloat(line.unit_price || 0).toFixed(2)}`
@@ -162,7 +162,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                                 setEditPrice(String(line.unit_price || 0));
                                 setEditReason("");
                               }}
-                              className="text-[var(--ink-4)] hover:text-[var(--orange)] text-xs"
+                              className="text-[var(--ink-4)] hover:text-[var(--accent)] text-xs"
                               title="Edit line"
                             >
                               Edit
@@ -192,7 +192,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                       value={editReason}
                       onChange={(e) => setEditReason(e.target.value)}
                       placeholder="Reason for change (required)..."
-                      className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded px-3 py-1.5 text-[var(--ink)] text-sm placeholder-[var(--ink-4)] focus:border-[var(--orange)]"
+                      className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded px-3 py-1.5 text-[var(--ink)] text-sm placeholder-[var(--ink-4)] focus:border-[var(--accent)]"
                     />
                   </td>
                 </tr>

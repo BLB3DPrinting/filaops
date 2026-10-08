@@ -64,7 +64,7 @@ function ShippingChart({ data, period, onPeriodChange, loading }) {
   if (loading) {
     return (
       <div className="h-32 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]"></div>
       </div>
     );
   }
@@ -744,7 +744,7 @@ export default function AdminShipping() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]"></div>
         </div>
       )}
 
@@ -787,7 +787,7 @@ export default function AdminShipping() {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/admin/orders/${order.id}`)}
-                        className="text-[var(--ink)] hover:text-[var(--orange)] font-medium font-mono-data"
+                        className="text-[var(--ink)] hover:text-[var(--accent)] font-medium font-mono-data"
                       >
                         {order.order_number}
                       </button>
@@ -860,7 +860,7 @@ export default function AdminShipping() {
                             </button>
                             <button
                               onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
-                              className="px-3 py-1 bg-[var(--orange)] text-white rounded text-xs hover:bg-[var(--orange-press)]"
+                              className="px-3 py-1 bg-[var(--accent)] text-accent-ink rounded text-xs hover:bg-[var(--accent-press)]"
                             >
                               {isExpanded ? "Cancel" : "Add Label"}
                             </button>
@@ -879,7 +879,7 @@ export default function AdminShipping() {
                               onClick={() => handleMarkShipped(order.id)}
                               disabled={saving || blocked}
                               title={blocked ? preflight.reasons?.join("; ") : undefined}
-                              className="px-3 py-1 bg-[var(--orange)] text-white rounded text-xs hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-3 py-1 bg-[var(--accent)] text-accent-ink rounded text-xs hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               {saving ? "..." : "Ship"}
                             </button>
@@ -939,7 +939,7 @@ export default function AdminShipping() {
                         <button
                           onClick={() => handleSaveTracking(expandedOrder)}
                           disabled={saving || !trackingForm.tracking_number.trim()}
-                          className="px-4 py-1.5 bg-[var(--orange)] text-white rounded text-sm hover:bg-[var(--orange-press)] disabled:opacity-50"
+                          className="px-4 py-1.5 bg-[var(--accent)] text-accent-ink rounded text-sm hover:bg-[var(--accent-press)] disabled:opacity-50"
                         >
                           {saving ? "Saving..." : "Save & Ship"}
                         </button>
