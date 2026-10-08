@@ -16,6 +16,7 @@ back.
 | Do this | Who needs to |
 | --- | --- |
 | Set a real `SECRET_KEY` | Everyone whose `SECRET_KEY` is empty, a placeholder, or copied from an example |
+| Set a real database password | Docker installs still using the default `changeme` |
 | Set `ENABLE_PUBLIC_QUOTER=true` | Only shops that run the public online Quoter |
 | Set `ADMIN_APPROVAL_EMAIL` to a real address | Shops that send email (SMTP) |
 | Give integrations a staff account | Anyone with a script or integration that signs in as a customer account |
@@ -58,7 +59,50 @@ If you take payments through FilaOps PRO's Stripe checkout, a real key is
 required for checkout to work reliably. Use the same key for every backend
 process.
 
-### 2. Decide whether customers may register themselves
+### 2. Set a real database password (Docker)
+
+The stock `docker-compose.yml` uses `DB_PASSWORD`, which defaults to
+`changeme`. 4.2.0 also stops publishing the database on your network (see
+[Database port](#database-port)), but a default password should still be
+replaced.
+
+Make a password the same way as the key above (`openssl rand -hex 32`).
+
+**New install** (no database yet): add it to the project `.env` **before** the
+first `docker compose up -d`:
+
+```
+DB_PASSWORD=<the value>
+```
+
+The database takes its password from this setting only when it is created
+for the first time, so setting it later works differently (below).
+
+**Existing install** still on `changeme`: change the password inside the
+database first, then tell FilaOps the new one. Changing `.env` alone stops the
+backend from connecting.
+
+1. Open a database prompt inside the container (use your own `DB_USER` and
+   `DB_NAME` if you changed them). If it asks for a password, enter the
+   current one.
+
+    ```bash
+    docker compose exec db psql -U postgres -d filaops
+    ```
+
+2. At the `filaops=#` prompt, type `\password postgres`, enter the new
+   password twice, then type `\q`. Typing it here keeps it out of your shell
+   history.
+3. Set `DB_PASSWORD=<the new password>` in the project `.env`.
+4. Run `docker compose up -d`. The backend restarts with the new password.
+
+If the backend can't connect afterwards, the two values differ: repeat step 2
+with the value from `.env`.
+
+A manual install uses your own PostgreSQL server: change the password there
+and set the same value in `backend/.env`.
+
+### 3. Decide whether customers may register themselves
 
 Customer self-registration is now **off** unless the public Quoter is on. If
 you run the public Quoter, set:
@@ -70,7 +114,7 @@ ENABLE_PUBLIC_QUOTER=true
 If you don't run the Quoter, leave it unset. Staff accounts are still created
 through first-run setup or **Admin > Team Members**.
 
-### 3. If you use email, set `ADMIN_APPROVAL_EMAIL`
+### 4. If you use email, set `ADMIN_APPROVAL_EMAIL`
 
 Password reset approvals are emailed to `ADMIN_APPROVAL_EMAIL`. FilaOps now
 treats email as **off** until `SMTP_USER`, `SMTP_PASSWORD` and a real
@@ -82,7 +126,7 @@ settings, `ADMIN_APPROVAL_EMAIL`, `ENABLE_PUBLIC_QUOTER` and `ENVIRONMENT`
 through to the containers. If you edited your own compose file, copy those
 lines across.
 
-### 4. Move integrations off customer accounts
+### 5. Move integrations off customer accounts
 
 Customer accounts can now only use the routes a customer needs: signing in,
 their own Quoter quotes, password reset and reading their own account
@@ -94,7 +138,7 @@ If a script, spreadsheet or integration signs in with a customer account to
 read or change shop data, create a staff (operator or admin) account for it
 in **Admin > Team Members**.
 
-### 5. FilaOps PRO
+### 6. FilaOps PRO
 
 Install the PRO update released alongside 4.2.0. B2B buyers keep using the
 PRO portal as before.
@@ -188,6 +232,49 @@ review.
   before approving the quote again, or approve it and convert it to an order
   straight away and record the payment on the order. Otherwise the customer
   could pay twice.
+
+### Database port
+
+The stock `docker-compose.yml` now publishes the database on `127.0.0.1`
+only, instead of on every network interface. FilaOps itself is unaffected:
+the backend reaches the database over Docker's internal network. Tools on the
+same machine, such as `psql -h 127.0.0.1` or a backup script, still connect as
+before. Other machines can no longer reach port 5432.
+
+If you edited your own compose file, change the `db` service's port line to:
+
+```yaml
+    ports:
+      - "127.0.0.1:5432:5432"
+```
+
+On Linux, a port Docker publishes on all interfaces is reachable even when a
+firewall such as `ufw` blocks it, so don't rely on the firewall alone.
+
+**If another machine genuinely needs the database** (for example a reporting
+tool), prefer an SSH tunnel. It needs no change to FilaOps. From the other
+machine:
+
+```bash
+ssh -L 5432:127.0.0.1:5432 you@your-filaops-server
+```
+
+then point the tool at `127.0.0.1:5432` on that machine.
+
+If a tunnel isn't possible, publish the database on one private address only,
+never on all interfaces. Put this in a `docker-compose.override.yml` next to
+`docker-compose.yml`, so it survives upgrades (Compose adds it to the
+loopback binding):
+
+```yaml
+services:
+  db:
+    ports:
+      - "192.168.1.10:5432:5432"  # this server's address on your private network
+```
+
+Only do this with a strong `DB_PASSWORD` set, and allow only the machines that
+need it on that network.
 
 ### `ENVIRONMENT` setting
 
