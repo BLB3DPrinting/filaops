@@ -19,25 +19,25 @@ import { useEffect, useRef } from 'react';
 
 const VARIANTS = {
   danger: {
-    button: 'bg-red-600 hover:bg-red-500 text-white',
+    button: 'bg-status-red hover:brightness-90 text-paper font-semibold',
     icon: (
-      <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-6 h-6 text-status-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
       </svg>
     ),
   },
   warning: {
-    button: 'bg-yellow-600 hover:bg-yellow-500 text-white',
+    button: 'bg-status-amber hover:brightness-90 text-paper font-semibold',
     icon: (
-      <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-6 h-6 text-status-amber" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
   },
   info: {
-    button: 'bg-blue-600 hover:bg-blue-500 text-white',
+    button: 'bg-accent hover:bg-accent-press text-accent-ink font-semibold',
     icon: (
-      <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
@@ -115,7 +115,7 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-[var(--glass-scrim)] flex items-center justify-center z-50"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isLoading) {
           onCancel();
@@ -124,26 +124,26 @@ export default function ConfirmDialog({
     >
       <div
         ref={dialogRef}
-        className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md p-6 shadow-xl"
+        className="bg-paper border border-hair rounded-xl w-full max-w-md p-6 shadow-[var(--shadow-pop)]"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-message"
       >
         <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 p-2 bg-gray-800 rounded-full">
+          <div className="shrink-0 p-2 bg-paper-sunk rounded-full">
             {variant.icon}
           </div>
           <div className="flex-1">
             <h2
               id="confirm-dialog-title"
-              className="text-lg font-semibold text-white"
+              className="text-lg font-semibold text-ink"
             >
               {title}
             </h2>
             <p
               id="confirm-dialog-message"
-              className="mt-2 text-gray-400"
+              className="mt-2 text-ink-3"
             >
               {message}
             </p>
@@ -156,7 +156,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={isLoading}
-            className="px-4 py-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
+            className="h-10 px-4 text-ink-2 hover:text-ink hover:bg-paper-sunk rounded-lg font-medium transition-colors disabled:text-ink-4"
           >
             {cancelLabel}
           </button>
@@ -164,7 +164,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 ${variant.button}`}
+            className={`h-10 px-4 rounded-lg font-medium transition-colors disabled:bg-paper-sunk disabled:text-ink-4 ${variant.button}`}
           >
             {isLoading ? (
               <span className="flex items-center gap-2">

@@ -16,7 +16,7 @@ import { useEffect, useRef, useId } from "react";
 // un-migrated consumers keep their current look.
 const VARIANT_SHELL = {
   dark: "bg-gray-900 border border-gray-700",
-  workbench: "bg-[var(--paper)] border border-[var(--rule-hair)]",
+  workbench: "bg-paper border border-hair",
 };
 
 export default function Modal({

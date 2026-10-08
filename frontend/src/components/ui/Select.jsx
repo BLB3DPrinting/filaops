@@ -19,15 +19,15 @@ const Select = forwardRef(function Select(
   const helpId = `${id}-help`;
 
   const borderClass = error
-    ? "border-red-500 focus:border-red-500"
-    : "border-gray-700 focus:border-blue-500";
+    ? "border-status-red"
+    : "border-hair focus:border-ink";
 
   return (
     <div>
       {label && (
         <label
           htmlFor={id}
-          className="block text-sm font-medium text-gray-400 mb-1"
+          className="block text-sm text-ink-2 mb-1"
         >
           {label}
         </label>
@@ -39,7 +39,7 @@ const Select = forwardRef(function Select(
         aria-describedby={
           error ? errorId : helpText ? helpId : undefined
         }
-        className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-white focus:outline-none ${borderClass} ${className}`}
+        className={`w-full h-10 bg-paper border rounded-lg px-3 text-ink disabled:bg-paper-sunk disabled:text-ink-4 ${borderClass} ${className}`}
         {...rest}
       >
         {placeholder && (
@@ -52,12 +52,12 @@ const Select = forwardRef(function Select(
         ))}
       </select>
       {error && (
-        <p id={errorId} className="mt-1 text-sm text-red-400">
+        <p id={errorId} className="mt-1 text-xs font-medium text-status-red">
           {error}
         </p>
       )}
       {helpText && !error && (
-        <p id={helpId} className="mt-1 text-sm text-gray-500">
+        <p id={helpId} className="mt-1 text-xs text-ink-3">
           {helpText}
         </p>
       )}

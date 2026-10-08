@@ -71,8 +71,8 @@ function ToastContainer({ toasts, removeToast }) {
 function ToastItem({ toast, onClose }) {
   const styles = {
     success: {
-      bg: "bg-green-500/10 border-green-500/30",
-      text: "text-green-400",
+      bg: "bg-status-green-tint border-status-green",
+      text: "text-status-green",
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -80,8 +80,8 @@ function ToastItem({ toast, onClose }) {
       ),
     },
     error: {
-      bg: "bg-red-500/10 border-red-500/30",
-      text: "text-red-400",
+      bg: "bg-status-red-tint border-status-red",
+      text: "text-status-red",
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -89,8 +89,8 @@ function ToastItem({ toast, onClose }) {
       ),
     },
     warning: {
-      bg: "bg-yellow-500/10 border-yellow-500/30",
-      text: "text-yellow-400",
+      bg: "bg-status-amber-tint border-status-amber",
+      text: "text-status-amber",
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -98,8 +98,8 @@ function ToastItem({ toast, onClose }) {
       ),
     },
     info: {
-      bg: "bg-blue-500/10 border-blue-500/30",
-      text: "text-blue-400",
+      bg: "bg-paper border-hair",
+      text: "text-ink-3",
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -115,13 +115,13 @@ function ToastItem({ toast, onClose }) {
       data-testid="toast"
       role="status"
       aria-live="polite"
-      className={`${style.bg} border rounded-lg p-4 shadow-lg backdrop-blur-sm animate-slide-in flex items-start gap-3`}
+      className={`${style.bg} border rounded-lg p-4 shadow-[var(--shadow-pop)] animate-slide-in flex items-start gap-3`}
     >
       <span className={style.text}>{style.icon}</span>
-      <p className={`${style.text} text-sm flex-1`}>{toast.message}</p>
+      <p className="text-ink text-sm flex-1">{toast.message}</p>
       <button
         onClick={onClose}
-        className="text-gray-400 hover:text-white transition-colors"
+        className="text-ink-3 hover:text-ink transition-colors"
         aria-label="Close"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
