@@ -231,6 +231,31 @@ both themes**, and extend the Playwright axe pass to run twice.
 Verify: Storybook a11y addon clean in both themes; existing component tests
 pass.
 
+**Landed as `claude/workbench-primitives`.** Scope decisions recorded here
+because they differ from the sketch above:
+
+- `Button`, `Badge`, `Input`, `Select`, `Table`, `StatCard`, `ConfirmDialog`,
+  `Toast` and `PaginationControls` move fully onto the bridge utilities: each
+  paints only itself, so a paper control on a still-dark page stays legible.
+- `Modal` and `EmptyState` keep their `dark` default. Both render *consumer*
+  content inside their shell, and ~40 un-migrated consumers still set
+  `text-white` on that content; flipping the shell to paper here would have
+  made those modals unreadable. Only their `workbench` variants move to the
+  bridge utilities. The default flips in PR-3 with the shell.
+- `Badge`'s `info` and `purple` tones have no colour in the Workbench status
+  language. Both render as working-amber for now; the real fix is the
+  `statusDescriptors.js` remap (`purple` → `warning`; `info` split into
+  `warning` for released/scheduled/confirmed and `success` for
+  ready_to_ship/printing/waived), which is a behaviour change owned by PR-3.
+- `StatCard`'s gradient wash is retired. `variant="gradient"` now means the
+  larger dashboard tile and `color` takes a tone (`working | cleared |
+  blocked | neutral`); the legacy colour names consumers pass map onto those.
+- Danger buttons use `text-paper`, not literal white: dim's `--status-red` is
+  light and white on it measures about 2.5:1.
+- Storybook gains the Day/Dim toolbar switch (writes `data-theme`). The
+  Playwright axe double-pass is left for the shell PR, where the theme toggle
+  the test needs will exist in the app.
+
 ### PR-6 — command palette
 
 ⌘K over all ~40 destinations, anticipated by `index.css:210`. Own PR because

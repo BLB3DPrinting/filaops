@@ -5,7 +5,7 @@ const Table = forwardRef(function Table(
   ref
 ) {
   return (
-    <div className={`bg-gray-900 rounded-lg border border-gray-800 overflow-hidden ${className}`}>
+    <div className={`bg-paper rounded-lg border border-hair overflow-hidden shadow-[var(--shadow-pop)] ${className}`}>
       <table ref={ref} className="w-full" {...rest}>
         {children}
       </table>
@@ -18,7 +18,7 @@ const TableHeader = forwardRef(function TableHeader(
   ref
 ) {
   return (
-    <thead ref={ref} className={`bg-gray-800/50 ${className}`} {...rest}>
+    <thead ref={ref} className={`bg-paper-sunk ${className}`} {...rest}>
       {children}
     </thead>
   );
@@ -29,7 +29,7 @@ const TableBody = forwardRef(function TableBody(
   ref
 ) {
   return (
-    <tbody ref={ref} className={`divide-y divide-gray-800 ${className}`} {...rest}>
+    <tbody ref={ref} className={`divide-y divide-hair ${className}`} {...rest}>
       {children}
     </tbody>
   );
@@ -40,7 +40,7 @@ const TableRow = forwardRef(function TableRow(
   ref
 ) {
   return (
-    <tr ref={ref} className={`hover:bg-gray-800/50 ${className}`} {...rest}>
+    <tr ref={ref} className={`hover:bg-paper-sunk ${className}`} {...rest}>
       {children}
     </tr>
   );
@@ -53,7 +53,7 @@ const TableHead = forwardRef(function TableHead(
   return (
     <th
       ref={ref}
-      className={`px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider ${className}`}
+      className={`px-4 py-3 text-left text-xs font-medium text-ink-3 uppercase tracking-wider ${className}`}
       {...rest}
     >
       {children}
@@ -66,7 +66,7 @@ const TableCell = forwardRef(function TableCell(
   ref
 ) {
   return (
-    <td ref={ref} className={`px-4 py-3 text-white ${className}`} {...rest}>
+    <td ref={ref} className={`px-4 py-3 text-ink ${className}`} {...rest}>
       {children}
     </td>
   );
@@ -80,7 +80,7 @@ const TableEmpty = forwardRef(function TableEmpty(
     <tr ref={ref} {...rest}>
       <td
         colSpan={colSpan}
-        className={`px-4 py-8 text-center text-gray-500 ${className}`}
+        className={`px-4 py-8 text-center text-ink-3 ${className}`}
       >
         {children}
       </td>

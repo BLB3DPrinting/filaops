@@ -2,84 +2,58 @@ import { Link } from "react-router-dom";
 
 // Shared chevron icon for clickable cards
 const ChevronIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
   </svg>
 );
 
 // Skeleton pulse component for loading state
 const SkeletonPulse = ({ className = "" }) => (
-  <div className={`animate-pulse bg-gray-700/50 rounded ${className}`} />
+  <div className={`animate-pulse bg-paper-sunk rounded ${className}`} />
 );
 
 /**
  * Reusable StatCard component for displaying metrics across admin pages.
  *
- * Brand-aligned color scheme:
- * - primary: Emerald/cyan (brand colors)
- * - secondary: Cyan variant
- * - success: Green (positive metrics)
- * - warning: Amber/yellow (caution)
- * - danger: Red (needs attention)
- * - neutral: Gray/white (default)
+ * Industrial Workbench (#846, design-system PR-5): a KPI tile is a flat paper
+ * card with a caption label and one number. A tile that counts a status
+ * colours its value with that status and its border with the status tint;
+ * a plain count stays ink. The accent never appears on a tile — selecting
+ * a tile as a filter (`active`) is the one exception, because that is an
+ * action.
  *
- * Supports two variants:
- * - "gradient" (default): Dashboard-style with gradient background and optional icon
- * - "simple": Flat card with colored value text
+ * `color` takes a tone: "working" | "cleared" | "blocked" | "neutral".
+ * The legacy names consumers still pass map onto those tones (emerald/cyan/
+ * blue/purple were the old brand accent and become neutral ink).
  *
- * Optional `to` prop makes the card a clickable link.
+ * `variant`:
+ * - "gradient" (default, kept for compatibility): the dashboard size — p-6,
+ *   30px value. The gradient wash itself is retired.
+ * - "simple": the dense tile — p-3, 20px value — used in KPI rows.
+ *
+ * Optional `to` prop makes the card a link; `onClick` makes it a button.
  */
 
-const colorClasses = {
-  // Gradient variant colors (background gradients)
-  gradient: {
-    // Brand colors
-    primary: "from-emerald-600/20 to-cyan-600/10 border-emerald-500/30",
-    secondary: "from-cyan-600/20 to-blue-600/10 border-cyan-500/30",
-    // Semantic colors
-    success: "from-green-600/20 to-green-600/5 border-green-500/30",
-    warning: "from-amber-600/20 to-amber-600/5 border-amber-500/30",
-    danger: "from-red-600/20 to-red-600/5 border-red-500/30",
-    neutral: "from-gray-600/20 to-gray-600/5 border-gray-500/30",
-    // Legacy support (map to new names)
-    emerald: "from-emerald-600/20 to-cyan-600/10 border-emerald-500/30",
-    cyan: "from-cyan-600/20 to-blue-600/10 border-cyan-500/30",
-    green: "from-green-600/20 to-green-600/5 border-green-500/30",
-    orange: "from-amber-600/20 to-amber-600/5 border-amber-500/30",
-    red: "from-red-600/20 to-red-600/5 border-red-500/30",
-    blue: "from-cyan-600/20 to-blue-600/10 border-cyan-500/30",
-    purple: "from-emerald-600/20 to-cyan-600/10 border-emerald-500/30",
-    yellow: "from-amber-600/20 to-amber-600/5 border-amber-500/30",
-    white: "from-gray-600/20 to-gray-600/5 border-gray-500/30",
-  },
-  // Simple variant colors (text colors for value)
-  simple: {
-    // Brand colors
-    primary: "text-emerald-400",
-    secondary: "text-cyan-400",
-    // Semantic colors
-    success: "text-green-400",
-    warning: "text-amber-400",
-    danger: "text-red-400",
-    neutral: "text-white",
-    // Legacy support
-    emerald: "text-emerald-400",
-    cyan: "text-cyan-400",
-    green: "text-green-400",
-    orange: "text-amber-400",
-    red: "text-red-400",
-    blue: "text-cyan-400",
-    purple: "text-emerald-400",
-    yellow: "text-amber-400",
-    white: "text-white",
-  },
+const TONES = {
+  working: { value: "text-status-amber", border: "border-status-amber-tint" },
+  cleared: { value: "text-status-green", border: "border-status-green-tint" },
+  blocked: { value: "text-status-red", border: "border-status-red-tint" },
+  neutral: { value: "text-ink", border: "border-hair" },
+};
+
+const LEGACY_TONES = {
+  warning: "working", amber: "working", orange: "working", yellow: "working",
+  success: "cleared", green: "cleared",
+  danger: "blocked", red: "blocked",
+  primary: "neutral", secondary: "neutral", emerald: "neutral", cyan: "neutral",
+  blue: "neutral", purple: "neutral", white: "neutral",
 };
 
 export default function StatCard({
   title,
   value,
   subtitle,
-  color = "white",
+  color = "neutral",
   icon,
   variant = "gradient",
   to,
@@ -87,86 +61,51 @@ export default function StatCard({
   active = false,
   loading = false,
 }) {
+  const tone = TONES[color] || TONES[LEGACY_TONES[color]] || TONES.neutral;
+  const large = variant !== "simple";
+
   // Wrapper component - Link if `to` prop provided, div otherwise
   const Wrapper = to ? Link : "div";
-  const wrapperProps = to
-    ? { to, className: "block" }
-    : {};
+  const wrapperProps = to ? { to, className: "block" } : {};
   const isClickable = to || onClick;
 
-  if (variant === "simple") {
-    const baseClasses = "bg-gray-900 border rounded-xl p-4";
-    const borderClasses = active ? "border-blue-500/50 bg-blue-500/10" : "border-gray-800";
-    const hoverClasses = isClickable && !loading ? "hover:border-gray-700 hover:bg-gray-800/50 transition-all cursor-pointer" : "";
-
-    return (
-      <Wrapper {...wrapperProps}>
-        <div
-          className={`${baseClasses} ${borderClasses} ${hoverClasses}`}
-          onClick={loading ? undefined : onClick}
-          role={onClick && !loading ? "button" : undefined}
-          tabIndex={onClick && !loading ? 0 : undefined}
-          onKeyDown={onClick && !loading ? (e) => e.key === 'Enter' && onClick() : undefined}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              {loading ? (
-                <>
-                  <SkeletonPulse className="h-4 w-20 mb-2" />
-                  <SkeletonPulse className="h-8 w-16" />
-                  {subtitle && <SkeletonPulse className="h-3 w-24 mt-2" />}
-                </>
-              ) : (
-                <>
-                  <p className="text-gray-400 text-sm">{title}</p>
-                  <p className={`text-2xl font-bold ${colorClasses.simple[color] || colorClasses.simple.white}`}>
-                    {value}
-                  </p>
-                  {subtitle && <p className="text-gray-500 text-xs mt-1">{subtitle}</p>}
-                </>
-              )}
-            </div>
-            {isClickable && !loading && (
-              <div className="text-gray-600">
-                <ChevronIcon />
-              </div>
-            )}
-          </div>
-        </div>
-      </Wrapper>
-    );
-  }
-
-  // Gradient variant (default)
-  const baseClasses = `bg-gradient-to-br ${colorClasses.gradient[color] || colorClasses.gradient.white} border rounded-xl p-6`;
-  const hoverClasses = to && !loading ? "hover:scale-[1.02] hover:shadow-lg transition-all cursor-pointer" : "";
+  const baseClasses = `bg-paper border rounded-lg shadow-[var(--shadow-pop)] ${large ? "p-6" : "p-3"}`;
+  const borderClasses = active ? "border-accent bg-accent-tint" : tone.border;
+  const hoverClasses =
+    isClickable && !loading ? "hover:bg-paper-sunk transition-colors cursor-pointer" : "";
 
   return (
     <Wrapper {...wrapperProps}>
-      <div className={`${baseClasses} ${hoverClasses}`}>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
+      <div
+        className={`${baseClasses} ${borderClasses} ${hoverClasses}`}
+        onClick={loading ? undefined : onClick}
+        role={onClick && !loading ? "button" : undefined}
+        tabIndex={onClick && !loading ? 0 : undefined}
+        onKeyDown={onClick && !loading ? (e) => e.key === "Enter" && onClick() : undefined}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
             {loading ? (
               <>
-                <SkeletonPulse className="h-4 w-24 mb-2" />
-                <SkeletonPulse className="h-9 w-20 mt-1" />
-                {subtitle && <SkeletonPulse className="h-3 w-28 mt-2" />}
+                <SkeletonPulse className="h-4 w-20 mb-2" />
+                <SkeletonPulse className={large ? "h-9 w-20" : "h-7 w-16"} />
+                {subtitle && <SkeletonPulse className="h-3 w-24 mt-2" />}
               </>
             ) : (
               <>
-                <p className="text-gray-400 text-sm font-medium">{title}</p>
-                <p className="text-3xl font-bold text-white mt-1">{value}</p>
-                {subtitle && <p className="text-gray-500 text-xs mt-1">{subtitle}</p>}
+                <p className="text-ink-3 text-xs">{title}</p>
+                <p
+                  className={`${large ? "text-3xl leading-9" : "text-xl leading-7"} font-bold font-mono-data ${tone.value}`}
+                >
+                  {value}
+                </p>
+                {subtitle && <p className="text-ink-3 text-xs mt-0.5">{subtitle}</p>}
               </>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {icon && !loading && <div className="text-gray-500">{icon}</div>}
-            {to && !loading && (
-              <div className="text-gray-600">
-                <ChevronIcon />
-              </div>
-            )}
+          <div className="flex items-center gap-2 text-ink-4">
+            {icon && !loading && <div>{icon}</div>}
+            {isClickable && !loading && <ChevronIcon />}
           </div>
         </div>
       </div>
