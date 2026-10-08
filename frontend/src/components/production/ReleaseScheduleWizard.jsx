@@ -214,7 +214,7 @@ function OfferPrompt({ orderCode, pendingCount, loading, onAccept, onDismiss }) 
           <button
             type="button"
             onClick={onAccept}
-            className="px-5 py-2 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] transition-colors"
+            className="px-5 py-2 bg-[var(--accent)] text-accent-ink text-sm rounded-lg hover:bg-[var(--accent-press)] transition-colors"
           >
             Schedule now
           </button>
@@ -293,7 +293,7 @@ function WizardSummary({ scheduled, skipped, productionOrderId, onClose, onOpenS
         <button
           type="button"
           onClick={onClose}
-          className="px-5 py-2 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] transition-colors"
+          className="px-5 py-2 bg-[var(--accent)] text-accent-ink text-sm rounded-lg hover:bg-[var(--accent-press)] transition-colors"
         >
           Done
         </button>

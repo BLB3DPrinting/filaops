@@ -68,7 +68,7 @@ function ProductionChart({ data, period, onPeriodChange, loading }) {
   if (loading) {
     return (
       <div className="h-32 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]"></div>
       </div>
     );
   }
@@ -467,7 +467,7 @@ export default function AdminProduction() {
           </div>
           <button
             onClick={() => { setShowCreateModal(true); setCreateError(null); }}
-            className="px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)]"
+            className="px-4 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)]"
           >
             + Create Production Order
           </button>
@@ -563,7 +563,7 @@ export default function AdminProduction() {
           {/* Loading */}
           {loading && (
             <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent)]"></div>
             </div>
           )}
 
@@ -824,7 +824,7 @@ export default function AdminProduction() {
                 <button
                   type="submit"
                   disabled={creating}
-                  className="flex-1 px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50"
                 >
                   {creating ? "Creating..." : "Create Order"}
                 </button>

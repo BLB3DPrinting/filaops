@@ -552,7 +552,7 @@ export default function OperationSchedulerModal({
                 value={resourceId}
                 onChange={(e) => setResourceId(e.target.value)}
                 disabled={loadingResources}
-                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
               >
                 <option value="">
                   {loadingResources ? "Loading..." : "Select a resource..."}
@@ -579,7 +579,7 @@ export default function OperationSchedulerModal({
                 type="datetime-local"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
               />
             </div>
 
@@ -595,7 +595,7 @@ export default function OperationSchedulerModal({
                 type="datetime-local"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink-3)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent"
+                className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink-3)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
               />
             </div>
 
@@ -622,7 +622,7 @@ export default function OperationSchedulerModal({
             {!predecessorConflict && successorConflicts.length === 0 && (
               checking ? (
                 <div className="text-sm text-[var(--ink-4)] flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--orange)]"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--accent)]"></div>
                   Checking for conflicts...
                 </div>
               ) : (
@@ -699,7 +699,7 @@ export default function OperationSchedulerModal({
                       !resourceId ||
                       !startTime
                     }
-                    className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-6 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {submitting
                       ? isEditMode ? "Rescheduling..." : "Scheduling..."
@@ -717,7 +717,7 @@ export default function OperationSchedulerModal({
             <button
               type="button"
               onClick={handleClose}
-              className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] transition-colors"
+              className="px-6 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] transition-colors"
             >
               Done
             </button>

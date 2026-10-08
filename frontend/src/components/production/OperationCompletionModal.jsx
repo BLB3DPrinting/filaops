@@ -391,7 +391,7 @@ export default function OperationCompletionModal({
               {/* Cascade preview */}
               {loading ? (
                 <div className="flex items-center justify-center py-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--orange)]"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--accent)]"></div>
                   <span className="ml-2 text-sm text-[var(--ink-3)]">Calculating costs...</span>
                 </div>
               ) : cascadeData ? (
@@ -408,7 +408,7 @@ export default function OperationCompletionModal({
                   type="checkbox"
                   checked={createReplacement}
                   onChange={(e) => setCreateReplacement(e.target.checked)}
-                  className="w-4 h-4 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
+                  className="w-4 h-4 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--accent)] focus:ring-[var(--accent)] focus:ring-offset-0"
                 />
                 <div>
                   <span className="text-[var(--ink)] text-sm">Create replacement order</span>
@@ -445,10 +445,10 @@ export default function OperationCompletionModal({
           <button
             onClick={handleSubmit}
             disabled={!isValid || submitting}
-            className={`flex-1 px-4 py-2 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`flex-1 px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
               hasScrap
-                ? 'bg-[var(--status-red)] hover:bg-[var(--status-red)]/90'
-                : 'bg-[var(--orange)] hover:bg-[var(--orange-press)]'
+                ? 'bg-[var(--status-red)] hover:bg-[var(--status-red)]/90 text-paper'
+                : 'bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink'
             }`}
           >
             {submitting
