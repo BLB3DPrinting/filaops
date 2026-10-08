@@ -11,70 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-This release fixes several security problems (see **Security** below). Read these notes before you upgrade.
+This is a security release; every install should upgrade. **Read [docs/UPGRADE-4.2.0.md](docs/UPGRADE-4.2.0.md) before upgrading.** In short:
 
-- **Set `SECRET_KEY`.** It signs every login, so it must be a secret random value. If it is empty or still a placeholder (for example the `change-in-production` fallback in `docker-compose.yml`), production (`ENVIRONMENT=production`) still refuses to start, and every other environment now starts with a temporary random key instead. The same happens outside production for well-known weak keys such as `changeme` or `secret` (production logs an error for those). That key changes on every restart, so each restart signs everyone out, and the Security Audit reports "Temporary SECRET_KEY in use" until a real key is set. To set one, run `openssl rand -hex 32` (or `python -c "import secrets; print(secrets.token_hex(32))"`), add `SECRET_KEY=<output>` to the project `.env` (Docker) or `backend/.env` (manual install), then run `docker compose up -d` or restart the backend. Setting or changing the key signs everyone out once. A key shorter than 32 characters still works but now logs a warning. Production also refuses the example keys that earlier FilaOps files published (for example `another-64-char-random-string-here` from the production example in `docs/DEPLOYMENT.md`), so if your production `.env` still has one, set a new key before you upgrade. If you take Quoter payments through FilaOps PRO's Stripe checkout, set a real key before you do, the same one for every backend worker: PRO signs the shipping rates it offers with a key derived from `SECRET_KEY`, so with a temporary key a restart (or a second worker) makes checkout ask the buyer to get shipping rates again, and a payment completed after a restart is held for staff review.
-- **Customer self-registration is off unless the public Quoter is on.** `POST /api/v1/auth/register` and `POST /api/v1/auth/portal/register` return 403 unless `ENABLE_PUBLIC_QUOTER=true`. The Quoter already needs that setting to create quotes. Staff accounts still come from first-run setup or **Admin > Team Members**.
-- **Customer accounts can no longer call staff APIs.** Every Core API route now needs a staff account (admin or operator), except sign-in, password reset, first-run setup, version and health checks, the company logo, `GET /api/v1/auth/me` and the Quoter's routes for the caller's own quotes. Customer accounts get 403 everywhere else, including the Core sales-order routes for their own orders; PRO B2B buyers keep using the PRO portal. Some item and routing reads and the order import CSV template worked without a login; they now need a staff login. If a script or integration calls the API with a customer account, give it a staff account.
-- **Scrap reasons are admin-only.** Only admins can create, edit or delete scrap reasons. Operators still pick from the list when they scrap work. The Scrap Reasons page was already admin-only.
-- **Set `ADMIN_APPROVAL_EMAIL` to a real address if you use email.** Password reset Approve and Deny links are emailed to `ADMIN_APPROVAL_EMAIL`, which defaults to `admin@example.com` (in Settings and in `docker-compose.yml`). FilaOps now treats email as off unless `SMTP_USER` and `SMTP_PASSWORD` are set and `ADMIN_APPROVAL_EMAIL` is a real address. While it is empty or a placeholder (`admin@example.com`, any address at `example.com`, `example.org` or `example.net`, or at `localhost` or a reserved test domain such as `.test`), reset requests stay pending as if SMTP were not configured, and **Admin > Settings** shows the "Email (SMTP) Not Configured" banner. Set it in the project `.env` (Docker) or `backend/.env` (manual install), then run `docker compose up -d` or restart the backend.
+- **Set a real `SECRET_KEY`.** Production refuses to start with an empty, placeholder or published example key. Other environments start with a temporary random key that signs everyone out on every restart. Setting or changing the key signs everyone out once.
+- **Customer self-registration is off unless `ENABLE_PUBLIC_QUOTER=true`.** Set it only if you run the public Quoter.
+- **Customer accounts can only use the Quoter and their own account.** Scripts or integrations that sign in as a customer account need a staff account.
+- **Set `ADMIN_APPROVAL_EMAIL` to a real address if you send email.** Email counts as off until it is set. Docker installs now pass the SMTP settings through to the backend.
+- **Password reset always waits for an administrator.** Reset links issued earlier without an administrator's approval no longer work.
+- **Scrap reasons and AI (Ollama) settings are admin-only.**
+- **This release runs database migrations.** Back up first; rolling back means restoring that backup.
 - **FilaOps PRO:** install the PRO update released alongside 4.2.0.
-- **Check the shipping before you approve a Quoter quote.** The shipping on a customer's Quoter quote is what the customer chose when they accepted it. The quote detail now shows the Shipping line for every quote with a ship-to address, including `$0.00`. With the PRO update, Stripe checkout also checks that shipping against the rates PRO offered, even after staff approve the quote; if you lower the shipping or change the ship-to address of such a quote, take that payment another way.
-- **Refund a held Stripe payment before you approve its quote again.** With the PRO update, a Stripe payment that does not match its quote, or whose quote's shipping changed after checkout, is not applied: the quote goes back to pending and its admin notes record the payment. Approving a quote now clears its review reason so the customer can pay online (see **Changed**), so they could pay a second time. Before approving such a quote, refund that payment in Stripe. To keep the payment instead, approve the quote and convert it to an order straight away (**Convert to Order**), then record the Stripe payment on the order.
-- **Check for changes made by customer accounts.** Before this release a customer account could change shop records. After upgrading, run the read-only queries below against the FilaOps database, for example in `docker compose exec db psql -U postgres -d filaops` (use your own `DB_USER` and `DB_NAME` if you changed them). They change nothing.
-
-```sql
--- 1. Customer accounts that registered themselves. Look for ones you do not recognise.
-SELECT id, email, created_at
-FROM users
-WHERE account_type = 'customer' AND created_by IS NULL
-ORDER BY created_at DESC;
-
--- 2. Records created or changed by a customer account.
-WITH customer AS (
-    SELECT id, lower(email) AS email FROM users WHERE account_type = 'customer'
-)
-SELECT 'payments' AS table_name, t.id AS record_id, c.email, t.created_at AS happened_at
-  FROM payments t JOIN customer c ON c.id = t.recorded_by_id
-UNION ALL SELECT 'quotes (approved)', t.id, c.email, t.approved_at
-  FROM quotes t JOIN customer c ON c.id = t.approved_by
-UNION ALL SELECT 'sales_order_lines', t.id, c.email, so.created_at
-  FROM sales_order_lines t JOIN sales_orders so ON so.id = t.sales_order_id
-  JOIN customer c ON c.id = t.created_by
-UNION ALL SELECT 'order_events', t.id, c.email, t.created_at
-  FROM order_events t JOIN customer c ON c.id = t.user_id
-UNION ALL SELECT 'shipping_events', t.id, c.email, t.created_at
-  FROM shipping_events t JOIN customer c ON c.id = t.user_id
-UNION ALL SELECT 'purchasing_events', t.id, c.email, t.created_at
-  FROM purchasing_events t JOIN customer c ON c.id = t.user_id
-UNION ALL SELECT 'scrap_records', t.id, c.email, t.created_at
-  FROM scrap_records t JOIN customer c ON c.id = t.created_by_user_id
-UNION ALL SELECT 'qc_inspections', t.id, c.email, t.inspected_at
-  FROM qc_inspections t JOIN customer c ON c.id IN (t.inspector_user_id, t.waiver_user_id)
-UNION ALL SELECT 'close_short_records', t.id, c.email, t.performed_at
-  FROM close_short_records t JOIN customer c ON c.id = t.performed_by
-UNION ALL SELECT 'production_order_operation_materials', t.id, c.email, t.consumed_at
-  FROM production_order_operation_materials t JOIN customer c ON c.id = t.consumed_by
-UNION ALL SELECT 'gl_journal_entries', t.id, c.email, t.created_at
-  FROM gl_journal_entries t JOIN customer c ON c.id = t.created_by
-UNION ALL SELECT 'inventory_transactions', t.id, c.email, t.created_at
-  FROM inventory_transactions t JOIN customer c ON c.email = lower(t.created_by)
-UNION ALL SELECT 'production_orders', t.id, c.email, t.created_at
-  FROM production_orders t JOIN customer c ON c.email = lower(t.created_by)
-UNION ALL SELECT 'purchase_orders', t.id, c.email, t.created_at
-  FROM purchase_orders t JOIN customer c ON c.email = lower(t.created_by)
-UNION ALL SELECT 'material_spools', t.id, c.email, t.created_at
-  FROM material_spools t JOIN customer c ON c.email = lower(t.created_by)
-ORDER BY happened_at DESC;
-
--- 3. Quotes whose total is less than subtotal + tax + shipping.
-SELECT id, quote_number, status, subtotal, tax_amount, shipping_cost, total_price, updated_at
-FROM quotes
-WHERE total_price < COALESCE(subtotal, 0) + COALESCE(tax_amount, 0) + COALESCE(shipping_cost, 0) - 0.01
-ORDER BY updated_at DESC;
-```
-
-The second query lists records a customer account created or changed; the `email` column names the account. On installs that use the PRO B2B portal, buyers' own portal orders also appear there (`sales_order_lines`, and `order_events` for orders created, confirmed or cancelled in the portal), which is expected. The third query lists quotes whose stored total is less than their subtotal, tax and shipping added up; compare them with what the customer paid. None of these queries can show what a customer account read.
 
 ### Added
 
@@ -106,16 +52,16 @@ The second query lists records a customer account created or changed; the `email
 
 ### Security
 
-- **Staff API routes require a staff account.** Customer accounts are ordinary user accounts, and many staff routes only checked for a login, so a customer account could read or change quotes, payments, purchase orders, vendors, production and quality records, items, routings, sales orders, traceability data and settings. Every Core route now requires a staff (admin or operator) or admin account unless it is on a short reviewed list of public and customer routes, and a new test fails when a route is added without one of those checks.
-- **Routes that answered without a login now need one.** Some item and routing reads, the consolidated shipping-rate lookup (`POST /api/v1/admin/fulfillment/ship/consolidate/get-rates`) and the order import template answered anonymous requests. They now need a staff account, and so does everything else under `/api/v1/admin`.
-- **A placeholder `SECRET_KEY` no longer signs logins.** Outside production, an empty or placeholder key was used as is to sign login tokens, and those placeholder values are public. FilaOps now uses a temporary random key instead (see **Upgrade notes**). The placeholders now include the example keys that earlier FilaOps compose files, `.env` examples and docs published, such as `change-this-in-production-use-openssl-rand-hex-32` and the production example `another-64-char-random-string-here`; production refuses to start with any of them.
-- **Fixes released for the first time.** These landed after 4.1.0 and ship in 4.2.0: inventory adjustment routes need a staff account (#859); `GET /api/v1/sales-orders/{id}/shipping-events`, which returned tracking numbers and destinations without a login, needs one (#872); the consolidated label purchase (`POST /api/v1/admin/fulfillment/ship/consolidate/buy-label`), which answered without a login and charges the shop's shipping account, needs a staff account (#893); and purchase-order documents (list, view and download, which needed no login) and printers are staff-only, with stored printer connection secrets such as access codes masked in responses (#973).
-- **Customer self-registration follows `ENABLE_PUBLIC_QUOTER`.** Both registration routes return 403 unless the public Quoter is on.
-- **Quoter quote acceptance is checked on the server.** `POST /api/v1/quotes/portal/{quote_id}/accept` now refuses (409) a changed unit price; quotes that are no longer pending or approved, have expired or already have an order; quotes the shop drafted or approved; and colour selections that were not priced. The total is computed on the server as subtotal + tax + shipping, and pricing and slicer data sent by the client is ignored.
-- **The Ollama URL is validated before the server contacts it.** The AI settings Ollama URL must be a plain `http://` or `https://` address, without credentials, a query string or a fragment. The server checks it again before every request, no longer follows redirects, and returns only model names. Addresses on the local network and loopback (for example `http://localhost:11434` or `http://192.168.1.20:11434`) stay allowed on purpose, because Ollama usually runs on the same machine or network as FilaOps. Link-local, cloud metadata (such as `169.254.169.254`) and multicast addresses are refused, checked on the address the server actually connects to: a host name that resolves only to such addresses is refused too, and one that also resolves to an allowed address (as mDNS `.local` names often do) connects to the allowed address only. LAN, loopback and Tailscale addresses stay allowed. The server now connects to the Ollama URL directly: that request ignores the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) and `~/.netrc`, and still honours `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE`. Only an admin can save the URL, and **Test connection** is an admin-only check that the server can reach it. `GET /api/v1/settings/ai` and `GET /api/v1/settings/ai/anthropic-status` now need a staff account.
-- **Staff-only details are hidden from customer accounts.** `GET /api/v1/settings/company` now needs a staff account, and a customer viewing the archive of their own quote no longer sees the staff-only admin notes.
-- **Password reset requests always wait for an administrator.** `POST /api/v1/auth/password-reset/request` no longer returns a reset token or reset link in any configuration. Its response body is the same whether or not the account exists, a request is already pending, or SMTP is configured. Without SMTP, requests stay pending and cannot be completed. They are not emailed later when SMTP is turned on; the user requests a reset again. An administrator can reset a staff (admin or operator) password from **Admin > Team Members > Reset PW**. Customer portal accounts are not on Team Members, so they need SMTP to reset a password. With SMTP, the approval email flow is unchanged, and a request whose approval email could not be sent no longer blocks the user's next request; FilaOps tries the email again on a request made at least 15 minutes after the failed one. Each step of talking to the mail server (connecting, and every reply after that) now times out after 10 seconds, and other requests are no longer held up while FilaOps waits. Reset tokens that earlier versions approved without an administrator no longer work. The Forgot Password page no longer shows a reset link, and the email service no longer logs email bodies when SMTP is not configured.
-- **Docker Compose passes SMTP settings to the backend.** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `SMTP_TLS` and `ADMIN_APPROVAL_EMAIL` set in the project `.env` now reach the backend container. Before this, the stock `docker-compose.yml` did not pass them, so email could not be turned on in a Docker install. Run `docker compose up -d` after changing them. Email only counts as configured once `ADMIN_APPROVAL_EMAIL` is a real address, so reset approval links are never sent to the `admin@example.com` default (see **Upgrade notes**). The compose file also passes `ENABLE_PUBLIC_QUOTER` to the backend (default `false`, the same as before), so a Docker install that runs the Quoter can set it in the project `.env`, and passes `ENVIRONMENT` to the migrate service, so with `ENVIRONMENT=production` a placeholder `SECRET_KEY` or `DB_PASSWORD` stops the stack at the migrate step with the production error instead of a temporary-key message.
+This release fixes five security problems. Details are in the linked advisories.
+
+- **Access control on the Core API.** Customer accounts could use API routes meant for shop staff, including quotes, payments and purchase orders, and a few routes answered without a login. Every Core route now requires a staff or admin account unless it is on a short, reviewed list of public and customer routes, and a test fails if a new route is added without a check. ([GHSA-jgwx-xrmr-26fv](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-jgwx-xrmr-26fv), [GHSA-f9mr-93x7-cq5q](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-f9mr-93x7-cq5q), [GHSA-vrr8-gpvm-732v](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vrr8-gpvm-732v))
+- **Login signing key.** FilaOps no longer signs logins with a placeholder or published example `SECRET_KEY`. ([GHSA-r4j7-j592-gchw](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-r4j7-j592-gchw))
+- **Password reset.** Reset requests always need an administrator's approval, and the reset response never contains a reset link. ([GHSA-f9mr-93x7-cq5q](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-f9mr-93x7-cq5q))
+- **Outbound requests from AI settings.** The Ollama URL is validated when saved and again before every request, and some special-purpose addresses are refused. Local and LAN addresses still work. ([GHSA-vmrm-qwq2-8xj3](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vmrm-qwq2-8xj3))
+- **Quoter quote acceptance.** The server now works out the price and total when a customer accepts a quote, and ignores pricing sent by the browser.
+- **Other hardening.** Staff-only fields are hidden from customer accounts, stored printer connection secrets are masked in responses, and this release ships access fixes merged after 4.1.0 (#859, #872, #893, #973).
+
+Thanks to the people who reported these problems; see [SECURITY.md](SECURITY.md).
 
 ## [4.1.0] - 2026-06-20
 
