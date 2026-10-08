@@ -64,7 +64,6 @@
   --bg-primary: #0F0F1E;
   --bg-secondary: #161628;
   --bg-card: #1C1C32;
-  --bg-elevated: #242440;
   --primary: #026DF8;
   --primary-light: #0088FF;
   /* --accent / --accent-light removed 2026-09-20: --accent collided with the
@@ -72,18 +71,11 @@
      later, won — silently painting the new accent orange again. Its three
      consumers were repointed (two were a status and became --status-amber);
      --accent-light had none. */
-  --success: #00c853;
-  --warning: #EE7A08;
-  --error: #ef4444;
-  --info: #026DF8;
   --text-primary: #fafafa;
   --text-secondary: #a1a1a1;
   --text-muted: #666666;
   --border-subtle: #2a2a3a;
-  --border-active: #3a3a4a;
-  --transition-fast: 150ms ease;
   --transition-base: 250ms ease;
-  --transition-slow: 400ms ease;
 }
 
 /* ---- Dim theme: warm dark surfaces ------------------------------------- */
@@ -251,31 +243,6 @@ body {
    COMPONENT UTILITIES (legacy — migrated per-screen during #846)
    ============================================================================= */
 
-/* Old glassmorphism — still used by the AdminLayout top bar; replaced by the
-   .glass-topbar material when the shell slice lands (#846). */
-.glass {
-  background: rgba(28, 28, 50, 0.8);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-}
-
-/* Reduced-transparency users get a solid, un-blurred bar that matches the dark
-   shell. (The token-aware .glass-topbar replacement lands in the shell slice;
-   data-glass="off" is wired with the theme store in the command-palette slice.) */
-@media (prefers-reduced-transparency: reduce) {
-  .glass {
-    background: rgb(28, 28, 50);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-/* Primary glow effect (legacy) */
-.glow {
-  box-shadow: 0 0 20px -5px rgba(2, 109, 248, 0.4);
-}
-
 /* =============================================================================
    LOGO ENHANCEMENT STYLES (legacy)
    ============================================================================= */
@@ -291,16 +258,6 @@ body {
 .logo-container:hover {
   border-color: rgba(238, 122, 8, 0.5);
   box-shadow: 0 0 20px -5px rgba(238, 122, 8, 0.5);
-}
-
-.logo-glow {
-  transition: all var(--transition-base);
-  filter: drop-shadow(0 0 0 transparent);
-}
-
-.logo-glow:hover,
-.logo-container:hover .logo-glow {
-  filter: drop-shadow(0 0 10px rgba(238, 122, 8, 0.4));
 }
 
 @keyframes logo-breathe {
@@ -366,40 +323,4 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
-}
-
-/* =============================================================================
-   NAVIGATION ACTIVE STATE (legacy — migrated in the shell slice)
-   ============================================================================= */
-
-.nav-item-active {
-  background: linear-gradient(90deg, rgba(2, 109, 248, 0.2), rgba(238, 122, 8, 0.1));
-  border: 1px solid rgba(2, 109, 248, 0.3);
-  color: white;
-}
-
-.nav-item-active:hover {
-  border-color: rgba(238, 122, 8, 0.5);
-}
-
-.nav-item {
-  color: var(--text-secondary);
-  transition: all var(--transition-base);
-}
-
-.nav-item:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
-}
-
-.nav-item:focus-visible {
-  outline: none;
-  background: var(--bg-card);
-  box-shadow: 0 0 0 2px var(--primary), 0 0 0 4px rgba(2, 109, 248, 0.3);
-}
-
-.nav-item-active:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--accent),
-              0 0 0 4px color-mix(in oklab, var(--accent) 30%, transparent);
 }

@@ -11,7 +11,6 @@ import {
 } from "../utils/version";
 import { API_URL } from "../config/api";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
-import logoNavbar from "../assets/logo_navbar.png";
 import logoBLB3D from "../assets/logo_blb3d.svg";
 import { LogoutIcon, MenuIcon } from "./nav/navIcons";
 import { navGroups } from "./nav/navConfig";
@@ -234,7 +233,7 @@ export default function AdminLayout() {
         {/* Mobile sidebar overlay */}
         {mobileMenuOpen && (
           <div
-            className="md:hidden fixed inset-0 z-40 bg-black bg-opacity-50"
+            className="md:hidden fixed inset-0 z-40 bg-black"
             onClick={() => setMobileMenuOpen(false)}
           >
             <aside
@@ -250,14 +249,11 @@ export default function AdminLayout() {
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
                 <Link to="/admin" className="flex items-center gap-3">
-                  <div className="logo-container">
-                    <img
-                      src={companyLogoUrl || logoBLB3D}
-                      alt="Company Logo"
-                      className="h-10 w-auto logo-glow"
-                    />
-                  </div>
-                  <img src={logoNavbar} alt="FilaOps" className="h-32" />
+                  <img
+                    src={companyLogoUrl || logoBLB3D}
+                    alt="Company Logo"
+                    className="h-10 w-auto"
+                  />
                 </Link>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
@@ -349,16 +345,11 @@ export default function AdminLayout() {
               to="/admin"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
-              <div className="logo-container">
-                <img
-                  src={companyLogoUrl || logoBLB3D}
-                  alt="Company Logo"
-                  className="h-10 w-auto logo-glow"
-                />
-              </div>
-              {sidebarOpen && (
-                <img src={logoNavbar} alt="FilaOps" className="h-32" />
-              )}
+              <img
+                src={companyLogoUrl || logoBLB3D}
+                alt="Company Logo"
+                className="h-10 w-auto"
+              />
             </Link>
             {sidebarOpen && (
               <button
@@ -444,12 +435,6 @@ export default function AdminLayout() {
           >
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
-                <h1
-                  className="text-lg font-semibold font-display"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  ERP
-                </h1>
                 <span
                   className="text-xs font-mono-data"
                   style={{ color: "var(--text-muted)" }}
@@ -504,7 +489,7 @@ export default function AdminLayout() {
                 )}
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-2 text-sm transition-colors hover:text-red-400"
+                  className="flex items-center gap-2 text-sm transition-colors"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   <LogoutIcon />
