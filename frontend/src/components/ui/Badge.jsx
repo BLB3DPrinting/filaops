@@ -1,26 +1,26 @@
 import { forwardRef } from "react";
 
 const VARIANT_CLASSES = {
-  success: "bg-green-500/20 text-green-400",
-  warning: "bg-amber-500/20 text-amber-400",
-  danger: "bg-red-500/20 text-red-400",
-  info: "bg-blue-500/20 text-blue-400",
-  neutral: "bg-gray-500/20 text-gray-400",
-  purple: "bg-purple-500/20 text-purple-400",
+  success: "bg-status-green-tint text-status-green",
+  warning: "bg-status-amber-tint text-status-amber",
+  danger: "bg-status-red-tint text-status-red",
+  info: "bg-status-amber-tint text-status-amber",
+  neutral: "bg-paper-sunk text-ink-2",
+  purple: "bg-status-amber-tint text-status-amber",
 };
 
 const DOT_CLASSES = {
-  success: "bg-green-400",
-  warning: "bg-amber-400",
-  danger: "bg-red-400",
-  info: "bg-blue-400",
-  neutral: "bg-gray-400",
-  purple: "bg-purple-400",
+  success: "bg-status-green",
+  warning: "bg-status-amber",
+  danger: "bg-status-red",
+  info: "bg-status-amber",
+  neutral: "bg-ink-3",
+  purple: "bg-status-amber",
 };
 
 const SIZE_CLASSES = {
-  sm: "px-1.5 py-0.5 text-xs",
-  md: "px-2 py-1 text-xs",
+  sm: "px-2 py-0.5 text-xs",
+  md: "px-2.5 py-1 text-xs",
 };
 
 const Badge = forwardRef(function Badge(
@@ -41,7 +41,7 @@ const Badge = forwardRef(function Badge(
   return (
     <span
       ref={ref}
-      className={`inline-flex items-center gap-1.5 font-medium rounded ${variantClasses} ${sizeClasses} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-semibold rounded-full ${variantClasses} ${sizeClasses} ${className}`}
       {...rest}
     >
       {dot && (

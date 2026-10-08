@@ -51,15 +51,15 @@ describe('StatCard', () => {
       <StatCard title="Errors" value={7} color="danger" variant="simple" />
     )
     const value = screen.getByText('7')
-    expect(value.className).toContain('text-red-400')
+    expect(value.className).toContain('text-status-red')
   })
 
-  it('renders gradient variant by default', () => {
+  it('renders the dashboard (gradient) size by default', () => {
     const { container } = renderWithRouter(
       <StatCard title="Items" value={100} color="primary" />
     )
-    // Gradient variant uses bg-gradient-to-br
-    const card = container.querySelector('.bg-gradient-to-br')
+    // The gradient wash is retired (#846); the default variant is the larger p-6 tile
+    const card = container.querySelector('.p-6')
     expect(card).toBeInTheDocument()
   })
 
