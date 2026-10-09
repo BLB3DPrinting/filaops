@@ -19,6 +19,7 @@ This is a security release; every install should upgrade. **Read [docs/UPGRADE-4
 - **Set `ADMIN_APPROVAL_EMAIL` to a real address if you send email.** Email counts as off until it is set. Docker installs now pass the SMTP settings through to the backend.
 - **Password reset always waits for an administrator.** Reset links issued earlier without an administrator's approval no longer work.
 - **Scrap reasons and AI (Ollama) settings are admin-only.**
+- **The database is published on `127.0.0.1` only (Docker).** Other machines can no longer reach port 5432. If your install still uses the default `DB_PASSWORD`, set a real one; the guide explains how to change it on an existing install and what to do if another machine needs the database.
 - **This release runs database migrations.** Back up first; rolling back means restoring that backup.
 - **FilaOps PRO:** install the PRO update released alongside 4.2.0.
 
@@ -59,6 +60,7 @@ This release fixes five security problems. Details are in the linked advisories.
 - **Password reset.** Reset requests always need an administrator's approval, and the reset response never contains a reset link. ([GHSA-f9mr-93x7-cq5q](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-f9mr-93x7-cq5q))
 - **Outbound requests from AI settings.** The Ollama URL is validated when saved and again before every request, and some special-purpose addresses are refused. Local and LAN addresses still work. ([GHSA-vmrm-qwq2-8xj3](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vmrm-qwq2-8xj3))
 - **Quoter quote acceptance.** The server now works out the price and total when a customer accepts a quote, and ignores pricing sent by the browser.
+- **Database port.** The stock `docker-compose.yml` now publishes the database on the local machine only, instead of on every network interface, and a test fails if a compose file the repo ships publishes it more widely. FilaOps itself still reaches the database over Docker's internal network.
 - **Other hardening.** Staff-only fields are hidden from customer accounts, stored printer connection secrets are masked in responses, and this release ships access fixes merged after 4.1.0 (#859, #872, #893, #973).
 
 Thanks to the people who reported these problems; see [SECURITY.md](SECURITY.md).
