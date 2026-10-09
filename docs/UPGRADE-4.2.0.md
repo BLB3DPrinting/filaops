@@ -17,10 +17,9 @@ back.
 | --- | --- |
 | Set a real `SECRET_KEY` | Everyone whose `SECRET_KEY` is empty, a placeholder, or copied from an example |
 | Set a real database password | Docker installs still using the default `changeme` |
-| Set `ENABLE_PUBLIC_QUOTER=true` in `.env` | Only shops that run the public online Quoter (Docker: not by editing `docker-compose.yml`) |
+| Set `ENABLE_PUBLIC_QUOTER=true` in `.env` | Only installs that accept customer sign-ups or public quote requests (Docker: not by editing `docker-compose.yml`) |
 | Set up email, with a real `ADMIN_APPROVAL_EMAIL` | Shops that send email, or that have customer accounts (customers can only reset a password by email) |
 | Give integrations a staff account | Anyone with a script or integration that signs in as a customer account |
-| Install the matching FilaOps PRO update | FilaOps PRO users |
 
 Where to put settings: the project `.env` file for a Docker install, or
 `backend/.env` for a manual install. After changing them, run
@@ -54,10 +53,6 @@ What happens if you don't:
   SECRET_KEY in use" until you set a real key.
 
 A key shorter than 32 characters still works but logs a warning.
-
-If you take payments through FilaOps PRO's Stripe checkout, a real key is
-required for checkout to work reliably. Use the same key for every backend
-process.
 
 ### 2. Set a real database password (Docker)
 
@@ -102,26 +97,28 @@ with the value from `.env`.
 A manual install uses your own PostgreSQL server: change the password there
 and set the same value in `backend/.env`.
 
-### 3. Decide whether customers may register themselves
+### 3. Decide whether to accept customer sign-ups and public quotes
 
-Customer self-registration is now **off** unless the public Quoter is on. If
-you run the public Quoter, set:
+Customer self-registration and public quote intake are off by default. This
+setting turns them on:
 
 ```
 ENABLE_PUBLIC_QUOTER=true
 ```
 
-If you don't run the Quoter, leave it unset. Staff accounts are still created
-through first-run setup or **Admin > Team Members**.
+Before 4.2.0, customer self-registration was always on, whatever this setting
+said. Leave it unset if you don't take customer sign-ups or quote requests.
+Staff accounts are still created through first-run setup or **Admin > Team
+Members**.
 
-**Docker installs that run the Quoter:** before 4.2.0 the stock
+**Docker installs that already turned this on:** before 4.2.0 the stock
 `docker-compose.yml` did not pass `ENABLE_PUBLIC_QUOTER` to the backend, so
 the setting had to be added to the compose setup by hand.
 
 - If you added it in a `docker-compose.override.yml`, it keeps working.
 - If you added it by **editing `docker-compose.yml` itself**, taking the new
-  4.2.0 file removes your edit, and the Quoter then refuses new quotes and
-  new customer sign-ups (403). Before you upgrade, put
+  4.2.0 file removes your edit, and customer sign-ups and public quote
+  requests are then refused (403). Before you upgrade, put
   `ENABLE_PUBLIC_QUOTER=true` in the project `.env`. Copy across any other
   changes you made to `docker-compose.yml` too, into `.env` or an override
   file.
@@ -136,8 +133,8 @@ treats email as **off** until `SMTP_USER`, `SMTP_PASSWORD` and a real
 example or test addresses, count as not set.
 
 **Customer accounts can only reset a password by email.** An admin can reset
-a staff password from **Admin > Team Members**, but customer accounts (for
-example Quoter customers) are not listed there. Until email is set up, a
+a staff password from **Admin > Team Members**, but customer accounts are not
+listed there. Until email is set up, a
 customer who forgets their password has no way back in. If you have customer
 accounts, set up email before you upgrade.
 
@@ -154,7 +151,7 @@ lines across.
 ### 5. Move integrations off customer accounts
 
 Customer accounts can now only use the routes a customer needs: signing in,
-their own Quoter quotes, password reset and reading their own account
+the quotes they submitted, password reset and reading their own account
 details. Everything
 else returns **403 Forbidden** for a customer account. A few lookups that
 previously answered without signing in now need a staff login too.
@@ -162,11 +159,6 @@ previously answered without signing in now need a staff login too.
 If a script, spreadsheet or integration signs in with a customer account to
 read or change shop data, create a staff (operator or admin) account for it
 in **Admin > Team Members**.
-
-### 6. FilaOps PRO
-
-Install the PRO update released alongside 4.2.0. B2B buyers keep using the
-PRO portal as before.
 
 ## After you upgrade
 
@@ -178,8 +170,8 @@ PRO portal as before.
   **every** restart until you set a real one.
 - If you already had a real key and did not change it, nobody is signed out.
 
-Customer accounts that are signed in to anything other than the Quoter will
-start seeing "access denied" messages. That is expected.
+Customer accounts that try to use anything other than their own quotes and
+account will start seeing "access denied" messages. That is expected.
 
 ### Review your accounts
 
@@ -241,23 +233,18 @@ review.
   honours `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE`. If you reached Ollama
   through a proxy, point the URL at Ollama itself.
 
-### Quotes (Quoter shops)
+### Quotes
 
-- When a customer accepts a Quoter quote, the server now works out the price
-  and total itself and refuses quotes that can't be accepted any more (for
-  example expired or already ordered).
-- Approving a quote clears its "needs review" reason, so the customer can pay
-  online.
+- When a customer accepts a quote they submitted, the server now works out
+  the price and total itself and refuses quotes that can't be accepted any
+  more (for example expired or already ordered).
+- Approving a quote clears its "needs review" reason.
 - Setting a quote back to pending keeps it on hold until staff approve it
   again.
 - A note entered when changing a quote's status is **added** to the admin
   notes instead of replacing them. Notes are limited to 1,000 characters.
 - The quote detail always shows the shipping line when there is a ship-to
   address, including `$0.00`. Check shipping before you approve a quote.
-- **PRO with Stripe:** if a payment is held for review, refund it in Stripe
-  before approving the quote again, or approve it and convert it to an order
-  straight away and record the payment on the order. Otherwise the customer
-  could pay twice.
 
 ### Database port
 
