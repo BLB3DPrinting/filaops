@@ -17,8 +17,8 @@ back.
 | --- | --- |
 | Set a real `SECRET_KEY` | Everyone whose `SECRET_KEY` is empty, a placeholder, or copied from an example |
 | Set a real database password | Docker installs still using the default `changeme` |
-| Set `ENABLE_PUBLIC_QUOTER=true` | Only shops that run the public online Quoter |
-| Set `ADMIN_APPROVAL_EMAIL` to a real address | Shops that send email (SMTP) |
+| Set `ENABLE_PUBLIC_QUOTER=true` in `.env` | Only shops that run the public online Quoter (Docker: not by editing `docker-compose.yml`) |
+| Set up email, with a real `ADMIN_APPROVAL_EMAIL` | Shops that send email, or that have customer accounts (customers can only reset a password by email) |
 | Give integrations a staff account | Anyone with a script or integration that signs in as a customer account |
 | Install the matching FilaOps PRO update | FilaOps PRO users |
 
@@ -114,12 +114,37 @@ ENABLE_PUBLIC_QUOTER=true
 If you don't run the Quoter, leave it unset. Staff accounts are still created
 through first-run setup or **Admin > Team Members**.
 
-### 4. If you use email, set `ADMIN_APPROVAL_EMAIL`
+**Docker installs that run the Quoter:** before 4.2.0 the stock
+`docker-compose.yml` did not pass `ENABLE_PUBLIC_QUOTER` to the backend, so
+the setting had to be added to the compose setup by hand.
+
+- If you added it in a `docker-compose.override.yml`, it keeps working.
+- If you added it by **editing `docker-compose.yml` itself**, taking the new
+  4.2.0 file removes your edit, and the Quoter then refuses new quotes and
+  new customer sign-ups (403). Before you upgrade, put
+  `ENABLE_PUBLIC_QUOTER=true` in the project `.env`. Copy across any other
+  changes you made to `docker-compose.yml` too, into `.env` or an override
+  file.
+
+A manual install keeps reading the setting from `backend/.env` as before.
+
+### 4. Set up email if customers reset their own passwords
 
 Password reset approvals are emailed to `ADMIN_APPROVAL_EMAIL`. FilaOps now
 treats email as **off** until `SMTP_USER`, `SMTP_PASSWORD` and a real
 `ADMIN_APPROVAL_EMAIL` are all set. The default `admin@example.com`, and other
 example or test addresses, count as not set.
+
+**Customer accounts can only reset a password by email.** An admin can reset
+a staff password from **Admin > Team Members**, but customer accounts (for
+example Quoter customers) are not listed there. Until email is set up, a
+customer who forgets their password has no way back in. If you have customer
+accounts, set up email before you upgrade.
+
+Before 4.2.0 the stock `docker-compose.yml` did not pass any `SMTP_*`
+setting to the backend, so on a Docker install email was never on, even if
+your `.env` has SMTP settings. Check them now: after the upgrade they take
+effect.
 
 Docker installs: the stock `docker-compose.yml` now passes the `SMTP_*`
 settings, `ADMIN_APPROVAL_EMAIL`, `ENABLE_PUBLIC_QUOTER` and `ENVIRONMENT`
@@ -184,7 +209,8 @@ review.
   shows a reset link.
 - **Without email set up:** requests stay pending and can't be completed. An
   admin can reset a staff password directly from **Admin > Team Members >
-  Reset PW**. Customer accounts need email set up to reset a password.
+  Reset PW**. Customer accounts can't be reset that way, so without email a
+  customer can't reset a password at all.
 - **With email set up:** the approve/deny email flow is unchanged. If an
   approval email fails to send, the user can request again after 15 minutes.
 - Reset links issued by earlier versions without an administrator's approval
