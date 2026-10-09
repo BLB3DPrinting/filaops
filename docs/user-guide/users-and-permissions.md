@@ -35,18 +35,18 @@ The sidebar automatically hides admin-only sections (ADMIN group, MONEY group) f
 
 ### Customer Accounts
 
-Customer accounts belong to people outside your shop: buyers who sign up through the public Quoter or use the PRO B2B portal. They are managed under **Customers**, not **Team Members**. The rest of this page covers only Admin and Operator staff accounts.
+Customer accounts belong to people outside your shop, such as buyers who request quotes. They are managed under **Customers**, not **Team Members**. The rest of this page covers only Admin and Operator staff accounts.
 
 A customer account cannot use the staff app: the staff sign-in page turns it away, and every staff API answers 403. A customer account can only:
 
 - read its own profile
-- request quotes through the public Quoter, and accept and check out its own Quoter quotes
+- request quotes (when public quote intake is on), and accept and check out its own quotes; checking out requires an add-on that is not part of Core
 - read the archive and files of its own quotes (without the staff-only admin notes)
 
-Customer accounts cannot read sales orders through the Core API, not even their own. PRO B2B buyers see their orders in the PRO portal, which has its own screens.
+Customer accounts cannot read sales orders through the Core API, not even their own.
 
-!!! warning "Self-registration needs the public Quoter"
-    Customers can register themselves only when the public Quoter is turned on (`ENABLE_PUBLIC_QUOTER=true` in the backend's environment). Otherwise both registration routes answer 403. For a manual install, set the value in `backend/.env`. For Docker, set it in the project `.env` (the stock `docker-compose.yml` passes it to the backend, default `false`) and run `docker compose up -d`.
+!!! warning "Self-registration is off by default"
+    Customers can register themselves only when `ENABLE_PUBLIC_QUOTER=true` is set in the backend's environment. The same setting turns on public quote intake. Otherwise both registration routes answer 403. For a manual install, set the value in `backend/.env`. For Docker, set it in the project `.env` (the stock `docker-compose.yml` passes it to the backend, default `false`) and run `docker compose up -d`.
 
 ---
 

@@ -102,7 +102,7 @@ Authorization: Bearer <access_token>
 
 Every route needs a **staff** account (admin or operator), and admin-only
 routes need an **admin** account. A valid login alone is not enough, because
-customer accounts (public Quoter and PRO portal buyers) sign in too. The only
+customer accounts sign in too. The only
 exceptions are:
 
 - **No login needed:** `/auth/login`, `/auth/logout`, `/auth/refresh`,
@@ -113,7 +113,7 @@ exceptions are:
   `/system/info`, `/system/health`, `/settings/company/logo`, and `/health`
   (outside `/api/v1`).
 - **Any logged-in account, limited to its own records:** `GET /auth/me` and
-  the public Quoter's quote routes: `POST /quotes/portal`,
+  the customer quote routes: `POST /quotes/portal`,
   `POST /quotes/portal/{quote_id}/accept`,
   `POST /quotes/portal/{quote_id}/checkout`, `GET /quotes/{quote_id}/archive`,
   `GET /quotes/{quote_id}/files` and

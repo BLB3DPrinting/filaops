@@ -32,7 +32,7 @@ To check that the backend sees the settings, open **Admin > Settings**. The ambe
 ## Disabling Email
 
 If SMTP is not configured, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder, FilaOps will:
-- Keep password reset requests pending. No reset link is sent or shown. An administrator resets a staff (admin or operator) password from **Admin > Team Members > Reset PW** instead. Customer portal accounts are not on Team Members, so they cannot reset a password until SMTP is configured.
+- Keep password reset requests pending. No reset link is sent or shown. An administrator resets a staff (admin or operator) password from **Admin > Team Members > Reset PW** instead. Customer accounts are not on Team Members, so they cannot reset a password until SMTP is configured.
 - Log the recipient and subject of each email instead of sending it. The email body is not logged, because it contains approval and reset links.
 
 For a full description of how password resets work with and without SMTP, see [First-Run Setup and Password Reset](FIRST-RUN-SETUP.md#password-reset-flow).

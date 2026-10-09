@@ -118,7 +118,7 @@ When `SMTP_USER` and `SMTP_PASSWORD` are not set in your `.env`, or `ADMIN_APPRO
 
 **Fix:** Ask an administrator to reset your password from **Admin > Team Members > Reset PW**. This works for admin and operator accounts. If you are the only administrator and you are locked out, see the recovery options below.
 
-Customer portal accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email, which needs SMTP.
+Customer accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email, which needs SMTP.
 
 !!! tip "Let users reset their own passwords"
     Configure SMTP and set `ADMIN_APPROVAL_EMAIL` to a real administrator. Reset requests are then emailed to that administrator for approval, and the user gets the reset link by email.

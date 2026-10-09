@@ -69,7 +69,7 @@ Requests recorded while email is off are not emailed later, even after email is 
 
 To get a staff user (admin or operator) back in, an administrator resets their password from **Admin > Team Members > Reset PW** (see [Option 1](#option-1-admin-resets-via-team-members-page) below) and gives them the new password. If the only administrator is locked out, use [Option 2](#option-2-reset-via-psql-when-locked-out).
 
-Customer portal accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email. If you have customer accounts, configure SMTP.
+Customer accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email. If you have customer accounts, configure SMTP.
 
 To let users reset their own passwords with admin approval, configure SMTP — see [Email Setup](https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/).
 

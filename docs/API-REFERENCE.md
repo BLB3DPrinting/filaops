@@ -41,7 +41,7 @@ Authorization: Bearer <access_token>
 - **ADMIN**: Requires `account_type` = 'admin'
 
 Since 4.2.0, every route that is not marked PUBLIC or CUSTOMER refuses customer
-accounts with 403. The CUSTOMER routes are `GET /auth/me` and the public Quoter's
+accounts with 403. The CUSTOMER routes are `GET /auth/me` and the customer
 quote routes (`POST /quotes/portal`, `POST /quotes/portal/{quote_id}/accept`,
 `POST /quotes/portal/{quote_id}/checkout`, `GET /quotes/{quote_id}/archive`,
 `GET /quotes/{quote_id}/files`, `GET /quotes/{quote_id}/files/{file_id}/download`).
@@ -157,7 +157,7 @@ that operator owns (the list returns only those, the others answer 403).
 | DELETE | `/quotes/{quote_id}/files/{file_id}` | Remove a retained file from a quote | STAFF |
 | POST | `/quotes/portal` | Upload a file and create a quote for the logged-in customer (403 unless `ENABLE_PUBLIC_QUOTER=true`) | CUSTOMER |
 | POST | `/quotes/portal/{quote_id}/accept` | Save the customer's ship-to, shipping choice and colour slots on a quote the customer created; never changes the price (409 for closed, expired, shop-drafted or shop-approved quotes) | CUSTOMER |
-| POST | `/quotes/portal/{quote_id}/checkout` | Start payment for the customer's quote through the payment provider (PRO) | CUSTOMER |
+| POST | `/quotes/portal/{quote_id}/checkout` | Start payment for the customer's quote. Requires an add-on that is not part of Core; without it, answers 503 | CUSTOMER |
 | GET | `/quotes/{quote_id}/archive` | Read-only quote archive; customers get their own quotes only, without staff notes | CUSTOMER |
 | GET | `/quotes/{quote_id}/files` | List a quote's files (the customer's own quotes, or any quote for staff) | CUSTOMER |
 | GET | `/quotes/{quote_id}/files/{file_id}/download` | Download a quote file (the customer's own quotes, or any quote for staff) | CUSTOMER |
@@ -301,7 +301,7 @@ that operator owns (the list returns only those, the others answer 403).
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/materials/options` | Get all material options for the quote portal. | STAFF |
+| GET | `/materials/options` | Get all material options. Nothing in Core uses this route; it is for an add-on that is not part of Core. | STAFF |
 | GET | `/materials/types` | Get list of material types (for first dropdown). | STAFF |
 | GET | `/materials/types/{material_type_code}/colors` | Get available colors for a specific material type (for second dropdown). | STAFF |
 | POST | `/materials/types/{material_type_code}/colors` | Create a new color and link it to a material type. | ADMIN |
