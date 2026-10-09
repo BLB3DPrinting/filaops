@@ -5,11 +5,16 @@ before you start: some installs need a setting changed first, and a few things
 work differently afterwards.
 
 Upgrading from 4.1.0 runs database migrations (new tables and columns for
-quality control, operation types and invoice voids). They run the same way as in earlier upgrades: the Docker `migrate`
-service runs them on `docker compose up -d`, and a manual install runs
+quality control, operation types and invoice voids). On Docker, the `migrate`
+service runs them when you rebuild and start the stack with
+`docker compose up -d --build`. A plain `docker compose up -d` reuses the
+4.1.0 images, so nothing is upgraded. A manual install runs
 `alembic upgrade head`. **Back up your database before upgrading** (see
 [Backup and Recovery](BACKUP-AND-RECOVERY.md)); you need that backup to roll
 back.
+
+First make the changes in [Actions you must take](#actions-you-must-take),
+then follow [Upgrade](#upgrade).
 
 ## Before you upgrade: checklist
 
@@ -159,6 +164,88 @@ previously answered without signing in now need a staff login too.
 If a script, spreadsheet or integration signs in with a customer account to
 read or change shop data, create a staff (operator or admin) account for it
 in **Admin > Team Members**.
+
+## Upgrade
+
+Do these in order, after the actions above.
+
+### 1. Back up the database
+
+For a Docker install, from the `filaops` folder:
+
+```bash
+docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_4.2.0.sql
+```
+
+Use your own `DB_USER` and `DB_NAME` if you changed them. Keep the file:
+rolling back means restoring it. Other options are in
+[Backup and Recovery](BACKUP-AND-RECOVERY.md).
+
+### 2. Get the 4.2.0 code
+
+From the `filaops` folder, check out the 4.2.0 release:
+
+```bash
+git fetch --tags
+git checkout v4.2.0
+```
+
+If your install follows the `main` branch instead, run `git pull`.
+
+Check that you have the new code. This should print `4.2.0`:
+
+```bash
+cat backend/VERSION
+```
+
+### 3. Rebuild and start (Docker)
+
+```bash
+docker compose up -d --build
+```
+
+`--build` is required: it rebuilds the images from the new code. Without it,
+Docker restarts the old 4.1.0 images and nothing is upgraded. The `migrate`
+service then applies the database migrations before the backend starts.
+
+**Manual install:** from `backend/`, with your virtual environment active, run
+`pip install -r requirements.txt` and then `alembic upgrade head`. From
+`frontend/`, run `npm ci` and `npm run build`. Then restart the backend and
+the web server.
+
+### 4. Confirm the upgrade
+
+Check the version the running backend reports. This should print
+`"version":"4.2.0"`:
+
+```bash
+curl -s http://localhost/api/v1/system/version
+```
+
+Check that the migrations are at the latest revision. Both commands should
+print the same revision, and the first one should end in `(head)`:
+
+```bash
+docker compose exec backend alembic current
+docker compose exec backend alembic heads
+```
+
+(Manual install: run `alembic current` and `alembic heads` in `backend/`, and
+use your backend's address in the `curl` command.)
+
+**If it still says 4.1.0:**
+
+- If `cat backend/VERSION` prints `4.1.0`, the new code was not checked out.
+  Repeat step 2.
+- If `backend/VERSION` prints `4.2.0` but the running version is 4.1.0, the
+  images were not rebuilt. Run `docker compose up -d --build`, then check
+  again.
+
+**If the migrations are not at head:** run `docker compose logs migrate` to
+see why the `migrate` service stopped. Fix the cause and run
+`docker compose up -d --build` again. If you can't, restore your backup (see
+[Rolling back](#rolling-back)) rather than use FilaOps with a partly migrated
+database.
 
 ## After you upgrade
 

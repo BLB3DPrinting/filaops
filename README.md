@@ -29,7 +29,7 @@ not installed. `docker compose up` still starts without it, but FilaOps will not
 sign logins with an empty or placeholder key: production refuses to start, and
 any other environment uses a temporary key that changes on every restart, which
 signs everyone out each time. Upgrading from an earlier release? Read the
-[4.2.0 upgrade notes](CHANGELOG.md#420---2026-10-09).
+[4.2.0 upgrade guide](docs/UPGRADE-4.2.0.md).
 
 ## Quick Start (Manual)
 
