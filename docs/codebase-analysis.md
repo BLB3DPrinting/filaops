@@ -344,7 +344,7 @@ Frontend:
 
 CI:
 
-- `.github/workflows/core-ci.yml` runs on every pull request and on pushes to `main`: repository guardrails, dependency audit, diff and PRO-path checks, version parity, backend compile and tests, and frontend lint, build and unit tests. Its jobs are the required checks for `main`.
+- `.github/workflows/core-ci.yml` runs on every pull request and on pushes to `main`: repository guardrails, dependency audit, diff and PRO-path checks, version parity, backend compile and tests, and frontend lint, build and unit tests.
 - `.github/workflows/test.yml` is also manual and broader, with backend tests, frontend tests, build validation, and disabled E2E/sprint jobs.
 - `.github/workflows/pro-guard.yml` checks that public Core does not include PRO paths.
 - CodeQL, docs, and review workflows are present.
