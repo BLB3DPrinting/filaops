@@ -683,16 +683,30 @@ class TestPasswordResetDuplicatePending:
     """Submitting a reset request when one is already pending."""
 
     def test_duplicate_pending_returns_message(
-        self, unauthed_client, reset_request_pending, registered_user
+        self, db, unauthed_client, reset_request_pending, registered_user
     ):
-        """Requesting reset when pending should return appropriate message."""
+        """A repeat request gets the same generic message as any other request.
+
+        A distinct "already pending" message would reveal that the account
+        exists, so the response must match the unknown-email response.
+        """
+        from app.models.user import PasswordResetRequest
+
         resp = unauthed_client.post(
             f"{AUTH_URL}/password-reset/request",
             json={"email": registered_user.email},
         )
+        unknown = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/request",
+            json={"email": f"nobody-{uuid.uuid4().hex[:8]}@filaops.dev"},
+        )
         assert resp.status_code == 200
-        data = resp.json()
-        assert "pending" in data["message"].lower()
+        assert resp.json() == unknown.json()
+        assert reset_request_pending.token not in resp.text
+        # The existing pending request is reused, not duplicated.
+        assert db.query(PasswordResetRequest).filter(
+            PasswordResetRequest.user_id == registered_user.id
+        ).count() == 1
 
 
 # =============================================================================
@@ -701,6 +715,12 @@ class TestPasswordResetDuplicatePending:
 
 class TestAuthRegisterOptionalFields:
     """Test registration with optional fields populated."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_self_registration(self, monkeypatch):
+        """Self-registration is only open when the public Quoter is on."""
+        from app.core.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "ENABLE_PUBLIC_QUOTER", True)
 
     def test_register_with_all_optional_fields(self, unauthed_client):
         uid = uuid.uuid4().hex[:8]

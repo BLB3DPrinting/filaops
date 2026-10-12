@@ -6,7 +6,8 @@ Provides REST access to live printer telemetry for:
 - Admin UI for monitoring
 - Frontend command center
 
-All endpoints authenticate via the standard JWT dependency (get_current_user).
+All endpoints are staff-only (get_current_staff_user); start/stop, reconnect
+and add also require an admin. This router is not mounted today.
 """
 
 from datetime import datetime, timezone
@@ -14,11 +15,18 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from pydantic import BaseModel
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models import User
 
 
-router = APIRouter(prefix="/mqtt", tags=["MQTT Telemetry"])
+# SEC-409: every route here is staff-only (admin or operator). The router is not
+# mounted today; the gate makes sure a future include_router cannot expose
+# printer telemetry or production-order links to self-registered customers.
+router = APIRouter(
+    prefix="/mqtt",
+    tags=["MQTT Telemetry"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 # ==========================================================================
@@ -55,12 +63,12 @@ class TelemetryEventResponse(BaseModel):
 @router.get("/status", response_model=ServiceStatusResponse)
 async def get_mqtt_status(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get MQTT monitoring service status.
 
-    Requires authentication.
+    Requires staff authentication.
     """
     monitor = getattr(request.app.state, "mqtt_monitor", None)
     if not monitor:
@@ -76,7 +84,7 @@ async def get_mqtt_status(
 @router.post("/start")
 async def start_mqtt_monitoring(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Start MQTT monitoring service.
@@ -97,7 +105,7 @@ async def start_mqtt_monitoring(
 @router.post("/stop")
 async def stop_mqtt_monitoring(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Stop MQTT monitoring service.
@@ -122,7 +130,7 @@ async def stop_mqtt_monitoring(
 @router.get("/printers/live", response_model=BulkPrinterStatusResponse)
 async def get_all_printers_live_status(
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get live status for ALL printers in one call.
@@ -149,7 +157,7 @@ async def get_all_printers_live_status(
 async def get_printer_live_status(
     printer_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get live status for a single printer.
@@ -177,7 +185,7 @@ async def get_printer_live_status(
 async def get_recent_events(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get recent events across all printers.
@@ -199,7 +207,7 @@ async def get_events_since(
     since_id: int,
     request: Request,
     limit: int = Query(100, ge=1, le=500),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get events since a specific event ID.
@@ -218,7 +226,7 @@ async def get_events_since(
 async def get_failure_events(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Get recent failure events only.
@@ -250,7 +258,7 @@ async def link_production_order(
     printer_id: int,
     production_order_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Link a production order to a printer.
@@ -270,7 +278,7 @@ async def link_production_order(
 async def unlink_production_order(
     printer_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Unlink production order from printer.
@@ -293,7 +301,7 @@ async def unlink_production_order(
 async def reconnect_printer(
     printer_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Manually reconnect a printer.
@@ -315,7 +323,7 @@ async def reconnect_printer(
 async def add_printer_to_monitor(
     printer_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_staff_user)
 ):
     """
     Add a printer to the monitor (after creating in admin).

@@ -236,6 +236,7 @@ async def get_available_boxes(
 async def get_consolidated_shipping_rates(
     request: ConsolidatedShipRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get shipping rates for multiple orders consolidated into one package.

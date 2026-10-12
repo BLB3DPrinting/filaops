@@ -8,8 +8,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-filaops}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    # Loopback only: the backend reaches the database over filaops-network,
+    # so the published port is only for tools on this host (psql, backups).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - filaops_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -33,6 +35,9 @@ services:
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       SECRET_KEY: ${SECRET_KEY:-change-in-production}
+      # Same as the backend, so with ENVIRONMENT=production a placeholder
+      # SECRET_KEY or DB_PASSWORD stops here with the production message.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       # PRO — set FILAOPS_LICENSE_KEY in .env to activate PRO features
       FILAOPS_LICENSE_KEY: ${FILAOPS_LICENSE_KEY:-}
       DATABASE_URL: postgresql+psycopg://${DB_USER:-postgres}:${DB_PASSWORD:-changeme}@db:5432/${DB_NAME:-filaops}
@@ -61,8 +66,23 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       FILAOPS_VERSION: ${FILAOPS_VERSION:-}
+      # Public Quoter: customer quote routes and self-registration. Set
+      # ENABLE_PUBLIC_QUOTER=true in .env only if you run the Quoter.
+      ENABLE_PUBLIC_QUOTER: ${ENABLE_PUBLIC_QUOTER:-false}
       # PRO — set FILAOPS_LICENSE_KEY in .env to activate PRO features
       FILAOPS_LICENSE_KEY: ${FILAOPS_LICENSE_KEY:-}
+      # Email (SMTP) — set these in .env to email password reset approvals.
+      # Email stays off, and reset requests stay pending, until SMTP_USER,
+      # SMTP_PASSWORD and a real ADMIN_APPROVAL_EMAIL (not admin@example.com)
+      # are set.
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.com}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Your Company Name}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      ADMIN_APPROVAL_EMAIL: ${ADMIN_APPROVAL_EMAIL:-admin@example.com}
     depends_on:
       migrate:
         condition: service_completed_successfully

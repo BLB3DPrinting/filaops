@@ -120,6 +120,18 @@ We aim to resolve critical vulnerabilities within **14 days** and high-severity 
 
 ---
 
+## Security Acknowledgments
+
+We don't run a paid bug bounty program. We thank everyone who reports a vulnerability to us privately. Reporters are credited here, in the security advisory and in the release notes, unless they prefer to stay anonymous.
+
+| Reporter | Advisory | Fixed in |
+| -------- | -------- | -------- |
+| [@kta1kri](https://github.com/kta1kri) | [GHSA-f9mr-93x7-cq5q](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-f9mr-93x7-cq5q) | 4.2.0 |
+| [@dizconnectz](https://github.com/dizconnectz) | [GHSA-vrr8-gpvm-732v](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vrr8-gpvm-732v) | 4.2.0 |
+| [@tycho1101](https://github.com/tycho1101) | [GHSA-vmrm-qwq2-8xj3](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vmrm-qwq2-8xj3) | 4.2.0 |
+
+---
+
 ## Contact
 
 - **Security reports**: security@blb3dprinting.com

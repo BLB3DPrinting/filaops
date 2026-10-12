@@ -35,9 +35,21 @@ Authorization: Bearer <access_token>
 ### Auth Levels
 
 - **PUBLIC**: No authentication required
-- **CUSTOMER**: Requires valid JWT (any user type)
+- **CUSTOMER**: Requires valid JWT (any user type); the route only returns or changes the caller's own records
 - **STAFF**: Requires `account_type` in ['admin', 'operator']
+- **STAFF (OWN)**: Requires a staff account; an admin reaches every record, an operator only the records that operator owns (403 otherwise)
 - **ADMIN**: Requires `account_type` = 'admin'
+
+Since 4.2.0, every route that is not marked PUBLIC or CUSTOMER refuses customer
+accounts with 403. The CUSTOMER routes are `GET /auth/me` and the customer
+quote routes (`POST /quotes/portal`, `POST /quotes/portal/{quote_id}/accept`,
+`POST /quotes/portal/{quote_id}/checkout`, `GET /quotes/{quote_id}/archive`,
+`GET /quotes/{quote_id}/files`, `GET /quotes/{quote_id}/files/{file_id}/download`).
+
+Eight sales-order routes are marked STAFF (OWN): the order list, order detail,
+material requirements, cancel, and the `events` and `shipping-events` routes
+(GET and POST). An admin reaches every order; an operator gets only the orders
+that operator owns (the list returns only those, the others answer 403).
 
 ---
 
@@ -49,7 +61,7 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| POST | `/auth/register` | Register a new user | PUBLIC |
+| POST | `/auth/register` | Register a new customer account (403 unless `ENABLE_PUBLIC_QUOTER=true`) | PUBLIC |
 | POST | `/auth/login` | Login with email and password. | PUBLIC |
 | POST | `/auth/refresh` | Refresh access token using refresh token. | PUBLIC |
 | GET | `/auth/me` | Get current user profile | CUSTOMER |
@@ -80,27 +92,29 @@ Authorization: Bearer <access_token>
 
 **Tier**: Core
 **File**: `endpoints/sales_orders.py`
-**Endpoints**: 30
+**Endpoints**: 33
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/sales-orders/status-transitions` | Get valid status transitions for sales orders. | CUSTOMER |
-| GET | `/sales-orders/payment-statuses` | Get valid payment status values for sales orders. | CUSTOMER |
-| POST | `/sales-orders/` | Create a manual sales order (line_item type). | CUSTOMER |
-| POST | `/sales-orders/convert/{quote_id}` | Convert an accepted quote to a sales order. | CUSTOMER |
-| GET | `/sales-orders/` | Get list of sales orders. | ADMIN |
-| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | ADMIN |
+| GET | `/sales-orders/status-transitions` | Get valid status transitions for sales orders. | STAFF |
+| GET | `/sales-orders/payment-statuses` | Get valid payment status values for sales orders. | STAFF |
+| GET | `/sales-orders/can-ship` | Preflight: which ready_to_ship orders can ship right now (batch, read-only). | STAFF |
+| POST | `/sales-orders/` | Create a manual sales order (line_item type). | STAFF |
+| POST | `/sales-orders/convert/{quote_id}` | Convert an accepted quote to a sales order. | STAFF |
+| GET | `/sales-orders/` | Get list of sales orders. | STAFF (OWN) |
+| GET | `/sales-orders/{order_id}` | Get detailed information about a specific sales order. | STAFF (OWN) |
 | GET | `/sales-orders/{order_id}/packing-slip/pdf` | Generate and return a packing slip PDF for a sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/required-orders` | Get full MRP cascade of WOs and POs needed to fulfill this sales order. | ADMIN |
-| GET | `/sales-orders/{order_id}/blocking-issues` | Get blocking issues analysis for a sales order. | CUSTOMER |
-| GET | `/sales-orders/{order_id}/fulfillment-status` | Get fulfillment status for a sales order. | CUSTOMER |
-| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | ADMIN |
-| POST | `/sales-orders/{order_id}/pre-flight-check` | Pre-flight check before confirming a sales order. | CUSTOMER |
+| GET | `/sales-orders/{order_id}/blocking-issues` | Get blocking issues analysis for a sales order. | STAFF |
+| GET | `/sales-orders/{order_id}/fulfillment-status` | Get fulfillment status for a sales order. | STAFF |
+| GET | `/sales-orders/{order_id}/can-ship` | Preflight for one order in any status: can it ship right now, and if not, why. | STAFF |
+| GET | `/sales-orders/{order_id}/material-requirements` | Get material requirements for a sales order. | STAFF (OWN) |
+| POST | `/sales-orders/{order_id}/pre-flight-check` | Pre-flight check before confirming a sales order. | STAFF |
 | PATCH | `/sales-orders/{order_id}/status` | Update sales order status (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/payment` | Update payment information for an order (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/shipping` | Update shipping information for an order (admin only). | ADMIN |
 | PATCH | `/sales-orders/{order_id}/address` | Update shipping address for an order (admin only). | ADMIN |
-| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | ADMIN |
+| POST | `/sales-orders/{order_id}/cancel` | Cancel a sales order. | STAFF (OWN) |
 | PATCH | `/sales-orders/{order_id}/lines` | Edit line item quantities on a sales order. | ADMIN |
 | DELETE | `/sales-orders/{order_id}/lines/{line_id}` | Remove a line item from a sales order. | ADMIN |
 | GET | `/sales-orders/{order_id}/close-short-preview` | Preview close-short: shows per-line achievable quantities and PO status. | ADMIN |
@@ -109,11 +123,12 @@ Authorization: Bearer <access_token>
 | POST | `/sales-orders/{order_id}/reject` | Reject a pending_confirmation order from an external source. | ADMIN |
 | DELETE | `/sales-orders/{order_id}` | Delete a sales order (admin only). | ADMIN |
 | POST | `/sales-orders/{order_id}/ship` | Create shipping label and mark order as shipped. | ADMIN |
+| POST | `/sales-orders/{order_id}/resolve-legacy-fulfillment` | Close out or reopen a legacy order marked shipped/delivered/completed that has no shipment record (admin only). | ADMIN |
 | POST | `/sales-orders/{order_id}/generate-production-orders` | Generate production orders from a sales order (admin only). | ADMIN |
-| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | ADMIN |
-| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | ADMIN |
-| GET | `/sales-orders/{order_id}/shipping-events` | List shipping events for a sales order. | PUBLIC |
-| POST | `/sales-orders/{order_id}/shipping-events` | Add a shipping event to a sales order. | CUSTOMER |
+| GET | `/sales-orders/{order_id}/events` | Get activity timeline for a sales order. | STAFF (OWN) |
+| POST | `/sales-orders/{order_id}/events` | Add an event to a sales order's activity timeline. | STAFF (OWN) |
+| GET | `/sales-orders/{order_id}/shipping-events` | List shipping events for a sales order. | STAFF (OWN) |
+| POST | `/sales-orders/{order_id}/shipping-events` | Add a shipping event to a sales order. | STAFF (OWN) |
 
 ---
 
@@ -121,22 +136,31 @@ Authorization: Bearer <access_token>
 
 **Tier**: Core
 **File**: `endpoints/quotes.py`
-**Endpoints**: 12
+**Endpoints**: 21
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/quotes/` | List all quotes with optional filtering | CUSTOMER |
-| GET | `/quotes/stats` | Get quote statistics for dashboard | CUSTOMER |
-| GET | `/quotes/{quote_id}` | Get quote details | CUSTOMER |
-| POST | `/quotes/` | Create a new manual quote | CUSTOMER |
-| PATCH | `/quotes/{quote_id}` | Update quote details | CUSTOMER |
-| PATCH | `/quotes/{quote_id}/status` | Update quote status (approve, reject, cancel, accept) | CUSTOMER |
-| POST | `/quotes/{quote_id}/convert` | Convert an accepted/approved quote to a sales order | CUSTOMER |
-| DELETE | `/quotes/{quote_id}` | Delete a quote (only if not converted) | CUSTOMER |
-| POST | `/quotes/{quote_id}/image` | Upload an image for a quote (product photo/render) | CUSTOMER |
-| GET | `/quotes/{quote_id}/image` | Get the image for a quote | CUSTOMER |
-| DELETE | `/quotes/{quote_id}/image` | Delete the image for a quote | CUSTOMER |
-| GET | `/quotes/{quote_id}/pdf` | Generate a PDF for a quote using ReportLab with company logo, image, and tax | CUSTOMER |
+| GET | `/quotes/` | List all quotes with optional filtering | STAFF |
+| GET | `/quotes/stats` | Get quote statistics for dashboard | STAFF |
+| GET | `/quotes/{quote_id}` | Get quote details | STAFF |
+| POST | `/quotes/` | Create a new manual quote | STAFF |
+| PATCH | `/quotes/{quote_id}` | Update quote details | STAFF |
+| PATCH | `/quotes/{quote_id}/status` | Update quote status (approve, reject, cancel, accept) | STAFF |
+| POST | `/quotes/{quote_id}/convert` | Convert an accepted/approved quote to a sales order | STAFF |
+| DELETE | `/quotes/{quote_id}` | Delete a quote (only if not converted) | STAFF |
+| POST | `/quotes/{quote_id}/image` | Upload an image for a quote (product photo/render) | STAFF |
+| GET | `/quotes/{quote_id}/image` | Get the image for a quote | STAFF |
+| DELETE | `/quotes/{quote_id}/image` | Delete the image for a quote | STAFF |
+| GET | `/quotes/{quote_id}/pdf` | Generate a PDF for a quote using ReportLab with company logo, image, and tax | STAFF |
+| POST | `/quotes/{quote_id}/create-item` | Create a Core item/product from an approved quote | STAFF |
+| POST | `/quotes/{quote_id}/files` | Attach a retained file to a manual or online quote | STAFF |
+| DELETE | `/quotes/{quote_id}/files/{file_id}` | Remove a retained file from a quote | STAFF |
+| POST | `/quotes/portal` | Upload a file and create a quote for the logged-in customer (403 unless `ENABLE_PUBLIC_QUOTER=true`) | CUSTOMER |
+| POST | `/quotes/portal/{quote_id}/accept` | Save the customer's ship-to, shipping choice and colour slots on a quote the customer created; never changes the price (409 for closed, expired, shop-drafted or shop-approved quotes) | CUSTOMER |
+| POST | `/quotes/portal/{quote_id}/checkout` | Start payment for the customer's quote. Requires an add-on that is not part of Core; without it, answers 503 | CUSTOMER |
+| GET | `/quotes/{quote_id}/archive` | Read-only quote archive; customers get their own quotes only, without staff notes | CUSTOMER |
+| GET | `/quotes/{quote_id}/files` | List a quote's files (the customer's own quotes, or any quote for staff) | CUSTOMER |
+| GET | `/quotes/{quote_id}/files/{file_id}/download` | Download a quote file (the customer's own quotes, or any quote for staff) | CUSTOMER |
 
 ---
 
@@ -148,12 +172,12 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/products` | List products with optional filtering | CUSTOMER |
-| GET | `/products/{id}` | Get a specific product by ID | CUSTOMER |
-| GET | `/products/sku/{sku}` | Get a specific product by SKU | CUSTOMER |
-| POST | `/products` | Create a new product | CUSTOMER |
-| PUT | `/products/{id}` | Update an existing product | CUSTOMER |
-| GET | `/products/{product_id}/routing` | Get routing details for a product. | CUSTOMER |
+| GET | `/products` | List products with optional filtering | STAFF |
+| GET | `/products/{id}` | Get a specific product by ID | STAFF |
+| GET | `/products/sku/{sku}` | Get a specific product by SKU | STAFF |
+| POST | `/products` | Create a new product | STAFF |
+| PUT | `/products/{id}` | Update an existing product | STAFF |
+| GET | `/products/{product_id}/routing` | Get routing details for a product. | STAFF |
 
 ---
 
@@ -165,35 +189,35 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/items/categories` | List all item categories | PUBLIC |
-| GET | `/items/categories/tree` | Get categories as a nested tree structure | PUBLIC |
-| POST | `/items/categories` | Create a new item category | CUSTOMER |
-| GET | `/items/categories/{category_id}` | Get a specific category by ID | PUBLIC |
-| PATCH | `/items/categories/{category_id}` | Update an existing category | CUSTOMER |
-| DELETE | `/items/categories/{category_id}` | Soft delete a category (set is_active=False) | CUSTOMER |
-| GET | `/items` | List items with filtering and pagination | PUBLIC |
-| GET | `/items/stats` | Lightweight item statistics — type counts and reorder alerts. | PUBLIC |
-| POST | `/items` | Create a new item | CUSTOMER |
-| POST | `/items/{item_id}/duplicate` | Duplicate an existing item with a new SKU and name. | CUSTOMER |
-| POST | `/items/material` | Create a material item (shortcut for supply items with material_type/color). | CUSTOMER |
-| GET | `/items/low-stock` | Get items that are below their reorder point OR have shortages from active orders. | PUBLIC |
-| GET | `/items/price-candidates` | Get items eligible for price suggestions (excludes materials/supplies). | CUSTOMER |
-| GET | `/items/{item_id}/demand-summary` | Get demand summary for an inventory item. | PUBLIC |
-| GET | `/items/{item_id}` | Get a specific item by ID | PUBLIC |
-| GET | `/items/sku/{sku}` | Get a specific item by SKU | PUBLIC |
-| PATCH | `/items/{item_id}` | Update an existing item | CUSTOMER |
-| DELETE | `/items/{item_id}` | Soft delete an item (set active=False) | CUSTOMER |
-| POST | `/items/import` | Import items from CSV file | CUSTOMER |
-| POST | `/items/bulk-update` | Bulk update multiple items at once | CUSTOMER |
-| POST | `/items/recost-all` | Recost all items matching filters. | CUSTOMER |
-| POST | `/items/{item_id}/recost` | Recost a single item. | CUSTOMER |
-| POST | `/items/apply-suggested-prices` | Apply selected suggested prices to items. | CUSTOMER |
-| GET | `/items/{item_id}/variants` | List all variants for a template product. | CUSTOMER |
-| GET | `/items/{item_id}/variant-matrix` | Get the full variant matrix: template, variants, and available combos. | CUSTOMER |
-| POST | `/items/{item_id}/variants` | Create a single variant from a template product. | CUSTOMER |
-| POST | `/items/{item_id}/variants/bulk` | Bulk-create variants from MaterialColor selections. | CUSTOMER |
-| POST | `/items/{item_id}/variants/sync-routing` | Propagate the template's routing to all variants, preserving material substitutions. | CUSTOMER |
-| DELETE | `/items/{item_id}/variants/{variant_id}` | Delete a variant product. | CUSTOMER |
+| GET | `/items/categories` | List all item categories | STAFF |
+| GET | `/items/categories/tree` | Get categories as a nested tree structure | STAFF |
+| POST | `/items/categories` | Create a new item category | STAFF |
+| GET | `/items/categories/{category_id}` | Get a specific category by ID | STAFF |
+| PATCH | `/items/categories/{category_id}` | Update an existing category | STAFF |
+| DELETE | `/items/categories/{category_id}` | Soft delete a category (set is_active=False) | STAFF |
+| GET | `/items` | List items with filtering and pagination | STAFF |
+| GET | `/items/stats` | Lightweight item statistics — type counts and reorder alerts. | STAFF |
+| POST | `/items` | Create a new item | STAFF |
+| POST | `/items/{item_id}/duplicate` | Duplicate an existing item with a new SKU and name. | STAFF |
+| POST | `/items/material` | Create a material item (shortcut for supply items with material_type/color). | STAFF |
+| GET | `/items/low-stock` | Get items that are below their reorder point OR have shortages from active orders. | STAFF |
+| GET | `/items/price-candidates` | Get items eligible for price suggestions (excludes materials/supplies). | STAFF |
+| GET | `/items/{item_id}/demand-summary` | Get demand summary for an inventory item. | STAFF |
+| GET | `/items/{item_id}` | Get a specific item by ID | STAFF |
+| GET | `/items/sku/{sku}` | Get a specific item by SKU | STAFF |
+| PATCH | `/items/{item_id}` | Update an existing item | STAFF |
+| DELETE | `/items/{item_id}` | Soft delete an item (set active=False) | STAFF |
+| POST | `/items/import` | Import items from CSV file | STAFF |
+| POST | `/items/bulk-update` | Bulk update multiple items at once | STAFF |
+| POST | `/items/recost-all` | Recost all items matching filters. | STAFF |
+| POST | `/items/{item_id}/recost` | Recost a single item. | STAFF |
+| POST | `/items/apply-suggested-prices` | Apply selected suggested prices to items. | STAFF |
+| GET | `/items/{item_id}/variants` | List all variants for a template product. | STAFF |
+| GET | `/items/{item_id}/variant-matrix` | Get the full variant matrix: template, variants, and available combos. | STAFF |
+| POST | `/items/{item_id}/variants` | Create a single variant from a template product. | STAFF |
+| POST | `/items/{item_id}/variants/bulk` | Bulk-create variants from MaterialColor selections. | STAFF |
+| POST | `/items/{item_id}/variants/sync-routing` | Propagate the template's routing to all variants, preserving material substitutions. | STAFF |
+| DELETE | `/items/{item_id}/variants/{variant_id}` | Delete a variant product. | STAFF |
 
 ---
 
@@ -205,52 +229,52 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/production-orders/` | List production orders with filtering and pagination. | CUSTOMER |
-| POST | `/production-orders/` | Create a new production order. | CUSTOMER |
-| GET | `/production-orders/status-transitions` | Get valid status transitions for production orders. | CUSTOMER |
-| GET | `/production-orders/{order_id}` | Get a production order by ID. | CUSTOMER |
-| PUT | `/production-orders/{order_id}` | Update a production order. | CUSTOMER |
-| DELETE | `/production-orders/{order_id}` | Delete a production order. | CUSTOMER |
-| GET | `/production-orders/scrap-reasons` | Get list of active scrap reasons. | CUSTOMER |
-| GET | `/production-orders/scrap-reasons/all` | Get all scrap reasons including inactive. | CUSTOMER |
-| POST | `/production-orders/scrap-reasons` | Create a new scrap reason. | CUSTOMER |
-| PUT | `/production-orders/scrap-reasons/{reason_id}` | Update a scrap reason. | CUSTOMER |
-| DELETE | `/production-orders/scrap-reasons/{reason_id}` | Delete a scrap reason. | CUSTOMER |
-| GET | `/production-orders/qc-statuses` | Get valid QC status values. | CUSTOMER |
-| GET | `/production-orders/operation-statuses` | Get valid operation status values. | CUSTOMER |
-| POST | `/production-orders/{order_id}/release` | Release a production order for manufacturing. | CUSTOMER |
-| POST | `/production-orders/{order_id}/start` | Start production on an order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/complete` | Complete a production order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/accept-short` | Accept a production order short — complete it with the quantity already produced. | CUSTOMER |
-| POST | `/production-orders/{order_id}/cancel` | Cancel a production order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/refresh-routing` | Re-snapshot the product's current active routing onto the production order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/hold` | Put a production order on hold. | CUSTOMER |
-| PUT | `/production-orders/{order_id}/schedule` | Schedule a production order. | CUSTOMER |
-| GET | `/production-orders/schedule/summary` | Get production schedule summary. | CUSTOMER |
-| GET | `/production-orders/queue/by-work-center` | Get queue of operations by work center. | CUSTOMER |
-| POST | `/production-orders/{order_id}/qc` | Record QC inspection results. | CUSTOMER |
-| POST | `/production-orders/{order_id}/split` | Split a production order into two. | CUSTOMER |
-| POST | `/production-orders/{order_id}/scrap` | Record scrap for a production order. | CUSTOMER |
-| PUT | `/production-orders/{order_id}/operations/{operation_id}` | Update a production order operation. | CUSTOMER |
-| GET | `/production-orders/{order_id}/material-availability` | Get material availability analysis for a production order. | CUSTOMER |
-| GET | `/production-orders/{order_id}/blocking-issues` | Get blocking issues for a production order. | CUSTOMER |
-| GET | `/production-orders/{order_id}/required-orders` | Get MRP cascade of required orders. | CUSTOMER |
-| GET | `/production-orders/{order_id}/cost-breakdown` | Get cost breakdown for a production order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/estimate-cost` | Re-estimate costs for a production order from its routing and BOM. | CUSTOMER |
-| GET | `/production-orders/{order_id}/compatibility` | Check material-printer compatibility for all operations in a production order. | CUSTOMER |
-| GET | `/production-orders/{order_id}/operations/{operation_id}/compatibility` | Check material-printer compatibility for a single operation. | CUSTOMER |
-| GET | `/production-orders/{order_id}/spools` | Get spools assigned to a production order. | CUSTOMER |
-| POST | `/production-orders/{order_id}/spools/{spool_id}` | Assign a spool to a production order. | CUSTOMER |
-| GET | `/production-orders/{po_id}/operations` | Get all operations for a production order, ordered by sequence. | CUSTOMER |
-| POST | `/production-orders/{po_id}/operations/{op_id}/start` | Start an operation. | CUSTOMER |
-| POST | `/production-orders/{po_id}/operations/{op_id}/complete` | Complete an operation with optional partial scrap and cascading material accounting. | CUSTOMER |
-| POST | `/production-orders/{po_id}/operations/{op_id}/skip` | Skip an operation with a reason. | CUSTOMER |
-| GET | `/production-orders/{po_id}/operations/{op_id}/can-start` | Quick check if an operation can start based on material availability. | CUSTOMER |
-| GET | `/production-orders/{po_id}/operations/{op_id}/blocking-issues` | Get detailed blocking issues for an operation. | CUSTOMER |
-| GET | `/production-orders/{po_id}/check-resource-compatibility` | Check if a resource/printer is compatible with a production order's materials. | CUSTOMER |
-| POST | `/production-orders/{po_id}/operations/{op_id}/schedule` | Schedule an operation on a resource with time slot validation. | CUSTOMER |
-| POST | `/production-orders/resources/next-available` | Find the next available time slot on a resource. | CUSTOMER |
-| POST | `/production-orders/{po_id}/operations/generate` | Manually generate operations from routing. | CUSTOMER |
+| GET | `/production-orders/` | List production orders with filtering and pagination. | STAFF |
+| POST | `/production-orders/` | Create a new production order. | STAFF |
+| GET | `/production-orders/status-transitions` | Get valid status transitions for production orders. | STAFF |
+| GET | `/production-orders/{order_id}` | Get a production order by ID. | STAFF |
+| PUT | `/production-orders/{order_id}` | Update a production order. | STAFF |
+| DELETE | `/production-orders/{order_id}` | Delete a production order. | STAFF |
+| GET | `/production-orders/scrap-reasons` | Get list of active scrap reasons. | STAFF |
+| GET | `/production-orders/scrap-reasons/all` | Get all scrap reasons including inactive. | STAFF |
+| POST | `/production-orders/scrap-reasons` | Create a new scrap reason. | ADMIN |
+| PUT | `/production-orders/scrap-reasons/{reason_id}` | Update a scrap reason. | ADMIN |
+| DELETE | `/production-orders/scrap-reasons/{reason_id}` | Delete a scrap reason. | ADMIN |
+| GET | `/production-orders/qc-statuses` | Get valid QC status values. | STAFF |
+| GET | `/production-orders/operation-statuses` | Get valid operation status values. | STAFF |
+| POST | `/production-orders/{order_id}/release` | Release a production order for manufacturing. | STAFF |
+| POST | `/production-orders/{order_id}/start` | Start production on an order. | STAFF |
+| POST | `/production-orders/{order_id}/complete` | Complete a production order. | STAFF |
+| POST | `/production-orders/{order_id}/accept-short` | Accept a production order short — complete it with the quantity already produced. | STAFF |
+| POST | `/production-orders/{order_id}/cancel` | Cancel a production order. | STAFF |
+| POST | `/production-orders/{order_id}/refresh-routing` | Re-snapshot the product's current active routing onto the production order. | STAFF |
+| POST | `/production-orders/{order_id}/hold` | Put a production order on hold. | STAFF |
+| PUT | `/production-orders/{order_id}/schedule` | Schedule a production order. | STAFF |
+| GET | `/production-orders/schedule/summary` | Get production schedule summary. | STAFF |
+| GET | `/production-orders/queue/by-work-center` | Get queue of operations by work center. | STAFF |
+| POST | `/production-orders/{order_id}/qc` | Record QC inspection results. | STAFF |
+| POST | `/production-orders/{order_id}/split` | Split a production order into two. | STAFF |
+| POST | `/production-orders/{order_id}/scrap` | Record scrap for a production order. | STAFF |
+| PUT | `/production-orders/{order_id}/operations/{operation_id}` | Update a production order operation. | STAFF |
+| GET | `/production-orders/{order_id}/material-availability` | Get material availability analysis for a production order. | STAFF |
+| GET | `/production-orders/{order_id}/blocking-issues` | Get blocking issues for a production order. | STAFF |
+| GET | `/production-orders/{order_id}/required-orders` | Get MRP cascade of required orders. | STAFF |
+| GET | `/production-orders/{order_id}/cost-breakdown` | Get cost breakdown for a production order. | STAFF |
+| POST | `/production-orders/{order_id}/estimate-cost` | Re-estimate costs for a production order from its routing and BOM. | STAFF |
+| GET | `/production-orders/{order_id}/compatibility` | Check material-printer compatibility for all operations in a production order. | STAFF |
+| GET | `/production-orders/{order_id}/operations/{operation_id}/compatibility` | Check material-printer compatibility for a single operation. | STAFF |
+| GET | `/production-orders/{order_id}/spools` | Get spools assigned to a production order. | STAFF |
+| POST | `/production-orders/{order_id}/spools/{spool_id}` | Assign a spool to a production order. | STAFF |
+| GET | `/production-orders/{po_id}/operations` | Get all operations for a production order, ordered by sequence. | STAFF |
+| POST | `/production-orders/{po_id}/operations/{op_id}/start` | Start an operation. | STAFF |
+| POST | `/production-orders/{po_id}/operations/{op_id}/complete` | Complete an operation with optional partial scrap and cascading material accounting. | STAFF |
+| POST | `/production-orders/{po_id}/operations/{op_id}/skip` | Skip an operation with a reason. | STAFF |
+| GET | `/production-orders/{po_id}/operations/{op_id}/can-start` | Quick check if an operation can start based on material availability. | STAFF |
+| GET | `/production-orders/{po_id}/operations/{op_id}/blocking-issues` | Get detailed blocking issues for an operation. | STAFF |
+| GET | `/production-orders/{po_id}/check-resource-compatibility` | Check if a resource/printer is compatible with a production order's materials. | STAFF |
+| POST | `/production-orders/{po_id}/operations/{op_id}/schedule` | Schedule an operation on a resource with time slot validation. | STAFF |
+| POST | `/production-orders/resources/next-available` | Find the next available time slot on a resource. | STAFF |
+| POST | `/production-orders/{po_id}/operations/generate` | Manually generate operations from routing. | STAFF |
 
 ---
 
@@ -262,10 +286,10 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| POST | `/inventory/transactions/{transaction_id}/approve-negative` | Approve a negative inventory transaction that requires approval. | CUSTOMER |
-| GET | `/inventory/negative-inventory-report` | Generate negative inventory report showing all negative inventory occurrences. | CUSTOMER |
-| POST | `/inventory/validate-consistency` | Validate inventory consistency: check that allocated doesn't exceed on_hand. | CUSTOMER |
-| POST | `/inventory/adjust-quantity` | Adjust inventory on-hand quantity and create an adjustment transaction. | CUSTOMER |
+| POST | `/inventory/transactions/{transaction_id}/approve-negative` | Approve a negative inventory transaction that requires approval. | STAFF |
+| GET | `/inventory/negative-inventory-report` | Generate negative inventory report showing all negative inventory occurrences. | STAFF |
+| POST | `/inventory/validate-consistency` | Validate inventory consistency: check that allocated doesn't exceed on_hand. | STAFF |
+| POST | `/inventory/adjust-quantity` | Adjust inventory on-hand quantity and create an adjustment transaction. | STAFF |
 
 ---
 
@@ -277,15 +301,15 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/materials/options` | Get all material options for the quote portal. | PUBLIC |
-| GET | `/materials/types` | Get list of material types (for first dropdown). | PUBLIC |
-| GET | `/materials/types/{material_type_code}/colors` | Get available colors for a specific material type (for second dropdown). | PUBLIC |
+| GET | `/materials/options` | Get all material options. Nothing in Core uses this route; it is for an add-on that is not part of Core. | STAFF |
+| GET | `/materials/types` | Get list of material types (for first dropdown). | STAFF |
+| GET | `/materials/types/{material_type_code}/colors` | Get available colors for a specific material type (for second dropdown). | STAFF |
 | POST | `/materials/types/{material_type_code}/colors` | Create a new color and link it to a material type. | ADMIN |
-| GET | `/materials/for-bom` | Get all materials formatted for BOM usage. | PUBLIC |
-| GET | `/materials/for-order` | Get material inventory items formatted for sales order line selection. | CUSTOMER |
-| GET | `/materials/pricing/{material_type_code}` | Get pricing information for a material type. | PUBLIC |
-| GET | `/materials/import/template` | Download CSV template for material inventory import. | PUBLIC |
-| POST | `/materials/import` | Import material inventory from CSV file. | CUSTOMER |
+| GET | `/materials/for-bom` | Get all materials formatted for BOM usage. | STAFF |
+| GET | `/materials/for-order` | Get material inventory items formatted for sales order line selection. | STAFF |
+| GET | `/materials/pricing/{material_type_code}` | Get pricing information for a material type. | STAFF |
+| GET | `/materials/import/template` | Download CSV template for material inventory import. | STAFF |
+| POST | `/materials/import` | Import material inventory from CSV file. | STAFF |
 
 ---
 
@@ -297,12 +321,12 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/vendors/` | List all vendors with pagination | CUSTOMER |
-| GET | `/vendors/{vendor_id}` | Get vendor details by ID | CUSTOMER |
-| POST | `/vendors/` | Create a new vendor | CUSTOMER |
-| PUT | `/vendors/{vendor_id}` | Update a vendor | CUSTOMER |
-| GET | `/vendors/{vendor_id}/metrics` | Get vendor performance metrics | CUSTOMER |
-| DELETE | `/vendors/{vendor_id}` | Delete a vendor (soft delete - marks as inactive) | CUSTOMER |
+| GET | `/vendors/` | List all vendors with pagination | STAFF |
+| GET | `/vendors/{vendor_id}` | Get vendor details by ID | STAFF |
+| POST | `/vendors/` | Create a new vendor | STAFF |
+| PUT | `/vendors/{vendor_id}` | Update a vendor | STAFF |
+| GET | `/vendors/{vendor_id}/metrics` | Get vendor performance metrics | STAFF |
+| DELETE | `/vendors/{vendor_id}` | Delete a vendor (soft delete - marks as inactive) | STAFF |
 
 ---
 
@@ -314,35 +338,35 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/purchase-orders/` | List purchase orders with pagination | CUSTOMER |
-| GET | `/purchase-orders/{po_id}` | Get purchase order details by ID | CUSTOMER |
-| POST | `/purchase-orders/` | Create a new purchase order | CUSTOMER |
-| PUT | `/purchase-orders/{po_id}` | Update a purchase order | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/lines` | Add a line to a purchase order | CUSTOMER |
-| PUT | `/purchase-orders/{po_id}/lines/{line_id}` | Update a line on a purchase order | CUSTOMER |
-| DELETE | `/purchase-orders/{po_id}/lines/{line_id}` | Remove a line from a purchase order | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/status` | Update PO status with transition validation | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/receive` | Receive items from a purchase order | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/upload` | Upload a document for a purchase order (invoice, receipt, etc.) | CUSTOMER |
-| DELETE | `/purchase-orders/{po_id}` | Delete a purchase order (draft only) | CUSTOMER |
-| GET | `/purchase-orders/{po_id}/events` | List activity events for a purchase order | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/events` | Add a manual event to a purchase order (typically a note) | CUSTOMER |
-| GET | `/purchase-orders/{po_id}/pdf` | Generate and download a PDF for a purchase order. | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/documents` | Upload a document to a purchase order | CUSTOMER |
-| GET | `/purchase-orders/{po_id}/documents` | List all documents attached to a purchase order | PUBLIC |
-| GET | `/purchase-orders/{po_id}/documents/{doc_id}` | Get document details by ID | PUBLIC |
-| GET | `/purchase-orders/{po_id}/documents/{doc_id}/download` | Download a document | PUBLIC |
-| PATCH | `/purchase-orders/{po_id}/documents/{doc_id}` | Update document metadata (type, notes) | CUSTOMER |
-| DELETE | `/purchase-orders/{po_id}/documents/{doc_id}` | Delete a document | CUSTOMER |
-| POST | `/purchase-orders/{po_id}/documents/bulk` | Upload multiple documents at once | CUSTOMER |
-| GET | `/purchase-orders/vendors/{vendor_id}/items` | List all SKU mappings for a vendor. | CUSTOMER |
-| POST | `/purchase-orders/vendors/{vendor_id}/items` | Create a new vendor SKU mapping. | CUSTOMER |
-| GET | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Get a specific vendor item mapping. | CUSTOMER |
-| PUT | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Update a vendor item mapping. | CUSTOMER |
-| DELETE | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Delete a vendor item mapping. | CUSTOMER |
-| GET | `/purchase-orders/vendor-items/search` | Search vendor items across all vendors. | CUSTOMER |
-| POST | `/purchase-orders/vendor-items/suggest-match` | Get product suggestions for a vendor SKU. | CUSTOMER |
-| POST | `/purchase-orders/vendor-items/bulk-update-last-seen` | Bulk update last_seen_at and increment times_ordered for vendor items. | CUSTOMER |
+| GET | `/purchase-orders/` | List purchase orders with pagination | STAFF |
+| GET | `/purchase-orders/{po_id}` | Get purchase order details by ID | STAFF |
+| POST | `/purchase-orders/` | Create a new purchase order | STAFF |
+| PUT | `/purchase-orders/{po_id}` | Update a purchase order | STAFF |
+| POST | `/purchase-orders/{po_id}/lines` | Add a line to a purchase order | STAFF |
+| PUT | `/purchase-orders/{po_id}/lines/{line_id}` | Update a line on a purchase order | STAFF |
+| DELETE | `/purchase-orders/{po_id}/lines/{line_id}` | Remove a line from a purchase order | STAFF |
+| POST | `/purchase-orders/{po_id}/status` | Update PO status with transition validation | STAFF |
+| POST | `/purchase-orders/{po_id}/receive` | Receive items from a purchase order | STAFF |
+| POST | `/purchase-orders/{po_id}/upload` | Upload a document for a purchase order (invoice, receipt, etc.) | STAFF |
+| DELETE | `/purchase-orders/{po_id}` | Delete a purchase order (draft only) | STAFF |
+| GET | `/purchase-orders/{po_id}/events` | List activity events for a purchase order | STAFF |
+| POST | `/purchase-orders/{po_id}/events` | Add a manual event to a purchase order (typically a note) | STAFF |
+| GET | `/purchase-orders/{po_id}/pdf` | Generate and download a PDF for a purchase order. | STAFF |
+| POST | `/purchase-orders/{po_id}/documents` | Upload a document to a purchase order | STAFF |
+| GET | `/purchase-orders/{po_id}/documents` | List all documents attached to a purchase order | STAFF |
+| GET | `/purchase-orders/{po_id}/documents/{doc_id}` | Get document details by ID | STAFF |
+| GET | `/purchase-orders/{po_id}/documents/{doc_id}/download` | Download a document | STAFF |
+| PATCH | `/purchase-orders/{po_id}/documents/{doc_id}` | Update document metadata (type, notes) | STAFF |
+| DELETE | `/purchase-orders/{po_id}/documents/{doc_id}` | Delete a document | STAFF |
+| POST | `/purchase-orders/{po_id}/documents/bulk` | Upload multiple documents at once | STAFF |
+| GET | `/purchase-orders/vendors/{vendor_id}/items` | List all SKU mappings for a vendor. | STAFF |
+| POST | `/purchase-orders/vendors/{vendor_id}/items` | Create a new vendor SKU mapping. | STAFF |
+| GET | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Get a specific vendor item mapping. | STAFF |
+| PUT | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Update a vendor item mapping. | STAFF |
+| DELETE | `/purchase-orders/vendors/{vendor_id}/items/{item_id}` | Delete a vendor item mapping. | STAFF |
+| GET | `/purchase-orders/vendor-items/search` | Search vendor items across all vendors. | STAFF |
+| POST | `/purchase-orders/vendor-items/suggest-match` | Get product suggestions for a vendor SKU. | STAFF |
+| POST | `/purchase-orders/vendor-items/bulk-update-last-seen` | Bulk update last_seen_at and increment times_ordered for vendor items. | STAFF |
 
 ---
 
@@ -354,19 +378,19 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/work-centers/` | List all work centers. | CUSTOMER |
-| POST | `/work-centers/` | Create a new work center. | CUSTOMER |
-| GET | `/work-centers/{wc_id}` | Get a work center by ID. | CUSTOMER |
-| PUT | `/work-centers/{wc_id}` | Update a work center. | CUSTOMER |
-| DELETE | `/work-centers/{wc_id}` | Delete a work center (soft delete - marks as inactive). | CUSTOMER |
-| GET | `/work-centers/{wc_id}/resources` | List all resources for a work center. | CUSTOMER |
-| POST | `/work-centers/{wc_id}/resources` | Create a new resource (machine) in a work center. | CUSTOMER |
-| GET | `/work-centers/resources/{resource_id}` | Get a resource by ID. | CUSTOMER |
-| PUT | `/work-centers/resources/{resource_id}` | Update a resource. | CUSTOMER |
-| DELETE | `/work-centers/resources/{resource_id}` | Delete a resource. | CUSTOMER |
-| PATCH | `/work-centers/resources/{resource_id}/status` | Quick update of resource status. | CUSTOMER |
-| GET | `/work-centers/{wc_id}/printers` | List printers assigned to a work center. | CUSTOMER |
-| POST | `/work-centers/sync-bambu` | Sync printers from Bambu Print Suite configuration. | CUSTOMER |
+| GET | `/work-centers/` | List all work centers. | STAFF |
+| POST | `/work-centers/` | Create a new work center. | STAFF |
+| GET | `/work-centers/{wc_id}` | Get a work center by ID. | STAFF |
+| PUT | `/work-centers/{wc_id}` | Update a work center. | STAFF |
+| DELETE | `/work-centers/{wc_id}` | Delete a work center (soft delete - marks as inactive). | STAFF |
+| GET | `/work-centers/{wc_id}/resources` | List all resources for a work center. | STAFF |
+| POST | `/work-centers/{wc_id}/resources` | Create a new resource (machine) in a work center. | STAFF |
+| GET | `/work-centers/resources/{resource_id}` | Get a resource by ID. | STAFF |
+| PUT | `/work-centers/resources/{resource_id}` | Update a resource. | STAFF |
+| DELETE | `/work-centers/resources/{resource_id}` | Delete a resource. | STAFF |
+| PATCH | `/work-centers/resources/{resource_id}/status` | Quick update of resource status. | STAFF |
+| GET | `/work-centers/{wc_id}/printers` | List printers assigned to a work center. | STAFF |
+| POST | `/work-centers/sync-bambu` | Sync printers from Bambu Print Suite configuration. | STAFF |
 
 ---
 
@@ -378,8 +402,8 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/resources/{resource_id}/schedule` | Get scheduled operations for a resource. | CUSTOMER |
-| GET | `/resources/{resource_id}/conflicts` | Check if a time range conflicts with existing scheduled operations. | CUSTOMER |
+| GET | `/resources/{resource_id}/schedule` | Get scheduled operations for a resource. | STAFF |
+| GET | `/resources/{resource_id}/conflicts` | Check if a time range conflicts with existing scheduled operations. | STAFF |
 
 ---
 
@@ -391,23 +415,23 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/routings/` | List all routings. | PUBLIC |
-| POST | `/routings/` | Create a new routing for a product or a template routing. | CUSTOMER |
-| POST | `/routings/seed-templates` | Seed the two standard routing templates: | CUSTOMER |
-| POST | `/routings/apply-template` | Apply a routing template to a product, creating a product-specific routing. | CUSTOMER |
-| GET | `/routings/{routing_id}` | Get a routing by ID with all operations. | PUBLIC |
-| GET | `/routings/product/{product_id}` | Get the active routing for a product. | PUBLIC |
-| PUT | `/routings/{routing_id}` | Update a routing. | CUSTOMER |
-| DELETE | `/routings/{routing_id}` | Delete a routing (soft delete - marks as inactive). | CUSTOMER |
-| GET | `/routings/{routing_id}/operations` | List all operations for a routing. | PUBLIC |
-| POST | `/routings/{routing_id}/operations` | Add a new operation to a routing. | CUSTOMER |
-| PUT | `/routings/operations/{operation_id}` | Update a routing operation. | CUSTOMER |
-| DELETE | `/routings/operations/{operation_id}` | Delete a routing operation (soft delete). | CUSTOMER |
-| GET | `/routings/operations/{operation_id}/materials` | List all materials for a routing operation. | PUBLIC |
-| POST | `/routings/operations/{operation_id}/materials` | Add a material to a routing operation. | CUSTOMER |
-| PUT | `/routings/materials/{material_id}` | Update a routing operation material. | CUSTOMER |
-| DELETE | `/routings/materials/{material_id}` | Delete a routing operation material. | CUSTOMER |
-| GET | `/routings/manufacturing-bom/{product_id}` | Get the complete Manufacturing BOM for a product. | PUBLIC |
+| GET | `/routings/` | List all routings. | STAFF |
+| POST | `/routings/` | Create a new routing for a product or a template routing. | STAFF |
+| POST | `/routings/seed-templates` | Seed the two standard routing templates: | STAFF |
+| POST | `/routings/apply-template` | Apply a routing template to a product, creating a product-specific routing. | STAFF |
+| GET | `/routings/{routing_id}` | Get a routing by ID with all operations. | STAFF |
+| GET | `/routings/product/{product_id}` | Get the active routing for a product. | STAFF |
+| PUT | `/routings/{routing_id}` | Update a routing. | STAFF |
+| DELETE | `/routings/{routing_id}` | Delete a routing (soft delete - marks as inactive). | STAFF |
+| GET | `/routings/{routing_id}/operations` | List all operations for a routing. | STAFF |
+| POST | `/routings/{routing_id}/operations` | Add a new operation to a routing. | STAFF |
+| PUT | `/routings/operations/{operation_id}` | Update a routing operation. | STAFF |
+| DELETE | `/routings/operations/{operation_id}` | Delete a routing operation (soft delete). | STAFF |
+| GET | `/routings/operations/{operation_id}/materials` | List all materials for a routing operation. | STAFF |
+| POST | `/routings/operations/{operation_id}/materials` | Add a material to a routing operation. | STAFF |
+| PUT | `/routings/materials/{material_id}` | Update a routing operation material. | STAFF |
+| DELETE | `/routings/materials/{material_id}` | Delete a routing operation material. | STAFF |
+| GET | `/routings/manufacturing-bom/{product_id}` | Get the complete Manufacturing BOM for a product. | STAFF |
 
 ---
 
@@ -420,16 +444,16 @@ Authorization: Bearer <access_token>
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
 | POST | `/mrp/run` | Run MRP calculation. | STAFF |
-| GET | `/mrp/runs` | List recent MRP runs | PUBLIC |
-| GET | `/mrp/runs/{run_id}` | Get details of a specific MRP run | PUBLIC |
-| GET | `/mrp/planned-orders` | List planned orders with optional filters | PUBLIC |
-| GET | `/mrp/planned-orders/{order_id}` | Get a specific planned order | PUBLIC |
-| POST | `/mrp/planned-orders/{order_id}/firm` | Firm a planned order. | PUBLIC |
-| POST | `/mrp/planned-orders/{order_id}/release` | Release a planned order to an actual PO or MO. | PUBLIC |
-| DELETE | `/mrp/planned-orders/{order_id}` | Cancel/delete a planned order | PUBLIC |
-| GET | `/mrp/requirements` | Calculate and return material requirements. | PUBLIC |
-| GET | `/mrp/supply-demand/{product_id}` | Get supply and demand timeline for a product. | PUBLIC |
-| GET | `/mrp/explode-bom/{product_id}` | Explode a BOM to see all component requirements. | PUBLIC |
+| GET | `/mrp/runs` | List recent MRP runs | STAFF |
+| GET | `/mrp/runs/{run_id}` | Get details of a specific MRP run | STAFF |
+| GET | `/mrp/planned-orders` | List planned orders with optional filters | STAFF |
+| GET | `/mrp/planned-orders/{order_id}` | Get a specific planned order | STAFF |
+| POST | `/mrp/planned-orders/{order_id}/firm` | Firm a planned order. | STAFF |
+| POST | `/mrp/planned-orders/{order_id}/release` | Release a planned order to an actual PO or MO. | STAFF |
+| DELETE | `/mrp/planned-orders/{order_id}` | Cancel/delete a planned order | STAFF |
+| GET | `/mrp/requirements` | Calculate and return material requirements. | STAFF |
+| GET | `/mrp/supply-demand/{product_id}` | Get supply and demand timeline for a product. | STAFF |
+| GET | `/mrp/explode-bom/{product_id}` | Explode a BOM to see all component requirements. | STAFF |
 
 ---
 
@@ -441,11 +465,11 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| POST | `/scheduling/capacity/check` | Check if a machine has capacity for a production order at a given time. | CUSTOMER |
-| GET | `/scheduling/capacity/available-slots` | Find available time slots for a resource within a date range. | CUSTOMER |
-| GET | `/scheduling/capacity/machine-availability` | Get availability status for all machines in a date range. | CUSTOMER |
-| POST | `/scheduling/auto-schedule` | Automatically find the best available slot for a production order. | CUSTOMER |
-| GET | `/scheduling/resource-conflicts` | Check for scheduling conflicts on a resource/printer in a time range. | CUSTOMER |
+| POST | `/scheduling/capacity/check` | Check if a machine has capacity for a production order at a given time. | STAFF |
+| GET | `/scheduling/capacity/available-slots` | Find available time slots for a resource within a date range. | STAFF |
+| GET | `/scheduling/capacity/machine-availability` | Get availability status for all machines in a date range. | STAFF |
+| POST | `/scheduling/auto-schedule` | Automatically find the best available slot for a production order. | STAFF |
+| GET | `/scheduling/resource-conflicts` | Check for scheduling conflicts on a resource/printer in a time range. | STAFF |
 
 ---
 
@@ -457,16 +481,16 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/settings/company` | Get company settings | CUSTOMER |
+| GET | `/settings/company` | Get company settings | STAFF |
 | PATCH | `/settings/company` | Update company settings | ADMIN |
 | POST | `/settings/company/logo` | Upload company logo | ADMIN |
 | GET | `/settings/company/logo` | Get company logo image (no auth required for PDF generation) | PUBLIC |
 | DELETE | `/settings/company/logo` | Delete company logo | ADMIN |
-| GET | `/settings/ai` | Get AI configuration settings (API keys masked) | CUSTOMER |
+| GET | `/settings/ai` | Get AI configuration settings (API keys masked) | STAFF |
 | PATCH | `/settings/ai` | Update AI configuration settings | ADMIN |
 | POST | `/settings/ai/test` | Test the configured AI connection | ADMIN |
 | POST | `/settings/ai/start-ollama` | Attempt to start the Ollama service | ADMIN |
-| GET | `/settings/ai/anthropic-status` | Check if the anthropic package is installed. | CUSTOMER |
+| GET | `/settings/ai/anthropic-status` | Check if the anthropic package is installed. | STAFF |
 | POST | `/settings/ai/install-anthropic` | Install the anthropic Python package. | ADMIN |
 
 ---
@@ -479,8 +503,8 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/tax-rates` | List active tax rates. Pass include_inactive=true to see all. | CUSTOMER |
-| GET | `/tax-rates/{tax_rate_id}` | Get tax rate | CUSTOMER |
+| GET | `/tax-rates` | List active tax rates. Pass include_inactive=true to see all. | STAFF |
+| GET | `/tax-rates/{tax_rate_id}` | Get tax rate | STAFF |
 | POST | `/tax-rates` | Create tax rate | ADMIN |
 | PATCH | `/tax-rates/{tax_rate_id}` | Update tax rate | ADMIN |
 | DELETE | `/tax-rates/{tax_rate_id}` | Delete tax rate | ADMIN |
@@ -495,14 +519,14 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| POST | `/payments` | Record a new payment for a sales order. | CUSTOMER |
-| POST | `/payments/refund` | Record a refund for a sales order. | CUSTOMER |
-| GET | `/payments` | List payments with filtering and pagination. | CUSTOMER |
-| GET | `/payments/dashboard` | Get payment dashboard statistics. | CUSTOMER |
-| GET | `/payments/order/{order_id}/summary` | Get payment summary for a specific order. | CUSTOMER |
-| GET | `/payments/{payment_id}` | Get a specific payment by ID. | CUSTOMER |
-| PATCH | `/payments/{payment_id}` | Update a payment record (limited to notes and status). | CUSTOMER |
-| DELETE | `/payments/{payment_id}` | Void a payment (sets status to 'voided', doesn't delete). | CUSTOMER |
+| POST | `/payments` | Record a new payment for a sales order. | STAFF |
+| POST | `/payments/refund` | Record a refund for a sales order. | STAFF |
+| GET | `/payments` | List payments with filtering and pagination. | STAFF |
+| GET | `/payments/dashboard` | Get payment dashboard statistics. | STAFF |
+| GET | `/payments/order/{order_id}/summary` | Get payment summary for a specific order. | STAFF |
+| GET | `/payments/{payment_id}` | Get a specific payment by ID. | STAFF |
+| PATCH | `/payments/{payment_id}` | Update a payment record (limited to notes and status). | STAFF |
+| DELETE | `/payments/{payment_id}` | Void a payment (sets status to 'voided', doesn't delete). | STAFF |
 
 ---
 
@@ -533,19 +557,19 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/printers/generate-code` | Generate a new unique printer code | CUSTOMER |
-| GET | `/printers/brands/info` | Get information about supported printer brands | CUSTOMER |
-| GET | `/printers/active-work` | Get active/scheduled work for all printers. | CUSTOMER |
-| GET | `/printers/` | List all printers with filtering and pagination | CUSTOMER |
-| GET | `/printers/{printer_id}` | Get a single printer by ID | CUSTOMER |
-| POST | `/printers/` | Create a new printer | CUSTOMER |
-| PUT | `/printers/{printer_id}` | Update an existing printer | CUSTOMER |
-| DELETE | `/printers/{printer_id}` | Delete a printer | CUSTOMER |
-| PATCH | `/printers/{printer_id}/status` | Update printer status | CUSTOMER |
-| POST | `/printers/discover` | Discover printers on the local network | CUSTOMER |
-| POST | `/printers/probe-ip` | Probe an IP address to detect printer info. | CUSTOMER |
-| POST | `/printers/test-connection` | Test connection to a printer | CUSTOMER |
-| POST | `/printers/import-csv` | Import printers from CSV data | CUSTOMER |
+| GET | `/printers/generate-code` | Generate a new unique printer code | STAFF |
+| GET | `/printers/brands/info` | Get information about supported printer brands | STAFF |
+| GET | `/printers/active-work` | Get active/scheduled work for all printers. | STAFF |
+| GET | `/printers/` | List all printers with filtering and pagination | STAFF |
+| GET | `/printers/{printer_id}` | Get a single printer by ID | STAFF |
+| POST | `/printers/` | Create a new printer | STAFF |
+| PUT | `/printers/{printer_id}` | Update an existing printer | STAFF |
+| DELETE | `/printers/{printer_id}` | Delete a printer | STAFF |
+| PATCH | `/printers/{printer_id}/status` | Update printer status | STAFF |
+| POST | `/printers/discover` | Discover printers on the local network | STAFF |
+| POST | `/printers/probe-ip` | Probe an IP address to detect printer info. | STAFF |
+| POST | `/printers/test-connection` | Test connection to a printer | STAFF |
+| POST | `/printers/import-csv` | Import printers from CSV data | STAFF |
 
 ---
 
@@ -559,8 +583,8 @@ Authorization: Bearer <access_token>
 | ------ | ---- | ----------- | ---- |
 | GET | `/system/version` | Get current FilaOps version and build date. | PUBLIC |
 | GET | `/system/info` | Get system tier and enabled features. | PUBLIC |
-| GET | `/system/updates/check` | Check GitHub releases for available updates | PUBLIC |
-| GET | `/system/updates/instructions` | Get step-by-step update instructions for current deployment method | PUBLIC |
+| GET | `/system/updates/check` | Check GitHub releases for available updates | STAFF |
+| GET | `/system/updates/instructions` | Get step-by-step update instructions for current deployment method | STAFF |
 | GET | `/system/health` | System health check endpoint | PUBLIC |
 
 ---
@@ -597,14 +621,14 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/spools/` | List all material spools with optional filters. | CUSTOMER |
-| GET | `/spools/{spool_id}` | Get details for a specific spool including usage history. | CUSTOMER |
-| POST | `/spools/` | Create a new material spool. | CUSTOMER |
-| PATCH | `/spools/{spool_id}` | Update spool information (weight, status, location, notes). | CUSTOMER |
-| GET | `/spools/product/{product_id}/available` | Get available spools for a product, optionally filtered by minimum weight. | CUSTOMER |
-| GET | `/spools/traceability/production-order/{production_order_id}` | Get spool traceability information for a production order. | CUSTOMER |
-| GET | `/spools/traceability/spool/{spool_id}` | Get full traceability for a spool: which production orders used it, which finished goods were produced. | CUSTOMER |
-| POST | `/spools/{spool_id}/consume` | Record material consumption from a spool for a production order. | CUSTOMER |
+| GET | `/spools/` | List all material spools with optional filters. | STAFF |
+| GET | `/spools/{spool_id}` | Get details for a specific spool including usage history. | STAFF |
+| POST | `/spools/` | Create a new material spool. | STAFF |
+| PATCH | `/spools/{spool_id}` | Update spool information (weight, status, location, notes). | STAFF |
+| GET | `/spools/product/{product_id}/available` | Get available spools for a product, optionally filtered by minimum weight. | STAFF |
+| GET | `/spools/traceability/production-order/{production_order_id}` | Get spool traceability information for a production order. | STAFF |
+| GET | `/spools/traceability/spool/{spool_id}` | Get full traceability for a spool: which production orders used it, which finished goods were produced. | STAFF |
+| POST | `/spools/{spool_id}/consume` | Record material consumption from a spool for a production order. | STAFF |
 
 ---
 
@@ -616,10 +640,10 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/traceability/forward/spool/{spool_id}` | Trace a spool forward to all products and customers. | CUSTOMER |
-| GET | `/traceability/backward/serial/{serial_number}` | Trace a serial number back to source materials and vendor. | CUSTOMER |
-| GET | `/traceability/backward/sales-order/{so_id}` | Trace a sales order back to all source materials. | CUSTOMER |
-| POST | `/traceability/recall-impact` | Calculate the impact of recalling specific spools. | CUSTOMER |
+| GET | `/traceability/forward/spool/{spool_id}` | Trace a spool forward to all products and customers. | STAFF |
+| GET | `/traceability/backward/serial/{serial_number}` | Trace a serial number back to source materials and vendor. | STAFF |
+| GET | `/traceability/backward/sales-order/{so_id}` | Trace a sales order back to all source materials. | STAFF |
+| POST | `/traceability/recall-impact` | Calculate the impact of recalling specific spools. | STAFF |
 
 ---
 
@@ -631,13 +655,13 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/maintenance/` | List all maintenance logs with filtering and pagination | CUSTOMER |
-| GET | `/maintenance/due` | Get printers that are due for maintenance | CUSTOMER |
-| GET | `/maintenance/{log_id}` | Get a single maintenance log by ID | CUSTOMER |
-| GET | `/maintenance/printers/{printer_id}/maintenance` | List all maintenance logs for a specific printer | CUSTOMER |
-| POST | `/maintenance/printers/{printer_id}/maintenance` | Add a maintenance log entry for a printer | CUSTOMER |
-| PUT | `/maintenance/{log_id}` | Update an existing maintenance log | CUSTOMER |
-| DELETE | `/maintenance/{log_id}` | Delete a maintenance log | CUSTOMER |
+| GET | `/maintenance/` | List all maintenance logs with filtering and pagination | STAFF |
+| GET | `/maintenance/due` | Get printers that are due for maintenance | STAFF |
+| GET | `/maintenance/{log_id}` | Get a single maintenance log by ID | STAFF |
+| GET | `/maintenance/printers/{printer_id}/maintenance` | List all maintenance logs for a specific printer | STAFF |
+| POST | `/maintenance/printers/{printer_id}/maintenance` | Add a maintenance log entry for a printer | STAFF |
+| PUT | `/maintenance/{log_id}` | Update an existing maintenance log | STAFF |
+| DELETE | `/maintenance/{log_id}` | Delete a maintenance log | STAFF |
 
 ---
 
@@ -773,8 +797,8 @@ Authorization: Bearer <access_token>
 | ------ | ---- | ----------- | ---- |
 | GET | `/admin/fulfillment/ready-to-ship` | Get all orders that are ready to ship. | STAFF |
 | GET | `/admin/fulfillment/ship/boxes` | Get all available shipping boxes for shipper selection. | STAFF |
-| POST | `/admin/fulfillment/ship/consolidate/get-rates` | Get shipping rates for multiple orders consolidated into one package. | PUBLIC |
-| POST | `/admin/fulfillment/ship/consolidate/buy-label` | Purchase a shipping label for consolidated orders. | PUBLIC |
+| POST | `/admin/fulfillment/ship/consolidate/get-rates` | Get shipping rates for multiple orders consolidated into one package. | STAFF |
+| POST | `/admin/fulfillment/ship/consolidate/buy-label` | Purchase a shipping label for consolidated orders. | STAFF |
 | POST | `/admin/fulfillment/ship/{sales_order_id}/get-rates` | Get shipping rate options for an order. | STAFF |
 | POST | `/admin/fulfillment/ship/{sales_order_id}/buy-label` | Purchase a shipping label for an order. | STAFF |
 | POST | `/admin/fulfillment/ship-from-stock/{sales_order_id}/check` | Check if a sales order can be fulfilled directly from existing FG inventory. | STAFF |
@@ -789,10 +813,10 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/admin/audit/transactions` | Run a transaction audit to find gaps in inventory tracking. | PUBLIC |
-| GET | `/admin/audit/transactions/order/{order_id}` | Audit a single order for transaction gaps. | PUBLIC |
-| GET | `/admin/audit/transactions/timeline/{order_id}` | Get the complete transaction timeline for an order. | PUBLIC |
-| GET | `/admin/audit/transactions/summary` | Get a quick summary of transaction health across all active orders. | PUBLIC |
+| GET | `/admin/audit/transactions` | Run a transaction audit to find gaps in inventory tracking. | STAFF |
+| GET | `/admin/audit/transactions/order/{order_id}` | Audit a single order for transaction gaps. | STAFF |
+| GET | `/admin/audit/transactions/timeline/{order_id}` | Get the complete transaction timeline for an order. | STAFF |
+| GET | `/admin/audit/transactions/summary` | Get a quick summary of transaction health across all active orders. | STAFF |
 
 ### 28.9. Accounting (`/admin/accounting`)
 
@@ -802,17 +826,17 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/admin/accounting/inventory-by-account` | Get inventory balances organized by accounting category. | PUBLIC |
-| GET | `/admin/accounting/transactions-journal` | Get inventory transactions formatted as journal entries. | PUBLIC |
-| GET | `/admin/accounting/order-cost-breakdown/{order_id}` | Get a cost breakdown for a specific sales order. | PUBLIC |
-| GET | `/admin/accounting/cogs-summary` | Get COGS summary for recent period. | PUBLIC |
-| GET | `/admin/accounting/dashboard` | Get accounting dashboard with key financial metrics. | PUBLIC |
-| GET | `/admin/accounting/sales-journal` | Get sales journal - all sales transactions for the period. | PUBLIC |
-| GET | `/admin/accounting/sales-journal/export` | Export sales journal as CSV. | PUBLIC |
-| GET | `/admin/accounting/tax-summary` | Get tax summary for filing preparation. | PUBLIC |
-| GET | `/admin/accounting/tax-summary/export` | Export tax summary as CSV for filing. | PUBLIC |
-| GET | `/admin/accounting/payments-journal` | Get payments journal - all payment transactions for the period. | PUBLIC |
-| GET | `/admin/accounting/payments-journal/export` | Export payments journal as CSV. | PUBLIC |
+| GET | `/admin/accounting/inventory-by-account` | Get inventory balances organized by accounting category. | STAFF |
+| GET | `/admin/accounting/transactions-journal` | Get inventory transactions formatted as journal entries. | STAFF |
+| GET | `/admin/accounting/order-cost-breakdown/{order_id}` | Get a cost breakdown for a specific sales order. | STAFF |
+| GET | `/admin/accounting/cogs-summary` | Get COGS summary for recent period. | STAFF |
+| GET | `/admin/accounting/dashboard` | Get accounting dashboard with key financial metrics. | STAFF |
+| GET | `/admin/accounting/sales-journal` | Get sales journal - all sales transactions for the period. | STAFF |
+| GET | `/admin/accounting/sales-journal/export` | Export sales journal as CSV. | STAFF |
+| GET | `/admin/accounting/tax-summary` | Get tax summary for filing preparation. | STAFF |
+| GET | `/admin/accounting/tax-summary/export` | Export tax summary as CSV for filing. | STAFF |
+| GET | `/admin/accounting/payments-journal` | Get payments journal - all payment transactions for the period. | STAFF |
+| GET | `/admin/accounting/payments-journal/export` | Export payments journal as CSV. | STAFF |
 | GET | `/admin/accounting/export/sales` | Export sales data for tax time / accounting purposes. | STAFF |
 
 ### 28.10. Traceability (`/admin/traceability`)
@@ -823,24 +847,24 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/admin/traceability/profiles` | List all customer traceability profiles. | CUSTOMER |
-| GET | `/admin/traceability/profiles/{user_id}` | Get traceability profile for a specific customer. | CUSTOMER |
-| POST | `/admin/traceability/profiles` | Create a traceability profile for a customer. | CUSTOMER |
-| PATCH | `/admin/traceability/profiles/{user_id}` | Update a customer's traceability profile. | CUSTOMER |
-| GET | `/admin/traceability/lots` | List material lots with filtering and pagination. | CUSTOMER |
-| GET | `/admin/traceability/lots/{lot_id}` | Get a specific material lot by ID. | CUSTOMER |
-| POST | `/admin/traceability/lots` | Create a new material lot (typically when receiving materials). | CUSTOMER |
-| PATCH | `/admin/traceability/lots/{lot_id}` | Update a material lot. | CUSTOMER |
-| POST | `/admin/traceability/lots/generate-number` | Generate the next lot number for a material. | CUSTOMER |
-| GET | `/admin/traceability/serials` | List serial numbers with filtering and pagination. | CUSTOMER |
-| GET | `/admin/traceability/serials/{serial_id}` | Get a specific serial number by ID. | CUSTOMER |
-| GET | `/admin/traceability/serials/lookup/{serial_number}` | Look up a serial number by the serial string. | CUSTOMER |
-| POST | `/admin/traceability/serials` | Generate serial numbers for a production order. | CUSTOMER |
-| PATCH | `/admin/traceability/serials/{serial_id}` | Update a serial number (e.g., mark as sold, shipped, returned). | CUSTOMER |
-| POST | `/admin/traceability/consumptions` | Record material lot consumption for a production order. | CUSTOMER |
-| GET | `/admin/traceability/consumptions/production/{production_order_id}` | Get all lot consumptions for a production order. | CUSTOMER |
-| GET | `/admin/traceability/recall/forward/{lot_number}` | Forward recall query: What did we make with this lot? | CUSTOMER |
-| GET | `/admin/traceability/recall/backward/{serial_number}` | Backward recall query: What material lots went into this serial number? | CUSTOMER |
+| GET | `/admin/traceability/profiles` | List all customer traceability profiles. | STAFF |
+| GET | `/admin/traceability/profiles/{user_id}` | Get traceability profile for a specific customer. | STAFF |
+| POST | `/admin/traceability/profiles` | Create a traceability profile for a customer. | STAFF |
+| PATCH | `/admin/traceability/profiles/{user_id}` | Update a customer's traceability profile. | STAFF |
+| GET | `/admin/traceability/lots` | List material lots with filtering and pagination. | STAFF |
+| GET | `/admin/traceability/lots/{lot_id}` | Get a specific material lot by ID. | STAFF |
+| POST | `/admin/traceability/lots` | Create a new material lot (typically when receiving materials). | STAFF |
+| PATCH | `/admin/traceability/lots/{lot_id}` | Update a material lot. | STAFF |
+| POST | `/admin/traceability/lots/generate-number` | Generate the next lot number for a material. | STAFF |
+| GET | `/admin/traceability/serials` | List serial numbers with filtering and pagination. | STAFF |
+| GET | `/admin/traceability/serials/{serial_id}` | Get a specific serial number by ID. | STAFF |
+| GET | `/admin/traceability/serials/lookup/{serial_number}` | Look up a serial number by the serial string. | STAFF |
+| POST | `/admin/traceability/serials` | Generate serial numbers for a production order. | STAFF |
+| PATCH | `/admin/traceability/serials/{serial_id}` | Update a serial number (e.g., mark as sold, shipped, returned). | STAFF |
+| POST | `/admin/traceability/consumptions` | Record material lot consumption for a production order. | STAFF |
+| GET | `/admin/traceability/consumptions/production/{production_order_id}` | Get all lot consumptions for a production order. | STAFF |
+| GET | `/admin/traceability/recall/forward/{lot_number}` | Forward recall query: What did we make with this lot? | STAFF |
+| GET | `/admin/traceability/recall/backward/{serial_number}` | Backward recall query: What material lots went into this serial number? | STAFF |
 
 ### 28.11. Inventory Transactions (`/admin/inventory`)
 
@@ -887,7 +911,7 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/admin/orders/import/template` | Download CSV template for order import. | PUBLIC |
+| GET | `/admin/orders/import/template` | Download CSV template for order import. | STAFF |
 | POST | `/admin/orders/import` | Import orders from CSV file. | STAFF |
 
 ### 28.15. Uom (`/admin/uom`)
@@ -939,8 +963,8 @@ Authorization: Bearer <access_token>
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| POST | `/admin/uploads/product-image` | Upload a product image. | CUSTOMER |
-| DELETE | `/admin/uploads/product-image/{filename}` | Delete a previously uploaded product image. | CUSTOMER |
+| POST | `/admin/uploads/product-image` | Upload a product image. | STAFF |
+| DELETE | `/admin/uploads/product-image/{filename}` | Delete a previously uploaded product image. | STAFF |
 
 
 ---

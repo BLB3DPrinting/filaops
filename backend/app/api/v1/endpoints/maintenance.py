@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.maintenance import MaintenanceLog
 from app.models.printer import Printer
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.maintenance import (
     MaintenanceType,
@@ -26,7 +26,9 @@ from app.schemas.maintenance import (
     MaintenanceDueResponse,
 )
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -61,7 +63,7 @@ async def list_maintenance_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     List all maintenance logs with filtering and pagination
@@ -105,7 +107,7 @@ async def list_maintenance_logs(
 async def get_maintenance_due(
     days_ahead: int = Query(7, ge=1, le=90, description="Check for maintenance due within this many days"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get printers that are due for maintenance
@@ -165,7 +167,7 @@ async def get_maintenance_due(
 async def get_maintenance_log(
     log_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get a single maintenance log by ID"""
     log = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
@@ -184,7 +186,7 @@ async def list_printer_maintenance(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List all maintenance logs for a specific printer"""
     # Verify printer exists
@@ -215,7 +217,7 @@ async def create_maintenance_log(
     printer_id: int,
     data: MaintenanceLogCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Add a maintenance log entry for a printer
@@ -258,7 +260,7 @@ async def update_maintenance_log(
     log_id: int,
     data: MaintenanceLogUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update an existing maintenance log"""
     log = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
@@ -283,7 +285,7 @@ async def update_maintenance_log(
 async def delete_maintenance_log(
     log_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Delete a maintenance log"""
     log = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()

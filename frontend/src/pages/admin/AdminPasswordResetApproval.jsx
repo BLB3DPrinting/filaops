@@ -101,9 +101,10 @@ export default function AdminPasswordResetApproval() {
             </div>
 
             <p className="text-gray-400 mb-6">
-              {isApprove
-                ? "The user has been notified and can now reset their password."
-                : "The user has been notified that their request was denied."}
+              {result?.message ||
+                (isApprove
+                  ? "The user has been notified and can now reset their password."
+                  : "The user has been notified that their request was denied.")}
             </p>
 
             <Link

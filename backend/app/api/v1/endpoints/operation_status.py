@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_db, get_current_user
+from app.api.v1.deps import get_db, get_current_staff_user
 from app.schemas.operation_status import (
     OperationStartRequest,
     OperationCompleteRequest,
@@ -65,7 +65,9 @@ from app.models.manufacturing import Resource
 from app.models.printer import Printer
 
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 def build_operation_response(op, po, next_op=None) -> OperationResponse:
@@ -147,7 +149,7 @@ def build_operation_response(op, po, next_op=None) -> OperationResponse:
 def get_operations(
     po_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Get all operations for a production order, ordered by sequence.
@@ -237,7 +239,7 @@ def get_scrap_cascade_preview(
     op_id: int,
     quantity: int = Query(..., ge=1, description="Units being scrapped"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_staff_user),
 ):
     """Read-only preview of the material + labor cost cascade of scrapping
     ``quantity`` units at this operation (materials from this AND all prior
@@ -262,7 +264,7 @@ def record_operation_scrap(
     op_id: int,
     request: OperationScrapRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_staff_user),
 ):
     """Record operation-level scrap with cascading material accounting:
     ScrapRecords for materials consumed at this + prior operations, a balanced
@@ -303,7 +305,7 @@ def start_operation_endpoint(
     op_id: int,
     request: OperationStartRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Start an operation.
@@ -342,7 +344,7 @@ def complete_operation_endpoint(
     op_id: int,
     request: OperationCompleteRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Complete an operation with optional partial scrap and cascading material accounting.
@@ -400,7 +402,7 @@ def skip_operation_endpoint(
     op_id: int,
     request: OperationSkipRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Skip an operation with a reason.
@@ -439,7 +441,7 @@ def check_can_start(
     po_id: int,
     op_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Quick check if an operation can start based on material availability.
@@ -463,7 +465,7 @@ def get_blocking_issues(
     po_id: int,
     op_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Get detailed blocking issues for an operation.
@@ -491,7 +493,7 @@ def check_resource_compatibility(
     resource_id: int,
     is_printer: bool = False,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Check if a resource/printer is compatible with a production order's materials.
@@ -528,7 +530,7 @@ def schedule_operation_endpoint(
     op_id: int,
     request: ScheduleOperationRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Schedule an operation on a resource with time slot validation.
@@ -725,7 +727,7 @@ def schedule_operation_endpoint(
 def get_next_available_slot(
     request: NextAvailableSlotRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Find the next available time slot on a resource.
@@ -776,7 +778,7 @@ def generate_operations(
     po_id: int,
     request: GenerateOperationsRequest = GenerateOperationsRequest(),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    current_user=Depends(get_current_staff_user)
 ):
     """
     Manually generate operations from routing.

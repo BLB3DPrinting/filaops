@@ -143,7 +143,9 @@ async def get_system_info():
             install_method=version_info.get(
                 "install_method", VersionManager.DEFAULT_INSTALL_METHOD
             ),
-            smtp_configured=bool(settings.SMTP_USER and settings.SMTP_PASSWORD),
+            # Same rule the password reset flow uses: SMTP login set and a
+            # real ADMIN_APPROVAL_EMAIL.
+            smtp_configured=settings.email_configured,
         )
     except Exception as e:
         logger.error(f"Failed to get system info: {e}", exc_info=True)

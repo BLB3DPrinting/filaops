@@ -26,6 +26,9 @@ logger = get_logger(__name__)
 
 LOCKED_QUOTE_STATUSES = {"accepted", "converted"}
 
+# Size of the quotes.admin_notes column.
+_ADMIN_NOTES_MAX_LENGTH = Quote.__table__.c.admin_notes.type.length
+
 
 def _raise_if_quote_locked_for_modification(quote: Quote) -> None:
     if quote.status in LOCKED_QUOTE_STATUSES:
@@ -197,6 +200,56 @@ def _calculate_quote_tax_amount(
         ship_to_state=ship_to_state,
         seller_state=company_settings.company_state if company_settings else None,
     ).tax_amount
+
+
+def portal_quote_total(
+    db: Session,
+    quote: Quote,
+    *,
+    shipping_cost: Optional[Decimal],
+    ship_to_state: Optional[str],
+) -> tuple[Optional[Decimal], Decimal]:
+    """Return (tax_amount, total_price) a portal accept would store. Writes nothing.
+
+    Tax is recomputed for the ship-to whenever the quote carries a tax rate;
+    otherwise the stored tax_amount is kept.
+    """
+    subtotal = (
+        quote.subtotal
+        if quote.subtotal is not None
+        else (quote.unit_price or Decimal("0")) * (quote.quantity or 1)
+    )
+    shipping = shipping_cost or Decimal("0")
+    tax_amount = quote.tax_amount
+    if quote.tax_rate is not None:
+        company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
+        tax_amount = _calculate_quote_tax_amount(
+            subtotal=subtotal,
+            tax_rate=quote.tax_rate,
+            shipping_cost=shipping,
+            ship_to_state=ship_to_state,
+            company_settings=company_settings,
+        )
+    return tax_amount, subtotal + (tax_amount or Decimal("0")) + shipping
+
+
+def recompute_portal_quote_total(db: Session, quote: Quote) -> None:
+    """Set total_price = subtotal + tax + shipping for a portal accept.
+
+    Used after the customer picks a ship-to and a shipping rate. The total is
+    never taken from the client, tax is recomputed for the new ship-to
+    whenever the quote carries a tax rate (so it is never dropped), and
+    repeated accepts never add shipping twice.
+    """
+    tax_amount, total_price = portal_quote_total(
+        db,
+        quote,
+        shipping_cost=quote.shipping_cost,
+        ship_to_state=quote.shipping_state,
+    )
+    if quote.tax_rate is not None:
+        quote.tax_amount = tax_amount
+    quote.total_price = total_price
 
 
 def _get_customer_discount(db: Session, customer_id: int) -> Optional[Decimal]:
@@ -626,25 +679,64 @@ def update_quote_status(db: Session, quote_id: int, request, current_user_id: in
             detail="Cannot change status of a converted quote"
         )
 
+    # A note sent with a status change is added to the existing admin notes,
+    # never written over them: PRO records the Stripe ids of a held payment
+    # there, and staff need them to refund it. Checked before anything changes
+    # so a note that doesn't fit leaves the quote as it was.
+    new_admin_notes = None
+    if request.admin_notes:
+        existing_notes = (quote.admin_notes or "").rstrip()
+        new_admin_notes = (
+            f"{existing_notes}\n{request.admin_notes}" if existing_notes else request.admin_notes
+        )
+        if len(new_admin_notes) > _ADMIN_NOTES_MAX_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Admin notes can't exceed {_ADMIN_NOTES_MAX_LENGTH} characters with this "
+                    "note added. Shorten the quote's admin notes first."
+                ),
+            )
+
     old_status = quote.status
     quote.status = request.status
+    cleared_review_reason = None
 
     if request.status == "approved":
         quote.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
         quote.approved_by = current_user_id
         quote.approval_method = "manual"
+        # Staff approving the quote is the review. Clear the reason (customer
+        # notes, colour choice, a Stripe amount mismatch from PRO) so the
+        # customer can go on to checkout, which refuses a quote with a reason
+        # set. PRO keeps the Stripe ids of a mismatched payment in admin_notes.
+        cleared_review_reason = quote.requires_review_reason
+        quote.requires_review_reason = None
+
+    if request.status == "pending":
+        # Staff put the quote on hold. It is no longer auto-approved: the
+        # customer's next portal accept keeps it pending (it only re-approves
+        # quotes whose approval_method is "auto") until staff approve it.
+        quote.approval_method = "manual"
 
     if request.status == "rejected":
         quote.rejection_reason = request.rejection_reason
 
-    if request.admin_notes:
-        quote.admin_notes = request.admin_notes
+    if new_admin_notes is not None:
+        quote.admin_notes = new_admin_notes
 
     quote.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(quote)
 
     logger.info(f"Quote {quote.quote_number} status changed from {old_status} to {request.status}")
+    if cleared_review_reason:
+        logger.info(
+            "Quote %s approved by user %s; review reason cleared: %r",
+            quote.quote_number,
+            current_user_id,
+            cleared_review_reason,
+        )
     return quote
 
 

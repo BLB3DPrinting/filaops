@@ -37,9 +37,10 @@ def _csv_upload(client, csv_text: str, *, filename: str = "orders.csv",
 class TestAdminOrdersAuth:
     """Authentication requirements for admin order endpoints."""
 
-    def test_template_accessible_without_auth(self, unauthed_client):
+    def test_template_requires_auth(self, unauthed_client):
+        # The whole /admin tree is staff-only; the template is no exception.
         response = unauthed_client.get(f"{BASE_URL}/import/template")
-        assert response.status_code == 200
+        assert response.status_code == 401
 
     def test_import_returns_401_without_auth(self, unauthed_client):
         csv_text = "Customer Email,Product SKU,Quantity\nfoo@bar.com,SKU-1,1\n"

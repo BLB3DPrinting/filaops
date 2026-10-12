@@ -12,8 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
-from app.api.v1.deps import get_pagination_params
+from app.api.v1.deps import (
+    get_current_admin_user,
+    get_current_staff_user,
+    get_pagination_params,
+)
 from app.schemas.common import MessageResponse, PaginationParams
 from app.models import User, Product, SalesOrder
 from app.models.production_order import (
@@ -98,7 +101,11 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+# Editing scrap reasons is shop configuration, so those three write routes also
+# require an admin (their only UI is the admin-only Scrap Reasons page).
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 # =============================================================================
@@ -346,7 +353,7 @@ async def list_production_orders(
     due_after: Optional[date] = Query(None, description="Filter orders due after this date"),
     search: Optional[str] = Query(None, description="Search by PO code, product SKU, or name"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> List[ProductionOrderListResponse]:
     """List production orders with filtering and pagination."""
     orders = production_order_service.list_production_orders(
@@ -369,7 +376,7 @@ async def list_production_orders(
 async def create_production_order(
     request: ProductionOrderCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Create a new production order."""
     order = production_order_service.create_production_order(
@@ -398,7 +405,7 @@ async def create_production_order(
 @router.get("/status-transitions", response_model=StatusTransitionsResponse)
 async def get_status_transitions(
     current_status: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> StatusTransitionsResponse:
     """Get valid status transitions for production orders."""
     all_statuses = [s.value for s in ProductionOrderStatus]
@@ -438,7 +445,7 @@ async def get_status_transitions(
 @router.get("/defect-reasons", response_model=DefectReasonsResponse)
 async def get_defect_reasons(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> DefectReasonsResponse:
     """List active defect reasons (codes + details) for QC dropdowns."""
     reasons = defect_reason_service.get_defect_reasons(db)
@@ -451,7 +458,7 @@ async def get_defect_reasons(
 @router.get("/defect-reasons/all", response_model=List[DefectReasonDetail])
 async def get_all_defect_reasons(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> List[DefectReasonDetail]:
     """List all defect reasons, including inactive."""
     reasons = defect_reason_service.get_defect_reasons(db, include_inactive=True)
@@ -462,7 +469,7 @@ async def get_all_defect_reasons(
 async def create_defect_reason(
     request: DefectReasonCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> DefectReasonDetail:
     """Create a defect reason."""
     reason = defect_reason_service.create_defect_reason(
@@ -484,7 +491,7 @@ async def update_defect_reason(
     reason_id: int,
     request: DefectReasonUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> DefectReasonDetail:
     """Update a defect reason; pass active=false to deactivate."""
     reason = defect_reason_service.update_defect_reason(
@@ -506,7 +513,7 @@ async def update_defect_reason(
 async def get_production_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Get a production order by ID."""
     order = production_order_service.get_production_order(db, order_id)
@@ -518,7 +525,7 @@ async def update_production_order(
     order_id: int,
     request: ProductionOrderUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Update a production order."""
     order = production_order_service.update_production_order(
@@ -541,7 +548,7 @@ async def update_production_order(
 async def delete_production_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Delete a production order."""
     production_order_service.delete_production_order(db, order_id)
@@ -556,7 +563,7 @@ async def delete_production_order(
 @router.get("/scrap-reasons", response_model=ScrapReasonsResponse)
 async def get_scrap_reasons(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ScrapReasonsResponse:
     """Get list of active scrap reasons."""
     reasons = production_order_service.get_scrap_reasons(db)
@@ -581,7 +588,7 @@ async def get_scrap_reasons(
 @router.get("/scrap-reasons/all", response_model=List[ScrapReasonDetail])
 async def get_all_scrap_reasons(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get all scrap reasons including inactive."""
     reasons = production_order_service.get_scrap_reasons(db, include_inactive=True)
@@ -603,7 +610,7 @@ async def get_all_scrap_reasons(
 async def create_scrap_reason(
     request: ScrapReasonCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ) -> ScrapReasonDetail:
     """Create a new scrap reason."""
     reason = production_order_service.create_scrap_reason(
@@ -632,7 +639,7 @@ async def update_scrap_reason(
     reason_id: int,
     request: ScrapReasonUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ) -> ScrapReasonDetail:
     """Update a scrap reason."""
     reason = production_order_service.update_scrap_reason(
@@ -661,7 +668,7 @@ async def update_scrap_reason(
 async def delete_scrap_reason(
     reason_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """Delete a scrap reason."""
     production_order_service.delete_scrap_reason(db, reason_id)
@@ -697,7 +704,7 @@ OPERATION_STATUS_DESCRIPTIONS = {
 
 @router.get("/qc-statuses", response_model=QCStatusesResponse)
 async def get_qc_statuses(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> QCStatusesResponse:
     """Get valid QC status values."""
     return {
@@ -708,7 +715,7 @@ async def get_qc_statuses(
 
 @router.get("/operation-statuses", response_model=OperationStatusesResponse)
 async def get_operation_statuses(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> OperationStatusesResponse:
     """Get valid operation status values."""
     return {
@@ -728,7 +735,7 @@ async def release_production_order(
     order_id: int,
     force: bool = Query(False, description="Force release even with shortages"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Release a production order for manufacturing."""
     order = production_order_service.release_production_order(
@@ -745,7 +752,7 @@ async def release_production_order(
 async def start_production_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Start production on an order."""
     order = production_order_service.start_production_order(db, order_id)
@@ -761,7 +768,7 @@ async def complete_production_order(
     order_id: int,
     request: Optional[ProductionOrderCompleteRequest] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Complete a production order."""
     # Get order first to calculate defaults
@@ -798,7 +805,7 @@ async def accept_short(
     order_id: int,
     request: Optional[AcceptShortRequest] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Accept a production order short — complete it with the quantity already produced."""
     order = production_order_service.accept_short_production_order(
@@ -820,7 +827,7 @@ async def cancel_production_order(
     order_id: int,
     notes: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Cancel a production order."""
     order = production_order_service.cancel_production_order(
@@ -837,7 +844,7 @@ async def cancel_production_order(
 async def refresh_production_order_routing(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Re-snapshot the product's current active routing onto the production order.
 
@@ -859,7 +866,7 @@ async def hold_production_order(
     order_id: int,
     reason: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Put a production order on hold."""
     order = production_order_service.hold_production_order(db, order_id, reason=reason)
@@ -879,7 +886,7 @@ async def schedule_production_order(
     order_id: int,
     request: ProductionOrderScheduleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderResponse:
     """Schedule a production order."""
     order = production_order_service.schedule_production_order(
@@ -899,7 +906,7 @@ async def schedule_production_order(
 @router.get("/schedule/summary", response_model=ProductionScheduleSummary)
 async def get_schedule_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionScheduleSummary:
     """Get production schedule summary."""
     summary = production_order_service.get_schedule_summary(db)
@@ -925,7 +932,7 @@ async def get_schedule_summary(
 @router.get("/queue/by-work-center", response_model=List[WorkCenterQueue])
 async def get_work_center_queues(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> List[WorkCenterQueue]:
     """Get queue of operations by work center."""
     queues = production_order_service.get_work_center_queues(db)
@@ -985,7 +992,7 @@ async def reschedule_operation(
     op_id: int,
     request: RescheduleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> RescheduleResponse:
     """
     Reschedule a scheduled operation — move it to a new resource and/or time.
@@ -1290,7 +1297,7 @@ async def unschedule_operation(
     order_id: int,
     op_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> UnscheduleResponse:
     """
     Unschedule an operation — clear its times and resource, return to pending.
@@ -1365,7 +1372,7 @@ async def record_qc_inspection(
     order_id: int,
     request: QCInspectionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> QCInspectionResponse:
     """Record QC inspection results."""
     inspection = production_order_service.record_qc_inspection(
@@ -1408,7 +1415,7 @@ async def record_qc_inspection(
 async def get_qc_inspections(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> QCInspectionHistoryResponse:
     """Return the append-only QC inspection history for an order (#783).
 
@@ -1431,7 +1438,7 @@ async def split_production_order(
     order_id: int,
     request: ProductionOrderSplitRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderSplitResponse:
     """Split a production order into multiple orders.
 
@@ -1488,7 +1495,7 @@ async def record_scrap(
     order_id: int,
     request: OperationScrapRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderScrapResponse:
     """Record scrap for a production order."""
     result = production_order_service.record_scrap(
@@ -1526,7 +1533,7 @@ async def update_operation(
     operation_id: int,
     request: ProductionOrderOperationUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> ProductionOrderOperationResponse:
     """Update a production order operation."""
     op = production_order_service.update_operation(
@@ -1598,7 +1605,7 @@ async def update_operation(
 async def get_material_availability(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> MaterialAvailabilityResponse:
     """Get material availability analysis for a production order."""
     return production_order_service.get_material_availability(db, order_id)
@@ -1608,7 +1615,7 @@ async def get_material_availability(
 async def get_blocking_issues(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get blocking issues for a production order."""
     result = get_production_order_blocking_issues(db, order_id)
@@ -1621,7 +1628,7 @@ async def get_blocking_issues(
 async def get_required_orders(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> RequiredOrdersResponse:
     """Get MRP cascade of required orders."""
     return production_order_service.get_required_orders(db, order_id)
@@ -1631,7 +1638,7 @@ async def get_required_orders(
 async def get_cost_breakdown(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> CostBreakdownResponse:
     """Get cost breakdown for a production order."""
     return production_order_service.get_cost_breakdown(db, order_id)
@@ -1641,7 +1648,7 @@ async def get_cost_breakdown(
 async def estimate_cost(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> CostBreakdownResponse:
     """Re-estimate costs for a production order from its routing and BOM.
 
@@ -1675,7 +1682,7 @@ async def estimate_cost(
 async def check_compatibility(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> OrderCompatibilityResponse:
     """Check material-printer compatibility for all operations in a production order.
 
@@ -1735,7 +1742,7 @@ async def check_operation_compat(
     order_id: int,
     operation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> OperationCompatibilityResponse:
     """Check material-printer compatibility for a single operation."""
     from app.services.compatibility_service import check_operation_compatibility
@@ -1786,7 +1793,7 @@ async def check_operation_compat(
 async def get_order_spools(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> List[SpoolListItem]:
     """Get spools assigned to a production order."""
     return production_order_service.get_order_spools(db, order_id)
@@ -1797,7 +1804,7 @@ async def assign_spool_to_order(
     order_id: int,
     spool_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> SpoolAssignmentResponse:
     """Assign a spool to a production order."""
     result = production_order_service.assign_spool_to_order(
@@ -1818,7 +1825,7 @@ async def swap_material_variant_endpoint(
     material_id: int,
     request: SwapMaterialVariantRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> OperationMaterialResponse:
     """Workstream B0: swap a PO operation material's component to a variant.
 

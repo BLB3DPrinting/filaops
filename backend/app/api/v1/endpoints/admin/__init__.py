@@ -1,7 +1,12 @@
 """
-Admin endpoints - requires admin authentication
+Admin endpoints - requires staff authentication (admin or operator).
+
+Every /api/v1/admin/* route needs a staff account; admin-only sub-routers
+additionally depend on get_current_admin_user.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.api.v1.deps import get_current_staff_user
 from . import (
     bom, dashboard, fulfillment_queue, fulfillment_shipping, audit, accounting, traceability,
     customers, inventory_transactions, analytics, export, data_import, orders,
@@ -9,7 +14,11 @@ from . import (
     operation_types,
 )
 
-router = APIRouter()
+# SEC-406: gate the whole /admin tree to staff (admin or operator), fail-closed.
+# The aggregator used to apply no auth at all, so a sub-route that forgot its
+# own dependency was anonymous. Admin-only sub-routers keep their
+# get_current_admin_user on top of this gate.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 # User Management (Admin/Operator users)
 router.include_router(users.router)

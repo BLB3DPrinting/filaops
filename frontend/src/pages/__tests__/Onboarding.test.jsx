@@ -314,3 +314,51 @@ describe('Onboarding — printer step navigation', () => {
     )
   })
 })
+
+describe('Onboarding — account step errors', () => {
+  it("shows the server's reason instead of 'Setup failed'", async () => {
+    // The response a real 4.2.0 backend gave for an email on a reserved domain.
+    await renderWizard({
+      '/setup/initial-admin': {
+        ok: false,
+        status: 422,
+        json: async () => ({
+          error: 'VALIDATION_ERROR',
+          message: 'Request validation failed',
+          details: {
+            errors: [
+              {
+                field: 'email',
+                message:
+                  'value is not a valid email address: The part after the @-sign is a special-use or reserved name that cannot be used with email.',
+                type: 'value_error',
+              },
+            ],
+          },
+        }),
+      },
+    })
+    await fillAndSubmitAccount()
+
+    expect(
+      await screen.findByText(
+        'Email Address: The part after the @-sign is a special-use or reserved name that cannot be used with email.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Setup failed')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Create Admin Account' })).toBeInTheDocument()
+  })
+
+  it('explains an unreachable server in plain words', async () => {
+    await renderWizard({
+      '/setup/initial-admin': () => Promise.reject(new TypeError('Failed to fetch')),
+    })
+    await fillAndSubmitAccount()
+
+    expect(
+      await screen.findByText(
+        'Cannot reach the FilaOps server. Check that FilaOps is running, then try again.',
+      ),
+    ).toBeInTheDocument()
+  })
+})

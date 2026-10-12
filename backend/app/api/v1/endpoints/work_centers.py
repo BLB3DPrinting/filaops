@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.manufacturing import Resource
 from app.models.work_center import WorkCenter
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.manufacturing import (
     WorkCenterCreate,
@@ -28,7 +28,9 @@ from app.schemas.manufacturing import (
 )
 from app.services import work_center_service
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -40,7 +42,7 @@ logger = get_logger(__name__)
 async def list_work_centers(
     center_type: Optional[str] = None,
     active_only: bool = True,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -76,7 +78,7 @@ async def list_work_centers(
 @router.post("/", response_model=WorkCenterResponse, status_code=status.HTTP_201_CREATED)
 async def create_work_center(
     data: WorkCenterCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new work center."""
@@ -87,7 +89,7 @@ async def create_work_center(
 @router.get("/{wc_id}", response_model=WorkCenterResponse)
 async def get_work_center(
     wc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get a work center by ID."""
@@ -99,7 +101,7 @@ async def get_work_center(
 async def update_work_center(
     wc_id: int,
     data: WorkCenterUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a work center."""
@@ -112,7 +114,7 @@ async def update_work_center(
 @router.delete("/{wc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_work_center(
     wc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a work center (soft delete - marks as inactive)."""
@@ -127,7 +129,7 @@ async def delete_work_center(
 async def list_resources(
     wc_id: int,
     active_only: bool = True,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List all resources for a work center."""
@@ -139,7 +141,7 @@ async def list_resources(
 async def create_resource(
     wc_id: int,
     data: ResourceCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new resource (machine) in a work center."""
@@ -150,7 +152,7 @@ async def create_resource(
 @router.get("/resources/{resource_id}", response_model=ResourceResponse)
 async def get_resource(
     resource_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get a resource by ID."""
@@ -162,7 +164,7 @@ async def get_resource(
 async def update_resource(
     resource_id: int,
     data: ResourceUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a resource."""
@@ -175,7 +177,7 @@ async def update_resource(
 @router.delete("/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_resource(
     resource_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a resource."""
@@ -186,7 +188,7 @@ async def delete_resource(
 async def update_resource_status(
     resource_id: int,
     new_status: ResourceStatus,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Quick update of resource status."""
@@ -201,7 +203,7 @@ async def update_resource_status(
 async def list_work_center_printers(
     wc_id: int,
     active_only: bool = True,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -283,7 +285,7 @@ BAMBU_PRINTERS = {
 
 @router.post("/sync-bambu")
 async def sync_bambu_printers(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """

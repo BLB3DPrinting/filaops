@@ -75,7 +75,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Permissions policy
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         # HSTS in production
-        if getattr(settings, "ENVIRONMENT", "development") == "production":
+        if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
@@ -159,6 +159,15 @@ def log_startup_configuration():
     logger.info(f"Environment: {getattr(settings, 'ENVIRONMENT', 'development')}")
     logger.info(f"Debug Mode: {getattr(settings, 'DEBUG', False)}")
     logger.info(f"Tier: {getattr(settings, 'TIER', 'open')}")
+
+    # Email: an SMTP login alone is not enough (see Settings.email_configured).
+    if getattr(settings, "SMTP_USER", None) and not settings.email_configured:
+        logger.warning(
+            "SMTP_USER is set but email is off: SMTP_PASSWORD must be set too, "
+            "and ADMIN_APPROVAL_EMAIL must be a real address (not empty and "
+            "not a placeholder such as admin@example.com). Password reset "
+            "requests wait for an administrator until then."
+        )
     logger.info("=" * 60)
 
 
@@ -180,17 +189,23 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down FilaOps ERP API")
 
 
+def _api_docs_urls(app_settings) -> dict:
+    """Swagger UI, ReDoc and the OpenAPI schema, or None for each in production.
+
+    Disabled in production to prevent API schema exposure.
+    """
+    if app_settings.is_production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
 # Create FastAPI app
-# Disable Swagger/OpenAPI in production to prevent API schema exposure
-_is_production = getattr(settings, "ENVIRONMENT", "development") == "production"
 app = FastAPI(
     title="FilaOps ERP API",
     description="Open-source ERP for 3D print farms",
     version=settings.VERSION,
     lifespan=lifespan,
-    docs_url="/docs" if not _is_production else None,
-    redoc_url="/redoc" if not _is_production else None,
-    openapi_url="/openapi.json" if not _is_production else None,
+    **_api_docs_urls(settings),
 )
 
 # Optional rate limiting (no crash if slowapi isn't installed)

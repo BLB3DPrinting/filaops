@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models import User, MaterialSpool, ProductionOrderSpool, Product
 from app.models.production_order import ProductionOrder
 from app.models.inventory import InventoryTransaction, Inventory
@@ -25,7 +25,14 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/spools", tags=["spools"])
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes post inventory adjustments and link spools to other customers' orders.
+router = APIRouter(
+    prefix="/spools",
+    tags=["spools"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 @router.get("/")
@@ -37,7 +44,7 @@ async def list_spools(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     List all material spools with optional filters.
@@ -97,7 +104,7 @@ async def list_spools(
 async def get_spool(
     spool_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get details for a specific spool including usage history.
@@ -147,7 +154,7 @@ async def get_spool(
 async def create_spool(
     body: SpoolCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Create a new material spool.
@@ -196,7 +203,7 @@ async def update_spool(
     spool_id: int,
     body: SpoolUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Update spool information (weight, status, location, notes).
@@ -381,7 +388,7 @@ async def get_available_spools(
     product_id: int,
     min_weight_kg: Optional[float] = Query(None, description="Minimum weight required"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get available spools for a product, optionally filtered by minimum weight.
@@ -417,7 +424,7 @@ async def get_available_spools(
 async def get_spool_traceability_for_order(
     production_order_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get spool traceability information for a production order.
@@ -459,7 +466,7 @@ async def get_spool_traceability_for_order(
 async def get_spool_traceability(
     spool_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get full traceability for a spool: which production orders used it, which finished goods were produced.
@@ -520,7 +527,7 @@ async def consume_spool_for_production(
     production_order_id: int,
     weight_consumed_g: float = Query(gt=0, description="Weight consumed in grams"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> Dict[str, Any]:
     """
     Record material consumption from a spool for a production order.

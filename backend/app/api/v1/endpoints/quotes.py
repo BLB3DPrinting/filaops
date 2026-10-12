@@ -21,6 +21,7 @@ from app.models.quote import Quote, QuoteFile, QuoteMaterial
 from app.models.user import User
 from app.logging_config import get_logger
 from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
@@ -28,6 +29,12 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = get_logger(__name__)
 
+# SEC-404: this router mixes staff routes with the customer portal routes the
+# public Quoter and PRO call with customer tokens, so it has no router-level
+# gate. Every staff route depends on get_current_staff_user (admin or
+# operator). A plain login is not enough, because anyone can self-register a
+# customer account. The customer routes (portal create/accept/checkout,
+# archive, file list/download) keep get_current_user plus an ownership check.
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
 PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 
@@ -247,9 +254,11 @@ class PortalShippingSelection(BaseModel):
     shipping_rate_id: Optional[str] = Field(None, max_length=100)
     shipping_carrier: Optional[str] = Field(None, max_length=50)
     shipping_service: Optional[str] = Field(None, max_length=100)
-    shipping_cost: Optional[Decimal] = Field(None, ge=0)
+    # Money fields match the Numeric(10, 2) quote columns, so a value the
+    # database cannot hold is a 422 here rather than a 500 at flush time.
+    shipping_cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     print_mode: Optional[str] = Field(None, max_length=20)
-    adjusted_unit_price: Optional[Decimal] = Field(None, ge=0)
+    adjusted_unit_price: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     multi_color_info: Optional[dict[str, Any]] = None
     pricing_snapshot: Optional[dict[str, Any]] = None
     component_snapshot: Optional[dict[str, Any]] = None
@@ -349,14 +358,6 @@ def _is_staff_or_admin(current_user: User) -> bool:
         or getattr(current_user, "is_staff", False)
         or getattr(current_user, "account_type", None) in {"admin", "operator"}
     )
-
-
-def _require_staff_or_admin(current_user: User) -> None:
-    if not _is_staff_or_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or staff role required",
-        )
 
 
 def _customer_display_name(user: User) -> str:
@@ -509,12 +510,9 @@ def _apply_portal_shipping(quote: Quote, current_user: User, payload: PortalShip
     quote.shipping_carrier = payload.shipping_carrier
     quote.shipping_service = payload.shipping_service
     quote.shipping_cost = payload.shipping_cost
-    if payload.adjusted_unit_price is not None:
-        quote.unit_price = payload.adjusted_unit_price
-        quote.subtotal = payload.adjusted_unit_price * quote.quantity
-        quote.total_price = quote.subtotal + (quote.shipping_cost or Decimal("0"))
-    elif quote.shipping_cost is not None:
-        quote.total_price = (quote.subtotal or quote.total_price) + quote.shipping_cost
+    # The price and the total are never taken from the client: the caller has
+    # already refused a changed price, and quote_service
+    # .recompute_portal_quote_total derives the total from the stored subtotal.
 
     current_user.shipping_address_line1 = payload.shipping_address_line1
     current_user.shipping_address_line2 = payload.shipping_address_line2
@@ -558,33 +556,25 @@ def _fallback_shipping_snapshot(
 
 
 def _apply_portal_snapshots(quote: Quote, payload: PortalShippingSelection) -> None:
-    if payload.pricing_snapshot is not None:
-        quote.pricing_snapshot = payload.pricing_snapshot
-    if payload.component_snapshot is not None:
-        quote.component_snapshot = payload.component_snapshot
+    # SEC-412: pricing, component and artifact snapshots and slicer_diagnostics
+    # are written by PRO when it prices the quote (the Quoter never sends
+    # them). Accept ignores them, so a client cannot rewrite the record of what
+    # was priced or the slot data the colour check below relies on.
     if payload.packaging_snapshot is not None:
         quote.packaging_snapshot = payload.packaging_snapshot
     shipping_snapshot = payload.shipping_snapshot or _fallback_shipping_snapshot(quote, payload)
     if shipping_snapshot is not None:
         quote.shipping_snapshot = shipping_snapshot
-    if payload.artifact_snapshot is not None:
-        quote.artifact_snapshot = payload.artifact_snapshot
-    if payload.slicer_diagnostics is not None:
-        quote.slicer_diagnostics = payload.slicer_diagnostics
 
 
-def _apply_portal_print_selection(
-    db: Session,
-    quote: Quote,
-    payload: PortalShippingSelection,
-) -> None:
-    """Persist customer print-mode choices captured before checkout."""
+def _parse_portal_slots(quote: Quote, payload: PortalShippingSelection) -> list[dict[str, Any]]:
+    """Parse the customer's multi-colour choice; malformed slots are skipped."""
     if payload.print_mode != "multi" or not payload.multi_color_info:
-        return
+        return []
 
     slot_colors = payload.multi_color_info.get("slot_colors") or []
     if not isinstance(slot_colors, list) or not slot_colors:
-        return
+        return []
 
     def _coerce_int(value: Any) -> Optional[int]:
         try:
@@ -611,7 +601,9 @@ def _apply_portal_print_selection(
         except (TypeError, ValueError, InvalidOperation):
             continue
 
-        if slot_number is None or slot_number < 1 or slot_number > 16 or grams < 0:
+        if slot_number is None or slot_number < 1 or slot_number > 16:
+            continue
+        if not grams.is_finite() or grams < 0:
             continue
 
         color_code = str(slot.get("color_code") or "").strip()
@@ -628,7 +620,12 @@ def _apply_portal_print_selection(
             "material_grams": grams,
         })
 
-    if not parsed_slots:
+    return parsed_slots
+
+
+def _replace_portal_quote_materials(db: Session, quote: Quote, slots: list[dict[str, Any]]) -> None:
+    """Persist the customer's (already validated) colour slots."""
+    if not slots:
         return
 
     db.query(QuoteMaterial).filter(QuoteMaterial.quote_id == quote.id).delete(
@@ -636,11 +633,173 @@ def _apply_portal_print_selection(
     )
 
     quote.color = "MULTI_COLOR"
-    for slot in parsed_slots:
+    for slot in slots:
         db.add(QuoteMaterial(
             quote_id=quote.id,
             **slot,
         ))
+
+
+# ----------------------------------------------------------------------------
+# SEC-412: portal accept checks. Accept only saves the customer's ship-to,
+# shipping choice and colour slots on a quote the customer created through
+# POST /quotes/portal. It never re-prices a quote: every check below runs
+# before anything is written, and the total is recomputed server-side.
+# ----------------------------------------------------------------------------
+
+PORTAL_ACCEPTABLE_STATUSES = {"pending", "approved"}
+_CENT = Decimal("0.01")
+# Tolerance on the grams a customer may assign to a priced colour slot.
+_SLOT_GRAMS_FACTOR = Decimal("1.01")
+_SLOT_GRAMS_SLACK = Decimal("0.5")
+# quote_materials.material_grams is Numeric(10, 2).
+_MAX_SLOT_GRAMS = Decimal("99999999.99")
+_COLOUR_REVIEW_REASON = "Colour selection needs review"
+
+
+def _require_portal_quote_acceptable(quote: Quote, current_user: User) -> None:
+    # Only quotes this customer created through POST /quotes/portal. A
+    # shop-drafted quote (user_id = staff author, customer_id = buyer) is paid
+    # at its stored total through /checkout; accept must never re-price it (it
+    # used to drop tax_amount and replace the shop's shipping with the
+    # client's value).
+    if quote.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This quote was prepared by the shop and cannot be changed here",
+        )
+    if quote.sales_order_id is not None or quote.status not in PORTAL_ACCEPTABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote can no longer be accepted",
+        )
+    if quote.status == "approved" and quote.approval_method != "auto":
+        # Staff reviewed and approved it: price, tax and shipping are final.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote was approved by the shop; continue to checkout",
+        )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if quote.expires_at is not None and quote.expires_at.replace(tzinfo=None) <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote has expired",
+        )
+
+
+def _require_unchanged_price(quote: Quote, payload: PortalShippingSelection) -> None:
+    """The server never takes a price from the client."""
+    if payload.adjusted_unit_price is None:
+        return
+    try:
+        unchanged = (
+            payload.adjusted_unit_price.quantize(_CENT)
+            == Decimal(str(quote.unit_price or 0)).quantize(_CENT)
+        )
+    except InvalidOperation:
+        unchanged = False
+    if not unchanged:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quote price changed; refresh the quote",
+        )
+
+
+# Largest value a Numeric(10, 2) quote money column can hold.
+_MAX_QUOTE_MONEY = Decimal("99999999.99")
+
+
+def _require_total_fits(db: Session, quote: Quote, payload: PortalShippingSelection) -> None:
+    """The schema bounds shipping_cost to its column, but subtotal + tax +
+    shipping must also fit total_price, or the flush fails with a 500."""
+    _, total = quote_service.portal_quote_total(
+        db,
+        quote,
+        shipping_cost=payload.shipping_cost,
+        ship_to_state=payload.shipping_state,
+    )
+    if total > _MAX_QUOTE_MONEY:
+        raise HTTPException(
+            status_code=422,
+            detail="Shipping cost is too large",
+        )
+
+
+def _priced_slots(quote: Quote) -> Optional[dict[int, Decimal]]:
+    """1-based slot -> grams PRO priced, read from the STORED slicer_diagnostics."""
+    diag = quote.slicer_diagnostics if isinstance(quote.slicer_diagnostics, dict) else {}
+    slice_result = diag.get("slice") if isinstance(diag.get("slice"), dict) else {}
+    multi = slice_result.get("multi_material")
+    multi = multi if isinstance(multi, dict) else {}
+    weights = multi.get("filament_weights_grams")
+    if not multi.get("is_multi_material") or not isinstance(weights, list):
+        return None
+
+    priced: dict[int, Decimal] = {}
+    for index, raw in enumerate(weights):
+        try:
+            grams = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if grams.is_finite() and grams > 0:
+            priced[index + 1] = grams
+    return priced or None
+
+
+def _priced_for_single_colour(quote: Quote) -> bool:
+    snapshot = quote.pricing_snapshot if isinstance(quote.pricing_snapshot, dict) else {}
+    try:
+        return int(snapshot.get("active_material_slots") or 0) == 1
+    except (TypeError, ValueError):
+        return False
+
+
+def _validated_print_selection(quote: Quote, payload: PortalShippingSelection) -> list[dict[str, Any]]:
+    """Parse multi_color_info, then check it against what PRO priced.
+
+    Raises 409 before anything is written. The slots become the BOM, so a
+    customer must not be able to add colours or grams that were never priced.
+    """
+    slots = _parse_portal_slots(quote, payload)
+    if not slots:
+        return []
+
+    # Checked before the branch below, so the unpriced fallback refuses them
+    # too: a repeated slot, or grams the column cannot store.
+    numbers = [slot["slot_number"] for slot in slots]
+    if len(set(numbers)) != len(numbers) or any(
+        slot["material_grams"] > _MAX_SLOT_GRAMS for slot in slots
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Colour slots do not match the quoted print",
+        )
+
+    priced = _priced_slots(quote)
+    if priced is None:
+        if _priced_for_single_colour(quote):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Quote was priced for a single colour",
+            )
+        # Older PRO wrote no slot data: keep the choice, but staff check it
+        # before payment (PRO checkout refuses quotes that need review).
+        quote.requires_review_reason = quote.requires_review_reason or _COLOUR_REVIEW_REASON
+        return slots
+
+    if not set(numbers) <= priced.keys():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Colour slots do not match the quoted print",
+        )
+    for slot in slots:
+        limit = priced[slot["slot_number"]] * _SLOT_GRAMS_FACTOR + _SLOT_GRAMS_SLACK
+        if slot["material_grams"] > limit:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Colour slots do not match the quoted print",
+            )
+    return slots
 
 
 # ============================================================================
@@ -653,7 +812,7 @@ async def list_quotes(
     search: Optional[str] = Query(None, description="Search by quote number, product name, or customer"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List all quotes with optional filtering"""
@@ -662,7 +821,7 @@ async def list_quotes(
 
 @router.get("/stats", response_model=QuoteStatsResponse)
 async def get_quote_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get quote statistics for dashboard"""
@@ -767,11 +926,20 @@ async def accept_portal_quote(
     """Snapshot checkout selections and keep portal quotes approved until payment succeeds."""
     _require_public_quoter_enabled()
     quote = _portal_quote_or_404(db, quote_id, current_user)
-    _apply_portal_shipping(quote, current_user, payload)
-    _apply_portal_snapshots(quote, payload)
-    _apply_portal_print_selection(db, quote, payload)
+    # SEC-412: every refusal happens before anything is written.
+    _require_portal_quote_acceptable(quote, current_user)
+    _require_unchanged_price(quote, payload)
+    _require_total_fits(db, quote, payload)
+    slots = _validated_print_selection(quote, payload)
 
-    requires_review = bool(quote.requires_review_reason)
+    _apply_portal_shipping(quote, current_user, payload)
+    quote_service.recompute_portal_quote_total(db, quote)
+    _apply_portal_snapshots(quote, payload)
+    _replace_portal_quote_materials(db, quote, slots)
+
+    # Only an auto-approved quote with nothing to review goes (or stays)
+    # straight to checkout; anything else waits for staff.
+    requires_review = bool(quote.requires_review_reason) or quote.approval_method != "auto"
     if requires_review:
         quote.status = "pending"
         quote.approval_method = "manual"
@@ -830,8 +998,12 @@ async def get_quote_archive(
         .order_by(QuoteMaterial.slot_number)
         .all()
     )
+    detail = QuoteDetail.model_validate(quote)
+    if not _is_staff_or_admin(current_user):
+        # admin_notes are staff-only; the owning customer gets everything else.
+        detail = detail.model_copy(update={"admin_notes": None})
     return {
-        "quote": quote,
+        "quote": detail,
         "files": files,
         "materials": materials,
         "read_only": True,
@@ -843,11 +1015,10 @@ async def get_quote_archive(
 async def create_item_from_quote(
     quote_id: int,
     response: Response,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: create a Core item/product from an approved quote."""
-    _require_staff_or_admin(current_user)
     quote = quote_service.get_quote_detail(db, quote_id)
     if quote.product_id:
         product = db.get(Product, quote.product_id)
@@ -959,11 +1130,10 @@ async def list_quote_files(
 async def upload_quote_file(
     quote_id: int,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: attach a retained file to a manual or online quote."""
-    _require_staff_or_admin(current_user)
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -1002,11 +1172,10 @@ async def upload_quote_file(
 async def delete_quote_file(
     quote_id: int,
     file_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Staff action: remove a retained file from a quote."""
-    _require_staff_or_admin(current_user)
     quote = db.query(Quote).filter(Quote.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -1049,7 +1218,7 @@ async def delete_quote_file(
 @router.get("/{quote_id}", response_model=QuoteDetail)
 async def get_quote(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get quote details"""
@@ -1059,7 +1228,7 @@ async def get_quote(
 @router.post("/", response_model=QuoteDetail, status_code=status.HTTP_201_CREATED)
 async def create_quote(
     request: ManualQuoteCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new manual quote"""
@@ -1072,7 +1241,7 @@ async def create_quote(
 async def update_quote(
     quote_id: int,
     request: ManualQuoteUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update quote details"""
@@ -1085,7 +1254,7 @@ async def update_quote(
 async def update_quote_status(
     quote_id: int,
     request: QuoteStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update quote status (approve, reject, cancel, accept)"""
@@ -1097,7 +1266,7 @@ async def update_quote_status(
 @router.post("/{quote_id}/convert", status_code=status.HTTP_201_CREATED)
 async def convert_quote_to_order(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Convert an accepted/approved quote to a sales order"""
@@ -1109,7 +1278,7 @@ async def convert_quote_to_order(
 @router.delete("/{quote_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_quote(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a quote (only if not converted)"""
@@ -1125,7 +1294,7 @@ async def delete_quote(
 async def upload_quote_image(
     quote_id: int,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Upload an image for a quote (product photo/render)"""
@@ -1138,7 +1307,7 @@ async def upload_quote_image(
 @router.get("/{quote_id}/image")
 async def get_quote_image(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get the image for a quote"""
@@ -1155,7 +1324,7 @@ async def get_quote_image(
 @router.delete("/{quote_id}/image")
 async def delete_quote_image(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete the image for a quote"""
@@ -1171,7 +1340,7 @@ async def delete_quote_image(
 @router.get("/{quote_id}/pdf")
 async def generate_quote_pdf(
     quote_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Generate a PDF for a quote using ReportLab with company logo, image, and tax"""

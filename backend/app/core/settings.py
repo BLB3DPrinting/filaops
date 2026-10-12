@@ -8,13 +8,14 @@ FilaOps ERP - Configuration Management with pydantic-settings
 """
 import json
 import logging
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 from urllib.parse import unquote, urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,9 @@ _VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0
 # backend/app/core/settings.py -> backend/.env
 _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
-# Placeholder credential values rejected in production (audit finding F12).
+# Placeholder credential values rejected in production (audit finding F12);
+# outside production a placeholder SECRET_KEY is replaced with a temporary
+# random key (see validate_no_placeholder_credentials).
 # Covers docker-compose fallbacks (changeme, change-in-production), the
 # Settings field defaults below (postgres, change-this-...), the .env.example
 # sample text (your-secret-key-here, your-secure-password-here), and "" for
@@ -37,6 +40,26 @@ _SECRET_KEY_PLACEHOLDERS = frozenset({
     "change-in-production",
     "your-secret-key-here",
     "change-this-to-a-random-secret-key-in-production",
+    # Example values that earlier FilaOps compose files, .env examples and
+    # docs shipped, plus the old built-in fallback in app/core/security.py.
+    # They are just as public, so they are treated the same way.
+    "dev-only-change-in-production",
+    "change-this-in-production-use-openssl-rand-hex-32",
+    "change-me-generate-with-command-above",
+    "another-64-char-random-string-here",
+    "change-this-to-a-random-string",
+    "change-this-to-any-random-text-you-want",
+    "your-super-secret-key-change-this-in-production",
+    "your-secret-key-here-change-in-production",
+    "dev-secret-key-change-in-production",
+    "paste-your-generated-key-here",
+    "your_generated_secret_key_here",
+    "generate-a-random-string-here",
+    "<your-generated-key>",
+    "<paste output here>",
+    "<64-char-hex-string>",
+    "<output of openssl rand -hex 32>",
+    "<a different output of openssl rand -hex 32>",
 })
 _DB_PASSWORD_PLACEHOLDERS = frozenset({
     "",
@@ -45,6 +68,93 @@ _DB_PASSWORD_PLACEHOLDERS = frozenset({
     "postgres",
     "your-secure-password-here",
 })
+
+# Other SECRET_KEY values that are common in tutorials and sample configs.
+# They are as easy to guess as the placeholders, so outside production they
+# are replaced with a temporary random key in the same way. All of them are
+# shorter than _SECRET_KEY_MIN_LENGTH, and short keys are not refused in
+# production yet, so production logs an error for them instead of refusing
+# to start.
+_SECRET_KEY_COMMON_WEAK_VALUES = frozenset({
+    "secret",
+    "changeme",
+    "development-secret-key",
+    "test-secret-key",
+    "supersecretkey",
+    "mysecretkey",
+})
+
+# Every SECRET_KEY value that is public or easy to guess (compared after
+# strip().lower()). The security audit fails on all of them, so this is the
+# one list both the startup check and scripts/security_audit.py use.
+KNOWN_WEAK_SECRET_KEYS = _SECRET_KEY_PLACEHOLDERS | _SECRET_KEY_COMMON_WEAK_VALUES
+
+# A real SECRET_KEY shorter than this logs a warning at startup. It is not
+# refused yet, so an upgraded install with an existing short key keeps
+# starting.
+_SECRET_KEY_MIN_LENGTH = 32
+
+
+def is_production_environment(environment: Optional[str]) -> bool:
+    """The one rule for whether an ENVIRONMENT value means production.
+
+    The value is trimmed and compared in any case, so "Production" and
+    " production " count. Use ``Settings.is_production`` for the running
+    settings; this function is for code that reads ENVIRONMENT from the
+    process environment itself.
+    """
+    return (environment or "").strip().lower() == "production"
+
+
+# Mail domains that cannot be a shop's own mailbox: the example domains and
+# the reserved top-level names (RFC 2606), and localhost. ADMIN_APPROVAL_EMAIL
+# defaults to admin@example.com, and password reset approve/deny links go to
+# that address, so a placeholder there must not count as configured email.
+_PLACEHOLDER_EMAIL_DOMAINS = frozenset({"example.com", "example.org", "example.net"})
+_PLACEHOLDER_EMAIL_TLDS = frozenset({"example", "test", "invalid", "localhost", "localdomain"})
+
+
+def is_placeholder_email(address: Optional[str]) -> bool:
+    """True if ``address`` is empty, malformed or a placeholder address.
+
+    Placeholders are addresses at example.com/.org/.net (or a subdomain), at
+    a reserved top-level name (.example, .test, .invalid, .localhost), or at
+    localhost.
+    """
+    value = (address or "").strip().lower()
+    # Exactly one "@" and no spaces: "admin@@shop.com" would otherwise split
+    # into a non-empty local part and a real-looking domain.
+    if value.count("@") != 1 or any(ch.isspace() for ch in value):
+        return True
+    local, at, domain = value.rpartition("@")
+    domain = domain.rstrip(".")
+    if not at or not local or not domain:
+        return True
+    if any(domain == d or domain.endswith("." + d) for d in _PLACEHOLDER_EMAIL_DOMAINS):
+        return True
+    return domain.rsplit(".", 1)[-1] in _PLACEHOLDER_EMAIL_TLDS
+
+
+def email_is_configured(
+    smtp_user: Optional[str],
+    smtp_password: Optional[str],
+    admin_approval_email: Optional[str],
+) -> bool:
+    """The one rule for whether FilaOps sends email.
+
+    Email counts as configured only when the SMTP login (SMTP_USER and
+    SMTP_PASSWORD) is set and ADMIN_APPROVAL_EMAIL is a real address. The
+    approval email carries the approve/deny links for password resets, so
+    sending it to a placeholder such as admin@example.com would hand them to
+    whoever controls that domain. Without email, reset requests wait for an
+    administrator.
+
+    Use ``Settings.email_configured`` for the running settings.
+    """
+    return (
+        bool((smtp_user or "").strip() and (smtp_password or "").strip())
+        and not is_placeholder_email(admin_approval_email)
+    )
 
 
 class Settings(BaseSettings):
@@ -103,7 +213,10 @@ class Settings(BaseSettings):
     # ===================
     SECRET_KEY: str = Field(
         default="change-this-to-a-random-secret-key-in-production",
-        description="JWT signing key - MUST change in production",
+        description=(
+            "JWT signing key - required. Production refuses to start with a "
+            "placeholder; other environments swap in a temporary random key"
+        ),
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=30, description="JWT token expiration in minutes"
@@ -121,6 +234,17 @@ class Settings(BaseSettings):
     # (model_validator at the bottom of the class). Both SECRET_KEY and
     # DB_PASSWORD share one post-init check so production startup fails
     # for either placeholder rather than only the first one Pydantic sees.
+
+    # Set by `validate_no_placeholder_credentials` when it replaced a
+    # placeholder SECRET_KEY with a random key for this process only.
+    _secret_key_is_temporary: bool = PrivateAttr(default=False)
+
+    @property
+    def secret_key_is_temporary(self) -> bool:
+        """True when no real SECRET_KEY was configured and this process signs
+        tokens with a random key that is lost on restart. The security audit
+        reports this as a failure."""
+        return self._secret_key_is_temporary
 
     # ===================
     # CORS Settings
@@ -179,16 +303,29 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_no_placeholder_credentials(self):
-        """Reject placeholder SECRET_KEY/DB_PASSWORD in production; warn in dev.
+        """Keep placeholder SECRET_KEY/DB_PASSWORD values out of a running app.
 
         Audit finding F12 (Portainer compatibility review): docker-compose has
         :-defaults of `changeme` / `change-in-production`, so a fresh
         `git clone && docker compose up -d` previously produced a "running"
         stack with insecure credentials. This validator turns that footgun
-        into a fail-fast at config load.
+        into a fail-fast at config load in production.
+
+        Outside production a placeholder SECRET_KEY is never used either:
+        the placeholders are public, so anyone could sign an access token for
+        any user id with them. The same goes for the other well-known weak
+        keys in KNOWN_WEAK_SECRET_KEYS (the ones the security audit fails
+        on). The key is replaced with a random one for this process (logins
+        do not survive a restart), an error is logged and
+        `secret_key_is_temporary` is set so the security audit fails until a
+        real key is configured. A placeholder DB_PASSWORD only warns there.
         """
+        is_production = self.is_production
         offenders = []
-        if self.SECRET_KEY.strip().lower() in _SECRET_KEY_PLACEHOLDERS:
+        normalized_secret_key = self.SECRET_KEY.strip().lower()
+        secret_key_is_placeholder = normalized_secret_key in _SECRET_KEY_PLACEHOLDERS
+        secret_key_is_known_weak = normalized_secret_key in KNOWN_WEAK_SECRET_KEYS
+        if secret_key_is_placeholder:
             offenders.append("SECRET_KEY")
 
         # The effective DB password is whatever `database_url` will hand to
@@ -214,22 +351,54 @@ class Settings(BaseSettings):
         ):
             offenders.append("DB_PASSWORD")
 
-        if not offenders:
-            return self
-
-        names = ", ".join(offenders)
         hint = "Generate a real value with: openssl rand -hex 32"
-        if self.ENVIRONMENT.strip().lower() == "production":
+        if offenders and is_production:
             raise RuntimeError(
                 f"Refusing to start in production: placeholder credential(s) "
-                f"detected for {names}. {hint}"
+                f"detected for {', '.join(offenders)}. {hint}"
             )
-        logger.warning(
-            "Insecure placeholder credential(s) detected for %s. "
-            "This is allowed in development but will block production startup. %s",
-            names,
-            hint,
-        )
+
+        if secret_key_is_known_weak and not is_production:
+            # app.core.security copies settings.SECRET_KEY at import time,
+            # after this validator has run, so tokens are only ever signed
+            # with the replacement.
+            self.SECRET_KEY = secrets.token_hex(32)
+            self._secret_key_is_temporary = True
+            logger.error(
+                "SECRET_KEY is not set (it is empty, a known placeholder or a "
+                "well-known weak value); using a temporary random key for this "
+                "process. Logins will not survive a restart, and production "
+                "startup refuses a placeholder key. Set SECRET_KEY in .env. %s",
+                hint,
+            )
+        elif secret_key_is_known_weak:
+            # Production with one of the common weak keys (never a
+            # placeholder: those raised above). Short keys are not refused in
+            # production yet, so an upgraded install keeps starting.
+            logger.error(
+                "SECRET_KEY is a well-known weak value that anyone can guess, "
+                "so anyone could sign a login token for any account. A future "
+                "release will refuse it in production. Set a random "
+                "SECRET_KEY in .env. %s",
+                hint,
+            )
+        elif len(self.SECRET_KEY.strip()) < _SECRET_KEY_MIN_LENGTH:
+            # The length is written into the text rather than passed as an
+            # argument: CodeQL treats any value named like SECRET_KEY as a
+            # secret, even this constant. Keep 32 in step with the constant.
+            logger.warning(
+                "SECRET_KEY is shorter than 32 characters. A short key is "
+                "easier to guess, and a future release will refuse it in "
+                "production. %s",
+                hint,
+            )
+
+        if "DB_PASSWORD" in offenders:
+            logger.warning(
+                "Insecure placeholder credential(s) detected for DB_PASSWORD. "
+                "This is allowed in development but will block production startup. %s",
+                hint,
+            )
         return self
 
     # ===================
@@ -336,6 +505,8 @@ class Settings(BaseSettings):
     # ===================
     # Admin & Business
     # ===================
+    # Password reset approve/deny links are emailed here. Email stays off
+    # (see email_configured) until this is a real address.
     ADMIN_APPROVAL_EMAIL: str = "admin@example.com"
     BUSINESS_EMAIL: str = "info@yourcompany.com"
     BUSINESS_NAME: str = "Your Company Name"
@@ -583,12 +754,22 @@ class Settings(BaseSettings):
         }
 
     @property
+    def email_configured(self) -> bool:
+        """True when FilaOps can send email; see email_is_configured()."""
+        return email_is_configured(
+            self.SMTP_USER, self.SMTP_PASSWORD, self.ADMIN_APPROVAL_EMAIL
+        )
+
+    @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT.lower() == "production"
+        """True in production. Every production check goes through this
+        (or is_production_environment()): Swagger off, HSTS on, placeholder
+        credentials refused."""
+        return is_production_environment(self.ENVIRONMENT)
 
     @property
     def is_development(self) -> bool:
-        return self.ENVIRONMENT.lower() == "development"
+        return (self.ENVIRONMENT or "").strip().lower() == "development"
 
     @property
     def is_pro_tier(self) -> bool:

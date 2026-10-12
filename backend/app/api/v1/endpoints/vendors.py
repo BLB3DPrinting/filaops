@@ -8,8 +8,7 @@ from typing import Annotated, Optional
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
-from app.api.v1.deps import get_pagination_params
+from app.api.v1.deps import get_current_staff_user, get_pagination_params
 from app.models.user import User
 from app.schemas.purchasing import (
     VendorCreate,
@@ -20,7 +19,10 @@ from app.schemas.purchasing import (
 from app.schemas.common import PaginationParams, ListResponse, PaginationMeta
 from app.services import vendor_service
 
-router = APIRouter()
+# SEC-407: every vendor route is staff-only (admin or operator). Supplier
+# master data (contacts, account numbers, tax ids, remittance details) must
+# not be readable or editable by a self-registered customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 # ============================================================================
@@ -32,7 +34,7 @@ async def list_vendors(
     pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
     search: Optional[str] = None,
     active_only: bool = True,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -82,7 +84,7 @@ async def list_vendors(
 @router.get("/{vendor_id}", response_model=VendorResponse)
 async def get_vendor(
     vendor_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get vendor details by ID"""
@@ -92,7 +94,7 @@ async def get_vendor(
 @router.post("/", response_model=VendorResponse, status_code=201)
 async def create_vendor(
     request: VendorCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new vendor"""
@@ -103,7 +105,7 @@ async def create_vendor(
 async def update_vendor(
     vendor_id: int,
     request: VendorUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a vendor"""
@@ -115,7 +117,7 @@ async def update_vendor(
 @router.get("/{vendor_id}/metrics")
 async def get_vendor_metrics(
     vendor_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -134,7 +136,7 @@ async def get_vendor_metrics(
 @router.delete("/{vendor_id}")
 async def delete_vendor(
     vendor_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """

@@ -54,17 +54,16 @@ class CheckResult:
     remediation: Optional[str] = None
 
 
-# Known weak/default secret keys that should never be used
-KNOWN_WEAK_SECRETS = [
-    "change-this-to-a-random-secret-key-in-production",
-    "your-secret-key-here",
-    "secret",
-    "changeme",
-    "development-secret-key",
-    "test-secret-key",
-    "supersecretkey",
-    "mysecretkey",
-]
+# The known weak/default SECRET_KEY values live in
+# app.core.settings.KNOWN_WEAK_SECRET_KEYS, so the startup check (which
+# replaces them outside production) and this audit use the same list. It is
+# imported inside the check: importing app.core.settings builds the settings,
+# which can fail, and the audit reports that instead of crashing.
+
+_TEMPORARY_SECRET_KEY_REMEDIATION = (
+    "Set SECRET_KEY in .env to the output of: openssl rand -hex 32, "
+    "then restart the backend"
+)
 
 
 class SecurityAuditor:
@@ -90,6 +89,11 @@ class SecurityAuditor:
         except Exception:
             # Settings couldn't be loaded - we'll check for .env directly
             self._settings = None
+
+    def _secret_key_is_temporary(self) -> bool:
+        """True when Settings replaced a missing or well-known SECRET_KEY with
+        a random key for this process (see app.core.settings)."""
+        return getattr(self._settings, "secret_key_is_temporary", False) is True
 
     def run_all_checks(self) -> List[CheckResult]:
         """Run all security checks and return results"""
@@ -220,10 +224,31 @@ class SecurityAuditor:
             ))
             return
 
+        # No real key configured: outside production, Settings replaced the
+        # placeholder with a random key for this process. That key is strong,
+        # but every restart logs everyone out and the setup is still wrong.
+        if self._secret_key_is_temporary():
+            self.results.append(CheckResult(
+                id=check_id, name=name, category=category,
+                status=CheckStatus.FAIL,
+                message="Temporary SECRET_KEY in use: no SECRET_KEY is configured",
+                details=(
+                    "SECRET_KEY is empty, a known placeholder or a well-known weak "
+                    "value, so this process signs logins with a random key that "
+                    "changes on every restart. Production refuses to start with a "
+                    "placeholder key."
+                ),
+                remediation=_TEMPORARY_SECRET_KEY_REMEDIATION,
+            ))
+            return
+
+        from app.core.settings import KNOWN_WEAK_SECRET_KEYS
+
         secret = self._settings.SECRET_KEY
 
-        # Check against known weak secrets
-        if secret.lower() in [s.lower() for s in KNOWN_WEAK_SECRETS]:
+        # Check against known weak secrets (the same list the startup check
+        # uses, compared the same way)
+        if secret.strip().lower() in KNOWN_WEAK_SECRET_KEYS:
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.FAIL,
@@ -262,6 +287,22 @@ class SecurityAuditor:
                 status=CheckStatus.FAIL,
                 message="Could not load settings to check SECRET_KEY",
                 remediation="Ensure .env file exists and is readable"
+            ))
+            return
+
+        # The temporary key Settings generated is long and random, but it is
+        # not a configured key: passing it here would contradict the FAIL
+        # from _check_secret_key_not_default for the same missing key.
+        if self._secret_key_is_temporary():
+            self.results.append(CheckResult(
+                id=check_id, name=name, category=category,
+                status=CheckStatus.FAIL,
+                message="No SECRET_KEY configured (a temporary key is in use)",
+                details=(
+                    "The temporary key changes on every restart, so there is no "
+                    "configured key to measure."
+                ),
+                remediation=_TEMPORARY_SECRET_KEY_REMEDIATION,
             ))
             return
 
@@ -314,9 +355,11 @@ class SecurityAuditor:
             ))
             return
 
-        env = self._settings.ENVIRONMENT.lower()
+        from app.core.settings import is_production_environment
 
-        if env == "production":
+        env = (self._settings.ENVIRONMENT or "").strip().lower()
+
+        if is_production_environment(env):
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.PASS,
@@ -354,7 +397,7 @@ class SecurityAuditor:
 
         if self._settings.DEBUG:
             # Check if we're in development
-            if self._settings.ENVIRONMENT.lower() == "development":
+            if (self._settings.ENVIRONMENT or "").strip().lower() == "development":
                 self.results.append(CheckResult(
                     id=check_id, name=name, category=category,
                     status=CheckStatus.INFO,
@@ -399,7 +442,7 @@ class SecurityAuditor:
                         break
 
         # Check for localhost (development)
-        if self._settings and self._settings.ENVIRONMENT.lower() == "development":
+        if self._settings and (self._settings.ENVIRONMENT or "").strip().lower() == "development":
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.INFO,
@@ -535,7 +578,7 @@ class SecurityAuditor:
         category = CheckCategory.CRITICAL
 
         # In development, this is less critical
-        if self._settings and self._settings.ENVIRONMENT.lower() == "development":
+        if self._settings and (self._settings.ENVIRONMENT or "").strip().lower() == "development":
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.INFO,
@@ -648,7 +691,7 @@ class SecurityAuditor:
                 remediation="Set specific origins in ALLOWED_ORIGINS"
             ))
         elif has_localhost:
-            if self._settings.ENVIRONMENT.lower() == "development":
+            if (self._settings.ENVIRONMENT or "").strip().lower() == "development":
                 self.results.append(CheckResult(
                     id=check_id, name=name, category=category,
                     status=CheckStatus.PASS,

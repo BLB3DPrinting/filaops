@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
-from app.api.v1.deps import get_pagination_params
+from app.api.v1.deps import get_current_staff_user, get_pagination_params
 from app.schemas.purchasing import (
     PurchaseOrderCreate,
     PurchaseOrderUpdate,
@@ -33,7 +32,11 @@ from app.schemas.purchasing_event import (
 )
 from app.services import purchase_order_service
 
-router = APIRouter()
+# SEC-407: every purchase-order route is staff-only (admin or operator). A
+# plain login is not enough, because anyone can self-register a customer
+# account, and these routes create and receive POs (inventory and GL
+# entries), replace PO documents and expose supplier costs and spend.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -140,7 +143,7 @@ async def list_purchase_orders(
     status: Optional[str] = Query(None, description="Filter by status (draft, ordered, shipped, received, closed, cancelled)"),
     vendor_id: Optional[int] = Query(None, description="Filter by vendor ID"),
     search: Optional[str] = Query(None, description="Search by PO number"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List purchase orders with pagination"""
@@ -167,7 +170,7 @@ async def list_purchase_orders(
 @router.get("/{po_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order(
     po_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get purchase order details by ID"""
@@ -178,7 +181,7 @@ async def get_purchase_order(
 @router.post("/", response_model=PurchaseOrderResponse, status_code=201)
 async def create_purchase_order(
     request: PurchaseOrderCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Create a new purchase order"""
@@ -223,7 +226,7 @@ async def create_purchase_order(
 async def update_purchase_order(
     po_id: int,
     request: PurchaseOrderUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a purchase order"""
@@ -238,7 +241,7 @@ async def update_purchase_order(
 async def add_po_line(
     po_id: int,
     request: POLineCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add a line to a purchase order"""
@@ -260,7 +263,7 @@ async def update_po_line(
     po_id: int,
     line_id: int,
     request: POLineUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update a line on a purchase order"""
@@ -279,7 +282,7 @@ async def update_po_line(
 async def delete_po_line(
     po_id: int,
     line_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Remove a line from a purchase order"""
@@ -294,7 +297,7 @@ async def delete_po_line(
 async def update_po_status(
     po_id: int,
     request: POStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Update PO status with transition validation"""
@@ -319,7 +322,7 @@ async def update_po_status(
 async def receive_purchase_order(
     po_id: int,
     request: ReceivePORequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Receive items from a purchase order"""
@@ -375,7 +378,7 @@ async def receive_purchase_order(
 async def upload_po_document(
     po_id: int,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Upload a document for a purchase order (invoice, receipt, etc.)"""
@@ -397,7 +400,7 @@ async def upload_po_document(
 @router.delete("/{po_id}")
 async def delete_purchase_order(
     po_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Delete a purchase order (draft only)"""
@@ -413,7 +416,7 @@ async def list_po_events(
     po_id: int,
     limit: int = Query(default=50, ge=1, le=200, description="Max events to return"),
     offset: int = Query(default=0, ge=0, description="Offset for pagination"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """List activity events for a purchase order"""
@@ -431,7 +434,7 @@ async def list_po_events(
 async def add_po_event(
     po_id: int,
     request: PurchasingEventCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Add a manual event to a purchase order (typically a note)"""
@@ -459,7 +462,7 @@ async def add_po_event(
 @router.get("/{po_id}/pdf")
 async def download_po_pdf(
     po_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Generate and download a PDF for a purchase order."""

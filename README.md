@@ -15,12 +15,21 @@ Open-source ERP for 3D print farms. Manage inventory, production, sales, purchas
 git clone https://github.com/BLB3DPrinting/filaops.git
 cd filaops
 cp backend/.env.example .env
-# Generate secrets (required — production startup refuses to boot without these):
+# Generate secrets (do not skip these):
 echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
 echo "DB_PASSWORD=$(openssl rand -hex 24)" >> .env
 docker compose up -d
 # Open http://localhost — create your admin account on first visit
 ```
+
+**Always set `SECRET_KEY`.** It signs every login, so it must be a long random
+value that only your server knows. Generate one with `openssl rand -hex 32`, or
+with `python -c "import secrets; print(secrets.token_hex(32))"` where OpenSSL is
+not installed. `docker compose up` still starts without it, but FilaOps will not
+sign logins with an empty or placeholder key: production refuses to start, and
+any other environment uses a temporary key that changes on every restart, which
+signs everyone out each time. Upgrading from an earlier release? Read the
+[4.2.0 upgrade guide](docs/UPGRADE-4.2.0.md).
 
 ## Quick Start (Manual)
 
@@ -32,12 +41,14 @@ python -m venv venv
 # Windows: .\venv\Scripts\Activate
 # Linux/Mac: source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # Edit with your database credentials
+cp .env.example .env  # Set your database credentials and SECRET_KEY
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
 ### Frontend
+
+Requires Node.js 24 or newer.
 
 ```bash
 cd frontend
@@ -65,13 +76,13 @@ DB_PASSWORD=your_password
 
 ## Features
 
-48 core features across 8 modules:
+Core features by module:
 
 ### Sales & Customers
 
 - Multi-line item quotes with per-line and customer discounts
 - Sales orders with fulfillment tracking and price level auto-apply
-- Invoice engine with PDF templates and payment recording
+- Invoice engine with PDF templates, payment recording and invoice void
 - Customer management with payment terms (COD, net-15, net-30) and credit limits
 - Customer traceability profiles
 - Suggest Prices tool for margin-based bulk pricing
@@ -92,8 +103,15 @@ DB_PASSWORD=your_password
 - Duplicate item with inline BOM component swap (color variants)
 - Variant matrix — bulk create color/material variants from template products
 - Copy BOM to another product
-- Routings and work centers with operation materials
+- Routings and work centers with typed operations and operation materials
 - Machine overhead and scrap tracking
+
+### Quality
+
+- QC inspections with measurements, photos, defect reasons and waivers
+- Quality plans per product, with measured and pass/fail characteristics
+- Selectable QC rigor (off, basic, full) and an inspection gate (off, warn, block)
+- First-pass yield from each order's first inspection
 
 ### Purchasing
 
@@ -125,9 +143,9 @@ DB_PASSWORD=your_password
 ### System
 
 - First-run setup wizard with admin account creation
-- Multi-user with role-based access
-- Password reset flow (SMTP or auto-approve)
-- REST API (432 endpoints)
+- Role-based access (one staff seat without a licence)
+- Admin-approved password reset (via SMTP email; admins can also reset staff passwords from Team Members)
+- REST API (over 500 operations)
 - Shipping and order event tracking
 
 ## Tech Stack
@@ -135,7 +153,7 @@ DB_PASSWORD=your_password
 | Layer | Technology |
 | --- | --- |
 | Backend | FastAPI, Python 3.11+, SQLAlchemy 2.0, Alembic |
-| Frontend | React 19, Vite, Tailwind CSS |
+| Frontend | React 19, Vite, Tailwind CSS (built with Node.js 24+) |
 | Database | PostgreSQL 16+ |
 | Auth | httpOnly cookie-based JWT |
 | Deployment | Docker Compose (nginx + uvicorn) |
@@ -147,10 +165,10 @@ backend/
   app/
     api/v1/endpoints/   # FastAPI route handlers
     models/             # SQLAlchemy models
-    services/           # 56 focused service modules
+    services/           # Business logic, one module per area
     core/               # Config, security, UOM
   alembic/              # Database migrations
-  tests/                # 95 test files, 80%+ coverage
+  tests/                # pytest suite
 frontend/
   src/
     components/         # Shared UI components + Storybook
@@ -161,7 +179,7 @@ frontend/
 ## Testing
 
 ```bash
-# Backend (95 test files, 80%+ coverage)
+# Backend
 cd backend && pytest tests/ -v
 
 # Frontend component tests

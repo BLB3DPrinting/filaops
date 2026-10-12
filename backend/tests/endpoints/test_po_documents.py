@@ -1,7 +1,8 @@
 """SEC-402: every PO document route requires a staff account.
 
-A plain login is not enough: anyone can self-register a customer account
-through POST /api/v1/auth/register. The checks run against a real PO and
+A plain login is not enough: customer accounts exist, and anyone can
+self-register one through POST /api/v1/auth/register when the public Quoter
+(ENABLE_PUBLIC_QUOTER) is on. The checks run against a real PO and
 document, so they prove each route refuses before it looks anything up,
 not just that a missing record 404s.
 """
@@ -89,9 +90,13 @@ def test_customer_account_gets_403_on_every_document_route(
 
 
 def test_self_registered_account_cannot_read_documents(
-    unauthed_client, db, make_vendor, make_purchase_order, tmp_path
+    unauthed_client, db, make_vendor, make_purchase_order, tmp_path, monkeypatch
 ):
     """The public register flow's token is refused, end to end."""
+    from app.core.config import settings
+
+    # Self-registration is only open when the public Quoter is on.
+    monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
     po = make_purchase_order(vendor_id=make_vendor().id)
     doc = _make_document(db, po.id, tmp_path)
 

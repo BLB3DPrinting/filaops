@@ -9,7 +9,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.services import quality_service as svc
 from app.services.quality_policy import get_quality_policy
@@ -21,19 +21,22 @@ from app.schemas.quality import (
     ScrapSummaryItem,
 )
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes expose the QC queue, yield and scrap costs.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 @router.get("/policy", response_model=QualityPolicyResponse)
 def get_policy(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Return the company's QC rigor configuration (the selectable "dial").
 
     The UI reads this to decide whether to show QC surfaces at all and, when on,
     whether to run the simple (basic) or plan-driven (full) experience. Readable
-    by any authenticated user; changing it is an admin action via
+    by any staff user (admin or operator); changing it is an admin action via
     PUT /system/settings/quality_mode.
     """
     policy = get_quality_policy(db)
@@ -52,7 +55,7 @@ def get_inspection_queue(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get production orders awaiting QC inspection.
@@ -67,7 +70,7 @@ def get_inspection_queue(
 def get_quality_metrics(
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get aggregate quality metrics for the given period.
@@ -82,7 +85,7 @@ def get_quality_metrics(
 def get_recent_inspections(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get recently completed QC inspections, newest first.
@@ -94,7 +97,7 @@ def get_recent_inspections(
 def get_scrap_summary(
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Get scrap breakdown grouped by reason for the given period.

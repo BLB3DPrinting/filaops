@@ -59,6 +59,32 @@ class TestSystemInfoWithPlugin:
         assert set(data["features_enabled"]) == {"advanced_tax", "cortex"}
 
 
+class TestSystemInfoSmtpConfigured:
+    """smtp_configured drives the Settings page banner. It follows the same
+    rule as the password reset flow: SMTP login set and a real
+    ADMIN_APPROVAL_EMAIL."""
+
+    @staticmethod
+    def _smtp(monkeypatch, *, user, password, address):
+        from app.core.settings import settings
+        monkeypatch.setattr(settings, "SMTP_USER", user)
+        monkeypatch.setattr(settings, "SMTP_PASSWORD", password)
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", address)
+
+    def test_true_with_login_and_real_address(self, client, monkeypatch):
+        self._smtp(monkeypatch, user="mailer@filaops.dev", password="pw", address="owner@filaops.dev")
+        assert client.get(f"{BASE_URL}/info").json()["smtp_configured"] is True
+
+    @pytest.mark.parametrize("address", ["admin@example.com", "", "admin@localhost"])
+    def test_false_with_placeholder_address(self, client, monkeypatch, address):
+        self._smtp(monkeypatch, user="mailer@filaops.dev", password="pw", address=address)
+        assert client.get(f"{BASE_URL}/info").json()["smtp_configured"] is False
+
+    def test_false_without_login(self, client, monkeypatch):
+        self._smtp(monkeypatch, user=None, password=None, address="owner@filaops.dev")
+        assert client.get(f"{BASE_URL}/info").json()["smtp_configured"] is False
+
+
 # ── /system/version ──────────────────────────────────────────────
 
 class TestSystemVersion:

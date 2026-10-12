@@ -2,18 +2,22 @@
 Tests for Settings API endpoints (app/api/v1/endpoints/settings.py)
 
 Covers:
-- GET /api/v1/settings/company (get company settings, requires auth)
+- GET /api/v1/settings/company (get company settings, requires staff)
 - PATCH /api/v1/settings/company (update company settings, requires admin)
-- POST /api/v1/settings/company/logo (upload logo, validates type/size)
+- POST /api/v1/settings/company/logo (upload logo, requires admin, validates type/size)
 - GET /api/v1/settings/company/logo (get logo image, no auth required)
 - DELETE /api/v1/settings/company/logo (delete logo, requires admin)
-- GET /api/v1/settings/ai (get AI settings, requires auth)
-- PATCH /api/v1/settings/ai (update AI settings, blocked provider logic)
-- POST /api/v1/settings/ai/test (test AI connection)
-- GET /api/v1/settings/ai/anthropic-status (check anthropic package)
-- POST /api/v1/settings/ai/install-anthropic (install anthropic package)
-- POST /api/v1/settings/ai/start-ollama (start ollama service)
+- GET /api/v1/settings/ai (get AI settings, requires staff)
+- PATCH /api/v1/settings/ai (update AI settings, requires admin, blocked provider logic)
+- POST /api/v1/settings/ai/test (test AI connection, requires admin)
+- GET /api/v1/settings/ai/anthropic-status (check anthropic package, requires staff)
+- POST /api/v1/settings/ai/install-anthropic (install anthropic package, requires admin)
+- POST /api/v1/settings/ai/start-ollama (start ollama service, requires admin)
 - Auth: 401 tests for all protected endpoints
+- Roles: customers get 403 on staff reads; operators read but cannot change settings
+
+Ollama URL validation and the other AI access checks live in
+tests/endpoints/test_settings_ai_ollama_url.py.
 """
 import io
 import uuid
@@ -83,6 +87,64 @@ class TestSettingsAuth:
     def test_start_ollama_requires_auth(self, unauthed_client):
         response = unauthed_client.post(f"{BASE_URL}/ai/start-ollama")
         assert response.status_code == 401
+
+
+class TestSettingsRoleAccess:
+    """Staff read the settings, only admins change them, customers get neither.
+
+    Anyone can self-register a customer account, so a plain login must not be
+    enough to read internal business settings (margins, tax registration,
+    dispatch). The logo stays public for PDFs and the PRO B2B portal.
+    """
+
+    def test_customer_cannot_read_company_settings(self, unauthed_client, role_headers):
+        response = unauthed_client.get(
+            f"{BASE_URL}/company", headers=role_headers("customer")
+        )
+        assert response.status_code == 403
+        assert "company_name" not in response.text
+
+    def test_operator_can_read_company_settings(self, unauthed_client, role_headers):
+        # Operators load company settings on quote and order pages.
+        response = unauthed_client.get(
+            f"{BASE_URL}/company", headers=role_headers("operator")
+        )
+        assert response.status_code == 200
+        assert response.json()["id"] == 1
+
+    def test_operator_cannot_update_company_settings(self, unauthed_client, role_headers, db):
+        from app.api.v1.endpoints.settings import get_or_create_settings
+
+        before = get_or_create_settings(db).company_name
+        response = unauthed_client.patch(
+            f"{BASE_URL}/company",
+            headers=role_headers("operator"),
+            json={"company_name": f"Operator Corp {uuid.uuid4().hex[:8]}"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin access required"
+        db.expire_all()
+        assert get_or_create_settings(db).company_name == before
+
+    @pytest.mark.parametrize("method,path", [
+        ("post", "/company/logo"),
+        ("delete", "/company/logo"),
+        ("post", "/ai/install-anthropic"),
+    ])
+    def test_operator_cannot_use_admin_routes(self, unauthed_client, role_headers, method, path):
+        kwargs = {}
+        if path == "/company/logo" and method == "post":
+            kwargs["files"] = {"file": ("logo.png", io.BytesIO(b"\x89PNG" + b"\x00" * 20), "image/png")}
+        response = getattr(unauthed_client, method)(
+            f"{BASE_URL}{path}", headers=role_headers("operator"), **kwargs
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin access required"
+
+    def test_logo_stays_public_for_customers_and_anonymous(self, unauthed_client, role_headers):
+        for headers in ({}, role_headers("customer")):
+            response = unauthed_client.get(f"{BASE_URL}/company/logo", headers=headers)
+            assert response.status_code in (200, 404)
 
 
 # =============================================================================

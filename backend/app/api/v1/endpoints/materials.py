@@ -1,7 +1,8 @@
 """
 Material API Endpoints
 
-Provides material type and color options for the quote portal and internal staff UIs.
+Provides material type and color options for internal staff UIs and for an add-on
+that is not part of Core.
 Uses material_service for business logic (ARCHITECT-003).
 
 All endpoints require staff authentication.  Even read-only listing endpoints
@@ -180,7 +181,7 @@ def get_material_options(
     in_stock_only: bool = True,
     db: Session = Depends(get_db),
 ):
-    """Get all material options for the quote portal."""
+    """Get all material options. Nothing in Core uses this route; it is for an add-on that is not part of Core."""
     try:
         materials = get_portal_material_options(db)
 

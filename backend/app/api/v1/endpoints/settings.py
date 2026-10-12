@@ -6,10 +6,20 @@ Manage company-wide settings including:
 - Logo upload
 - Tax configuration
 - Quote settings
+
+SEC-408: reading settings needs a staff account (admin or operator) and
+changing them needs an admin. A plain login is not enough, because anyone can
+self-register a customer account. The one exception is GET /company/logo,
+which stays public because PDFs and the PRO B2B portal load it anonymously.
+This router mixes public and staff routes, so each route carries its own gate.
 """
+import json
+import re
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import Response
@@ -19,7 +29,13 @@ from pydantic import BaseModel, Field
 from app.db.session import get_db
 from app.models.user import User
 from app.models.company_settings import CompanySettings
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_admin_user, get_current_staff_user
+from app.core.outbound_guard import (
+    BlockedDestinationError,
+    guarded_session,
+    is_blocked_destination,
+    parse_ip_literal,
+)
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -196,7 +212,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
 
 @router.get("/company", response_model=CompanySettingsResponse)
 async def get_company_settings(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get company settings"""
@@ -207,17 +223,10 @@ async def get_company_settings(
 @router.patch("/company", response_model=CompanySettingsResponse)
 async def update_company_settings(
     data: CompanySettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update company settings"""
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     # Update fields
@@ -245,17 +254,10 @@ async def update_company_settings(
 @router.post("/company/logo")
 async def upload_company_logo(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Upload company logo"""
-    # Require admin role
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     # Validate file type
     allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
     if file.content_type not in allowed_types:
@@ -289,7 +291,10 @@ async def upload_company_logo(
 async def get_company_logo(
     db: Session = Depends(get_db),
 ):
-    """Get company logo image (no auth required for PDF generation)"""
+    """Get company logo image.
+
+    Public on purpose: PDFs and the PRO B2B portal load it without a login.
+    """
     settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
 
     if not settings or not settings.logo_data:
@@ -309,16 +314,10 @@ async def get_company_logo(
 
 @router.delete("/company/logo")
 async def delete_company_logo(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Delete company logo"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
     settings.logo_data = None
     settings.logo_filename = None
@@ -394,23 +393,100 @@ def _test_anthropic_connection(api_key: str) -> tuple[bool, str]:
         return False, "Connection test failed"
 
 
+# SEC: ai_ollama_url is fetched by the server. Ollama normally runs on
+# localhost or the LAN, so private addresses stay allowed. What is refused is
+# anything that lets the setting reach more than <base>/api/tags: other
+# schemes, credentials in the URL, query strings, fragments, redirects, and
+# (app.core.outbound_guard) link-local and cloud metadata addresses, checked
+# on the address the server actually connects to.
+_OLLAMA_DEFAULT_URL = "http://localhost:11434"
+_OLLAMA_URL_HELP = (
+    "Ollama URL must look like http://host:port (http or https, "
+    "no username/password, no ? or #)."
+)
+_OLLAMA_BLOCKED_HELP = (
+    "That address can't be used for Ollama: link-local, cloud metadata and "
+    "multicast addresses (such as 169.254.x.x) are blocked. Use localhost or "
+    "the Ollama machine's LAN address."
+)
+_OLLAMA_PATH_RE = re.compile(r"[A-Za-z0-9._~/-]*")
+_OLLAMA_MAX_TAGS_BYTES = 1024 * 1024
+_OLLAMA_DEADLINE_SECONDS = 10
+
+
+def _normalize_ollama_url(raw: Optional[str]) -> Optional[str]:
+    """Return a clean Ollama base URL (no trailing slash), or None if invalid."""
+    if not raw or not raw.isascii():
+        return None
+    if any(ord(c) <= 0x20 or ord(c) == 0x7F or c in "\\@?#" for c in raw):
+        return None
+    try:
+        parts = urlsplit(raw)
+        parts.port  # raises ValueError for a non-numeric or out-of-range port
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    if not _OLLAMA_PATH_RE.fullmatch(parts.path):
+        return None
+    return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
+
+
+def _ollama_host_is_blocked_ip(base_url: str) -> bool:
+    """True if the URL's host is a blocked IP address written out (no DNS).
+
+    Host names are left to the connect-time check in _fetch_ollama_models.
+    """
+    ip = parse_ip_literal(urlsplit(base_url).hostname or "")
+    return ip is not None and is_blocked_destination(ip)
+
+
+def _fetch_ollama_models(base_url: str, timeout=(3, 5)) -> tuple[int, Optional[list[str]]]:
+    """GET <base_url>/api/tags. No redirects, bounded size and time.
+
+    Returns (status_code, model names) where names is None unless the answer
+    is a 200 shaped like Ollama's {"models": [{"name": ...}]}. The raw body is
+    never returned, so nothing else the URL answers with reaches the caller.
+    Raises BlockedDestinationError if the host is, or resolves only to,
+    link-local, cloud metadata or other blocked addresses.
+    """
+    deadline = time.monotonic() + _OLLAMA_DEADLINE_SECONDS
+    with guarded_session() as session, session.get(
+        f"{base_url}/api/tags",
+        timeout=timeout,
+        allow_redirects=False,
+        stream=True,
+    ) as response:
+        if response.status_code != 200:
+            return response.status_code, None
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            body += chunk
+            if len(body) > _OLLAMA_MAX_TAGS_BYTES or time.monotonic() > deadline:
+                return 200, None
+    try:
+        models = json.loads(body).get("models")
+    except (ValueError, AttributeError):
+        return 200, None
+    if not isinstance(models, list):
+        return 200, None
+    return 200, [
+        m["name"] for m in models
+        if isinstance(m, dict) and isinstance(m.get("name"), str)
+    ]
+
+
 def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
     """Test Ollama connection"""
     import requests
+
+    base_url = _normalize_ollama_url(url)
+    if base_url is None:
+        return False, _OLLAMA_URL_HELP
     try:
-        # Check if Ollama is running
-        response = requests.get(f"{url}/api/tags", timeout=5)
-        if response.status_code != 200:
-            return False, f"Ollama not responding (status {response.status_code})"
-
-        # Check if the specified model is available
-        data = response.json()
-        models = [m.get("name", "").split(":")[0] for m in data.get("models", [])]
-        if model not in models and f"{model}:latest" not in [m.get("name") for m in data.get("models", [])]:
-            available = ", ".join(models[:5])
-            return True, f"Connected, but model '{model}' not found. Available: {available}"
-
-        return True, f"Connected to Ollama, model '{model}' available"
+        status_code, names = _fetch_ollama_models(base_url)
+    except BlockedDestinationError:  # before ConnectionError, its base class
+        return False, _OLLAMA_BLOCKED_HELP
     except requests.exceptions.ConnectionError:
         return False, "Ollama is not running. Click 'Start Ollama' below or launch the Ollama app."
     except requests.exceptions.Timeout:
@@ -419,10 +495,31 @@ def _test_ollama_connection(url: str, model: str) -> tuple[bool, str]:
         logger.error(f"Ollama connection test failed: {e}")
         return False, "Connection test failed"
 
+    if 300 <= status_code < 400:
+        return False, f"Ollama URL redirects (status {status_code}). Enter the final address."
+    if status_code != 200:
+        return False, f"Ollama not responding (status {status_code})"
+    if names is None:
+        return False, "Something answered at that address, but it is not an Ollama server"
+
+    if model not in [n.split(":")[0] for n in names] and f"{model}:latest" not in names:
+        available = ", ".join(n.split(":")[0][:64] for n in names[:5])
+        return True, f"Connected, but model '{model}' not found. Available: {available}"
+
+    return True, f"Connected to Ollama, model '{model}' available"
+
+
+def _ollama_is_up(base_url: str, timeout) -> bool:
+    try:
+        _, names = _fetch_ollama_models(base_url, timeout=timeout)
+    except Exception:  # includes BlockedDestinationError: a blocked address is never up
+        return False
+    return names is not None
+
 
 @router.get("/ai", response_model=AISettingsResponse)
 async def get_ai_settings(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
     db: Session = Depends(get_db),
 ):
     """Get AI configuration settings (API keys masked)"""
@@ -455,20 +552,33 @@ async def get_ai_settings(
 @router.patch("/ai", response_model=AISettingsResponse)
 async def update_ai_settings(
     data: AISettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Update AI configuration settings"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
+
+    # The server fetches this URL, so only store a plain http(s) base URL.
+    # "" resets to the default, like null.
+    if update_data.get("ai_ollama_url"):
+        normalized = _normalize_ollama_url(update_data["ai_ollama_url"])
+        if normalized is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=_OLLAMA_URL_HELP,
+            )
+        # A host name is checked when the server connects (no DNS here).
+        if _ollama_host_is_blocked_ip(normalized):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=_OLLAMA_BLOCKED_HELP,
+            )
+        update_data["ai_ollama_url"] = normalized
+    elif "ai_ollama_url" in update_data:
+        update_data["ai_ollama_url"] = None
 
     # Check if trying to set Anthropic while external AI is blocked
     new_provider = update_data.get("ai_provider", settings.ai_provider)
@@ -504,17 +614,11 @@ async def update_ai_settings(
 
 
 @router.post("/ai/test")
-async def test_ai_connection(
-    current_user: User = Depends(get_current_user),
+def test_ai_connection(
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Test the configured AI connection"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
 
     if not settings.ai_provider:
@@ -539,7 +643,7 @@ async def test_ai_connection(
         }
 
     elif settings.ai_provider == "ollama":
-        url = settings.ai_ollama_url or "http://localhost:11434"
+        url = settings.ai_ollama_url or _OLLAMA_DEFAULT_URL
         model = settings.ai_ollama_model or "llama3.2"
         success, message = _test_ollama_connection(url, model)
         return {
@@ -556,34 +660,34 @@ async def test_ai_connection(
 
 
 @router.post("/ai/start-ollama")
-async def start_ollama(
-    current_user: User = Depends(get_current_user),
+def start_ollama(
+    current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
     """Attempt to start the Ollama service"""
     import subprocess
     import platform
 
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-
     settings = get_or_create_settings(db)
-    ollama_url = settings.ai_ollama_url or "http://localhost:11434"
+    ollama_url = _normalize_ollama_url(settings.ai_ollama_url or _OLLAMA_DEFAULT_URL)
+    if ollama_url is None:
+        return {"success": False, "message": _OLLAMA_URL_HELP}
 
     # First check if already running
-    import requests
     try:
-        response = requests.get(f"{ollama_url}/api/tags", timeout=2)
-        if response.status_code == 200:
-            return {
-                "success": True,
-                "message": "Ollama is already running!"
-            }
+        _, names = _fetch_ollama_models(ollama_url, timeout=2)
+    except BlockedDestinationError:
+        # SEC: a blocked address never answers. Say so, rather than falling
+        # through to launching a local 'ollama serve' for a URL the server
+        # will never contact.
+        return {"success": False, "message": _OLLAMA_BLOCKED_HELP}
     except Exception:
-        pass  # Not running, continue to start it
+        names = None
+    if names is not None:
+        return {
+            "success": True,
+            "message": "Ollama is already running!"
+        }
 
     # Try to start Ollama
     try:
@@ -607,18 +711,13 @@ async def start_ollama(
             )
 
         # Wait a moment and check if it started
-        import time
         time.sleep(2)
 
-        try:
-            response = requests.get(f"{ollama_url}/api/tags", timeout=3)
-            if response.status_code == 200:
-                return {
-                    "success": True,
-                    "message": "Ollama started successfully!"
-                }
-        except Exception:
-            pass
+        if _ollama_is_up(ollama_url, timeout=3):
+            return {
+                "success": True,
+                "message": "Ollama started successfully!"
+            }
 
         return {
             "success": False,
@@ -640,7 +739,7 @@ async def start_ollama(
 
 @router.get("/ai/anthropic-status", response_model=AnthropicStatusResponse)
 async def check_anthropic_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ) -> AnthropicStatusResponse:
     """Check if the anthropic package is installed."""
     try:
@@ -658,17 +757,11 @@ async def check_anthropic_status(
 
 @router.post("/ai/install-anthropic", response_model=PackageInstallResponse)
 async def install_anthropic_package(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ) -> PackageInstallResponse:
     """Install the anthropic Python package."""
     import subprocess
     import sys
-
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
 
     # Check if already installed
     try:

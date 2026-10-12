@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.quality_plan import (
@@ -14,7 +14,10 @@ from app.schemas.quality_plan import (
 )
 from app.services import quality_plan_service as svc
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes rewrite QC acceptance criteria.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 
 
 @router.get("", response_model=List[QualityPlanResponse])
@@ -22,7 +25,7 @@ def list_plans(
     product_id: Optional[int] = Query(None, description="Filter to one product"),
     include_inactive: bool = Query(False),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List quality plans, optionally filtered by product."""
     return svc.list_quality_plans(
@@ -34,7 +37,7 @@ def list_plans(
 def create_plan(
     body: QualityPlanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a quality plan with its characteristics."""
     return svc.create_quality_plan(db, body)
@@ -44,7 +47,7 @@ def create_plan(
 def get_active_plan(
     product_id: int = Query(..., description="Product to fetch the active plan for"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """The single active plan for a product, or null — seeds the QC form.
 
@@ -58,7 +61,7 @@ def get_active_plan(
 def get_plan(
     plan_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     return svc.get_quality_plan(db, plan_id)
 
@@ -68,7 +71,7 @@ def update_plan(
     plan_id: int,
     body: QualityPlanUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update header fields; a provided ``characteristics`` list replaces them all."""
     return svc.update_quality_plan(db, plan_id, body)
@@ -78,7 +81,7 @@ def update_plan(
 def deactivate_plan(
     plan_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Soft-delete: deactivate the plan (no hard delete — it may be referenced)."""
     return svc.deactivate_quality_plan(db, plan_id)

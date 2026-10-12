@@ -5,6 +5,7 @@
 ## What You'll Learn
 
 - The two account types (Admin and Operator) and what each can access
+- What customer accounts can and cannot do
 - How to add, edit, and deactivate team members
 - How to reset a password and what happens to the user's session
 - How to run the built-in Security Audit and export the report
@@ -26,11 +27,26 @@ FilaOps has two account types for internal staff:
 
 The sidebar automatically hides admin-only sections (ADMIN group, MONEY group) for Operator accounts. Operators cannot reach user management or the Security Audit page at all.
 
-!!! note "Customers are separate"
-    Customer portal accounts (B2B portal users) are managed under **Customers**, not **Team Members**. This page covers only Admin and Operator staff accounts.
+!!! note "Scrap reasons are admin-only"
+    Only Admins can create, edit, or delete scrap reasons (**Admin > Scrap Reasons**). Operators still choose from the list when they scrap a production order or operation.
 
-!!! note "Community tier user limit"
-    When licensing enforcement is enabled, the Community tier allows **one active staff user** (the initial admin). All other users require a Professional or Enterprise license. While licensing is currently unenforced in FilaOps Core, you may see a tier-limit error if it is turned on in a future release.
+!!! note "Staff account limit"
+    Without a licence, FilaOps allows **one staff account** (Admin or Operator). Installs that already had more staff accounts before 4.2.0 keep all of them, and everyone can still sign in, but you can't add or reactivate staff while you are over the limit. Customer accounts don't count.
+
+### Customer Accounts
+
+Customer accounts belong to people outside your shop, such as buyers who request quotes. They are managed under **Customers**, not **Team Members**. The rest of this page covers only Admin and Operator staff accounts.
+
+A customer account cannot use the staff app: the staff sign-in page turns it away, and every staff API answers 403. A customer account can only:
+
+- read its own profile
+- request quotes (when public quote intake is on), and accept and check out its own quotes; checking out requires an add-on that is not part of Core
+- read the archive and files of its own quotes (without the staff-only admin notes)
+
+Customer accounts cannot read sales orders through the Core API, not even their own.
+
+!!! warning "Self-registration is off by default"
+    Customers can register themselves only when `ENABLE_PUBLIC_QUOTER=true` is set in the backend's environment. The same setting turns on public quote intake. Otherwise both registration routes answer 403. For a manual install, set the value in `backend/.env`. For Docker, set it in the project `.env` (the stock `docker-compose.yml` passes it to the backend, default `false`) and run `docker compose up -d`.
 
 ---
 
@@ -212,8 +228,8 @@ For checks that support it, a **Fix This** button appears in the fix block. Clic
 
 | Check | Category | What It Verifies |
 |---|---|---|
-| Secret key not default | Critical | `SECRET_KEY` has been changed from any known-weak default values |
-| Secret key entropy | Critical | `SECRET_KEY` is long enough to be cryptographically safe |
+| Secret key not default | Critical | `SECRET_KEY` has been changed from any known-weak default values. Fails with "Temporary SECRET_KEY in use" when no key is configured and FilaOps is signing logins with a temporary key that changes on every restart |
+| Secret key entropy | Critical | `SECRET_KEY` is long enough to be cryptographically safe. Also fails while a temporary key is in use, because no key is configured |
 | Environment is production | Critical | `ENVIRONMENT=production` (not `development`) |
 | Debug mode disabled | Critical | `DEBUG` is off so stack traces are not exposed to browsers |
 | HTTPS enabled | Critical | Traffic is served over HTTPS (detected via reverse-proxy headers) |

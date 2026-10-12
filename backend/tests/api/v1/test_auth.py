@@ -14,6 +14,12 @@ Covers:
 - POST /api/v1/auth/password-reset/deny
 - GET  /api/v1/auth/password-reset/status/{token}
 - POST /api/v1/auth/password-reset/complete
+- POST /api/v1/auth/portal/register
+- POST /api/v1/auth/portal/login
+
+Self-registration (both register routes) is off unless ENABLE_PUBLIC_QUOTER
+is on. The register test classes turn the flag on; TestSelfRegistrationGate
+covers the off state.
 """
 import pytest
 
@@ -87,6 +93,13 @@ def inactive_user(db):
 
 
 @pytest.fixture
+def self_registration_enabled(monkeypatch):
+    """Turn customer self-registration on (it follows ENABLE_PUBLIC_QUOTER)."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+
+
+@pytest.fixture
 def login_tokens(unauthed_client, registered_user):
     """Log in as registered_user and return the token response."""
     resp = unauthed_client.post(
@@ -101,6 +114,7 @@ def login_tokens(unauthed_client, registered_user):
 # POST /api/v1/auth/register
 # =============================================================================
 
+@pytest.mark.usefixtures("self_registration_enabled")
 class TestRegister:
 
     def test_register_success(self, unauthed_client):
@@ -174,6 +188,48 @@ class TestRegister:
             json={"email": "not-an-email", "password": "SecurePass123!"},
         )
         assert resp.status_code == 422
+
+    def test_register_ignores_privileged_fields_in_body(self, unauthed_client, db):
+        """Twin of test_portal_register_ignores_account_type_in_body for
+        /auth/register. Role, status and verification fields sneaked into the
+        body are ignored: the account is always an active, unverified
+        customer, and its token cannot reach an admin route."""
+        import uuid
+        from app.models.user import User
+
+        email = f"escalate-{uuid.uuid4().hex[:8]}@example.com"
+        resp = unauthed_client.post(
+            f"{BASE_URL}/register",
+            json={
+                "email": email,
+                "password": "SecurePass123!",
+                # None of these are UserRegister fields; pin that they are ignored.
+                "account_type": "admin",
+                "role": "admin",
+                "is_admin": True,
+                "is_staff": True,
+                "status": "inactive",
+                "email_verified": True,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["account_type"] == "customer"
+        assert data["status"] == "active"
+        assert data["email_verified"] is False
+
+        persisted = db.query(User).filter(User.email == email).first()
+        assert persisted is not None
+        assert persisted.account_type == "customer"
+        assert persisted.status == "active"
+        assert persisted.email_verified is False
+        assert persisted.is_admin is False
+
+        admin_only = unauthed_client.get(
+            "/api/v1/admin/users/",
+            headers={"Authorization": f"Bearer {data['access_token']}"},
+        )
+        assert admin_only.status_code == 403
 
 
 # =============================================================================
@@ -351,22 +407,39 @@ class TestPasswordResetComplete:
 
 
 class TestPasswordResetFullFlow:
-    """End-to-end password reset in dev mode (no email configured = auto-approve)."""
+    """End-to-end password reset: the token only reaches the user by email
+    after an admin approves. See test_password_reset_request.py for the
+    no-SMTP and response-shape cases."""
 
-    def test_full_reset_flow(self, unauthed_client, registered_user):
-        # Step 1: Request reset
-        resp = unauthed_client.post(
-            f"{BASE_URL}/password-reset/request",
-            json={"email": registered_user.email},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
+    def test_full_reset_flow(self, unauthed_client, registered_user, monkeypatch):
+        from unittest.mock import patch
+        from app.core.config import settings
 
-        # In dev mode (no SMTP), reset_token should be returned directly
-        if "reset_token" not in data or data["reset_token"] is None:
-            pytest.skip("SMTP configured — auto-approve not available")
+        monkeypatch.setattr(settings, "SMTP_USER", "mailer@example.com")
+        monkeypatch.setattr(settings, "SMTP_PASSWORD", "not-a-real-password")
+        monkeypatch.setattr(settings, "ADMIN_APPROVAL_EMAIL", "owner@filaops.dev")
 
-        reset_token = data["reset_token"]
+        with patch("app.api.v1.endpoints.auth.email_service") as mock_email:
+            # Step 1: Request reset — the response never carries the token
+            resp = unauthed_client.post(
+                f"{BASE_URL}/password-reset/request",
+                json={"email": registered_user.email},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "reset_token" not in data
+            assert "reset_url" not in data
+
+            # Step 1b: Admin approves via the emailed approval link
+            approval_token = (
+                mock_email.send_password_reset_approval_request.call_args.kwargs["approval_token"]
+            )
+            resp = unauthed_client.post(
+                f"{BASE_URL}/password-reset/approve",
+                json={"approval_token": approval_token},
+            )
+            assert resp.status_code == 200
+            reset_token = mock_email.send_password_reset_approved.call_args.kwargs["reset_token"]
 
         # Step 2: Check status (should be approved)
         resp = unauthed_client.get(
@@ -397,17 +470,23 @@ class TestPasswordResetFullFlow:
         data = resp.json()
         assert "access_token" in data or data.get("token_type") == "cookie"
 
-    def test_reset_with_weak_password_fails(self, unauthed_client, registered_user):
-        # Request reset
-        resp = unauthed_client.post(
-            f"{BASE_URL}/password-reset/request",
-            json={"email": registered_user.email},
-        )
-        data = resp.json()
-        if "reset_token" not in data or data["reset_token"] is None:
-            pytest.skip("SMTP configured — auto-approve not available")
+    def test_reset_with_weak_password_fails(self, unauthed_client, db, registered_user):
+        # An admin-approved reset request
+        import secrets
+        from datetime import datetime, timedelta, timezone
+        from app.models.user import PasswordResetRequest
 
-        reset_token = data["reset_token"]
+        reset_token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.add(PasswordResetRequest(
+            user_id=registered_user.id,
+            token=reset_token,
+            approval_token=secrets.token_urlsafe(32),
+            status="approved",
+            approved_at=now,
+            expires_at=now + timedelta(hours=1),
+        ))
+        db.flush()
 
         # Try to complete with weak password
         resp = unauthed_client.post(
@@ -572,6 +651,7 @@ def admin_user(db):
     return user
 
 
+@pytest.mark.usefixtures("self_registration_enabled")
 class TestPortalRegister:
 
     def test_portal_register_creates_customer_account(self, unauthed_client, db):
@@ -644,6 +724,82 @@ class TestPortalRegister:
             json={"email": "not-an-email", "password": "SecurePass123!"},
         )
         assert resp.status_code == 422
+
+
+REGISTER_PATHS = ["/register", "/portal/register"]
+
+
+class TestSelfRegistrationGate:
+    """Both register routes follow ENABLE_PUBLIC_QUOTER, which is off by
+    default. Staff accounts come from an admin or first-run setup, so only
+    the public Quoter needs open sign-up."""
+
+    def test_public_quoter_flag_defaults_off(self):
+        from app.core.settings import Settings
+
+        assert Settings.model_fields["ENABLE_PUBLIC_QUOTER"].default is False
+
+    @pytest.mark.parametrize("path", REGISTER_PATHS)
+    def test_register_refused_when_public_quoter_disabled(
+        self, unauthed_client, db, monkeypatch, path
+    ):
+        import uuid
+        from app.core.config import settings
+        from app.models.user import User
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        user_count = db.query(User).count()
+        email = f"gated-{uuid.uuid4().hex[:8]}@example.com"
+        resp = unauthed_client.post(
+            f"{BASE_URL}{path}",
+            json={
+                "email": email,
+                "password": "SecurePass123!",
+                "first_name": "Gated",
+            },
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Customer self-registration is disabled"
+        assert "access_token" not in resp.json()
+        assert "access_token" not in resp.cookies
+        assert db.query(User).filter(User.email == email).first() is None
+        assert db.query(User).count() == user_count
+
+    @pytest.mark.parametrize("path", REGISTER_PATHS)
+    def test_disabled_register_does_not_reveal_existing_emails(
+        self, unauthed_client, registered_user, monkeypatch, path
+    ):
+        """The gate runs before the duplicate-email check, so a known email
+        gets the same 403 as a new one (no 400 'already registered')."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", False)
+        resp = unauthed_client.post(
+            f"{BASE_URL}{path}",
+            json={"email": registered_user.email, "password": "SecurePass123!"},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Customer self-registration is disabled"
+
+    @pytest.mark.parametrize("path", REGISTER_PATHS)
+    def test_register_allowed_when_public_quoter_enabled(
+        self, unauthed_client, db, monkeypatch, path
+    ):
+        import uuid
+        from app.core.config import settings
+        from app.models.user import User
+
+        monkeypatch.setattr(settings, "ENABLE_PUBLIC_QUOTER", True)
+        email = f"open-{uuid.uuid4().hex[:8]}@example.com"
+        resp = unauthed_client.post(
+            f"{BASE_URL}{path}",
+            json={"email": email, "password": "SecurePass123!"},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["account_type"] == "customer"
+        persisted = db.query(User).filter(User.email == email).first()
+        assert persisted is not None
+        assert persisted.account_type == "customer"
 
 
 class TestPortalLogin:

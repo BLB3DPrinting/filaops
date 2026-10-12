@@ -7,7 +7,7 @@ CRUD-lite for planned maintenance time blocks:
   POST   /api/v1/maintenance-windows/{id}/cancel   — cancel a window
   POST   /api/v1/maintenance-windows/{id}/complete — complete (writes MaintenanceLog)
 
-Auth-gated with get_current_user, matching the sibling maintenance.py file.
+Staff-only (admin or operator), matching the sibling maintenance.py file.
 """
 from datetime import datetime
 from typing import Optional
@@ -15,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.user import User
@@ -27,9 +27,12 @@ from app.schemas.maintenance_window import (
 )
 from app.services import maintenance_window_service
 
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
 router = APIRouter(
     prefix="/maintenance-windows",
     tags=["maintenance"],
+    dependencies=[Depends(get_current_staff_user)],
 )
 logger = get_logger(__name__)
 
@@ -38,7 +41,7 @@ logger = get_logger(__name__)
 async def create_maintenance_window(
     data: MaintenanceWindowCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Schedule a maintenance window on a printer or machine resource."""
     try:
@@ -74,7 +77,7 @@ async def list_maintenance_windows(
         False, description="Include completed and cancelled windows"
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List maintenance windows by machine and/or time range."""
     windows = maintenance_window_service.list_windows(
@@ -92,7 +95,7 @@ async def list_maintenance_windows(
 async def cancel_maintenance_window(
     window_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Cancel a scheduled or in-progress maintenance window."""
     try:
@@ -112,7 +115,7 @@ async def complete_maintenance_window(
     window_id: int,
     data: MaintenanceWindowCompleteRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Complete a maintenance window.

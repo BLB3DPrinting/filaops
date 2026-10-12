@@ -36,7 +36,9 @@ class OrderCSVImportResult(BaseModel):
 # ============================================================================
 
 @router.get("/import/template")
-async def download_order_import_template():
+async def download_order_import_template(
+    current_user: User = Depends(get_current_staff_user),
+):
     """Download CSV template for order import.
 
     Template format supports single-line orders (one product per order) or

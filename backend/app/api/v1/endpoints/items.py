@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.logging_config import get_logger
 from app.models.inventory import InventoryLocation
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.deps import get_current_staff_user
 from app.schemas.item import (
     ItemType,
     ProcurementType,
@@ -37,7 +37,9 @@ from app.services import inventory_ledger
 from app.services import item_service
 from app.services import variant_service
 
-router = APIRouter()
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account.
+router = APIRouter(dependencies=[Depends(get_current_staff_user)])
 logger = get_logger(__name__)
 
 
@@ -161,7 +163,7 @@ async def get_category_tree(db: Session = Depends(get_db)):
 async def create_category(
     request: ItemCategoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a new item category"""
     category = item_service.create_category(
@@ -188,7 +190,7 @@ async def update_category(
     category_id: int,
     request: ItemCategoryUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update an existing category"""
     update_data = request.model_dump(exclude_unset=True)
@@ -209,7 +211,7 @@ async def update_category(
 async def delete_category(
     category_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Soft delete a category (set is_active=False)"""
     return item_service.delete_category(db, category_id)
@@ -293,7 +295,7 @@ async def get_item_stats(db: Session = Depends(get_db)):
 async def create_item(
     request: ItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a new item"""
     data = request.model_dump()
@@ -306,7 +308,7 @@ async def duplicate_item(
     item_id: int,
     request: DuplicateItemRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Duplicate an existing item with a new SKU and name.
@@ -326,7 +328,7 @@ async def duplicate_item(
 async def create_material_item(
     request: MaterialItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """
     Create a material item (shortcut for supply items with material_type/color).
@@ -519,7 +521,7 @@ async def get_price_candidates(
     item_type: Optional[str] = Query(None, description="Filter by item type"),
     category_id: Optional[int] = Query(None, description="Filter by category"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get items eligible for price suggestions (excludes materials/supplies)."""
     return item_service.get_price_candidates(
@@ -557,7 +559,7 @@ async def update_item(
     item_id: int,
     request: ItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Update an existing item"""
     data = request.model_dump(exclude_unset=True)
@@ -569,7 +571,7 @@ async def update_item(
 async def delete_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Soft delete an item (set active=False)"""
     return item_service.delete_item(db, item_id)
@@ -587,7 +589,7 @@ async def import_items_csv(
     default_item_type: str = Query("finished_good", description="Default item type"),
     default_category_id: Optional[int] = Query(None, description="Default category"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Import items from CSV file"""
     if not file.filename or not file.filename.endswith(".csv"):
@@ -617,7 +619,7 @@ async def import_items_csv(
 async def bulk_update_items(
     request: ItemBulkUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Bulk update multiple items at once"""
     try:
@@ -647,7 +649,7 @@ async def recost_all_items(
     category_id: Optional[int] = Query(None, description="Filter by category"),
     cost_source: Optional[str] = Query(None, description="Filter: 'manufactured' or 'purchased'"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Recost all items matching filters."""
     return item_service.recost_all_items(
@@ -662,7 +664,7 @@ async def recost_all_items(
 async def recost_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Recost a single item."""
     return item_service.recost_item(db, item_id)
@@ -672,7 +674,7 @@ async def recost_item(
 async def apply_suggested_prices(
     request: ApplySuggestedPricesRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Apply selected suggested prices to items."""
     return item_service.apply_suggested_prices(
@@ -688,7 +690,7 @@ async def apply_suggested_prices(
 async def get_variants(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """List all variants for a template product."""
     return variant_service.list_variants(db, item_id)
@@ -698,7 +700,7 @@ async def get_variants(
 async def get_variant_matrix(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Get the full variant matrix: template, variants, and available combos."""
     return variant_service.get_variant_matrix(db, item_id)
@@ -709,7 +711,7 @@ async def create_variant(
     item_id: int,
     request: VariantCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Create a single variant from a template product."""
     return variant_service.create_variant(
@@ -727,7 +729,7 @@ async def bulk_create_variants(
     item_id: int,
     request: VariantBulkCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Bulk-create variants from MaterialColor selections."""
     selections = [s.model_dump() for s in request.selections]
@@ -738,7 +740,7 @@ async def bulk_create_variants(
 async def sync_variant_routing(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Propagate the template's routing to all variants, preserving material substitutions."""
     return variant_service.sync_routing_to_variants(db, item_id)
@@ -749,7 +751,7 @@ async def delete_variant(
     item_id: int,
     variant_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     """Delete a variant product."""
     return variant_service.delete_variant(db, item_id, variant_id)

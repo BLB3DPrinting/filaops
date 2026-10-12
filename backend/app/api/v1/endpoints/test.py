@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Dict, Any, List
 
+from app.core.settings import is_production_environment
 from app.db.session import get_db
 
 
@@ -50,10 +51,11 @@ def test_endpoints_enabled() -> bool:
     - ENVIRONMENT is "test", "ci", or "e2e", or
     - TESTING is truthy ("1"/"true"/"yes") and ENVIRONMENT is not production.
 
-    Production always wins: TESTING cannot re-enable them there.
+    Production always wins: TESTING cannot re-enable them there. ENVIRONMENT
+    is read like every other production check (trimmed, any case).
     """
-    env = os.getenv("ENVIRONMENT", "development").lower()
-    if env == "production":
+    env = os.getenv("ENVIRONMENT", "development").strip().lower()
+    if is_production_environment(env):
         return False
     if env in ("test", "ci", "e2e"):
         return True
@@ -225,9 +227,9 @@ async def test_health():
     Returns current environment info without requiring test mode guard
     (so you can verify the endpoint exists even in production).
     """
-    env = os.getenv("ENVIRONMENT", "development").lower()
+    env = os.getenv("ENVIRONMENT", "development").strip().lower()
     return HealthResponse(
         status="ok",
-        test_mode=env != "production",
+        test_mode=not is_production_environment(env),
         environment=env
     )

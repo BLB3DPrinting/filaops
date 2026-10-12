@@ -246,7 +246,7 @@ The parent's code is shown in the **Parent** column for easy reference.
 
 ## Scrap Reasons
 
-Navigate to **Admin > Scrap Reasons** in the sidebar to define the failure modes tracked when scrapping production orders.
+Navigate to **Admin > Scrap Reasons** in the sidebar to define the failure modes tracked when scrapping production orders. Only Admins can add, edit, or delete scrap reasons; Operators pick from the list when they scrap work.
 
 ![Scrap Reasons page showing the reasons table with Order, Code, Name, Description, Status columns, and the Add Reason button](../assets/screenshots/settings/04-scrap-reasons.png)
 
@@ -315,6 +315,9 @@ The **AI Assistant** card configures the AI provider used for features like invo
     3. Set the **Ollama model** (defaults to `llama3.2`).
     4. Click **Test Connection**. If Ollama is not running, a **Start Ollama** button appears to attempt to launch it in the background.
     5. Save.
+
+    !!! note "Which Ollama URLs work"
+        Use a plain address such as `http://localhost:11434`, `http://192.168.1.20:11434` or a host name on your network, with `http://` or `https://`, and without a username, password, `?` or `#`. Addresses on the same machine, your LAN or Tailscale work. Link-local, cloud metadata (such as `169.254.169.254`) and multicast addresses are refused. FilaOps connects to the Ollama URL directly and does not use proxy settings such as `HTTP_PROXY` for it.
 
 ---
 

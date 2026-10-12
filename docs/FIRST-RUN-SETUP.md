@@ -41,7 +41,7 @@ The `initial-admin` endpoint is rate-limited to **3 requests per minute** per IP
 
 ## Password Reset Flow
 
-FilaOps uses an **admin-approved** password reset flow by default. The behavior changes depending on whether SMTP email is configured.
+FilaOps uses an **admin-approved** password reset flow. The reset link is only ever sent by email after an administrator approves. It is never returned by the API or shown on the Forgot Password page.
 
 ### With SMTP Configured
 
@@ -54,27 +54,33 @@ This is the production flow:
 5. **Admin denies:** The user receives a denial notification email.
 6. User clicks the reset link, enters a new password, and all existing sessions are invalidated.
 
+If the approval email cannot be sent (for example, the mail server is down), the request stays pending and nobody is emailed. A new request made at least 15 minutes later tries the email again.
+
 ### Without SMTP Configured
 
-When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`:
+When `SMTP_USER` and `SMTP_PASSWORD` are not set in `.env`, or `ADMIN_APPROVAL_EMAIL` is empty or a placeholder such as `admin@example.com`:
 
 1. User clicks "Forgot Password" and submits their email.
-2. The backend **auto-approves** the request immediately.
-3. A reset link is returned directly in the API response and displayed on the page.
-4. User clicks the link and sets a new password.
+2. The backend records a `PasswordResetRequest` with `status=pending` and logs a warning. No email is sent.
+3. The page shows the same generic message as always. No reset link is shown.
+4. The request stays pending and expires after 24 hours. It cannot be used to set a password.
 
-No email is sent. The Forgot Password page displays the reset link directly with a "Reset My Password" button.
+Requests recorded while email is off are not emailed later, even after email is turned on. Once email works, the user requests a reset again.
 
-> **Production warning:** If SMTP is not configured in production, auto-approval still works but a **SECURITY WARNING** is logged on every password reset. This bypasses admin approval, meaning anyone who knows a valid email address can reset that account's password without inbox verification. **Configure SMTP for production deployments** — see [Email Setup](https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/).
+To get a staff user (admin or operator) back in, an administrator resets their password from **Admin > Team Members > Reset PW** (see [Option 1](#option-1-admin-resets-via-team-members-page) below) and gives them the new password. If the only administrator is locked out, use [Option 2](#option-2-reset-via-psql-when-locked-out).
+
+Customer accounts are not listed on Team Members, so an administrator cannot reset them there. They can only reset a password by email. If you have customer accounts, configure SMTP.
+
+To let users reset their own passwords with admin approval, configure SMTP — see [Email Setup](https://blb3dprinting.github.io/filaops/EMAIL_CONFIGURATION/).
 
 ### Anti-Enumeration (Security Note)
 
-The password reset endpoint intentionally **does not reveal whether an email exists** in the system. If you submit a non-existent email:
+The password reset endpoint returns the **same response body** whether or not an email exists in the system:
 
-- **With SMTP:** You see a green success message: "If an account exists with this email, a password reset request has been submitted for review." No email is sent, but the response is identical.
-- **Without SMTP:** No reset link is generated (since no user was found), but the generic success message still appears.
+- **With or without SMTP:** You see the same success message: "If an account exists with this email, a password reset request has been submitted for review." If the email does not exist, no email is sent.
+- The body is also the same when a request for that account is already pending, and it does not say whether SMTP is configured.
 
-This follows OWASP A07:2021 (Identification and Authentication Failures) best practices. If you are testing and unsure which email your admin account uses, check the database directly rather than relying on the reset form.
+This makes it harder to find out which accounts exist (OWASP A07:2021, Identification and Authentication Failures), but it does not rule it out. The response can take longer for an existing account, especially when SMTP is configured and an email is sent. If you are testing and unsure which email your admin account uses, check the database directly rather than relying on the reset form.
 
 ### The `.local` TLD Gotcha
 
@@ -86,7 +92,7 @@ FilaOps uses `pydantic.EmailStr` for email validation, which depends on the `ema
 
 ## Configuring SMTP
 
-Add these variables to `backend/.env` to enable email-based password resets:
+Add these variables to your `.env` to enable email-based password resets. For Docker, that is the `.env` in the project root; run `docker compose up -d` afterwards so the backend container picks them up (`docker compose restart` does not). For a manual install, it is `backend/.env`; restart the backend afterwards.
 
 ```ini
 SMTP_HOST=smtp.gmail.com
@@ -104,44 +110,44 @@ See [EMAIL_CONFIGURATION.md](EMAIL_CONFIGURATION.md) for full details.
 
 ---
 
-## Dev Environment: Resetting Admin Credentials
+## Resetting Admin Credentials
 
-On development databases with existing data, the setup wizard does not appear (since users already exist) and the `/api/v1/setup/initial-admin` endpoint is disabled.
+Once users exist, the setup wizard does not appear and the `/api/v1/setup/initial-admin` endpoint is disabled. Use one of these options instead.
 
 ### Option 1: Admin Resets via Team Members Page
 
-If you have a working admin login, go to **Settings > Team Members**, find the user, and click **Reset Password**.
+If you have a working admin login, go to **Admin > Team Members**, find the user, and click **Reset PW**. This works for admin and operator accounts.
 
 ### Option 2: Reset via psql (When Locked Out)
 
-If you cannot log in at all, update the password hash directly in the database.
+If no administrator can log in, set a new password hash directly in the database. First generate the hash, then paste it into an `UPDATE`.
 
-Generate a new hash and update it:
+**Docker install.** Run these from the project folder. The first command asks for the new password (it is not echoed) and prints the hash:
+
+```bash
+docker compose exec backend python -c "import getpass; from app.core.security import hash_password; print(hash_password(getpass.getpass('New password: ')))"
+docker compose exec db psql -U postgres -d filaops
+```
+
+If you changed `DB_USER` or `DB_NAME` in `.env`, use those values in the `psql` command. At the `filaops=#` prompt, run the `UPDATE` below, then type `\q` to leave.
+
+**Manual install.** From the repository root, with the backend virtual environment active:
 
 ```bash
 cd backend
-python -c "
-from app.core.security import hash_password
-print(hash_password('NewPassword1!'))
-"
+python -c "import getpass; from app.core.security import hash_password; print(hash_password(getpass.getpass('New password: ')))"
+psql -U postgres -d filaops
 ```
 
-Then update the database:
+Then update the database, pasting the hash between the single quotes:
 
 ```sql
 UPDATE users SET password_hash = '<paste hash here>' WHERE email = 'your-admin@example.com';
 ```
 
-### Option 3: Reset via the Forgot Password Flow (No SMTP)
+The hash contains `$` characters. Paste it inside the `psql` prompt as shown, not into a shell command, so the shell does not change it.
 
-If SMTP is not configured (typical for dev), use the Forgot Password page:
-
-1. Go to `http://localhost:5173/forgot-password`
-2. Enter the admin email address
-3. The reset link appears directly on the page (no email needed)
-4. Click the link and set a new password
-
-### Option 4: Delete All Users to Re-trigger Setup Wizard
+### Option 3: Delete All Users to Re-trigger Setup Wizard
 
 As a last resort on a development database, you can delete all users to re-trigger the first-run setup:
 

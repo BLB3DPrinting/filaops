@@ -16,18 +16,24 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.v1.endpoints.auth import get_current_user
-from app.api.v1.deps import get_current_admin_user
+from app.api.v1.deps import get_current_admin_user, get_current_staff_user
 from app.schemas.price_level import PriceLevelCreate, PriceLevelUpdate, PriceLevelResponse
 from app.services import price_level_service
 
-router = APIRouter(prefix="/price-levels", tags=["Price Levels"])
+# SEC-409: every route here is staff-only (admin or operator). A plain login is
+# not enough, because anyone can self-register a customer account, and these
+# routes expose wholesale price tiers. Writes stay admin-only.
+router = APIRouter(
+    prefix="/price-levels",
+    tags=["Price Levels"],
+    dependencies=[Depends(get_current_staff_user)],
+)
 
 
 @router.get("", response_model=List[PriceLevelResponse])
 def list_price_levels(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_staff_user),
 ):
     return price_level_service.list_price_levels(db)
 

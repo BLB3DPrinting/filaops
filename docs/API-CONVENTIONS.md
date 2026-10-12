@@ -92,12 +92,40 @@ Common status codes:
 
 ## Authentication
 
-All endpoints except `/auth/register`, `/auth/login`, and `/setup/*` require
-a JWT Bearer token:
+Almost every endpoint requires a JWT Bearer token:
 
 ```
 Authorization: Bearer <access_token>
 ```
+
+### Who can call what
+
+Every route needs a **staff** account (admin or operator), and admin-only
+routes need an **admin** account. A valid login alone is not enough, because
+customer accounts sign in too. The only
+exceptions are:
+
+- **No login needed:** `/auth/login`, `/auth/logout`, `/auth/refresh`,
+  `/auth/portal/login`, the password reset routes (`/auth/password-reset/*`),
+  customer self-registration (`/auth/register` and `/auth/portal/register`,
+  which answer 403 unless `ENABLE_PUBLIC_QUOTER=true`), first-run setup
+  (`/setup/status`, `/setup/initial-admin`), `/system/version`,
+  `/system/info`, `/system/health`, `/settings/company/logo`, and `/health`
+  (outside `/api/v1`).
+- **Any logged-in account, limited to its own records:** `GET /auth/me` and
+  the customer quote routes: `POST /quotes/portal`,
+  `POST /quotes/portal/{quote_id}/accept`,
+  `POST /quotes/portal/{quote_id}/checkout`, `GET /quotes/{quote_id}/archive`,
+  `GET /quotes/{quote_id}/files` and
+  `GET /quotes/{quote_id}/files/{file_id}/download`.
+
+Every other route answers 401 without a token and 403 for a customer account.
+
+When you add a route, gate it with `Depends(get_current_staff_user)` or
+`Depends(get_current_admin_user)` from `app.api.v1.deps`, preferably on the
+module's `APIRouter(dependencies=[...])` so new routes in that module are
+covered too. `backend/tests/endpoints/test_route_authz_allowlist.py` fails for
+any route that has neither and is not on its reviewed allowlist.
 
 ## Versioning
 

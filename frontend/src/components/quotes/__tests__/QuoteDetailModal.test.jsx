@@ -233,6 +233,40 @@ describe("QuoteDetailModal attachments", () => {
     expect(onDuplicate).toHaveBeenCalledWith(detailQuote);
   });
 
+  it("shows a zero shipping cost on a quote that has a ship-to address", async () => {
+    quoteFiles = [];
+    detailQuote = {
+      ...quote,
+      shipping_cost: "0.00",
+      shipping_address_line1: "1 Far Away Rd",
+      shipping_city: "Anchorage",
+      shipping_state: "AK",
+      shipping_zip: "99501",
+    };
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText("Shipping:")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Shipping:").nextSibling).toHaveTextContent("$0.00");
+  });
+
+  it("leaves out the shipping line when there is no ship-to or shipping cost", async () => {
+    quoteFiles = [];
+    detailQuote = { ...quote, shipping_cost: null, shipping_address_line1: null };
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/quotes/42"),
+        expect.anything(),
+      );
+    });
+    expect(screen.queryByText("Shipping:")).not.toBeInTheDocument();
+  });
+
   it("does not offer edit or delete actions after customer acceptance", async () => {
     quoteFiles = [];
     detailQuote = {
