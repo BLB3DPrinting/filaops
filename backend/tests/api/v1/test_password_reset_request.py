@@ -64,7 +64,7 @@ def _disable_rate_limits():
 @pytest.fixture(autouse=True)
 def _force_header_mode(monkeypatch):
     """Header (bearer-in-body) mode, matching the other auth test modules."""
-    import app.api.v1.endpoints.auth as auth_mod
+    from app.api.v1.endpoints import auth as auth_mod
     monkeypatch.setattr(auth_mod, "_USE_COOKIES", False)
 
 

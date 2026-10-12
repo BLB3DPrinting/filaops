@@ -379,11 +379,13 @@ class Settings(BaseSettings):
                 hint,
             )
         elif len(self.SECRET_KEY.strip()) < _SECRET_KEY_MIN_LENGTH:
+            # The length is written into the text rather than passed as an
+            # argument: CodeQL treats any value named like SECRET_KEY as a
+            # secret, even this constant. Keep 32 in step with the constant.
             logger.warning(
-                "SECRET_KEY is shorter than %d characters. A short key is "
+                "SECRET_KEY is shorter than 32 characters. A short key is "
                 "easier to guess, and a future release will refuse it in "
                 "production. %s",
-                _SECRET_KEY_MIN_LENGTH,
                 hint,
             )
 

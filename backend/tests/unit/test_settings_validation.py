@@ -377,6 +377,18 @@ class TestShortSecretKey:
             for record in caplog.records
         ), "expected a warning about the short SECRET_KEY"
 
+    def test_warning_names_the_minimum_length(self, caplog):
+        # The warning writes the length as text (see settings.py); it must
+        # match the constant the check uses.
+        from app.core.settings import _SECRET_KEY_MIN_LENGTH
+
+        caplog.set_level(logging.WARNING, logger="app.core.settings")
+        _build("development", secret_key=self.SHORT_KEY)
+        assert any(
+            f"shorter than {_SECRET_KEY_MIN_LENGTH} characters" in r.getMessage()
+            for r in caplog.records
+        )
+
     def test_32_character_key_does_not_warn(self, caplog):
         caplog.set_level(logging.WARNING, logger="app.core.settings")
         _build("production", secret_key="k" * 32)
