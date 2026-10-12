@@ -50,15 +50,18 @@ class WorkflowHardeningTests(unittest.TestCase):
         self.assertNotRegex(content, r"git diff[^\n]*\|\|\s*true")
 
     def test_codecov_pin_is_the_v7_commit_not_its_tag_object(self) -> None:
+        # v7 is an annotated tag: pin the commit it points to (v7.1.1,
+        # 303a32d7), never the tag object's own SHA.
         content = (WORKFLOWS / "test.yml").read_text(encoding="utf-8")
         self.assertIn(
-            "codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f",
+            "codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5",
             content,
         )
-        self.assertNotIn(
-            "codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f",
-            content,
-        )
+        for tag_object in (
+            "f9fe539f5290016afa014f8ef31597d3a61c2dea",  # v7 tag object (v7.1.1)
+            "a99c28d3f0da835de33ff2feb2e15691c7b9641f",  # earlier v7 tag object
+        ):
+            self.assertNotIn(f"codecov/codecov-action@{tag_object}", content)
 
 
 if __name__ == "__main__":
