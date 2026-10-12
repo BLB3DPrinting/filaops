@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       - name: Test repository hardening
-        run: python -m unittest scripts.ci.test_guardrail_policy scripts.ci.test_workflow_hardening -v
+        run: python -m unittest scripts.ci.test_guardrail_policy scripts.ci.test_workflow_hardening scripts.ci.test_audit_severity -v
 
   # Dependency audit gate: high/critical findings block; unclassified findings
   # fail closed rather than being silently ignored.
