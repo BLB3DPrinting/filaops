@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [4.2.0] - 2026-10-09
+## [4.2.0] - 2026-10-12
 
 ### Upgrade notes
 
@@ -60,7 +60,7 @@ This release fixes five security problems. Details are in the linked advisories.
 - **Outbound requests from AI settings.** The Ollama URL is validated when saved and again before every request, and some special-purpose addresses are refused. Local and LAN addresses still work. ([GHSA-vmrm-qwq2-8xj3](https://github.com/BLB3DPrinting/filaops/security/advisories/GHSA-vmrm-qwq2-8xj3))
 - **Customer quote acceptance.** The server now works out the price and total when a customer accepts a quote, and ignores pricing sent by the browser.
 - **Database port.** The stock `docker-compose.yml` now publishes the database on the local machine only, instead of on every network interface, and a test fails if a compose file the repo ships publishes it more widely. FilaOps itself still reaches the database over Docker's internal network.
-- **Other hardening.** Staff-only fields are hidden from customer accounts, stored printer connection secrets are masked in responses, and this release ships access fixes merged after 4.1.0 (#859, #872, #893, #973).
+- **Other hardening.** Staff-only fields are hidden from customer accounts, stored printer connection secrets are masked in responses, a very long field name in printer settings no longer ties up the server, and this release ships access fixes merged after 4.1.0 (#859, #872, #893, #973).
 
 Thanks to the people who reported these problems; see [SECURITY.md](SECURITY.md).
 
