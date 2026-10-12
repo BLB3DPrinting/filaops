@@ -639,6 +639,14 @@ _RESET_APPROVAL_WINDOW_SLACK = timedelta(minutes=5)
 APPROVAL_EMAIL_NOT_SENT_NOTE = "Approval email not sent"
 EMAIL_OFF_NOTE = "Approval email not sent: email not configured"
 _UNSENT_NOTES = frozenset({APPROVAL_EMAIL_NOT_SENT_NOTE, EMAIL_OFF_NOTE})
+# Returned to the admin when an approval stands but the reset link email to
+# the user failed.
+APPROVED_EMAIL_NOT_SENT_MESSAGE = (
+    "Password reset approved, but the email with the reset link could not be "
+    "sent, so the user has not been told. Check the email settings, then ask "
+    "the user to request a new reset. For a staff account you can also reset "
+    "the password from Team Members."
+)
 # After a failed send, the user's next request tries the email again, but not
 # until the failed request is this old. Every try opens an SMTP connection, so
 # without a pause a mail server that is down or misconfigured would be
@@ -858,7 +866,7 @@ async def approve_password_reset(
     db.commit()
 
     # Send reset link to user
-    await run_in_threadpool(
+    sent = await run_in_threadpool(
         email_service.send_password_reset_approved,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
@@ -874,6 +882,20 @@ async def approve_password_reset(
             "request_id": reset_request.id
         }
     )
+
+    if not sent:
+        # The approval stands, but the user never got the link. Say so, so the
+        # admin can ask them to request again (or reset a staff password from
+        # Team Members) instead of assuming they were told.
+        logger.warning(
+            "Password reset approved but the email to the user was not sent",
+            extra={"user_id": user.id, "request_id": reset_request.id},
+        )
+        return PasswordResetApprovalResponse(
+            message=APPROVED_EMAIL_NOT_SENT_MESSAGE,
+            user_email=user.email,  # type: ignore[arg-type]
+            status="approved",
+        )
 
     return PasswordResetApprovalResponse(
         message="Password reset approved. User has been notified via email.",

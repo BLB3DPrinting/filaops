@@ -673,6 +673,28 @@ class TestSmtpApprovalFlow:
         )
         assert reuse.status_code == 400
 
+    def test_approve_says_when_the_reset_link_email_failed(
+        self, unauthed_client, db, staff_user, mock_email, monkeypatch
+    ):
+        from app.api.v1.endpoints.auth import APPROVED_EMAIL_NOT_SENT_MESSAGE
+
+        _configure(monkeypatch, smtp=True)
+        _request_reset(unauthed_client, staff_user.email)
+        approval_token = mock_email.send_password_reset_approval_request.call_args.kwargs[
+            "approval_token"
+        ]
+        mock_email.send_password_reset_approved.return_value = False
+
+        resp = unauthed_client.post(
+            f"{AUTH_URL}/password-reset/approve",
+            json={"approval_token": approval_token},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "approved"
+        assert resp.json()["message"] == APPROVED_EMAIL_NOT_SENT_MESSAGE
+        assert "notified via email" not in resp.text
+
     def test_deny_still_works(
         self, unauthed_client, db, staff_user, mock_email, monkeypatch
     ):

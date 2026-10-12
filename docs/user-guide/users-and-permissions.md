@@ -30,8 +30,8 @@ The sidebar automatically hides admin-only sections (ADMIN group, MONEY group) f
 !!! note "Scrap reasons are admin-only"
     Only Admins can create, edit, or delete scrap reasons (**Admin > Scrap Reasons**). Operators still choose from the list when they scrap a production order or operation.
 
-!!! note "Community tier user limit"
-    When licensing enforcement is enabled, the Community tier allows **one active staff user** (the initial admin). All other users require a Professional or Enterprise license. While licensing is currently unenforced in FilaOps Core, you may see a tier-limit error if it is turned on in a future release.
+!!! note "Staff account limit"
+    Without a licence, FilaOps allows **one staff account** (Admin or Operator). Installs that already had more staff accounts before 4.2.0 keep all of them, and everyone can still sign in, but you can't add or reactivate staff while you are over the limit. Customer accounts don't count.
 
 ### Customer Accounts
 

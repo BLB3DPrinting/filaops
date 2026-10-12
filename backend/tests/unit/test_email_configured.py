@@ -40,6 +40,9 @@ PLACEHOLDER_ADDRESSES = [
     "not-an-address",
     "@example.org",
     "admin@",
+    "admin@@shop.com",
+    "admin@shop@mail.com",
+    "ad min@shop.com",
 ]
 
 

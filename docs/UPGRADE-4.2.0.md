@@ -92,8 +92,9 @@ backend from connecting.
     docker compose exec db psql -U postgres -d filaops
     ```
 
-2. At the `filaops=#` prompt, type `\password postgres`, enter the new
-   password twice, then type `\q`. Typing it here keeps it out of your shell
+2. At the `filaops=#` prompt, type `\password` (it changes the password of
+   the user you connected as, your `DB_USER`), enter the new password twice,
+   then type `\q`. Typing it here keeps it out of your shell
    history.
 3. Set `DB_PASSWORD=<the new password>` in the project `.env`.
 4. Run `docker compose up -d`. The backend restarts with the new password.

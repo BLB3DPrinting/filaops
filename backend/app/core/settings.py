@@ -122,6 +122,10 @@ def is_placeholder_email(address: Optional[str]) -> bool:
     localhost.
     """
     value = (address or "").strip().lower()
+    # Exactly one "@" and no spaces: "admin@@shop.com" would otherwise split
+    # into a non-empty local part and a real-looking domain.
+    if value.count("@") != 1 or any(ch.isspace() for ch in value):
+        return True
     local, at, domain = value.rpartition("@")
     domain = domain.rstrip(".")
     if not at or not local or not domain:

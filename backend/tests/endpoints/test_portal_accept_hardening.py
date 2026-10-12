@@ -644,6 +644,32 @@ def test_honest_colour_choice_is_saved_and_goes_to_checkout(unauthed_client, db,
     assert [c["total_price"] for c in checkout_calls] == [Decimal("33.50")]
 
 
+@pytest.mark.parametrize(
+    "slot_colors",
+    [
+        [_slot(1, 10), _slot(1, 10, "YEL")],
+        [_slot(1, "1E+20")],
+    ],
+    ids=["duplicate_slot", "grams_the_column_cannot_hold"],
+)
+def test_colour_choice_without_stored_slot_data_is_still_checked(unauthed_client, db, slot_colors):
+    """The unpriced fallback refuses what the priced path refuses, before writing."""
+    owner = _customer(db)
+    quote = _portal_quote(db, owner, weights=None, pricing_snapshot=None, slicer_diagnostics=None)
+    _keep_material(db, quote)
+    status_before = quote.status
+
+    response = _accept(
+        unauthed_client, quote, owner,
+        print_mode="multi",
+        multi_color_info={"primary_slot": 1, "slot_colors": slot_colors},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Colour slots do not match the quoted print"
+    _assert_nothing_written(db, quote, owner, status=status_before)
+
+
 def test_colour_choice_without_stored_slot_data_goes_to_review(unauthed_client, db):
     """PRO older than the slicer_diagnostics snapshot: keep the choice, staff review it."""
     owner = _customer(db)

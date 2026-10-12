@@ -652,6 +652,8 @@ _CENT = Decimal("0.01")
 # Tolerance on the grams a customer may assign to a priced colour slot.
 _SLOT_GRAMS_FACTOR = Decimal("1.01")
 _SLOT_GRAMS_SLACK = Decimal("0.5")
+# quote_materials.material_grams is Numeric(10, 2).
+_MAX_SLOT_GRAMS = Decimal("99999999.99")
 _COLOUR_REVIEW_REASON = "Colour selection needs review"
 
 
@@ -762,6 +764,17 @@ def _validated_print_selection(quote: Quote, payload: PortalShippingSelection) -
     if not slots:
         return []
 
+    # Checked before the branch below, so the unpriced fallback refuses them
+    # too: a repeated slot, or grams the column cannot store.
+    numbers = [slot["slot_number"] for slot in slots]
+    if len(set(numbers)) != len(numbers) or any(
+        slot["material_grams"] > _MAX_SLOT_GRAMS for slot in slots
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Colour slots do not match the quoted print",
+        )
+
     priced = _priced_slots(quote)
     if priced is None:
         if _priced_for_single_colour(quote):
@@ -774,8 +787,7 @@ def _validated_print_selection(quote: Quote, payload: PortalShippingSelection) -
         quote.requires_review_reason = quote.requires_review_reason or _COLOUR_REVIEW_REASON
         return slots
 
-    numbers = [slot["slot_number"] for slot in slots]
-    if len(set(numbers)) != len(numbers) or not set(numbers) <= priced.keys():
+    if not set(numbers) <= priced.keys():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Colour slots do not match the quoted print",
