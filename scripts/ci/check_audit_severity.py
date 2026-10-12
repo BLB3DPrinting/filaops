@@ -21,6 +21,38 @@ def pip_severities(document: dict) -> list[str | None]:
     return severities
 
 
+def pip_findings(document: dict) -> list[str]:
+    """One line per pip-audit finding: advisory id, package and version.
+
+    pip-audit's CycloneDX report links each vulnerability to its package
+    through a bom-ref and carries no severity ratings, so without this the
+    CI log only says how many findings there were.
+    """
+    components = {
+        component.get("bom-ref"): component
+        for component in document.get("components") or []
+        if isinstance(component, dict)
+    }
+    lines = []
+    for vulnerability in document.get("vulnerabilities") or []:
+        refs = [affected.get("ref") for affected in vulnerability.get("affects") or [] if isinstance(affected, dict)]
+        packages = [
+            f"{components[ref].get('name')} {components[ref].get('version')}" if ref in components else str(ref)
+            for ref in refs
+        ] or ["unknown package"]
+        lines.append(f"{vulnerability.get('id', 'unknown id')}: {', '.join(packages)}")
+    return lines
+
+
+def npm_findings(document: dict) -> list[str]:
+    """One line per npm audit finding: package, severity, affected range."""
+    return [
+        f"{name}: {(entry.get('severity') or 'unknown severity')} ({entry.get('range') or 'unknown range'})"
+        for name, entry in sorted((document.get("vulnerabilities") or {}).items())
+        if isinstance(entry, dict)
+    ]
+
+
 def npm_severities(document: dict) -> list[str | None]:
     return [
         (entry.get("severity") or "").lower() or None
@@ -38,6 +70,7 @@ def main(argv: list[str]) -> int:
     try:
         document = json.loads(report_path.read_text(encoding="utf-8"))
         severities = pip_severities(document) if kind == "pip" else npm_severities(document)
+        findings = pip_findings(document) if kind == "pip" else npm_findings(document)
     except (OSError, json.JSONDecodeError, AttributeError, TypeError) as error:
         print(f"dependency audit report is invalid: {error}", file=sys.stderr)
         return 2
@@ -46,6 +79,8 @@ def main(argv: list[str]) -> int:
     blocking = sorted({severity for severity in severities if severity in BLOCKING})
     informational = sorted({severity for severity in severities if severity not in BLOCKING and severity})
 
+    for finding in findings:
+        print(f"  {finding}")
     print(f"{kind} audit: {len(severities)} finding(s); blocking={blocking}; informational={informational}; unknown={unknown}")
     if unknown:
         print("dependency audit contains unclassified findings; failing closed", file=sys.stderr)
