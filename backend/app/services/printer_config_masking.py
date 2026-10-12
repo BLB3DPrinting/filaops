@@ -67,7 +67,11 @@ CONNECTION_TARGET_KEYS = frozenset({
 
 _MISSING = object()
 
-_CAMEL_ACRONYM = re.compile(r"([A-Z]+)([A-Z][a-z])")
+# Split an acronym from the word after it ("HTTPServer" -> "HTTP_Server"):
+# one capital followed by a capital-then-lowercase pair. The fixed-length
+# lookahead keeps this linear; "([A-Z]+)([A-Z][a-z])" backtracked
+# quadratically on long runs of capitals.
+_CAMEL_ACRONYM = re.compile(r"([A-Z])(?=[A-Z][a-z])")
 _CAMEL_WORD = re.compile(r"([a-z0-9])([A-Z])")
 _SEPARATORS = re.compile(r"[\s.\-]+")
 # scheme://userinfo@ ... The userinfo runs to the last "@" before the path.
@@ -85,7 +89,7 @@ class SecretReuseError(ValueError):
 
 
 def _normalize_key(key: str) -> str:
-    name = _CAMEL_ACRONYM.sub(r"\1_\2", key.strip())
+    name = _CAMEL_ACRONYM.sub(r"\1_", key.strip())
     name = _CAMEL_WORD.sub(r"\1_\2", name)
     return _SEPARATORS.sub("_", name).lower()
 

@@ -294,3 +294,38 @@ def test_retarget_with_no_stored_secret_is_fine():
     incoming = {"access_code": MASKED_VALUE, "mqtt_host": "192.168.1.6"}
 
     assert restore_masked_secrets(incoming, stored, retargeted=True) == {"mqtt_host": "192.168.1.6"}
+
+
+# ---------------------------------------------------------------------------
+# Key normalisation stays fast on hostile keys (code scanning alert #31).
+# The old acronym pattern backtracked quadratically: a 40,000-capital key took
+# about 10 s of CPU, and 200,000 would take minutes. Keys come from staff-written
+# printer settings and are not length-limited.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key, expected", [
+    ("HTTPServer", "http_server"),
+    ("APIKey", "api_key"),
+    ("MQTTPassword", "mqtt_password"),
+    ("mqttAccessCode", "mqtt_access_code"),
+    ("ABCdef", "ab_cdef"),
+    ("AAbCCd", "a_ab_c_cd"),
+    ("X.Auth Token", "x_auth_token"),
+    ("access-code", "access_code"),
+])
+def test_normalize_key_splits_acronyms(key, expected):
+    from app.services.printer_config_masking import _normalize_key
+
+    assert _normalize_key(key) == expected
+
+
+def test_long_capital_key_is_normalised_in_linear_time():
+    import time
+
+    from app.services.printer_config_masking import _normalize_key
+
+    key = "A" * 200_000
+    started = time.perf_counter()
+    assert _normalize_key(key) == "a" * 200_000
+    assert mask_connection_config({key: "value", "password": "hunter2"})["password"] == MASKED_VALUE
+    assert time.perf_counter() - started < 2.0
