@@ -25,6 +25,8 @@ then follow [Upgrade](#upgrade).
 | Set `ENABLE_PUBLIC_QUOTER=true` in `.env` | Only installs that accept customer sign-ups or public quote requests (Docker: not by editing `docker-compose.yml`) |
 | Set up email, with a real `ADMIN_APPROVAL_EMAIL` | Shops that send email, or that have customer accounts (customers can only reset a password by email) |
 | Give integrations a staff account | Anyone with a script or integration that signs in as a customer account |
+| Check for duplicate imported orders | Installs that import orders from a CSV file |
+| Check scripts that change order, invoice or stock status | Anyone with a script or integration that does this through the API |
 
 Where to put settings: the project `.env` file for a Docker install, or
 `backend/.env` for a manual install. After changing them, run
@@ -165,6 +167,31 @@ If a script, spreadsheet or integration signs in with a customer account to
 read or change shop data, create a staff (operator or admin) account for it
 in **Admin > Team Members**.
 
+### 6. Check for duplicate imported orders
+
+4.2.0 makes each imported order ID unique, so the same import can't create an
+order twice. If two sales orders already share an imported order ID, the
+upgrade stops at that step. Check before you upgrade. For a Docker install,
+from the `filaops` folder:
+
+```bash
+docker exec filaops-db psql -U postgres -d filaops -c "SELECT source_order_id, string_agg(order_number, ', ' ORDER BY id) AS orders FROM sales_orders WHERE source_order_id IS NOT NULL GROUP BY source_order_id HAVING count(*) > 1;"
+```
+
+Use your own `DB_USER` and `DB_NAME` if you changed them. `(0 rows)` means
+there is nothing to do.
+
+If it lists any, each row shows an imported order ID and the orders that
+share it. Decide which order is the real one, and cancel the others in
+FilaOps if they shouldn't be fulfilled. Then clear the imported ID on the
+extra orders, naming them by order number:
+
+```bash
+docker exec filaops-db psql -U postgres -d filaops -c "UPDATE sales_orders SET source_order_id = NULL WHERE order_number IN ('SO-2026-000123');"
+```
+
+Run the first command again; it should now return `(0 rows)`.
+
 ## Upgrade
 
 Do these in order, after the actions above.
@@ -210,7 +237,7 @@ service then applies the database migrations before the backend starts.
 
 **Manual install:** from `backend/`, with your virtual environment active, run
 `pip install -r requirements.txt` and then `alembic upgrade head`. From
-`frontend/`, run `npm ci` and `npm run build`. Then restart the backend and
+`frontend/`, using Node.js 24 or newer, run `npm ci` and `npm run build`. Then restart the backend and
 the web server.
 
 ### 4. Confirm the upgrade
@@ -375,6 +402,55 @@ services:
 
 Only do this with a strong `DB_PASSWORD` set, and allow only the machines that
 need it on that network.
+
+### Staff accounts
+
+Without a licence, FilaOps allows one staff (admin or operator) account.
+Existing installs keep all their current users, and everyone can still sign
+in, but you can't add or reactivate staff while you are over that number.
+Customer accounts don't count.
+
+### Orders, shipping and invoices
+
+These steps can now only happen through their own actions, so stock and the
+ledger always stay in step. Scripts that set the status directly get an
+error.
+
+- **Shipping:** only the **Ship** action marks an order shipped, and only once
+  it is ready to ship. It checks stock first and records what shipped on each
+  line.
+- **Cancelling:** only the **Cancel** action cancels an order. It records when
+  and why, and releases linked production orders and reserved material.
+- **Releasing production:** an order's production is released only after
+  billing has started: a payment is recorded or an invoice is sent. Net-terms
+  customers don't have to pay first.
+- **Invoices:** editing an invoice can only change its status from draft to
+  sent. To void an invoice, use the new **Void** action and give a reason;
+  void or refund its payments first.
+
+### Inventory adjustments
+
+A manual adjustment now adds or removes the quantity you enter: `+5` adds
+five and `-5` removes five. Before 4.2.0 it set the on-hand quantity to that
+number. It can't take stock below zero. To set an exact counted quantity, use
+**Reconciliation**.
+
+### Accounting figures
+
+Figures in the accounting reports may change after the upgrade:
+
+- The trial balance and account ledger count posted journal entries only.
+  Draft and voided entries no longer change the totals.
+- COGS on the dashboard and in the profit and COGS reports comes from the
+  general ledger.
+- Completing production now posts to the ledger. Production completed before
+  4.2.0 has no ledger entries. `backend/scripts/backfill_production_completion_gl.py`
+  can add them: it previews by default, and needs a recent backup before it
+  writes anything. Read `--help` first.
+- Closing a fiscal period marks it closed for reporting. It does not lock
+  entries in that period.
+- First-pass yield is worked out from each order's first inspection, so it may
+  go down where orders were inspected again.
 
 ### `ENVIRONMENT` setting
 
