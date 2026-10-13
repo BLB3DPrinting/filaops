@@ -351,11 +351,11 @@ CI:
 
 Risks:
 
-- Workflows are `workflow_dispatch` only, so CI may not automatically run on every push/PR unless another system handles that.
-- Security audits are non-blocking.
+- `core-ci.yml` covers pull requests and pushes to `main`; the broader `test.yml` suite only runs when started by hand.
+- Dependency audits in `core-ci.yml` block on `high`, `critical` and unclassified findings; lower-severity findings are informational.
 - E2E tests are disabled in CI despite this being a workflow-heavy ERP.
 
-Recommendation: for high-risk domains, run targeted local tests and then manually trigger the relevant CI workflow. Consider re-enabling a small smoke E2E subset before broader E2E.
+Recommendation: for high-risk domains, run targeted local tests, rely on `core-ci.yml` for pull requests, and start `test.yml` by hand when the broader suite is needed. Consider re-enabling a small smoke E2E subset before broader E2E.
 
 ## Phase 3: Documentation & Recommendations
 
