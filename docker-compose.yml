@@ -96,6 +96,11 @@ services:
       start_period: 40s
     volumes:
       - ./uploads:/app/uploads
+      # Instance identity: install_uuid (the root of the key that encrypts
+      # stored secrets such as the AI API key). Without a volume it is
+      # regenerated whenever the container is recreated, and secrets saved
+      # before that can no longer be read.
+      - filaops_config:/var/lib/filaops/config
     networks:
       - filaops-network
 
@@ -116,6 +121,8 @@ services:
 volumes:
   filaops_pgdata:
     name: filaops_pgdata
+  filaops_config:
+    name: filaops_config
 
 networks:
   filaops-network:
