@@ -12,7 +12,6 @@ import {
 import { API_URL } from "../config/api";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import logoNavbar from "../assets/logo_navbar.png";
-import logoBLB3D from "../assets/logo_blb3d.svg";
 import { LogoutIcon, MenuIcon } from "./nav/navIcons";
 import { navGroups } from "./nav/navConfig";
 
@@ -73,7 +72,7 @@ export default function AdminLayout() {
           setCompanyLogoUrl(`${API_URL}/api/v1/settings/company/logo`);
         }
       } catch {
-        // No logo uploaded - use default
+        // No logo uploaded - show only the FilaOps logo
       }
     };
     checkCompanyLogo();
@@ -250,13 +249,15 @@ export default function AdminLayout() {
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
                 <Link to="/admin" className="flex items-center gap-3">
-                  <div className="logo-container">
-                    <img
-                      src={companyLogoUrl || logoBLB3D}
-                      alt="Company Logo"
-                      className="h-10 w-auto logo-glow"
-                    />
-                  </div>
+                  {companyLogoUrl && (
+                    <div className="logo-container">
+                      <img
+                        src={companyLogoUrl}
+                        alt="Company Logo"
+                        className="h-10 w-auto logo-glow"
+                      />
+                    </div>
+                  )}
                   <img src={logoNavbar} alt="FilaOps" className="h-32" />
                 </Link>
                 <button
@@ -349,13 +350,15 @@ export default function AdminLayout() {
               to="/admin"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
-              <div className="logo-container">
-                <img
-                  src={companyLogoUrl || logoBLB3D}
-                  alt="Company Logo"
-                  className="h-10 w-auto logo-glow"
-                />
-              </div>
+              {companyLogoUrl && (
+                <div className="logo-container">
+                  <img
+                    src={companyLogoUrl}
+                    alt="Company Logo"
+                    className="h-10 w-auto logo-glow"
+                  />
+                </div>
+              )}
               {sidebarOpen && (
                 <img src={logoNavbar} alt="FilaOps" className="h-32" />
               )}
