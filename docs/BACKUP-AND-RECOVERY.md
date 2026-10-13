@@ -17,6 +17,79 @@ Back them up together to ensure a consistent restore. A database backup without 
 
 ---
 
+## 0. Built-in Database Backups (Backups page)
+
+FilaOps backs up its own database. No script, cron job or shell access is needed.
+In the admin menu, open **Backups** (admins only):
+
+- **Schedule** — turn daily backups on or off, pick the time and time zone, and
+  choose how many days of backups to keep (1–365, default 14). New installs back
+  up daily at 03:00 UTC by default, and the first backup runs shortly after startup.
+- **Run backup now** — starts a backup immediately; the page shows when it finishes.
+- **Recent backups** — every attempt with its result, size and table count. A
+  failed attempt shows the reason (for example, a pg_dump version mismatch or
+  a full disk). Finished backups can be downloaded.
+
+Every backup is checked before it counts as **OK**: the compressed file reads back
+to the end, the dump ends with PostgreSQL's "dump complete" marker, and it holds a
+data section for every table in the database. The Security Audit's
+**Backup Configured** check reads these results.
+
+Retention deletes backups older than the chosen number of days, but never the
+newest good backup. Files you put in the backup folder yourself are left alone.
+
+**Where backups live.** In Docker they are in the `filaops_backups` volume,
+mounted at `/app/backups` in the backend container and owned by `appuser`, the
+user the backend runs as. They are plain SQL, gzip-compressed
+(`filaops-YYYYMMDD-HHMMSS.sql.gz`), readable only by that user.
+
+In a container, **backups only run when the backup folder is a mounted
+volume**. A folder inside the container itself is deleted whenever the
+container is recreated, which every upgrade does, so FilaOps refuses to write
+backups there and the Backups page shows a red **Backups are not running**
+warning. The shipped `docker-compose.yml` mounts the volume. If you use your
+own compose file, add the same mount to the backend service and the
+`filaops_backups` volume to the top-level `volumes:`:
+
+```yaml
+    volumes:
+      - filaops_backups:/app/backups
+```
+
+For a non-Docker install, set `BACKUP_DIR`, and make sure `pg_dump` from the
+same PostgreSQL major version as your server is installed (set
+`BACKUP_PG_DUMP_PATH` if it is not on the `PATH`). To schedule backups outside
+FilaOps instead, set `BACKUP_SCHEDULER_ENABLED=false`.
+
+> **Keep backups private and off the server.** A backup holds customer details
+> and password hashes. Backups kept only on the FilaOps server are lost with the
+> server: download one regularly and store it somewhere else you control.
+
+**Restoring a built-in backup.** Test this before you need it (see
+[Testing Backups](#7-testing-backups)):
+
+```bash
+# 1. Copy the backup out of the volume (or use one you downloaded)
+docker cp filaops-backend:/app/backups/filaops-20261013-030000.sql.gz .
+
+# 2. Restore into a temporary database first and check it
+docker exec filaops-db psql -U postgres -c "CREATE DATABASE restore_check"
+gunzip -c filaops-20261013-030000.sql.gz \
+  | docker exec -i filaops-db psql -U postgres -d restore_check -v ON_ERROR_STOP=1 -q
+docker exec filaops-db psql -U postgres -d restore_check -c "SELECT count(*) FROM users"
+docker exec filaops-db psql -U postgres -c "DROP DATABASE restore_check"
+```
+
+To replace the live database, follow [6.1](#61-full-database-restore-from-pg_dump)
+with the decompressed file (`gunzip -c FILE | ... psql`).
+
+Restore with `psql` from PostgreSQL 16.10 or newer, such as the one in the
+current `postgres:16` image. Since 16.10, pg_dump adds `\restrict` and
+`\unrestrict` lines to every dump, which protect the restore against tampered
+dump files, and older `psql` versions stop at the first of them.
+
+---
+
 ## 1. Manual Database Backup with pg_dump
 
 ### Option A: Plain SQL Dump
