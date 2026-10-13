@@ -5,14 +5,15 @@
 
 ## Overview
 
-A complete FilaOps backup requires **two components**:
+A complete FilaOps backup requires **three components**:
 
 | Component | Location | Contains |
 |-----------|----------|----------|
 | **PostgreSQL database** | Docker volume `filaops_pgdata` | All ERP data (orders, inventory, BOMs, users, etc.) |
 | **Uploads directory** | `./uploads` on host (mounted at `/app/uploads`) | PO documents, product images, attachments |
+| **Instance config** | Docker volume `filaops_config` (mounted at `/var/lib/filaops/config`) | `install_uuid`, the root of the key that encrypts stored secrets such as the AI API key |
 
-Both must be backed up together to ensure a consistent restore. A database backup without uploads will leave file references pointing to missing files.
+Back them up together to ensure a consistent restore. A database backup without uploads will leave file references pointing to missing files, and a database restored without its `install_uuid` cannot decrypt stored secrets (they have to be entered again). Treat the config backup like a password: anyone holding it and a database dump can decrypt those secrets.
 
 ---
 
@@ -308,8 +309,8 @@ tar -xzf uploads_20260207_120000.tar.gz -C /opt/filaops/
 # From rsync backup
 rsync -av /mnt/backup/filaops-uploads/ /opt/filaops/uploads/
 
-# Ensure correct ownership (if running as non-root in container)
-chown -R 1000:1000 /opt/filaops/uploads/
+# Ownership: the backend container gives files in /app/uploads to its
+# appuser at startup, so restored files owned by another user are fine.
 ```
 
 On Windows (from zip):
@@ -422,6 +423,7 @@ If the counts match your expectations, the backup is valid.
 | Copy dump to host | `docker cp filaops-db:/tmp/b.dump ./backups/` |
 | Uploads tar | `tar -czf uploads_backup.tar.gz -C . uploads/` |
 | Docker volume export | `docker run --rm -v filaops_pgdata:/data -v $(pwd):/bk alpine tar -czf /bk/pgdata.tar.gz -C /data .` |
+| Config volume export | `docker run --rm -v filaops_config:/data -v $(pwd):/bk alpine tar -czf /bk/config.tar.gz -C /data .` |
 
 ### Restore Commands
 
@@ -430,12 +432,14 @@ If the counts match your expectations, the backup is valid.
 | Restore SQL dump | `docker exec -i filaops-db psql -U postgres -d filaops < backup.sql` |
 | Restore custom dump | `docker exec filaops-db pg_restore -U postgres -d filaops --clean --if-exists /tmp/b.dump` |
 | Restore uploads | `tar -xzf uploads_backup.tar.gz -C .` |
+| Restore config volume (backend stopped) | `docker run --rm -v filaops_config:/data -v $(pwd):/bk alpine tar -xzf /bk/config.tar.gz -C /data` |
 | Full restart | `docker compose down && docker compose up -d` |
 
 ### Checklist
 
 - [ ] Database dump runs daily without errors
 - [ ] Uploads directory is included in backups
+- [ ] `filaops_config` volume is included in backups and stored as securely as the database
 - [ ] Backups are stored off-site (cloud storage, remote server)
 - [ ] Retention policy removes old backups automatically
 - [ ] Restore test performed at least once per quarter
