@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, cast, desc, func, or_
+from sqlalchemy import Integer, Numeric, cast, desc, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -427,11 +427,13 @@ def create_serial_numbers(db: Session, data: SerialNumberCreate) -> list[SerialN
 
     # DB-side numeric extraction to avoid lexicographic ordering issues.
     # Only rows whose tail after the stem is all digits count, so a manually
-    # entered serial such as "SN-20261013-SPARE" can't break the integer cast.
-    seq = (
+    # entered serial such as "SN-20261013-SPARE" can't break the cast. The cast
+    # is NUMERIC, not INTEGER, so an oversized tail (e.g. "...-2147483648")
+    # can't overflow it either.
+    seq = int(
         db.query(
             func.max(
-                cast(func.substr(SerialNumber.serial_number, len(stem) + 1), Integer)
+                cast(func.substr(SerialNumber.serial_number, len(stem) + 1), Numeric)
             )
         )
         .filter(SerialNumber.serial_number.op("~")(f"^{re.escape(stem)}[0-9]+$"))

@@ -189,6 +189,13 @@ class TestSerialGeneration:
         _existing_serial(db, product, po, f"SN-{_today()}-SPARE")
         assert _generate(db, product, po, quantity=1) == [f"SN-{_today()}-0004"]
 
+    def test_tail_beyond_int32_does_not_overflow(self, db, make_product):
+        """A stored tail past PostgreSQL's INTEGER range still sequences on."""
+        _set_prefix(db, "SN-")
+        product, po = _production_order(db, make_product)
+        _existing_serial(db, product, po, f"SN-{_today()}-2147483648")
+        assert _generate(db, product, po, quantity=1) == [f"SN-{_today()}-2147483649"]
+
     def test_generate_serial_stem(self):
         when = datetime(2026, 10, 13, tzinfo=timezone.utc)
         assert SerialNumber.generate_serial("ACME-", when) == "ACME-20261013-"

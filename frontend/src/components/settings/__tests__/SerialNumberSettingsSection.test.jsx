@@ -29,17 +29,21 @@ function mockFetch({ prefix = "SN-", patch } = {}) {
   return calls;
 }
 
-async function renderSection(opts) {
+async function renderSection(opts = {}) {
   const calls = mockFetch(opts);
   const { default: SerialNumberSettingsSection } = await import(
     "../SerialNumberSettingsSection"
   );
   const { ToastProvider } = await import("../../Toast");
-  const utils = render(
-    <ToastProvider>
+  // AdminSettings renders the section inside its main company-settings form.
+  const section = opts.onFormSubmit ? (
+    <form onSubmit={opts.onFormSubmit}>
       <SerialNumberSettingsSection />
-    </ToastProvider>,
+    </form>
+  ) : (
+    <SerialNumberSettingsSection />
   );
+  const utils = render(<ToastProvider>{section}</ToastProvider>);
   const input = await screen.findByLabelText("Serial Number Prefix");
   const save = screen.getByRole("button", { name: /Save Serial Prefix/i });
   return { ...utils, calls, input, save };
@@ -85,6 +89,21 @@ describe("SerialNumberSettingsSection", () => {
     expect(JSON.parse(patch.opts.body)).toEqual({ serial_number_prefix: "JOES-" });
     await waitFor(() => expect(input.value).toBe("JOES-"));
     expect(await screen.findByText("Serial number prefix saved")).toBeTruthy();
+  });
+
+  it("Enter in the prefix field saves the prefix, not the enclosing form", async () => {
+    const onFormSubmit = vi.fn((e) => e.preventDefault());
+    const { input, calls } = await renderSection({ onFormSubmit });
+    fireEvent.change(input, { target: { value: "ACME" } });
+
+    const notPrevented = fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    expect(notPrevented).toBe(false); // default (implicit form submit) cancelled
+    await waitFor(() => expect(patches(calls)).toHaveLength(1));
+    expect(JSON.parse(patches(calls)[0].opts.body)).toEqual({
+      serial_number_prefix: "ACME-",
+    });
+    expect(onFormSubmit).not.toHaveBeenCalled();
   });
 
   it("flags an invalid prefix and does not send it", async () => {

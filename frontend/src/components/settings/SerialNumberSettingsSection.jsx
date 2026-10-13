@@ -117,6 +117,14 @@ export default function SerialNumberSettingsSection() {
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          // This section sits inside the AdminSettings form: Enter here must
+          // save the prefix, not submit the company form (which ignores it).
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!saving) handleSave();
+          }
+        }}
         maxLength={MAX_SERIAL_PREFIX_LENGTH + 4}
         aria-invalid={Boolean(check.error)}
         aria-describedby="serial_number_prefix_help"
