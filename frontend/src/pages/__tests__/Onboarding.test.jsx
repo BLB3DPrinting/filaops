@@ -362,3 +362,35 @@ describe('Onboarding — account step errors', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('Onboarding — customer contact email', () => {
+  const captureInitialAdmin = (bodies) => ({
+    '/setup/initial-admin': (_url, opts) => {
+      bodies.push(JSON.parse(opts.body))
+      return fetchOk({ access_token: 'tok', setup_token: 'tok' })
+    },
+  })
+
+  it('sends the customer contact email when one is entered', async () => {
+    const bodies = []
+    await renderWizard(captureInitialAdmin(bodies))
+
+    fireEvent.change(screen.getByPlaceholderText('support@example.com'), {
+      target: { value: ' help@acmeprint.works ', name: 'company_email' },
+    })
+    await fillAndSubmitAccount()
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0].company_email).toBe('help@acmeprint.works')
+  })
+
+  it('leaves it out when blank so the server uses the admin email', async () => {
+    const bodies = []
+    await renderWizard(captureInitialAdmin(bodies))
+
+    await fillAndSubmitAccount()
+
+    expect(bodies).toHaveLength(1)
+    expect('company_email' in bodies[0]).toBe(false)
+  })
+})

@@ -5,6 +5,7 @@ Allows creating the initial admin account when no users exist.
 This endpoint is disabled once any user has been created.
 """
 from datetime import timedelta
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, EmailStr, Field
@@ -16,6 +17,9 @@ from app.core.security import hash_password, create_access_token, validate_passw
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.api.v1.deps import get_current_admin_user
+# Module-level on purpose: an import inside the try below would be hidden by
+# its except (it once named a module that does not exist).
+from app.api.v1.endpoints.settings import get_or_create_settings
 from app.services import seed_service
 from app.logging_config import get_logger
 
@@ -36,6 +40,9 @@ class InitialAdminCreate(BaseModel):
     password: str = Field(..., min_length=8, description="Password must meet strength requirements")
     full_name: str = Field(..., min_length=1, max_length=100)
     company_name: str = Field(default="", max_length=100)
+    # The address customers are told to contact. Defaults to the admin's own
+    # email so customer emails never fall back to a placeholder address.
+    company_email: Optional[EmailStr] = None
 
 
 class SetupCompleteResponse(BaseModel):
@@ -130,20 +137,22 @@ def create_initial_admin(
     db.commit()
     db.refresh(admin)
 
-    # Save company name to company settings so the UI shows it immediately.
+    # Save company name and contact email to company settings so the UI and
+    # customer emails use them immediately.
     # Non-fatal: admin account already exists; settings can be updated later.
-    if admin_data.company_name:
-        try:
-            from app.services.settings_service import get_or_create_settings
-            company_settings = get_or_create_settings(db)
+    try:
+        company_settings = get_or_create_settings(db)
+        if admin_data.company_name:
             company_settings.company_name = admin_data.company_name
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            logger.warning(
-                "Admin account created but company_name could not be saved to settings: %s",
-                exc,
-            )
+        if not company_settings.company_email:
+            company_settings.company_email = str(admin_data.company_email or admin_data.email)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning(
+            "Admin account created but company settings could not be saved: %s",
+            exc,
+        )
 
     # Generate access token so they're logged in immediately
     access_token = create_access_token(user_id=admin.id)
