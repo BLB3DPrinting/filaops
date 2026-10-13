@@ -23,6 +23,7 @@ const ACCOUNT_FIELD_LABELS = {
   password: "Password",
   full_name: "Your Name",
   company_name: "Company Name",
+  company_email: "Customer Contact Email",
 };
 
 const STEPS = {
@@ -89,6 +90,7 @@ export default function Onboarding() {
     confirmPassword: "",
     full_name: "",
     company_name: "",
+    company_email: "",
     currency_code: "USD",
     locale: "en-US",
   });
@@ -214,6 +216,8 @@ export default function Onboarding() {
           password: accountData.password,
           full_name: accountData.full_name,
           company_name: accountData.company_name,
+          // Blank: the server uses the admin email above.
+          company_email: accountData.company_email.trim() || undefined,
         }),
       });
 
@@ -763,6 +767,29 @@ export default function Onboarding() {
                   }}
                   placeholder="Your Print Farm"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1"
+                style={{ color: 'var(--text-secondary)' }}>
+                  Customer Contact Email <span style={{ color: 'var(--text-secondary)' }}>(optional)</span>
+                </label>
+                <input
+                  type="email"
+                  name="company_email"
+                  value={accountData.company_email}
+                  onChange={handleAccountChange}
+                  className="w-full px-3 py-2 rounded-lg focus:outline-none transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)'
+                  }}
+                  placeholder={accountData.email || "support@example.com"}
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Shown to customers in emails as the address to contact. Leave blank to use your email above.
+                </p>
               </div>
 
               {/* Currency & Locale — affects invoices and number formatting */}
