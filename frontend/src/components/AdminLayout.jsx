@@ -16,6 +16,25 @@ import { LogoutIcon, MenuIcon } from "./nav/navIcons";
 import { navGroups } from "./nav/navConfig";
 
 /**
+ * The sidebar brand mark. A shop's uploaded logo replaces the FilaOps
+ * wordmark; without one the wordmark shows. Collapsed, only an uploaded logo
+ * shows, at icon width.
+ */
+function SidebarBrand({ companyLogoUrl, compact = false }) {
+  if (companyLogoUrl) {
+    return (
+      <img
+        src={companyLogoUrl}
+        alt="Company Logo"
+        className={`h-10 w-auto object-contain ${compact ? "max-w-[3rem]" : "max-w-[10rem]"}`}
+      />
+    );
+  }
+  if (compact) return null;
+  return <img src={logoNavbar} alt="FilaOps" className="h-32" />;
+}
+
+/**
  * The admin shell: sidebar, top bar, and the outlet every /admin/* route
  * renders into.
  *
@@ -220,15 +239,19 @@ export default function AdminLayout() {
         className="min-h-screen flex"
         style={{ backgroundColor: "var(--bg-primary)" }}
       >
-        {/* Mobile menu button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
-          style={{ backgroundColor: "var(--bg-card)" }}
-          aria-label="Open navigation menu"
-        >
-          <MenuIcon />
-        </button>
+        {/* Mobile menu button. Hidden while the drawer is open: it sits above
+            the drawer and would cover the brand mark; the drawer has its own
+            close button. */}
+        {!mobileMenuOpen && (
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
+            style={{ backgroundColor: "var(--bg-card)" }}
+            aria-label="Open navigation menu"
+          >
+            <MenuIcon />
+          </button>
+        )}
 
         {/* Mobile sidebar overlay */}
         {mobileMenuOpen && (
@@ -248,17 +271,8 @@ export default function AdminLayout() {
                 className="p-4 flex items-center justify-between"
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
-                <Link to="/admin" className="flex items-center gap-3">
-                  {companyLogoUrl && (
-                    <div className="logo-container">
-                      <img
-                        src={companyLogoUrl}
-                        alt="Company Logo"
-                        className="h-10 w-auto logo-glow"
-                      />
-                    </div>
-                  )}
-                  <img src={logoNavbar} alt="FilaOps" className="h-32" />
+                <Link to="/admin" className="flex items-center gap-3 min-w-0">
+                  <SidebarBrand companyLogoUrl={companyLogoUrl} />
                 </Link>
                 <button
                   onClick={() => setMobileMenuOpen(false)}
@@ -350,18 +364,7 @@ export default function AdminLayout() {
               to="/admin"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
-              {companyLogoUrl && (
-                <div className="logo-container">
-                  <img
-                    src={companyLogoUrl}
-                    alt="Company Logo"
-                    className="h-10 w-auto logo-glow"
-                  />
-                </div>
-              )}
-              {sidebarOpen && (
-                <img src={logoNavbar} alt="FilaOps" className="h-32" />
-              )}
+              <SidebarBrand companyLogoUrl={companyLogoUrl} compact={!sidebarOpen} />
             </Link>
             {sidebarOpen && (
               <button
