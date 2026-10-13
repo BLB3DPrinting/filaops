@@ -87,21 +87,21 @@ APP_GROUP=appgroup
 RUN_AS=()
 # Only inside the image: appuser does not exist when the script runs elsewhere.
 if [ "$(id -u)" = "0" ] && id "$APP_USER" >/dev/null 2>&1; then
-    WRITABLE_DIRS="/app/uploads /app/logs /app/static ${LICENSE_CONFIG_DIR:-/var/lib/filaops/config}"
+    WRITABLE_DIRS=(/app/uploads /app/logs /app/static "${LICENSE_CONFIG_DIR:-/var/lib/filaops/config}")
     for var in UPLOAD_DIR STATIC_DIR UPLOAD_PRODUCTS_DIR UPLOAD_PO_DOCS_DIR UPLOAD_QC_PHOTOS_DIR; do
         if [ -n "${!var}" ]; then
-            WRITABLE_DIRS="$WRITABLE_DIRS ${!var}"
+            WRITABLE_DIRS+=("${!var}")
         fi
     done
 
     DROP_TO=(setpriv --reuid="$APP_USER" --regid="$APP_GROUP" --init-groups env "HOME=/home/$APP_USER")
     UNWRITABLE=""
-    for dir in $WRITABLE_DIRS; do
+    for dir in "${WRITABLE_DIRS[@]}"; do
         mkdir -p "$dir" 2>/dev/null || true
         # -h: change a symlink itself, never the file it points to.
         find "$dir" \! -user "$APP_USER" -exec chown -h "$APP_USER:$APP_GROUP" {} + 2>/dev/null || true
         if ! "${DROP_TO[@]}" test -w "$dir"; then
-            UNWRITABLE="$UNWRITABLE $dir"
+            UNWRITABLE="$UNWRITABLE '$dir'"
         fi
     done
     if [ -d /app/portal-dist ]; then
