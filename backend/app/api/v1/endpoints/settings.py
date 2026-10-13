@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -37,6 +37,7 @@ from app.core.outbound_guard import (
     parse_ip_literal,
 )
 from app.logging_config import get_logger
+from app.services import anthropic_models
 
 logger = get_logger(__name__)
 
@@ -347,14 +348,46 @@ class AISettingsResponse(BaseModel):
     external_ai_blocked: bool = False  # When true, only local AI (Ollama) allowed
 
 
+# Model IDs look like claude-sonnet-5-5 or claude-opus-4-5-20251101. "" is
+# allowed and means "use the default", like null.
+_ANTHROPIC_MODEL_PATTERN = r"^([A-Za-z0-9][A-Za-z0-9._:@-]*)?$"
+
+
 class AISettingsUpdate(BaseModel):
     """Update AI settings"""
     ai_provider: Optional[str] = Field(None, pattern="^(anthropic|ollama)?$")
     ai_api_key: Optional[str] = Field(None, max_length=500)
-    ai_anthropic_model: Optional[str] = Field(None, max_length=100)
+    ai_anthropic_model: Optional[str] = Field(
+        None, max_length=100, pattern=_ANTHROPIC_MODEL_PATTERN
+    )
     ai_ollama_url: Optional[str] = Field(None, max_length=255)
     ai_ollama_model: Optional[str] = Field(None, max_length=100)
     external_ai_blocked: Optional[bool] = None
+
+
+class AnthropicModelOption(BaseModel):
+    id: str
+    display_name: str
+    lifecycle: Optional[str] = None  # 'active' | 'deprecated' | None if unknown
+    created_at: Optional[str] = None
+
+
+class AnthropicModelsResponse(BaseModel):
+    """Models to offer in the settings dropdown. Never contains the API key."""
+    models: list[AnthropicModelOption]
+    # 'anthropic' = live list for the saved key; 'fallback' = built-in list
+    source: str
+    recommended: str
+    pricing_url: str
+    error: Optional[str] = None  # why the fallback list is shown
+    cached: bool = False
+
+
+class AITestRequest(BaseModel):
+    """Optional body for POST /ai/test: test a model before saving it."""
+    ai_anthropic_model: Optional[str] = Field(
+        None, max_length=100, pattern=_ANTHROPIC_MODEL_PATTERN
+    )
 
 
 class AnthropicStatusResponse(BaseModel):
@@ -376,21 +409,17 @@ def _mask_api_key(key: Optional[str]) -> Optional[str]:
     return f"{key[:3]}...{key[-4:]}"
 
 
-def _test_anthropic_connection(api_key: str) -> tuple[bool, str]:
-    """Test Anthropic API connection"""
+def _test_anthropic_connection(api_key: str, model: str) -> tuple[bool, str]:
+    """Send a one-token request with the chosen model.
+
+    A real request, so a bad key, or a retired or mistyped model ID, is
+    reported now instead of when the first invoice is parsed.
+    """
     try:
-        import anthropic
-        # Verify the anthropic module is importable (validates package is installed)
-        _ = anthropic.Anthropic  # Check class exists without instantiating
-        # Validate the key format
-        if not api_key.startswith("sk-"):
-            return False, "Invalid API key format (should start with 'sk-')"
-        return True, "API key format valid"
+        import anthropic  # noqa: F401  (invoice parsing needs the package)
     except ImportError:
         return False, "anthropic package not installed"
-    except Exception as e:
-        logger.error(f"Anthropic connection test failed: {e}")
-        return False, "Connection test failed"
+    return anthropic_models.check_model(api_key, model)
 
 
 # SEC: ai_ollama_url is fetched by the server. Ollama normally runs on
@@ -540,7 +569,7 @@ async def get_ai_settings(
         ai_provider=settings.ai_provider,
         ai_api_key_set=bool(settings.ai_api_key),
         ai_api_key_masked=_mask_api_key(settings.ai_api_key),
-        ai_anthropic_model=settings.ai_anthropic_model or "claude-sonnet-4-20250514",
+        ai_anthropic_model=settings.ai_anthropic_model or anthropic_models.DEFAULT_ANTHROPIC_MODEL,
         ai_ollama_url=settings.ai_ollama_url or "http://localhost:11434",
         ai_ollama_model=settings.ai_ollama_model or "llama3.2",
         ai_status=ai_status,
@@ -613,12 +642,60 @@ async def update_ai_settings(
     return await get_ai_settings(current_user, db)
 
 
-@router.post("/ai/test")
-def test_ai_connection(
+@router.get("/ai/anthropic-models", response_model=AnthropicModelsResponse)
+def list_anthropic_models(
+    refresh: bool = Query(False, description="Skip the short server-side cache"),
     current_user: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
-    """Test the configured AI connection"""
+    """Claude models the saved API key can use, from Anthropic's Models API.
+
+    On any failure (no key, external AI blocked, network, bad key) this still
+    answers 200, with `error` set and a small built-in list, so the settings
+    page can always render a dropdown.
+    """
+    settings = get_or_create_settings(db)
+
+    def fallback(error: str) -> AnthropicModelsResponse:
+        return AnthropicModelsResponse(
+            models=anthropic_models.fallback_models(),
+            source="fallback",
+            recommended=anthropic_models.DEFAULT_ANTHROPIC_MODEL,
+            pricing_url=anthropic_models.PRICING_URL,
+            error=error,
+        )
+
+    if settings.external_ai_blocked:
+        return fallback("External AI is blocked, so Anthropic was not contacted.")
+    if not settings.ai_api_key:
+        return fallback("Save an Anthropic API key to load the models it can use.")
+
+    try:
+        models, cached = anthropic_models.list_models(settings.ai_api_key, refresh=refresh)
+    except anthropic_models.AnthropicModelsError as exc:
+        logger.warning("Anthropic model list unavailable: %s", exc)
+        return fallback(str(exc))
+
+    return AnthropicModelsResponse(
+        models=models,
+        source="anthropic",
+        recommended=anthropic_models.DEFAULT_ANTHROPIC_MODEL,
+        pricing_url=anthropic_models.PRICING_URL,
+        cached=cached,
+    )
+
+
+@router.post("/ai/test")
+def test_ai_connection(
+    data: Optional[AITestRequest] = Body(None),
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Test the configured AI connection.
+
+    For Anthropic, `ai_anthropic_model` in the body tests the model picked on
+    the page before it is saved; without it the saved model is tested.
+    """
     settings = get_or_create_settings(db)
 
     if not settings.ai_provider:
@@ -635,7 +712,12 @@ def test_ai_connection(
                 "provider": "anthropic",
                 "message": "Anthropic API key not set"
             }
-        success, message = _test_anthropic_connection(settings.ai_api_key)
+        model = (
+            (data.ai_anthropic_model if data else None)
+            or settings.ai_anthropic_model
+            or anthropic_models.DEFAULT_ANTHROPIC_MODEL
+        )
+        success, message = _test_anthropic_connection(settings.ai_api_key, model)
         return {
             "success": success,
             "provider": "anthropic",

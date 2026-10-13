@@ -296,9 +296,13 @@ The **AI Assistant** card configures the AI provider used for features like invo
 
     1. Select **Anthropic** as the provider.
     2. Paste your Anthropic API key (from [console.anthropic.com/account/keys](https://console.anthropic.com/account/keys)).
-    3. Optionally choose a **Claude model** from the dropdown (defaults to `claude-sonnet-4-20250514`).
-    4. Click **Test Connection** to verify the connection.
-    5. Save.
+    3. Save, so FilaOps can ask Anthropic which models your key can use.
+    4. Choose a **Claude model** from the dropdown. The list comes from Anthropic, so it stays current as models are released and retired; **Refresh list** loads it again. The default is `claude-sonnet-5-5`. Prices differ by model; see [Anthropic's pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+    5. Click **Test Connection**. It sends a one-token request with the selected model, so a bad key or a retired or mistyped model is reported now rather than when an invoice is parsed.
+    6. Save.
+
+    !!! note "Saved model not listed"
+        If your saved model is no longer in Anthropic's list, it stays selected and is marked **not listed by Anthropic (may be retired)**. Pick a listed model and test it. If Anthropic can't be reached (no key saved, a rejected key or no internet), the dropdown shows a short built-in list of current models and the reason.
 
     !!! note "Key display"
         The UI only ever displays the first 3 and last 4 characters of a saved key. The full key is never shown again after saving.

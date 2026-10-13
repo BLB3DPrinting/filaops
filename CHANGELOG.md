@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **AI settings: the Claude model list comes from Anthropic.** The model dropdown now lists the models your saved API key can use (Anthropic's Models API, cached for 10 minutes; admins only) instead of three hard-coded models. If Anthropic can't be reached, a short built-in list of current models is shown with the reason. The per-document cost estimates are gone; the page links to Anthropic's pricing instead.
+- **AI settings: Test Connection checks the selected model.** It now sends a one-token request to Anthropic with the model picked on the page, so a rejected key or a retired or mistyped model ID is reported at setup time. Before, it only checked that the key started with `sk-`.
+- **New default Claude model: `claude-sonnet-5-5`.** The settings page and the API now use the same default. The page's built-in default and its "Haiku 3.5" option used `claude-haiku-3-5-20241022`, which was never a valid model ID; the API defaulted to `claude-sonnet-4-20250514`, which Anthropic has deprecated.
+
+### Upgrade notes
+
+- **Saved Claude models are not changed.** Check the model in **Admin > Integrations > AI Assistant** after upgrading. If someone picked "Haiku 3.5", the install has `claude-haiku-3-5-20241022` stored, which Anthropic does not recognise; installs that never picked a model have `claude-sonnet-4-20250514`, which is deprecated. A saved model Anthropic no longer lists stays selected and is marked "not listed by Anthropic (may be retired)"; pick a listed model, use Test Connection and save.
+
 ## [4.2.0] - 2026-10-12
 
 ### Upgrade notes

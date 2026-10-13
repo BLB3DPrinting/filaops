@@ -1585,7 +1585,7 @@
 | ai_api_key | String(500) |  | Ai api key |
 | ai_ollama_url | String(255) | DEFAULT 'http://localhost:11434' | Ai ollama url |
 | ai_ollama_model | String(100) | DEFAULT 'llama3.2' | Ai ollama model |
-| ai_anthropic_model | String(100) | DEFAULT 'claude-sonnet-4-20250514' | Ai anthropic model |
+| ai_anthropic_model | String(100) | DEFAULT 'claude-sonnet-5-5' | Ai anthropic model |
 | external_ai_blocked | Boolean | NOT NULL, DEFAULT False | External ai blocked |
 | default_margin_percent | Numeric(5, 2) |  | Default margin percent |
 | created_at | DateTime | NOT NULL, DEFAULT now() | Creation timestamp |

@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import AnthropicModelSelect from "./AnthropicModelSelect";
 
 export default function AiSettingsSection() {
   const toast = useToast();
@@ -15,7 +16,7 @@ export default function AiSettingsSection() {
     ai_api_key: "",
     ai_ollama_url: "http://localhost:11434",
     ai_ollama_model: "llama3.2",
-    ai_anthropic_model: "claude-haiku-3-5-20241022",
+    ai_anthropic_model: "", // filled from the API; the backend owns the default
     external_ai_blocked: false,
   });
   const [savingAi, setSavingAi] = useState(false);
@@ -52,7 +53,7 @@ export default function AiSettingsSection() {
           ai_api_key: "", // Don't populate - it's masked
           ai_ollama_url: data.ai_ollama_url || "http://localhost:11434",
           ai_ollama_model: data.ai_ollama_model || "llama3.2",
-          ai_anthropic_model: data.ai_anthropic_model || "claude-haiku-3-5-20241022",
+          ai_anthropic_model: data.ai_anthropic_model || "",
           external_ai_blocked: data.external_ai_blocked || false,
         });
         // Only check Anthropic package status if relevant (anthropic selected or no provider)
@@ -148,7 +149,7 @@ export default function AiSettingsSection() {
           ai_api_key: "", // Don't populate - it's masked
           ai_ollama_url: data.ai_ollama_url || "http://localhost:11434",
           ai_ollama_model: data.ai_ollama_model || "llama3.2",
-          ai_anthropic_model: data.ai_anthropic_model || "claude-haiku-3-5-20241022",
+          ai_anthropic_model: data.ai_anthropic_model || "",
           external_ai_blocked: data.external_ai_blocked || false,
         });
         toast.success("AI settings saved successfully!");
@@ -164,11 +165,21 @@ export default function AiSettingsSection() {
   };
 
   const handleTestAiConnection = async () => {
+    if (aiForm.ai_provider === "anthropic" && aiForm.ai_api_key) {
+      toast.error("Save the new API key first, then test the connection.");
+      return;
+    }
     setTestingAi(true);
     try {
+      // For Anthropic, test the model picked in the form (saved or not), so a
+      // retired or mistyped model is caught before invoices depend on it.
+      const body = aiForm.ai_provider === "anthropic" && aiForm.ai_anthropic_model
+        ? JSON.stringify({ ai_anthropic_model: aiForm.ai_anthropic_model })
+        : undefined;
       const response = await fetch(`${API_URL}/api/v1/settings/ai/test`, {
         method: "POST",
         credentials: "include",
+        ...(body && { headers: { "Content-Type": "application/json" }, body }),
       });
 
       const data = await response.json();
@@ -379,9 +390,9 @@ export default function AiSettingsSection() {
                 (HIPAA, ITAR, SOX, GDPR, etc.). Consider <strong>Ollama</strong> for fully local processing.
               </p>
               <p className="text-sm text-gray-400 mt-2">
-                Usage is billed per request (typically a few cents per invoice).{" "}
+                Anthropic bills usage per token, and the cost depends on the model you pick.{" "}
                 <a
-                  href="https://www.anthropic.com/pricing"
+                  href="https://platform.claude.com/docs/en/about-claude/pricing"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:underline"
@@ -456,30 +467,12 @@ export default function AiSettingsSection() {
                     </a>
                   </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Model
-                  </label>
-                  <select
-                    name="ai_anthropic_model"
-                    value={aiForm.ai_anthropic_model}
-                    onChange={handleAiFormChange}
-                    className="w-full md:w-96 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white"
-                  >
-                    <option value="claude-haiku-3-5-20241022">
-                      Haiku 3.5 - Fastest (~$0.001/doc)
-                    </option>
-                    <option value="claude-sonnet-4-20250514">
-                      Sonnet 4 - Balanced (~$0.004/doc)
-                    </option>
-                    <option value="claude-opus-4-5-20251101">
-                      Opus 4.5 - Best Quality (~$0.02/doc)
-                    </option>
-                  </select>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Cost estimates based on ~2,000 token invoices. Opus provides best extraction accuracy.
-                  </p>
-                </div>
+                <AnthropicModelSelect
+                  value={aiForm.ai_anthropic_model}
+                  savedModel={aiSettings?.ai_anthropic_model}
+                  onChange={handleAiFormChange}
+                  apiKeyMasked={aiSettings?.ai_api_key_masked || ""}
+                />
               </>
             )}
           </div>
