@@ -1,4 +1,7 @@
-FROM python:3.11-slim
+# Pin the Debian release, not just the Python version: the unpinned slim tag
+# moved from Debian 12 (bookworm) to 13 (trixie) under existing installs, and
+# the next move would change system packages without any change here.
+FROM python:3.11-slim-trixie
 
 # Build-time metadata (optional)
 ARG FILAOPS_BUILD_DATE
