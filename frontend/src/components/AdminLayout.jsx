@@ -35,6 +35,27 @@ function SidebarBrand({ companyLogoUrl, compact = false }) {
 }
 
 /**
+ * Attribution at the foot of the sidebar, shown only when a shop logo has
+ * replaced the FilaOps wordmark at the top.
+ */
+function PoweredBy({ companyLogoUrl, compact = false }) {
+  if (!companyLogoUrl) return null;
+  return (
+    <div
+      className="shrink-0 px-4 py-3 text-xs text-center"
+      style={{
+        borderTop: "1px solid var(--border-subtle)",
+        color: "var(--text-secondary)",
+        opacity: 0.7,
+      }}
+      title="Powered by FilaOps"
+    >
+      {compact ? "FilaOps" : "Powered by FilaOps"}
+    </div>
+  );
+}
+
+/**
  * The admin shell: sidebar, top bar, and the outlet every /admin/* route
  * renders into.
  *
@@ -260,7 +281,7 @@ export default function AdminLayout() {
             onClick={() => setMobileMenuOpen(false)}
           >
             <aside
-              className="w-64 h-full"
+              className="w-64 h-full flex flex-col"
               style={{
                 backgroundColor: "var(--bg-secondary)",
                 borderRight: "1px solid var(--border-subtle)",
@@ -342,6 +363,7 @@ export default function AdminLayout() {
                   </div>
                 ))}
               </nav>
+              <PoweredBy companyLogoUrl={companyLogoUrl} />
             </aside>
           </div>
         )}
@@ -442,6 +464,7 @@ export default function AdminLayout() {
               </div>
             ))}
           </nav>
+          <PoweredBy companyLogoUrl={companyLogoUrl} compact={!sidebarOpen} />
         </aside>
         <div className="flex-1 flex flex-col">
           <header
