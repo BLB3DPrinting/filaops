@@ -12,7 +12,7 @@ from app.core.settings import Settings, email_is_configured, is_placeholder_emai
 
 REAL_ADDRESSES = [
     "owner@filaops.dev",
-    "Admin@BLB3DPrinting.com",
+    "Admin@FilaOps.Dev",
     "  ops@shop.co.uk  ",
     "admin@examples.com",
     "admin@myexample.com",
