@@ -1,6 +1,6 @@
 # FilaOps
 
-[![CI](https://github.com/BLB3DPrinting/filaops/actions/workflows/filaops-ci.yml/badge.svg)](https://github.com/BLB3DPrinting/filaops/actions/workflows/filaops-ci.yml)
+[![CI](https://github.com/BLB3DPrinting/filaops/actions/workflows/core-ci.yml/badge.svg?branch=main)](https://github.com/BLB3DPrinting/filaops/actions/workflows/core-ci.yml?query=branch%3Amain)
 [![CodeQL](https://github.com/BLB3DPrinting/filaops/actions/workflows/codeql.yml/badge.svg)](https://github.com/BLB3DPrinting/filaops/actions/workflows/codeql.yml)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
 [![Latest Release](https://img.shields.io/github/v/release/BLB3DPrinting/filaops)](https://github.com/BLB3DPrinting/filaops/releases/latest)
