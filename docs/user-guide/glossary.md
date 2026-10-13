@@ -397,7 +397,7 @@ A configurable code that explains why a production order or operation was scrapp
 The visual scheduling board at **Admin > Production > Scheduler** that displays machine lanes (Resources and Printers) with operations plotted as Gantt bars across a configurable time window. From the board, operators can assign operations to machines and time slots, and see maintenance windows blocking capacity.
 
 ### Serial Number
-A unique identifier (`BLB-YYYYMMDD-XXXX`) assigned to an individual finished product when a production order closes. Enables warranty tracking, returns management, and full material traceability at the unit level. Only generated for products with `track_serials = true`.
+A unique identifier (`PREFIX-YYYYMMDD-XXXX`, for example `SN-20260120-0001`) assigned to an individual finished product when a production order closes. The prefix is set shop-wide at **Admin > Settings > Serial Numbers** (default `SN-`); changing it affects new serials only. Enables warranty tracking, returns management, and full material traceability at the unit level. Only generated for products with `track_serials = true`.
 
 ### SKU (Stock Keeping Unit)
 A unique code that identifies a specific product in the FilaOps catalog. SKUs are used for barcode scanning, sales channel integration (WooCommerce, Squarespace), and as the primary display identifier across lists and reports.

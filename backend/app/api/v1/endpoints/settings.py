@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.session import get_db
 from app.models.user import User
@@ -38,6 +38,7 @@ from app.core.outbound_guard import (
 )
 from app.logging_config import get_logger
 from app.services import anthropic_models
+from app.services.serial_prefix import DEFAULT_SERIAL_PREFIX, normalize_serial_prefix
 
 logger = get_logger(__name__)
 
@@ -97,6 +98,9 @@ class CompanySettingsResponse(BaseModel):
     # Dispatch
     auto_dispatch: bool = False
 
+    # Serial numbers
+    serial_number_prefix: str = DEFAULT_SERIAL_PREFIX
+
     updated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -144,6 +148,17 @@ class CompanySettingsUpdate(BaseModel):
 
     # Dispatch
     auto_dispatch: Optional[bool] = None
+
+    # Serial numbers: letters/digits/dashes, trailing dash added if missing.
+    # New serials use it; existing serials are never renamed.
+    serial_number_prefix: Optional[str] = Field(None, max_length=20)
+
+    @field_validator("serial_number_prefix")
+    @classmethod
+    def _validate_serial_number_prefix(cls, value: Optional[str]) -> str:
+        # Runs only when the field is sent. An explicit null is rejected
+        # rather than silently switching the shop back to the default.
+        return normalize_serial_prefix(value)
 
 
 # ============================================================================
@@ -203,6 +218,7 @@ def settings_to_response(settings: CompanySettings) -> CompanySettingsResponse:
         business_work_days=settings.business_work_days,
         default_margin_percent=float(settings.default_margin_percent) if settings.default_margin_percent is not None else None,
         auto_dispatch=bool(settings.auto_dispatch) if settings.auto_dispatch is not None else False,
+        serial_number_prefix=settings.serial_number_prefix or DEFAULT_SERIAL_PREFIX,
         updated_at=settings.updated_at,
     )
 

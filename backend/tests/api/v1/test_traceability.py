@@ -129,7 +129,7 @@ class TestTraceabilityAuth:
         assert response.status_code == 401
 
     def test_recall_backward_requires_auth(self, unauthed_client):
-        response = unauthed_client.get(f"{BASE_URL}/recall/backward/BLB-000")
+        response = unauthed_client.get(f"{BASE_URL}/recall/backward/SN-000")
         assert response.status_code == 401
 
     def test_record_consumption_requires_auth(self, unauthed_client):

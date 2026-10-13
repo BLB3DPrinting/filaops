@@ -155,6 +155,19 @@ The **Dispatch Settings** section controls how the **Command Center** assigns wo
 !!! warning "Maintenance warnings always require manual review"
     Even with auto-dispatch enabled, any suggestion that carries a maintenance warning is **never** auto-confirmed. Those jobs always require an operator to review and confirm manually.
 
+### Serial Numbers
+
+The **Serial Numbers** section sets the prefix for serial numbers given to finished units of serial-tracked products. Serials look like `SN-20261013-0001`: the prefix, the date, then a running number for that day.
+
+| Field | Notes |
+|-------|-------|
+| **Serial Number Prefix** | Letters, digits and dashes, starting with a letter or digit, up to 12 characters. A trailing dash is added if you leave it off. New installs use `SN-`. |
+
+This section has its own **Save Serial Prefix** button. Only admins can change the prefix; operators can see it.
+
+!!! note "Existing serials keep their numbers"
+    Changing the prefix affects new serials only. Serials already issued are never renamed, and each prefix keeps its own running number. An install that issued `BLB-` serials before this setting existed keeps `BLB-` after upgrading, so its numbering carries on.
+
 ### AI Configuration
 
 The AI provider setup (Anthropic Claude, Ollama) has moved to **Admin > Integrations**. The Company Settings page shows a signpost with a direct link to the new location. See [Integrations](#integrations) below.
@@ -359,6 +372,7 @@ The **AI Assistant** card configures the AI provider used for features like invo
 | Set default margin for price suggestions | **Admin** > **Settings** > Pricing |
 | Set business hours for production | **Admin** > **Settings** > Business Hours (Production Operations) |
 | Configure auto-dispatch | **Admin** > **Settings** > Dispatch Settings |
+| Set the serial number prefix | **Admin** > **Settings** > Serial Numbers |
 | Configure AI provider | **Admin** > **Integrations** > AI Assistant |
 | Check for updates | **Admin** > **Settings** > Version & Updates |
 | Manage inventory locations | **Inventory** > **Locations** |

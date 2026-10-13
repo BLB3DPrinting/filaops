@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Serial number prefix setting.** Admins can set the prefix for new serial numbers in **Admin > Settings > Serial Numbers** (letters, digits and dashes; a trailing dash is added). New installs use `SN-`, giving serials like `SN-20261013-0001`. Before, every serial started with `BLB-`.
+
 ### Changed
 
 - **AI settings: the Claude model list comes from Anthropic.** The model dropdown now lists the models your saved API key can use (Anthropic's Models API, cached for 10 minutes; admins only) instead of three hard-coded models. If Anthropic can't be reached, a short built-in list of current models is shown with the reason. The per-document cost estimates are gone; the page links to Anthropic's pricing instead.
@@ -15,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
+- **Serial numbering carries on unchanged.** The upgrade runs database migration 104. An install that already has serials starting with `BLB-` keeps `BLB-` as its prefix, so the next serial follows on from the last one; every other install gets `SN-`. Existing serial numbers are never renamed. Changing the prefix later affects new serials only.
 - **Saved Claude models are not changed.** Check the model in **Admin > Integrations > AI Assistant** after upgrading. If someone picked "Haiku 3.5", the install has `claude-haiku-3-5-20241022` stored, which Anthropic does not recognise; installs that never picked a model have `claude-sonnet-4-20250514`, which is deprecated. A saved model Anthropic no longer lists stays selected and is marked "not listed by Anthropic (may be retired)"; pick a listed model, use Test Connection and save.
 
 ## [4.2.0] - 2026-10-12

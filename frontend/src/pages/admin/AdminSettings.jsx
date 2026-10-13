@@ -10,6 +10,7 @@ import { currencyOptions, localeOptions } from "../../components/settings/i18nCo
 import { useLocale } from "../../contexts/LocaleContext";
 import LicenseSection from "../../components/LicenseSection";
 import QualitySettingsSection from "../../components/settings/QualitySettingsSection";
+import SerialNumberSettingsSection from "../../components/settings/SerialNumberSettingsSection";
 import { useApp } from "../../contexts/AppContext";
 
 const AdminSettings = () => {
@@ -922,6 +923,9 @@ const AdminSettings = () => {
 
         {/* Quality (QC) dial — #784 QMS */}
         <QualitySettingsSection />
+
+        {/* Serial-number prefix (shop-wide) */}
+        <SerialNumberSettingsSection />
 
         {/* AI Configuration moved to /admin/integrations in PR-05.
             Operators with bookmarks/muscle memory pointing here would

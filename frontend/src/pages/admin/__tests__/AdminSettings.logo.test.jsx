@@ -42,6 +42,7 @@ vi.mock('../../../contexts/AppContext', () => ({
 }))
 vi.mock('../../../components/LicenseSection', () => ({ default: () => null }))
 vi.mock('../../../components/settings/QualitySettingsSection', () => ({ default: () => null }))
+vi.mock('../../../components/settings/SerialNumberSettingsSection', () => ({ default: () => null }))
 
 import AdminSettings from '../AdminSettings'
 
