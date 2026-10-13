@@ -102,10 +102,11 @@ See `backend/.env.example` for the full list including SMTP, shipping, MRP, and 
 
 The included `docker-compose.yml` is production-ready:
 
-- **Backend** runs as `appuser` (non-root) inside the container
+- **Backend** runs as `appuser` (non-root) inside the container. It starts as root only to install plugins and give `appuser` the directories it writes (uploads, logs, static, the config volume).
 - **Frontend** runs as `nginx` user (non-root)
 - **Database** data persists in the `filaops_pgdata` named volume
 - **Uploads** are bind-mounted at `./uploads:/app/uploads`
+- **Instance config** (`install_uuid`) persists in the `filaops_config` named volume at `/var/lib/filaops/config`. Stored secrets such as the AI API key are encrypted with a key derived from it, so keep this volume and back it up with the database.
 
 ### Production `.env` Example
 
@@ -128,7 +129,7 @@ LOG_FORMAT=json
 ```bash
 docker compose up -d --build       # Start
 docker compose down                # Stop (keeps data)
-docker compose down -v             # Stop and DESTROY database volume
+docker compose down -v             # Stop and DESTROY the database and config volumes
 ```
 
 ## 5. Database Migrations

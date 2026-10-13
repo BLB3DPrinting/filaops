@@ -398,7 +398,7 @@ def test_is_pr02_shape_detects_missing_pr03_fields():
 
 def test_info_auto_upgrades_pr02_file_to_pr03_shape(client, _license_env):
     """First /info call after deploying PR-03 against an existing PR-02 cache
-    re-saves the file with all 10 fields. Critical for the BLB3D dogfood VM
+    re-saves the file with all 10 fields. Critical for the existing-install
     upgrade path: the file already on disk gets rewritten without the user
     needing to deactivate + re-activate."""
     pr02_file = {

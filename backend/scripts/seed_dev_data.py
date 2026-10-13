@@ -1468,12 +1468,12 @@ def seed_company_settings(db: Session):
     from app.models.company_settings import CompanySettings
 
     settings = CompanySettings(
-        company_name="BLB 3D",
+        company_name="Example Print Shop",
         timezone="America/New_York",
     )
     db.add(settings)
     db.flush()
-    print("  Company Settings: BLB 3D")
+    print("  Company Settings: Example Print Shop")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

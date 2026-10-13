@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Serial numbering carries on unchanged.** The upgrade runs database migration 104. An install that already has serials starting with `BLB-` keeps `BLB-` as its prefix, so the next serial follows on from the last one; every other install gets `SN-`. Existing serial numbers are never renamed. Changing the prefix later affects new serials only.
 - **Saved Claude models are not changed.** Check the model in **Admin > Integrations > AI Assistant** after upgrading. If someone picked "Haiku 3.5", the install has `claude-haiku-3-5-20241022` stored, which Anthropic does not recognise; installs that never picked a model have `claude-sonnet-4-20250514`, which is deprecated. A saved model Anthropic no longer lists stays selected and is marked "not listed by Anthropic (may be retired)"; pick a listed model, use Test Connection and save.
+- **Docker: re-enter the AI API key once if it shows as not set after upgrading.** The backend's instance ID (`install_uuid`, under `/var/lib/filaops/config`) now lives in a named volume, `filaops_config`. Before this release it was lost whenever the backend container was recreated, including by `docker compose up -d --build`, and stored secrets encrypted with it could no longer be read. The upgrade cannot bring back an ID that is already gone: the container keeps whatever ID it has when the volume is first attached. If **Admin > Integrations > AI Assistant** shows no key afterwards, enter it again; from then on it survives upgrades. If you already mount your own volume or directory at `/var/lib/filaops/config` in an override file, yours still takes precedence (`docker compose config` shows the result).
+- **Back up the `filaops_config` volume with the database.** A database restored without it cannot decrypt stored secrets. `docker compose down -v` now deletes this volume as well as the database volume.
+- **Docker: the backend now runs as `appuser`, not root.** The image always meant to, but the entrypoint never switched user. At startup it gives `appuser` the files in `/app/uploads` (on a Linux host, the owner of files in `./uploads` changes to uid 100) and the config directory. If one of them cannot be made writable, it logs a warning and keeps running as root. `docker compose exec` still opens a root shell; `docker compose run backend <command>` now runs as `appuser`.
+
+### Fixed
+
+- **Docker: stored secrets survive recreating the backend container.** `docker-compose.yml` mounts the `filaops_config` volume at `/var/lib/filaops/config`, and a test checks that every shipped compose file that runs the backend persists that directory.
+- **Docker: the backend no longer runs as root.** The entrypoint installs plugins as root, then runs migrations and the API server as `appuser`. A test checks that every command the entrypoint runs goes through that switch.
 
 ## [4.2.0] - 2026-10-12
 
