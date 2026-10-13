@@ -67,14 +67,40 @@ class _CacheEntry:
     models: list[dict] = field(default_factory=list)
 
 
-_cache: Optional[_CacheEntry] = None
-_cache_lock = threading.Lock()
+class _ModelCache:
+    """One cached model list, guarded by a lock."""
+
+    def __init__(self) -> None:
+        self._entry: Optional[_CacheEntry] = None
+        self._lock = threading.Lock()
+
+    def get(self, api_key: str, now: float) -> Optional[list[dict]]:
+        with self._lock:
+            entry = self._entry
+        if (
+            entry
+            and entry.expires_at > now
+            and hmac.compare_digest(entry.api_key, api_key)
+        ):
+            return [dict(m) for m in entry.models]
+        return None
+
+    def put(self, api_key: str, models: list[dict], now: float) -> None:
+        with self._lock:
+            self._entry = _CacheEntry(
+                api_key=api_key, expires_at=now + CACHE_TTL_SECONDS, models=models
+            )
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entry = None
+
+
+_cache = _ModelCache()
 
 
 def clear_model_cache() -> None:
-    global _cache
-    with _cache_lock:
-        _cache = None
+    _cache.clear()
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -176,21 +202,14 @@ def list_models(api_key: str, *, refresh: bool = False) -> tuple[list[dict], boo
     not cached, so fixing the key or the network shows up on the next try.
     Raises AnthropicModelsError with a message that is safe to show.
     """
-    global _cache
     now = time.monotonic()
     if not refresh:
-        with _cache_lock:
-            entry = _cache
-            if (
-                entry
-                and entry.expires_at > now
-                and hmac.compare_digest(entry.api_key, api_key)
-            ):
-                return [dict(m) for m in entry.models], True
+        cached = _cache.get(api_key, now)
+        if cached is not None:
+            return cached, True
 
     models = _fetch_models(api_key)
-    with _cache_lock:
-        _cache = _CacheEntry(api_key=api_key, expires_at=now + CACHE_TTL_SECONDS, models=models)
+    _cache.put(api_key, models, now)
     return [dict(m) for m in models], False
 
 
