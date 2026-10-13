@@ -51,22 +51,11 @@ export default function AdminLogin() {
     checkSetupStatus();
   }, [navigate]);
 
-  // The shop's own logo; GET /settings/company/logo needs no login.
-  const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
-
-  useEffect(() => {
-    const checkCompanyLogo = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/v1/settings/company/logo`);
-        if (res.ok) {
-          setCompanyLogoUrl(`${API_URL}/api/v1/settings/company/logo`);
-        }
-      } catch {
-        // No logo uploaded - show only the FilaOps logo
-      }
-    };
-    checkCompanyLogo();
-  }, []);
+  // The shop's own logo; GET /settings/company/logo needs no login. The
+  // <img> loads it once and stays hidden until it has loaded, so a shop
+  // without a logo (404) shows only the FilaOps logo and no broken image.
+  const [companyLogoLoaded, setCompanyLogoLoaded] = useState(false);
+  const [companyLogoFailed, setCompanyLogoFailed] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -154,12 +143,14 @@ export default function AdminLogin() {
         <div className="text-center mb-8">
           <Link to="/" className="inline-block">
             <div className="flex flex-col items-center gap-4">
-              {companyLogoUrl && (
-                <div className="logo-container">
+              {!companyLogoFailed && (
+                <div className="logo-container" hidden={!companyLogoLoaded}>
                   <img
-                    src={companyLogoUrl}
+                    src={`${API_URL}/api/v1/settings/company/logo`}
                     alt="Company Logo"
                     className="h-16 w-auto logo-breathe"
+                    onLoad={() => setCompanyLogoLoaded(true)}
+                    onError={() => setCompanyLogoFailed(true)}
                   />
                 </div>
               )}

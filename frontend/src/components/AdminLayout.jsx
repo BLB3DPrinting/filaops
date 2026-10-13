@@ -1,5 +1,5 @@
 import { Outlet, Link, NavLink, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Breadcrumbs from "./Breadcrumbs";
 import SecurityBadge from "./SecurityBadge";
 import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
@@ -77,6 +77,19 @@ export default function AdminLayout() {
     }
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Focus moves into the drawer when it opens and back to the trigger when
+  // it closes, so keyboard and screen-reader users don't lose their place.
+  const menuTriggerRef = useRef(null);
+  const menuCloseRef = useRef(null);
+  const menuWasOpen = useRef(false);
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      menuCloseRef.current?.focus();
+    } else if (menuWasOpen.current) {
+      menuTriggerRef.current?.focus();
+    }
+    menuWasOpen.current = mobileMenuOpen;
+  }, [mobileMenuOpen]);
 
   // Save sidebar state to localStorage when it changes
   useEffect(() => {
@@ -265,6 +278,7 @@ export default function AdminLayout() {
             close button. */}
         {!mobileMenuOpen && (
           <button
+            ref={menuTriggerRef}
             onClick={() => setMobileMenuOpen(true)}
             className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
             style={{ backgroundColor: "var(--bg-card)" }}
@@ -292,11 +306,17 @@ export default function AdminLayout() {
                 className="p-4 flex items-center justify-between"
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
-                <Link to="/admin" className="flex items-center gap-3 min-w-0">
+                <Link
+                  to="/admin"
+                  aria-label="Go to Command Center"
+                  className="flex items-center gap-3 min-w-0"
+                >
                   <SidebarBrand companyLogoUrl={companyLogoUrl} />
                 </Link>
                 <button
+                  ref={menuCloseRef}
                   onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Close navigation menu"
                   className="p-2 rounded-lg transition-colors"
                   style={{ color: "var(--text-secondary)" }}
                 >
@@ -384,6 +404,7 @@ export default function AdminLayout() {
           >
             <Link
               to="/admin"
+              aria-label="Go to Command Center"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
               <SidebarBrand companyLogoUrl={companyLogoUrl} compact={!sidebarOpen} />
