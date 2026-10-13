@@ -45,7 +45,9 @@ class EmailIdentity:
 
 
 def _real_name(value: Optional[str]) -> Optional[str]:
-    name = (value or "").strip()
+    # Collapse whitespace: a line break in a name typed into Company Settings
+    # must not reach the From header.
+    name = " ".join((value or "").split())
     if not name or name.lower() in _PLACEHOLDER_NAMES:
         return None
     return name

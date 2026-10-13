@@ -10,6 +10,7 @@ import html
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from typing import Optional
 
 from app.core.config import settings
@@ -69,7 +70,9 @@ class EmailService:
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = f"{from_name or self.from_name} <{self.from_email}>"
+            # formataddr quotes names with commas or other specials
+            # ("Smith, Jones") so clients don't read them as two addresses.
+            msg["From"] = formataddr((from_name or self.from_name, self.from_email))
             msg["To"] = to_email
 
             # Add plain text version

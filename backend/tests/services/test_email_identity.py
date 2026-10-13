@@ -216,6 +216,26 @@ class TestRenderedEmails:
         assert sender.startswith(ENV_FROM_NAME)
         assert ENV_EMAIL in body
 
+    def test_sender_name_with_comma_is_quoted(self, env_identity):
+        from email.utils import getaddresses
+
+        identity = build_email_identity("Smith, Jones", UI_EMAIL)
+
+        sender, _ = _sent_message("send_password_reset_completed", identity=identity)
+
+        assert sender.startswith('"Smith, Jones" <')
+        # One address, not two: the comma stays inside the display name.
+        (name, address), = getaddresses([sender])
+        assert name == "Smith, Jones"
+        assert address == settings.SMTP_FROM_EMAIL
+
+    def test_line_breaks_in_name_never_reach_the_header(self, env_identity):
+        identity = build_email_identity("Acme\r\nBcc: victim@evil.example", UI_EMAIL)
+
+        assert identity.from_name == "Acme Bcc: victim@evil.example"
+        sender, _ = _sent_message("send_password_reset_completed", identity=identity)
+        assert "\r" not in sender and "\n" not in sender
+
     def test_business_name_is_html_escaped(self, env_identity):
         identity = build_email_identity("Smith & <Sons>", UI_EMAIL)
 
