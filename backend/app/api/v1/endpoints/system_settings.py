@@ -136,6 +136,13 @@ def _validate_bool(value: Any) -> bool:
     return value
 
 
+def _validate_database_backup(value: Any) -> dict[str, Any]:
+    """Backup schedule and retention — see ``app.services.database_backup``."""
+    from app.services.database_backup import validate_backup_settings
+
+    return validate_backup_settings(value)
+
+
 SETTING_VALIDATORS: dict[str, Callable[[Any], Any]] = {
     "pro_portal_origins": _validate_origin_list,
     "pro_quoter_origins": _validate_origin_list,
@@ -143,6 +150,8 @@ SETTING_VALIDATORS: dict[str, Callable[[Any], Any]] = {
     "quality_mode": _validate_quality_mode,
     "quality_gate_action": _validate_quality_gate_action,
     "quality_gate_close": _validate_bool,  # legacy bool (back-compat fallback)
+    # Database backups (Backups page); a missing row means the defaults apply
+    "database_backup": _validate_database_backup,
 }
 
 

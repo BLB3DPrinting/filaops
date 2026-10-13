@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import RemediationModal from "../../components/RemediationModal";
@@ -40,6 +41,12 @@ const WrenchIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
+
+// Checks fixed on another admin page rather than in the remediation modal.
+// The modal's guides come from local-only endpoints that production disables.
+const FIX_PAGES = {
+  backup_configured: "/admin/backups",
+};
 
 // Checks that have remediation guides
 const REMEDIABLE_CHECKS = [
@@ -85,6 +92,7 @@ const getStatusBadge = (status) => {
 const AdminSecurity = () => {
   const api = useApi();
   const toast = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -99,6 +107,10 @@ const AdminSecurity = () => {
   }, []);
 
   const handleFixClick = (check) => {
+    if (FIX_PAGES[check.id]) {
+      navigate(FIX_PAGES[check.id]);
+      return;
+    }
     setSelectedCheck(check);
     setShowRemediationModal(true);
   };

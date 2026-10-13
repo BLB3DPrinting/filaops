@@ -22,6 +22,11 @@ from pathlib import Path
 # =============================================================================
 os.environ["DB_NAME"] = "filaops_test"
 
+# Each TestClient runs the app lifespan; keep the backup scheduler from
+# starting a background loop against the test database. Backup tests drive
+# app.services.database_backup directly.
+os.environ["BACKUP_SCHEDULER_ENABLED"] = "false"
+
 # PR-05: EncryptedString-typed columns (e.g. company_settings.ai_api_key)
 # call get_install_uuid() on every write, which mkdir's LICENSE_CONFIG_DIR.
 # The prod default is /var/lib/filaops/config — not writable by CI runners,

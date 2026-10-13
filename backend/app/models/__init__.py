@@ -57,6 +57,7 @@ from app.models.tax_rate import TaxRate
 
 # System Settings (generic key/value store for admin-editable config; PR-01)
 from app.models.system_setting import SystemSetting
+from app.models.backup_run import BackupRun
 
 __all__ = [
     # Item management
@@ -162,4 +163,6 @@ __all__ = [
     "CustomerCatalog",
     # System Settings
     "SystemSetting",
+    # Database backups
+    "BackupRun",
 ]

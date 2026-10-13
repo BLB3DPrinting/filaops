@@ -1226,24 +1226,23 @@ async def get_remediation_steps(
         "backup_configured": {
             "title": "Fix: Configure Database Backups",
             "severity": "warning",
-            "estimated_time": "10 minutes",
+            "estimated_time": "2 minutes",
             "can_auto_generate": False,
             "steps": [
                 {
                     "step": 1,
-                    "title": "Create Backup Script",
-                    "description": "Create a script to backup your PostgreSQL database:",
-                    "code_snippet": """@echo off
-set BACKUP_DIR=C:\\backups\\filaops
-set TIMESTAMP=%date:~-4%%date:~4,2%%date:~7,2%_%time:~0,2%%time:~3,2%
-pg_dump -U postgres -d filaops > "%BACKUP_DIR%\\filaops_%TIMESTAMP%.sql"
-"""
+                    "title": "Open the Backups page",
+                    "description": "In the admin menu, open Backups. FilaOps runs and verifies database backups itself; no script or scheduled task is needed."
                 },
                 {
                     "step": 2,
-                    "title": "Schedule Daily Backups",
-                    "description": "Use Windows Task Scheduler to run the script daily.",
-                    "docs_url": "https://www.postgresql.org/docs/current/backup-dump.html"
+                    "title": "Turn on daily backups",
+                    "description": "Choose a time when nobody is working and how many days of backups to keep, then save."
+                },
+                {
+                    "step": 3,
+                    "title": "Run a backup now",
+                    "description": "Press Run backup now and check that it finishes with status OK. If it fails, the page shows why."
                 }
             ]
         },

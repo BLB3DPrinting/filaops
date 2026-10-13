@@ -87,7 +87,8 @@ APP_GROUP=appgroup
 RUN_AS=()
 # Only inside the image: appuser does not exist when the script runs elsewhere.
 if [ "$(id -u)" = "0" ] && id "$APP_USER" >/dev/null 2>&1; then
-    WRITABLE_DIRS=(/app/uploads /app/logs /app/static "${LICENSE_CONFIG_DIR:-/var/lib/filaops/config}")
+    # BACKUP_DIR: database backups (Backups page), set to /app/backups in the image.
+    WRITABLE_DIRS=(/app/uploads /app/logs /app/static "${LICENSE_CONFIG_DIR:-/var/lib/filaops/config}" "${BACKUP_DIR:-/app/backups}")
     for var in UPLOAD_DIR STATIC_DIR UPLOAD_PRODUCTS_DIR UPLOAD_PO_DOCS_DIR UPLOAD_QC_PHOTOS_DIR; do
         if [ -n "${!var}" ]; then
             WRITABLE_DIRS+=("${!var}")

@@ -109,6 +109,8 @@ uploads/*
 !uploads/.gitkeep
 backend/uploads/*
 !backend/uploads/.gitkeep
+# Database backups written by a local (non-Docker) backend
+backend/backups/
 
 # Testing
 /playwright-report/

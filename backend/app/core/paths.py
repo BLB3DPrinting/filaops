@@ -161,3 +161,16 @@ def resolve_surface_dist(override: str | None = None) -> Path | None:
     Portal Admin, the B2B Portal, or the public Quoter.
     """
     return _coerce_override(override)
+
+
+def resolve_backup_dir(override: str | None = None) -> Path:
+    """Database backup directory.
+
+    Default: ``<backend>/backups``. In Docker this is ``/app/backups``, a
+    named volume, so dumps survive image rebuilds.
+    Override: ``BACKUP_DIR`` env / ``settings.BACKUP_DIR``.
+    """
+    overridden = _coerce_override(override)
+    if overridden is not None:
+        return overridden
+    return BACKEND_DIR / "backups"

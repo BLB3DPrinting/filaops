@@ -11,7 +11,7 @@ from . import (
     bom, dashboard, fulfillment_queue, fulfillment_shipping, audit, accounting, traceability,
     customers, inventory_transactions, analytics, export, data_import, orders,
     users, uom, locations, system, uploads, pro_install, reconciliation, reservations,
-    operation_types,
+    operation_types, backups,
 )
 
 # SEC-406: gate the whole /admin tree to staff (admin or operator), fail-closed.
@@ -75,6 +75,9 @@ router.include_router(locations.router)
 
 # System Management (updates, maintenance)
 router.include_router(system.router)
+
+# Database Backups (schedule, run now, download — admin only)
+router.include_router(backups.router)
 
 # PRO Installer (PR-04 — wheel download + pip install, Core-only, no PRO imports)
 router.include_router(pro_install.router)

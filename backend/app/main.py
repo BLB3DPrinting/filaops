@@ -185,7 +185,15 @@ async def lifespan(app: FastAPI):
     log_startup_configuration()
     init_database()
     seed_default_data()
+    backup_scheduler = None
+    if settings.BACKUP_SCHEDULER_ENABLED:
+        from app.services.backup_scheduler import BackupScheduler
+
+        backup_scheduler = BackupScheduler()
+        backup_scheduler.start()
     yield
+    if backup_scheduler is not None:
+        await backup_scheduler.stop()
     logger.info("Shutting down FilaOps ERP API")
 
 

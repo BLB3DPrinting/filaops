@@ -21,7 +21,6 @@ from datetime import datetime
 from enum import Enum
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any
-from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -858,52 +857,46 @@ class SecurityAuditor:
             ))
 
     def _check_backup_configured(self):
-        """Check if database backup is configured"""
+        """Check that FilaOps' own database backups are on and succeeding.
+
+        Reads the recorded backup runs (Settings > Backups) rather than
+        guessing from cron entries or script files, which a containerised
+        backend cannot see and which say nothing about whether a backup
+        actually worked.
+        """
         check_id = "backup_configured"
         name = "Backup Configured"
         category = CheckCategory.WARNING
+        remediation = (
+            "Open Backups in the admin menu to turn on daily backups, "
+            "or press Run backup now to see why the last one failed"
+        )
 
-        # Check for common backup indicators
-        backup_indicators = []
-
-        # Check for pg_dump in scheduled tasks (Windows)
         try:
-            result = subprocess.run(
-                ["schtasks", "/query", "/fo", "csv"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if "pg_dump" in result.stdout.lower() or "backup" in result.stdout.lower():
-                backup_indicators.append("Windows scheduled task")
-        except Exception:
-            pass
+            from app.db.session import SessionLocal
+            from app.services.database_backup import backup_health
 
-        # Check for backup script files
-        backup_paths = [
-            Path("./backup.sh"),
-            Path("./scripts/backup.sh"),
-            Path("../backup.sh"),
-            Path("/etc/cron.d/filaops-backup"),
-        ]
-
-        for path in backup_paths:
-            if path.exists():
-                backup_indicators.append(f"Backup script: {path}")
-
-        if backup_indicators:
-            self.results.append(CheckResult(
-                id=check_id, name=name, category=category,
-                status=CheckStatus.PASS,
-                message=f"Backup detected: {backup_indicators[0]}"
-            ))
-        else:
+            db = SessionLocal()
+            try:
+                healthy, message = backup_health(db)
+            finally:
+                db.close()
+        except Exception as e:
             self.results.append(CheckResult(
                 id=check_id, name=name, category=category,
                 status=CheckStatus.WARN,
-                message="No backup configuration detected",
-                remediation="Set up pg_dump cron job or backup service"
+                message="Could not read backup history",
+                details=str(e)[:100],
+                remediation=remediation,
             ))
+            return
+
+        self.results.append(CheckResult(
+            id=check_id, name=name, category=category,
+            status=CheckStatus.PASS if healthy else CheckStatus.WARN,
+            message=message,
+            remediation=None if healthy else remediation,
+        ))
 
     # ==================
     # Informational Checks

@@ -432,6 +432,27 @@ class Settings(BaseSettings):
         default="",
         description="QC inspection photo upload dir (defaults to <backend>/uploads/qc_photos)",
     )
+
+    # ===================
+    # Database Backups
+    # ===================
+    # Schedule and retention are edited on the Backups page (system_settings
+    # key ``database_backup``); these are the install-level knobs only.
+    BACKUP_DIR: str = Field(
+        default="",
+        description="Where database backups are written (defaults to <backend>/backups; /app/backups in Docker)",
+    )
+    BACKUP_PG_DUMP_PATH: str = Field(
+        default="pg_dump",
+        description="pg_dump executable; its major version must match the database server's",
+    )
+    BACKUP_SCHEDULER_ENABLED: bool = Field(
+        default=True,
+        description="Run scheduled backups from this process (turn off to schedule them elsewhere)",
+    )
+    BACKUP_TIMEOUT_SECONDS: int = Field(
+        default=3600, ge=60, description="Give up on a single backup after this many seconds",
+    )
     FRONTEND_DIST: str = Field(
         default="",
         description=(

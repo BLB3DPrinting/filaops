@@ -243,6 +243,12 @@ const navGroups = [
         adminOnly: true,
       },
       {
+        path: "/admin/backups",
+        label: "Backups",
+        icon: SettingsIcon,
+        adminOnly: true,
+      },
+      {
         path: "/admin/settings",
         label: "Settings",
         icon: SettingsIcon,

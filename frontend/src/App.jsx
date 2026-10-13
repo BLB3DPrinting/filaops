@@ -59,6 +59,7 @@ const AdminBambuddy = lazy(() => import("./pages/admin/AdminBambuddy"));
 const AdminScrapReasons = lazy(() => import("./pages/admin/AdminScrapReasons"));
 const AdminSpools = lazy(() => import("./pages/admin/AdminSpools"));
 const AdminSecurity = lazy(() => import("./pages/admin/AdminSecurity"));
+const AdminBackups = lazy(() => import("./pages/admin/AdminBackups"));
 const AdminCycleCount = lazy(() => import("./pages/admin/AdminCycleCount"));
 const AdminPriceLevels = lazy(() => import("./pages/admin/AdminPriceLevels"));
 const AdminLicense = lazy(() => import("./pages/admin/AdminLicense"));
@@ -500,6 +501,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminSecurity />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="backups"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <AdminBackups />
                         </Suspense>
                       }
                     />

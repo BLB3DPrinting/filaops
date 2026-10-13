@@ -101,6 +101,10 @@ services:
       # regenerated whenever the container is recreated, and secrets saved
       # before that can no longer be read.
       - filaops_config:/var/lib/filaops/config
+      # Database backups (Backups page). A named volume, not the image, so
+      # backups survive rebuilds. They hold customer data and password hashes,
+      # and copies kept only on this server do not survive losing the server.
+      - filaops_backups:/app/backups
     networks:
       - filaops-network
 
@@ -123,6 +127,8 @@ volumes:
     name: filaops_pgdata
   filaops_config:
     name: filaops_config
+  filaops_backups:
+    name: filaops_backups
 
 networks:
   filaops-network:
