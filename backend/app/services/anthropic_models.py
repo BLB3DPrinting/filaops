@@ -17,7 +17,7 @@ status code and Anthropic's error type, not from the raw response body.
 """
 from __future__ import annotations
 
-import hashlib
+import hmac
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,23 +59,22 @@ class AnthropicModelsError(Exception):
 
 @dataclass
 class _CacheEntry:
+    # An install has one saved key, so one entry is enough. The entry keeps
+    # the key it was fetched with (already held decrypted in memory by the
+    # caller) so a changed key never sees the old key's list.
+    api_key: str
     expires_at: float
     models: list[dict] = field(default_factory=list)
 
 
-_cache: dict[str, _CacheEntry] = {}
+_cache: Optional[_CacheEntry] = None
 _cache_lock = threading.Lock()
 
 
-def _cache_key(api_key: str) -> str:
-    # Keyed by a hash so a changed key never sees the old key's list, and the
-    # key itself is not kept around as a dict key.
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-
-
 def clear_model_cache() -> None:
+    global _cache
     with _cache_lock:
-        _cache.clear()
+        _cache = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -172,21 +171,26 @@ def _fetch_models(api_key: str) -> list[dict]:
 def list_models(api_key: str, *, refresh: bool = False) -> tuple[list[dict], bool]:
     """Models the key can use, newest first. Returns (models, served_from_cache).
 
-    Successful answers are cached per key for CACHE_TTL_SECONDS. Failures are
+    Successful answers are cached for the current key for CACHE_TTL_SECONDS
+    (a different key misses the cache). Failures are
     not cached, so fixing the key or the network shows up on the next try.
     Raises AnthropicModelsError with a message that is safe to show.
     """
-    key = _cache_key(api_key)
+    global _cache
     now = time.monotonic()
     if not refresh:
         with _cache_lock:
-            entry = _cache.get(key)
-            if entry and entry.expires_at > now:
+            entry = _cache
+            if (
+                entry
+                and entry.expires_at > now
+                and hmac.compare_digest(entry.api_key, api_key)
+            ):
                 return [dict(m) for m in entry.models], True
 
     models = _fetch_models(api_key)
     with _cache_lock:
-        _cache[key] = _CacheEntry(expires_at=now + CACHE_TTL_SECONDS, models=models)
+        _cache = _CacheEntry(api_key=api_key, expires_at=now + CACHE_TTL_SECONDS, models=models)
     return [dict(m) for m in models], False
 
 
