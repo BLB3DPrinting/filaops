@@ -66,7 +66,7 @@ const WINDOWS = [
     reason: "Belt swap",
     status: "scheduled",
     maintenance_log_id: null,
-    created_by: "ops@blb3d.com",
+    created_by: "ops@example.com",
     created_at: "2026-06-15T00:00:00",
   },
 ];

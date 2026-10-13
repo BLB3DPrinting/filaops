@@ -140,7 +140,7 @@ class TestProductionOrderSchemas:
             actual_end=now,
             bambu_task_id="task-123",
             bambu_plate_index=0,
-            operator_name="Brandan",
+            operator_name="Example Operator",
             notes="all good",
         )
         assert op.status == OperationStatus.RUNNING

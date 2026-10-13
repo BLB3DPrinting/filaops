@@ -943,7 +943,7 @@ git commit -m "feat: add order workflow panel"
 
 - [ ] **Step 1: Add an order detail workflow test**
 
-Test the path that Brandan hit:
+Test the path the shop owner hit:
 
 ```jsx
 it("shows Confirm Order before production for a pending manual order", async () => {
@@ -1383,7 +1383,7 @@ git commit -m "fix: gate production release behind commercial review"
 
 5. **PR E: Production release gate**
    - Block production order generation from unconfirmed orders.
-   - Add override design if Brandan wants it after seeing PR C.
+   - Add override design if the owner wants it after seeing PR C.
    - Expand the first guard to match `SalesOrder.can_start_production` once Net terms and override behavior are settled.
 
 6. **PR F: Remove invoice balance compatibility shim**
