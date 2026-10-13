@@ -33,6 +33,7 @@ from app.schemas.auth import (
 import secrets
 from app.core.config import settings
 from app.schemas.common import MessageResponse
+from app.services.email_identity import resolve_email_identity
 from app.services.email_service import email_service
 from app.core.security import (
     hash_password,
@@ -784,6 +785,7 @@ async def request_password_reset(
     # in the threadpool instead of on the event loop.
     email_sent = await run_in_threadpool(
         email_service.send_password_reset_approval_request,
+        identity=resolve_email_identity(db),
         admin_email=settings.ADMIN_APPROVAL_EMAIL,
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
@@ -868,6 +870,7 @@ async def approve_password_reset(
     # Send reset link to user
     sent = await run_in_threadpool(
         email_service.send_password_reset_approved,
+        identity=resolve_email_identity(db),
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
         reset_token=reset_request.token,  # type: ignore[arg-type]
@@ -950,6 +953,7 @@ async def deny_password_reset(
     # Notify user
     await run_in_threadpool(
         email_service.send_password_reset_denied,
+        identity=resolve_email_identity(db),
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name,
         reason=body.reason
@@ -1107,6 +1111,7 @@ async def complete_password_reset(
     # Send confirmation email
     await run_in_threadpool(
         email_service.send_password_reset_completed,
+        identity=resolve_email_identity(db),
         user_email=user.email,  # type: ignore[arg-type]
         user_name=user.full_name
     )

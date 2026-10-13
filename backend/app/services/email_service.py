@@ -6,14 +6,17 @@ Handles SMTP email sending for:
 - Password reset confirmation
 - Order notifications
 """
+import html
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from typing import Optional
 
 from app.core.config import settings
 from app.core.settings import email_is_configured
 from app.logging_config import get_logger
+from app.services.email_identity import EmailIdentity, build_email_identity
 
 logger = get_logger(__name__)
 
@@ -21,6 +24,13 @@ logger = get_logger(__name__)
 # unreachable host holds the caller for the operating system's connect
 # timeout, which can be minutes.
 SMTP_TIMEOUT_SECONDS = 10
+
+
+def _contact(identity: EmailIdentity) -> str:
+    """Who the reader should contact, as it reads after "please contact"."""
+    if identity.support_email:
+        return f"us at {identity.support_email}"
+    return "your administrator"
 
 
 class EmailService:
@@ -40,7 +50,8 @@ class EmailService:
         to_email: str,
         subject: str,
         html_body: str,
-        text_body: Optional[str] = None
+        text_body: Optional[str] = None,
+        from_name: Optional[str] = None,
     ) -> bool:
         """
         Send an email via SMTP
@@ -59,7 +70,9 @@ class EmailService:
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = f"{self.from_name} <{self.from_email}>"
+            # formataddr quotes names with commas or other specials
+            # ("Smith, Jones") so clients don't read them as two addresses.
+            msg["From"] = formataddr((from_name or self.from_name, self.from_email))
             msg["To"] = to_email
 
             # Add plain text version
@@ -88,13 +101,15 @@ class EmailService:
         user_email: str,
         user_name: str,
         approval_token: str,
-        frontend_url: str
+        frontend_url: str,
+        identity: Optional[EmailIdentity] = None,
     ) -> bool:
         """
         Send password reset approval request to admin
 
         Contains approve/deny links for the admin to click
         """
+        identity = identity or build_email_identity()
         approve_url = f"{frontend_url}/admin/password-reset/approve/{approval_token}"
         deny_url = f"{frontend_url}/admin/password-reset/deny/{approval_token}"
 
@@ -167,18 +182,22 @@ class EmailService:
         FilaOps
         """
 
-        return self._send_email(admin_email, subject, html_body, text_body)
+        return self._send_email(
+            admin_email, subject, html_body, text_body, from_name=identity.from_name
+        )
 
     def send_password_reset_approved(
         self,
         user_email: str,
         user_name: str,
         reset_token: str,
-        frontend_url: str
+        frontend_url: str,
+        identity: Optional[EmailIdentity] = None,
     ) -> bool:
         """
         Send password reset link to user after admin approval
         """
+        identity = identity or build_email_identity()
         reset_url = f"{frontend_url}/reset-password/{reset_token}"
 
         subject = "[FilaOps] Your Password Reset Has Been Approved"
@@ -220,7 +239,7 @@ class EmailService:
                     </p>
                 </div>
                 <div class="footer">
-                    <p>BLB3D Printing</p>
+                    <p>{html.escape(identity.business_name)}</p>
                 </div>
             </div>
         </body>
@@ -243,17 +262,21 @@ class EmailService:
         FilaOps
         """
 
-        return self._send_email(user_email, subject, html_body, text_body)
+        return self._send_email(
+            user_email, subject, html_body, text_body, from_name=identity.from_name
+        )
 
     def send_password_reset_denied(
         self,
         user_email: str,
         user_name: str,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        identity: Optional[EmailIdentity] = None,
     ) -> bool:
         """
         Notify user that their password reset was denied
         """
+        identity = identity or build_email_identity()
         subject = "[FilaOps] Password Reset Request Denied"
 
         reason_text = reason or "Please contact support for assistance."
@@ -282,10 +305,10 @@ class EmailService:
 
                     <p><strong>Reason:</strong> {reason_text}</p>
 
-                    <p>If you believe this is an error or need assistance, please contact us at {settings.BUSINESS_EMAIL}</p>
+                    <p>If you believe this is an error or need assistance, please contact {html.escape(_contact(identity))}.</p>
                 </div>
                 <div class="footer">
-                    <p>BLB3D Printing</p>
+                    <p>{html.escape(identity.business_name)}</p>
                 </div>
             </div>
         </body>
@@ -299,22 +322,26 @@ class EmailService:
 
         Reason: {reason_text}
 
-        If you need assistance, please contact {settings.BUSINESS_EMAIL}
+        If you need assistance, please contact {_contact(identity)}.
 
         --
         FilaOps
         """
 
-        return self._send_email(user_email, subject, html_body, text_body)
+        return self._send_email(
+            user_email, subject, html_body, text_body, from_name=identity.from_name
+        )
 
     def send_password_reset_completed(
         self,
         user_email: str,
-        user_name: str
+        user_name: str,
+        identity: Optional[EmailIdentity] = None,
     ) -> bool:
         """
         Confirm to user that their password was successfully changed
         """
+        identity = identity or build_email_identity()
         subject = "[FilaOps] Your Password Has Been Changed"
 
         html_body = f"""
@@ -339,10 +366,10 @@ class EmailService:
 
                     <p>Your password has been successfully changed.</p>
 
-                    <p>If you did not make this change, please contact us immediately at {settings.BUSINESS_EMAIL}</p>
+                    <p>If you did not make this change, please contact {html.escape(_contact(identity))} immediately.</p>
                 </div>
                 <div class="footer">
-                    <p>BLB3D Printing</p>
+                    <p>{html.escape(identity.business_name)}</p>
                 </div>
             </div>
         </body>
@@ -354,13 +381,15 @@ class EmailService:
 
         Your password has been successfully changed.
 
-        If you did not make this change, please contact us immediately at {settings.BUSINESS_EMAIL}
+        If you did not make this change, please contact {_contact(identity)} immediately.
 
         --
         FilaOps
         """
 
-        return self._send_email(user_email, subject, html_body, text_body)
+        return self._send_email(
+            user_email, subject, html_body, text_body, from_name=identity.from_name
+        )
 
 
 # Singleton instance
