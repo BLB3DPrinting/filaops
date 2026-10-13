@@ -1,5 +1,5 @@
 import { Outlet, Link, NavLink, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Breadcrumbs from "./Breadcrumbs";
 import SecurityBadge from "./SecurityBadge";
 import useActivityTokenRefresh from "../hooks/useActivityTokenRefresh";
@@ -12,9 +12,50 @@ import {
 import { API_URL } from "../config/api";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import logoNavbar from "../assets/logo_navbar.png";
-import logoBLB3D from "../assets/logo_blb3d.svg";
 import { LogoutIcon, MenuIcon } from "./nav/navIcons";
 import { navGroups } from "./nav/navConfig";
+
+/**
+ * The sidebar brand mark. A shop's uploaded logo replaces the FilaOps
+ * wordmark; without one the wordmark shows. Collapsed, only an uploaded logo
+ * shows, at icon width. onLogoError fires if the logo image fails to load,
+ * so the caller can fall back to the no-logo layout.
+ */
+function SidebarBrand({ companyLogoUrl, compact = false, onLogoError }) {
+  if (companyLogoUrl) {
+    return (
+      <img
+        src={companyLogoUrl}
+        alt="Company Logo"
+        onError={onLogoError}
+        className={`h-10 w-auto object-contain ${compact ? "max-w-[3rem]" : "max-w-[10rem]"}`}
+      />
+    );
+  }
+  if (compact) return null;
+  return <img src={logoNavbar} alt="FilaOps" className="h-32" />;
+}
+
+/**
+ * Attribution at the foot of the sidebar, shown only when a shop logo has
+ * replaced the FilaOps wordmark at the top.
+ */
+function PoweredBy({ companyLogoUrl, compact = false }) {
+  if (!companyLogoUrl) return null;
+  return (
+    <div
+      className="shrink-0 px-4 py-3 text-xs text-center"
+      style={{
+        borderTop: "1px solid var(--border-subtle)",
+        color: "var(--text-secondary)",
+        opacity: 0.7,
+      }}
+      title="Powered by FilaOps"
+    >
+      {compact ? "FilaOps" : "Powered by FilaOps"}
+    </div>
+  );
+}
 
 /**
  * The admin shell: sidebar, top bar, and the outlet every /admin/* route
@@ -38,6 +79,19 @@ export default function AdminLayout() {
     }
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Focus moves into the drawer when it opens and back to the trigger when
+  // it closes, so keyboard and screen-reader users don't lose their place.
+  const menuTriggerRef = useRef(null);
+  const menuCloseRef = useRef(null);
+  const menuWasOpen = useRef(false);
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      menuCloseRef.current?.focus();
+    } else if (menuWasOpen.current) {
+      menuTriggerRef.current?.focus();
+    }
+    menuWasOpen.current = mobileMenuOpen;
+  }, [mobileMenuOpen]);
 
   // Save sidebar state to localStorage when it changes
   useEffect(() => {
@@ -73,7 +127,7 @@ export default function AdminLayout() {
           setCompanyLogoUrl(`${API_URL}/api/v1/settings/company/logo`);
         }
       } catch {
-        // No logo uploaded - use default
+        // No logo uploaded - show only the FilaOps logo
       }
     };
     checkCompanyLogo();
@@ -221,15 +275,20 @@ export default function AdminLayout() {
         className="min-h-screen flex"
         style={{ backgroundColor: "var(--bg-primary)" }}
       >
-        {/* Mobile menu button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
-          style={{ backgroundColor: "var(--bg-card)" }}
-          aria-label="Open navigation menu"
-        >
-          <MenuIcon />
-        </button>
+        {/* Mobile menu button. Hidden while the drawer is open: it sits above
+            the drawer and would cover the brand mark; the drawer has its own
+            close button. */}
+        {!mobileMenuOpen && (
+          <button
+            ref={menuTriggerRef}
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg text-white transition-all"
+            style={{ backgroundColor: "var(--bg-card)" }}
+            aria-label="Open navigation menu"
+          >
+            <MenuIcon />
+          </button>
+        )}
 
         {/* Mobile sidebar overlay */}
         {mobileMenuOpen && (
@@ -238,7 +297,7 @@ export default function AdminLayout() {
             onClick={() => setMobileMenuOpen(false)}
           >
             <aside
-              className="w-64 h-full"
+              className="w-64 h-full flex flex-col"
               style={{
                 backgroundColor: "var(--bg-secondary)",
                 borderRight: "1px solid var(--border-subtle)",
@@ -249,18 +308,20 @@ export default function AdminLayout() {
                 className="p-4 flex items-center justify-between"
                 style={{ borderBottom: "1px solid var(--border-subtle)" }}
               >
-                <Link to="/admin" className="flex items-center gap-3">
-                  <div className="logo-container">
-                    <img
-                      src={companyLogoUrl || logoBLB3D}
-                      alt="Company Logo"
-                      className="h-10 w-auto logo-glow"
-                    />
-                  </div>
-                  <img src={logoNavbar} alt="FilaOps" className="h-32" />
+                <Link
+                  to="/admin"
+                  aria-label="Go to Command Center"
+                  className="flex items-center gap-3 min-w-0"
+                >
+                  <SidebarBrand
+                    companyLogoUrl={companyLogoUrl}
+                    onLogoError={() => setCompanyLogoUrl(null)}
+                  />
                 </Link>
                 <button
+                  ref={menuCloseRef}
                   onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Close navigation menu"
                   className="p-2 rounded-lg transition-colors"
                   style={{ color: "var(--text-secondary)" }}
                 >
@@ -327,6 +388,7 @@ export default function AdminLayout() {
                   </div>
                 ))}
               </nav>
+              <PoweredBy companyLogoUrl={companyLogoUrl} />
             </aside>
           </div>
         )}
@@ -347,18 +409,14 @@ export default function AdminLayout() {
           >
             <Link
               to="/admin"
+              aria-label="Go to Command Center"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
-              <div className="logo-container">
-                <img
-                  src={companyLogoUrl || logoBLB3D}
-                  alt="Company Logo"
-                  className="h-10 w-auto logo-glow"
-                />
-              </div>
-              {sidebarOpen && (
-                <img src={logoNavbar} alt="FilaOps" className="h-32" />
-              )}
+              <SidebarBrand
+                companyLogoUrl={companyLogoUrl}
+                compact={!sidebarOpen}
+                onLogoError={() => setCompanyLogoUrl(null)}
+              />
             </Link>
             {sidebarOpen && (
               <button
@@ -436,6 +494,7 @@ export default function AdminLayout() {
               </div>
             ))}
           </nav>
+          <PoweredBy companyLogoUrl={companyLogoUrl} compact={!sidebarOpen} />
         </aside>
         <div className="flex-1 flex flex-col">
           <header
