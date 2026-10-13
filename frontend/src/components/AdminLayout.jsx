@@ -18,14 +18,16 @@ import { navGroups } from "./nav/navConfig";
 /**
  * The sidebar brand mark. A shop's uploaded logo replaces the FilaOps
  * wordmark; without one the wordmark shows. Collapsed, only an uploaded logo
- * shows, at icon width.
+ * shows, at icon width. onLogoError fires if the logo image fails to load,
+ * so the caller can fall back to the no-logo layout.
  */
-function SidebarBrand({ companyLogoUrl, compact = false }) {
+function SidebarBrand({ companyLogoUrl, compact = false, onLogoError }) {
   if (companyLogoUrl) {
     return (
       <img
         src={companyLogoUrl}
         alt="Company Logo"
+        onError={onLogoError}
         className={`h-10 w-auto object-contain ${compact ? "max-w-[3rem]" : "max-w-[10rem]"}`}
       />
     );
@@ -311,7 +313,10 @@ export default function AdminLayout() {
                   aria-label="Go to Command Center"
                   className="flex items-center gap-3 min-w-0"
                 >
-                  <SidebarBrand companyLogoUrl={companyLogoUrl} />
+                  <SidebarBrand
+                    companyLogoUrl={companyLogoUrl}
+                    onLogoError={() => setCompanyLogoUrl(null)}
+                  />
                 </Link>
                 <button
                   ref={menuCloseRef}
@@ -407,7 +412,11 @@ export default function AdminLayout() {
               aria-label="Go to Command Center"
               className={`flex items-center ${sidebarOpen ? "gap-3" : "justify-center w-full"}`}
             >
-              <SidebarBrand companyLogoUrl={companyLogoUrl} compact={!sidebarOpen} />
+              <SidebarBrand
+                companyLogoUrl={companyLogoUrl}
+                compact={!sidebarOpen}
+                onLogoError={() => setCompanyLogoUrl(null)}
+              />
             </Link>
             {sidebarOpen && (
               <button
