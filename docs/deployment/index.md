@@ -5,6 +5,7 @@ Guides for deploying, configuring, and maintaining a FilaOps instance in product
 | Guide | Description |
 |-------|-------------|
 | **[Docker Compose](../DEPLOYMENT.md)** | Full production deployment with Docker Compose — architecture, environment variables, troubleshooting |
+| **[Upgrading FilaOps](../UPGRADE.md)** | Upgrade to the current release from any earlier version, and what changed |
 | **[Email Setup](../EMAIL_CONFIGURATION.md)** | Configure SMTP for password resets and notifications |
 | **[Backup & Recovery](../BACKUP-AND-RECOVERY.md)** | Database backups, file uploads, Docker volume strategies, disaster recovery |
 | **[Migration Safety](../MIGRATION-SAFETY.md)** | Pre-deployment checklist and rollback procedures for database migrations |

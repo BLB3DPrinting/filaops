@@ -156,7 +156,8 @@ nav:
     - deployment/index.md
     - Docker Compose: DEPLOYMENT.md
     - First-Run Setup: FIRST-RUN-SETUP.md
-    - Upgrading to 4.2.0: UPGRADE-4.2.0.md
+    - Upgrading FilaOps: UPGRADE.md
+    - 4.2.0 changes (from 4.1.x): UPGRADE-4.2.0.md
     - Email Setup: EMAIL_CONFIGURATION.md
     - Backup & Recovery: BACKUP-AND-RECOVERY.md
     - Migration Safety: MIGRATION-SAFETY.md

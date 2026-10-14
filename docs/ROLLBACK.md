@@ -71,7 +71,10 @@ docker-compose up -d
 # Stop current deployment
 docker-compose down
 
-# Remove volumes if data is corrupted (DESTRUCTIVE)
+# Remove volumes if data is corrupted (DESTRUCTIVE). This deletes the
+# database AND, on 4.3.0+, the filaops_config volume: restore both from
+# backup afterwards (see BACKUP-AND-RECOVERY.md), or stored secrets such as
+# the AI API key have to be entered again.
 docker-compose down -v
 
 # Checkout previous version
