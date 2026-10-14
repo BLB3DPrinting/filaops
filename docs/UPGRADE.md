@@ -123,3 +123,9 @@ Upgrading changes the database, so going back means restoring the backup from
 step 1 and redeploying the old version (see [Rollback](ROLLBACK.md)). Anything
 entered after the upgrade is lost. An older version won't start against a
 database that has been migrated further, so always restore the backup.
+
+Don't use `docker compose down -v` to roll back. On 4.3.0 and later it also
+deletes the `filaops_config` volume, and without it stored secrets such as the
+AI API key can't be read and have to be entered again. If you do lose the
+volume, restore it from your config backup (see
+[Backup and Recovery](BACKUP-AND-RECOVERY.md)) along with the database.
