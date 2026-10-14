@@ -41,8 +41,17 @@ curl -s http://localhost/api/v1/system/version
 ```
 
 If `git checkout` says your local changes would be overwritten, you edited a
-file such as `docker-compose.yml`. Move those settings into `.env` instead (the
-full guide explains how), then try again.
+tracked file such as `docker-compose.yml`. Keep your changes, then put the file
+back and try again:
+
+1. Save a copy of what you changed: `git diff > my-local-changes.patch`
+2. Move settings (lines like `ENABLE_PUBLIC_QUOTER: "true"`) into `.env` as
+   `ENABLE_PUBLIC_QUOTER=true`.
+3. Move other changes, such as extra ports, volumes or services, into a
+   `docker-compose.override.yml` next to `docker-compose.yml`. Docker Compose
+   reads it automatically, and FilaOps doesn't ship one, so upgrades leave it alone.
+4. Put the original file back: `git checkout -- docker-compose.yml`
+5. Run the upgrade commands again.
 
 ## If something goes wrong
 
