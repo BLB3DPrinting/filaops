@@ -40,12 +40,25 @@ def set_tier():
     plugin_registry.reset()
 
 
+@pytest.fixture
+def community_cap_one(monkeypatch):
+    """Restore a community cap of 1 seat for one test.
+
+    4.3.1 lifted the community cap (``COMMUNITY_SEAT_CAP = None``). The
+    enforcement tests below still prove the cap works whenever one is set, so
+    they put back the 4.2.0 value of 1 for their duration.
+    """
+    from app.core import seat_limits
+
+    monkeypatch.setitem(seat_limits._SEAT_CAPS, "community", 1)
+
+
 @pytest.fixture(autouse=True)
 def _unlimited_seats_for_crud_tests(request):
     """Give the general CRUD suite an unlimited (professional) seat tier.
 
-    The default community tier caps active staff at 1 seat, which would block
-    the many operators/admins these CRUD tests create. The dedicated seat-cap
+    A community cap (when one is set) would block the many operators/admins
+    these CRUD tests create. The dedicated seat-cap
     suite (TestMultiUserSeatCaps) opts out via the ``seat_caps`` marker so it
     can drive the tier itself.
     """
@@ -610,12 +623,14 @@ def _seat_error(resp) -> str:
 
 
 @pytest.mark.seat_caps
+@pytest.mark.usefixtures("community_cap_one")
 class TestMultiUserSeatCaps:
-    """Seat-cap enforcement: community = 1 staff seat, PRO/enterprise unlimited.
+    """Seat-cap enforcement with a community cap of 1, PRO/enterprise unlimited.
 
     These tests drive the license tier directly via the ``set_tier`` fixture
     (the seeded admin id=1 is the single existing active staff seat). The
-    ``seat_caps`` marker opts out of the module's default unlimited tier.
+    ``seat_caps`` marker opts out of the module's default unlimited tier, and
+    ``community_cap_one`` restores a cap of 1 (lifted by default since 4.3.1).
     """
 
     # ---- (a) community + 1 active staff -> 2nd staff blocked ----------------
@@ -630,7 +645,8 @@ class TestMultiUserSeatCaps:
         }
         resp = client.post(f"{BASE_URL}/", json=payload)
         assert resp.status_code == 403, resp.text
-        assert "upgrade to pro" in _seat_error(resp).lower()
+        assert "allows 1 active staff account." in _seat_error(resp)
+        assert "pro" not in _seat_error(resp).lower()
 
     def test_community_second_admin_create_returns_403(self, client, set_tier):
         set_tier("community")
@@ -658,7 +674,8 @@ class TestMultiUserSeatCaps:
         set_tier("community")
         resp = client.post(f"{BASE_URL}/{inactive.id}/reactivate")
         assert resp.status_code == 403, resp.text
-        assert "upgrade to pro" in _seat_error(resp).lower()
+        assert "allows 1 active staff account." in _seat_error(resp)
+        assert "pro" not in _seat_error(resp).lower()
 
     def test_community_activate_via_patch_returns_403(self, client, set_tier, db):
         """PATCH status='active' on an inactive staff user is blocked at the cap."""
@@ -871,6 +888,7 @@ class _SpyDB:
 
 
 @pytest.mark.seat_caps
+@pytest.mark.usefixtures("community_cap_one")
 class TestSeatCapAdvisoryLock:
     """The seat check must serialize itself with a transaction-scoped advisory
     lock on Postgres to close the check-then-write TOCTOU window."""
@@ -919,6 +937,75 @@ class TestSeatCapAdvisoryLock:
         seat_limits.enforce_seat_cap(spy)
 
         assert spy.executed == [], "unlimited tier must not touch the DB"
+
+
+# =============================================================================
+# 10c. TestCommunitySeatCapLifted — 4.3.1 default: no community cap
+# =============================================================================
+
+@pytest.mark.seat_caps
+class TestCommunitySeatCapLifted:
+    """4.3.1 lifted the community cap while PRO is not on sale: an unlicensed
+    install can add and reactivate staff freely."""
+
+    def test_community_cap_is_unlimited_by_default(self):
+        from app.core import seat_limits
+
+        assert seat_limits.COMMUNITY_SEAT_CAP is None
+        assert seat_limits.seat_cap_for_tier("community") is None
+        # Unknown tiers fall back to the community cap, so they are unlimited too.
+        assert seat_limits.seat_cap_for_tier("") is None
+        assert seat_limits.seat_cap_for_tier("garbled") is None
+
+    def test_community_second_and_third_staff_create_allowed(self, client, set_tier):
+        set_tier("community")
+        for account_type in ("operator", "admin"):
+            payload = {
+                "email": _unique_email(),
+                "password": "SecurePass1!",
+                "account_type": account_type,
+            }
+            resp = client.post(f"{BASE_URL}/", json=payload)
+            assert resp.status_code == 201, resp.text
+
+    def test_community_reactivate_and_activate_allowed(self, client, set_tier, db):
+        from app.models.user import User
+
+        users = []
+        for _ in range(2):
+            user = User(
+                email=_unique_email(),
+                password_hash="fake-hash",
+                account_type="operator",
+                status="inactive",
+            )
+            db.add(user)
+            users.append(user)
+        db.flush()
+
+        set_tier("community")
+        resp = client.post(f"{BASE_URL}/{users[0].id}/reactivate")
+        assert resp.status_code == 200, resp.text
+        resp = client.patch(f"{BASE_URL}/{users[1].id}", json={"status": "active"})
+        assert resp.status_code == 200, resp.text
+
+    def test_no_db_work_when_community_is_unlimited(self, set_tier):
+        from app.core import seat_limits
+
+        set_tier("community")
+        spy = _SpyDB(dialect_name="postgresql", active_staff=99)
+        seat_limits.enforce_seat_cap(spy)
+        assert spy.executed == [], "an unlimited community tier must not touch the DB"
+
+    def test_limit_message_names_the_cap_without_an_upsell(self):
+        from app.core.seat_limits import seat_limit_message
+
+        assert seat_limit_message(1) == (
+            "This install allows 1 active staff account. "
+            "Deactivate a team member to add or reactivate another."
+        )
+        assert "3 active staff accounts." in seat_limit_message(3)
+        assert "pro" not in seat_limit_message(1).lower()
 
 
 # =============================================================================

@@ -416,10 +416,12 @@ need it on that network.
 
 ### Staff accounts
 
-Without a licence, FilaOps allows one staff (admin or operator) account.
+Without a licence, FilaOps 4.2.0 allows one staff (admin or operator) account.
 Existing installs keep all their current users, and everyone can still sign
 in, but you can't add or reactivate staff while you are over that number.
-Customer accounts don't count.
+Customer accounts don't count. **4.3.1 removed this limit**: upgrade straight
+to the current release (see [Upgrading FilaOps](UPGRADE.md)) and you can add
+staff again.
 
 ### Orders, shipping and invoices
 

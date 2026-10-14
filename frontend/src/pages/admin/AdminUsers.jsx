@@ -5,11 +5,12 @@ import { useToast } from "../../components/Toast";
 import { useFeatureFlags } from "../../hooks/useFeatureFlags";
 import Modal from "../../components/Modal";
 
-// Community installs allow a single active staff seat; PRO/enterprise are
-// unlimited. Mirrors backend app/core/seat_limits.py (community cap = 1). The
-// backend is the real gate (enforce_seat_cap, PR-D2 #862) — this constant only
-// drives the FE seat banner / Add-User affordance.
-const COMMUNITY_SEAT_CAP = 1;
+// Active staff seats for an unlicensed (community) install; null = unlimited.
+// Mirrors COMMUNITY_SEAT_CAP in backend app/core/seat_limits.py, which 4.3.1
+// lifted while PRO is not on sale (it was 1 in 4.2.0 and 4.3.0). The backend
+// is the real gate (enforce_seat_cap, PR-D2 #862) — this constant only drives
+// the FE seat banner / Add-User affordance.
+const COMMUNITY_SEAT_CAP = null;
 
 // Role options
 const ROLE_OPTIONS = [
@@ -93,12 +94,13 @@ export default function AdminUsers() {
     inactive: users.filter((u) => u.status !== "active").length,
   };
 
-  // Seat usage — active staff seats (admin + operator). On a capped community
-  // tier we surface the 1-seat limit and disable "Add User" at cap; PRO is
-  // unlimited so no banner. The backend still enforces the cap regardless
-  // (enforce_seat_cap #862) — this is upsell/awareness only.
+  // Seat usage — active staff seats (admin + operator). When the community tier
+  // has a cap we surface it and disable "Add User" at the cap; PRO, and
+  // community while the cap is lifted, are unlimited so no banner. The backend
+  // still enforces any cap regardless (enforce_seat_cap #862).
   const activeSeats = stats.admins + stats.operators;
-  const atSeatCap = !isPro && activeSeats >= COMMUNITY_SEAT_CAP;
+  const communityCapped = !isPro && COMMUNITY_SEAT_CAP !== null;
+  const atSeatCap = communityCapped && activeSeats >= COMMUNITY_SEAT_CAP;
 
   const getRoleStyle = (role) => {
     const found = ROLE_OPTIONS.find((r) => r.value === role);
@@ -208,7 +210,7 @@ export default function AdminUsers() {
           disabled={atSeatCap}
           title={
             atSeatCap
-              ? `Your plan allows ${COMMUNITY_SEAT_CAP} user${COMMUNITY_SEAT_CAP === 1 ? "" : "s"}. Upgrade to PRO to add team members.`
+              ? `This install allows ${COMMUNITY_SEAT_CAP} active staff account${COMMUNITY_SEAT_CAP === 1 ? "" : "s"}. Deactivate a team member to add another.`
               : undefined
           }
           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-500 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:from-blue-600 disabled:hover:to-purple-600"
@@ -217,8 +219,8 @@ export default function AdminUsers() {
         </button>
       </div>
 
-      {/* Seat-cap banner — community allows 1 staff seat; PRO is unlimited. */}
-      {!isPro && (
+      {/* Seat-cap banner — only when the community tier has a cap. */}
+      {communityCapped && (
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <svg

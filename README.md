@@ -145,7 +145,7 @@ Core features by module:
 ### System
 
 - First-run setup wizard with admin account creation
-- Role-based access (one staff seat without a licence)
+- Role-based access (admin and operator staff accounts)
 - Admin-approved password reset (via SMTP email; admins can also reset staff passwords from Team Members)
 - REST API (over 500 operations)
 - Shipping and order event tracking

@@ -144,7 +144,7 @@ A healthy response looks like:
 {
   "status": "healthy",
   "checks": { "database": "ok" },
-  "version": "4.3.0"
+  "version": "4.3.1"
 }
 ```
 

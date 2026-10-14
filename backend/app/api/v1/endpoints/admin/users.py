@@ -192,7 +192,8 @@ async def create_admin_user(
 
     Admin only. The password provided is temporary - user should change it on first login.
 
-    Note: Subject to tier limits. Community tier allows 1 user (the initial admin).
+    Note: Subject to the tier's staff seat cap (app.core.seat_limits). The
+    community cap is lifted (unlimited) since 4.3.1.
     """
     # Legacy tier-limit hook (dormant unless features.LICENSING_ENABLED is on;
     # owned by a separate change). Kept for continuity — real enforcement is

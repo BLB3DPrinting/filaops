@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.1] - 2026-10-14
+
+### Changed
+
+- **No staff account limit.** Installs without a licence can add and reactivate as many staff (admin and operator) accounts as they need. 4.2.0 and 4.3.0 allowed one: the Team Members page showed a seat banner, disabled **Add User**, and the API refused a second staff account with 403. Customer accounts were never counted.
+
+### Upgrade notes
+
+- **No database migrations.** From 4.3.0, check out `v4.3.1` and rebuild (`docker compose up -d --build`).
+- **Coming from 4.1.x or older?** Read [Upgrading FilaOps](docs/UPGRADE.md) first: it starts with the settings 4.2.0 needs, then upgrades straight to 4.3.1.
+
 ## [4.3.0] - 2026-10-14
 
 ### Added
