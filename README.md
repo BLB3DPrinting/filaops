@@ -28,9 +28,10 @@ with `python -c "import secrets; print(secrets.token_hex(32))"` where OpenSSL is
 not installed. `docker compose up` still starts without it, but FilaOps will not
 sign logins with an empty or placeholder key: production refuses to start, and
 any other environment uses a temporary key that changes on every restart, which
-signs everyone out each time. Upgrading from 4.1.x or earlier? Read the
-[4.2.0 upgrade guide](docs/UPGRADE-4.2.0.md) first; each release's upgrade notes
-are in the [CHANGELOG](CHANGELOG.md).
+signs everyone out each time. Upgrading? Follow
+[Upgrading FilaOps](docs/UPGRADE.md); coming from 4.1.x or earlier, it starts
+with the settings 4.2.0 needs. Each release's notes are in the
+[CHANGELOG](CHANGELOG.md).
 
 ## Quick Start (Manual)
 

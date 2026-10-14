@@ -1,5 +1,12 @@
 # Upgrading to FilaOps 4.2.0
 
+!!! note "Upgrading today? Go straight to the latest release"
+    This page describes what changed in 4.2.0 and the settings it needs. If you
+    are on 4.1.x or older, make the changes in
+    [Actions you must take](#actions-you-must-take) below, then follow
+    [Upgrading FilaOps](UPGRADE.md) to go straight to the current release. Its
+    upgrade steps replace the ones on this page, which check out `v4.2.0`.
+
 4.2.0 is a security release. Every install should upgrade. Read this page
 before you start: some installs need a setting changed first, and a few things
 work differently afterwards.
@@ -210,6 +217,9 @@ rolling back means restoring it. Other options are in
 [Backup and Recovery](BACKUP-AND-RECOVERY.md).
 
 ### 2. Get the 4.2.0 code
+
+These steps stop at 4.2.0. To upgrade to the current release instead, use
+[Upgrading FilaOps](UPGRADE.md#2-get-the-new-code).
 
 From the `filaops` folder, check out the 4.2.0 release:
 
