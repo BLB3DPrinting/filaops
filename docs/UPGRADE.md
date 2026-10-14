@@ -1,6 +1,6 @@
 # Upgrading FilaOps
 
-The current release is **4.3.0**. Upgrade straight to it from any earlier
+The current release is **4.3.1**. Upgrade straight to it from any earlier
 version. There is no need to stop at a release in between: the database
 migrations run in order in one go.
 
@@ -10,7 +10,8 @@ run `cat backend/VERSION` in the `filaops` folder, or open
 
 | You are on | Before you upgrade | Then |
 | --- | --- | --- |
-| **4.2.x** | Nothing extra. Read [What changes in 4.3.0](#what-changes-in-430). | [Upgrade](#upgrade) |
+| **4.3.0** | Nothing extra. Read [What changes in 4.3.1](#what-changes-in-431). | [Upgrade](#upgrade) |
+| **4.2.x** | Nothing extra. Read [What changes in 4.3.1](#what-changes-in-431) and [What changes in 4.3.0](#what-changes-in-430). | [Upgrade](#upgrade) |
 | **4.1.x or older** | Make the changes in [Actions you must take](UPGRADE-4.2.0.md#actions-you-must-take) on the 4.2.0 page. 4.2.0 was a security release, and some installs won't start or work as before without them. | [Upgrade](#upgrade) on this page, not the steps on the 4.2.0 page. Afterwards, read [After you upgrade](UPGRADE-4.2.0.md#after-you-upgrade) and [Things that work differently](UPGRADE-4.2.0.md#things-that-work-differently) there. |
 
 The [CHANGELOG](https://github.com/BLB3DPrinting/filaops/blob/main/CHANGELOG.md)
@@ -33,16 +34,16 @@ Installs older than 4.3.0 don't have it yet.
 
 ### 2. Get the new code
 
-From the `filaops` folder, check out the 4.3.0 release:
+From the `filaops` folder, check out the 4.3.1 release:
 
 ```bash
 git fetch --tags
-git checkout v4.3.0
+git checkout v4.3.1
 ```
 
 If your install follows the `main` branch instead, run `git pull`.
 
-Check that you have the new code. This should print `4.3.0`:
+Check that you have the new code. This should print `4.3.1`:
 
 ```bash
 cat backend/VERSION
@@ -65,7 +66,7 @@ restart the backend and the web server.
 
 ### 4. Confirm the upgrade
 
-This should print `"version":"4.3.0"`:
+This should print `"version":"4.3.1"`:
 
 ```bash
 curl -s http://localhost/api/v1/system/version
@@ -83,7 +84,7 @@ docker compose exec backend alembic heads
 use your backend's address in the `curl` command.)
 
 - **Still the old version?** If `cat backend/VERSION` prints the old version,
-  repeat step 2. If it prints `4.3.0`, the images weren't rebuilt: run
+  repeat step 2. If it prints `4.3.1`, the images weren't rebuilt: run
   `docker compose up -d --build` again.
 - **Migrations not at head?** Run `docker compose logs migrate` to see why the
   `migrate` service stopped, fix the cause, and run `docker compose up -d --build`
@@ -92,6 +93,12 @@ use your backend's address in the `curl` command.)
 - **Coming from 4.1.x and the backend won't start in production?** The usual
   cause is the `SECRET_KEY` check: see
   [Set a real SECRET_KEY](UPGRADE-4.2.0.md#1-set-a-real-secret_key).
+
+## What changes in 4.3.1
+
+- **No staff account limit.** An install without a licence can add and
+  reactivate as many staff (admin and operator) accounts as it needs. 4.2.0 and
+  4.3.0 allowed one. 4.3.1 has no database migrations.
 
 ## What changes in 4.3.0
 

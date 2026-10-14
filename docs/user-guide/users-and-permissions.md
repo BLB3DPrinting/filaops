@@ -30,8 +30,8 @@ The sidebar automatically hides admin-only sections (ADMIN group, MONEY group) f
 !!! note "Scrap reasons are admin-only"
     Only Admins can create, edit, or delete scrap reasons (**Admin > Scrap Reasons**). Operators still choose from the list when they scrap a production order or operation.
 
-!!! note "Staff account limit"
-    Without a licence, FilaOps allows **one staff account** (Admin or Operator). Installs that already had more staff accounts before 4.2.0 keep all of them, and everyone can still sign in, but you can't add or reactivate staff while you are over the limit. Customer accounts don't count.
+!!! note "Staff accounts"
+    There is no limit on staff accounts (Admin or Operator). FilaOps 4.2.0 and 4.3.0 allowed one without a licence; 4.3.1 removed that limit. Customer accounts were never counted.
 
 ### Customer Accounts
 

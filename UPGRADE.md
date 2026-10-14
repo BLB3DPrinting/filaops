@@ -29,7 +29,7 @@ From the `filaops` folder:
 
 ```bash
 git fetch --tags
-git checkout v4.3.0
+git checkout v4.3.1
 docker compose up -d --build
 ```
 
