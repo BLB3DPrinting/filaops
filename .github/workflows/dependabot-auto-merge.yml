@@ -11,6 +11,10 @@
 #   - the repository allows auto-merge and main has required status checks, so
 #     GitHub waits for CI before merging.
 #
+# The workflow runs again when labels change and on every push, and turns
+# auto-merge back off if a PR stops being eligible: someone adds
+# "no-auto-merge", or a rebase brings in a riskier update.
+#
 # The main ruleset still needs one approval. With the repository variable
 # DEPENDABOT_AUTO_APPROVE set to "true" (and "Allow GitHub Actions to create and
 # approve pull requests" on), this workflow approves eligible PRs itself.
@@ -19,6 +23,7 @@ name: dependabot-auto-merge
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -27,8 +32,7 @@ jobs:
   auto-merge:
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      !contains(github.event.pull_request.labels.*.name, 'no-auto-merge')
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,6 +51,7 @@ jobs:
           UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
           NAMES: ${{ steps.meta.outputs.dependency-names }}
           MAINTAINER_CHANGES: ${{ steps.meta.outputs.maintainer-changes }}
+          HOLD_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-auto-merge') }}
           TESTED_DIRECTORIES: "/backend /frontend"
           SENSITIVE: >-
             pyjwt cryptography bcrypt passlib python-jose authlib itsdangerous
@@ -59,6 +64,9 @@ jobs:
             exit 0
           }
 
+          if [ "$HOLD_LABEL" = "true" ]; then
+            hold "labelled no-auto-merge"
+          fi
           case "$ECOSYSTEM" in
             pip|npm) ;;
             *) hold "${ECOSYSTEM:-unknown} updates need a person" ;;
@@ -111,3 +119,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --merge "$PR_URL"
+
+      - name: Turn off auto-merge
+        if: steps.decide.outputs.eligible != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          enabled=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$enabled" = "true" ]; then
+            gh pr merge --disable-auto "$PR_URL"
+            echo "Auto-merge turned off." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

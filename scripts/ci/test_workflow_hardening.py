@@ -75,6 +75,9 @@ class WorkflowHardeningTests(unittest.TestCase):
         )
         self.assertIn('MAINTAINER_CHANGES" = "true"', content)
         self.assertIn('select(.type == "required_status_checks")', content)
+        # Adding "no-auto-merge" later must switch auto-merge back off.
+        self.assertIn("labeled, unlabeled", content)
+        self.assertIn("gh pr merge --disable-auto", content)
 
 
 if __name__ == "__main__":
