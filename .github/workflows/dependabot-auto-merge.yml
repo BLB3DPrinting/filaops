@@ -1,0 +1,134 @@
+# Dependabot auto-merge: low-risk Dependabot PRs merge themselves once the
+# required checks pass. Everything else waits for a person.
+#
+# A PR is eligible only when all of these hold:
+#   - it comes from Dependabot in this repository and has no "no-auto-merge" label;
+#   - it updates pip or npm packages in a directory CI tests (never Docker base
+#     images or GitHub Actions, which run with this repository's token);
+#   - every update in it is a minor or patch version;
+#   - it touches no security-sensitive package (login, encryption, payments);
+#   - Dependabot reports no change of package maintainer;
+#   - the repository allows auto-merge and main has required status checks, so
+#     GitHub waits for CI before merging.
+#
+# The workflow runs again when labels change and on every push, and turns
+# auto-merge back off if a PR stops being eligible: someone adds
+# "no-auto-merge", or a rebase brings in a riskier update.
+#
+# The main ruleset still needs one approval. With the repository variable
+# DEPENDABOT_AUTO_APPROVE set to "true" (and "Allow GitHub Actions to create and
+# approve pull requests" on), this workflow approves eligible PRs itself.
+# Otherwise a person approves, and GitHub merges once the checks pass.
+name: dependabot-auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Decide whether this PR can merge itself
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          DIRECTORY: ${{ steps.meta.outputs.directory }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          NAMES: ${{ steps.meta.outputs.dependency-names }}
+          MAINTAINER_CHANGES: ${{ steps.meta.outputs.maintainer-changes }}
+          HOLD_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-auto-merge') }}
+          TESTED_DIRECTORIES: "/backend /frontend"
+          SENSITIVE: >-
+            pyjwt cryptography bcrypt passlib python-jose authlib itsdangerous
+            argon2-cffi stripe jsonwebtoken jose @stripe/stripe-js
+        run: |
+          set -euo pipefail
+          hold() {
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "Left for review: $1" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          if [ "$HOLD_LABEL" = "true" ]; then
+            hold "labelled no-auto-merge"
+          fi
+          case "$ECOSYSTEM" in
+            pip|npm) ;;
+            *) hold "${ECOSYSTEM:-unknown} updates need a person" ;;
+          esac
+          case " $TESTED_DIRECTORIES " in
+            *" $DIRECTORY "*) ;;
+            *) hold "CI does not test ${DIRECTORY:-an unknown directory}" ;;
+          esac
+          case "$UPDATE_TYPE" in
+            version-update:semver-minor|version-update:semver-patch) ;;
+            *) hold "${UPDATE_TYPE:-unknown update type} needs a person" ;;
+          esac
+          if [ "$MAINTAINER_CHANGES" = "true" ]; then
+            hold "a package changed maintainers"
+          fi
+
+          normalise() { tr '[:upper:]_.' '[:lower:]--'; }
+          for name in $(printf '%s' "$NAMES" | tr ',' ' '); do
+            name=$(printf '%s' "$name" | normalise)
+            for blocked in $SENSITIVE; do
+              if [ "$name" = "$(printf '%s' "$blocked" | normalise)" ]; then
+                hold "$name is security-sensitive"
+              fi
+            done
+          done
+
+          allow_auto_merge=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.allow_auto_merge')
+          if [ "$allow_auto_merge" != "true" ]; then
+            hold "auto-merge is not allowed in this repository's settings"
+          fi
+          required_checks=$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/$BASE_REF" \
+            --jq '[.[] | select(.type == "required_status_checks")] | length')
+          if [ "$required_checks" -eq 0 ]; then
+            hold "$BASE_REF has no required status checks, so auto-merge would not wait for CI"
+          fi
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "Eligible: $UPDATE_TYPE in $DIRECTORY ($NAMES)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Approve
+        if: steps.decide.outputs.eligible == 'true' && vars.DEPENDABOT_AUTO_APPROVE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review --approve "$PR_URL" --body "Minor or patch update in tested code; merges when the required checks pass."
+
+      - name: Turn on auto-merge
+        if: steps.decide.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --merge "$PR_URL"
+
+      - name: Turn off auto-merge
+        if: steps.decide.outputs.eligible != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          enabled=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$enabled" = "true" ]; then
+            gh pr merge --disable-auto "$PR_URL"
+            echo "Auto-merge turned off." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
