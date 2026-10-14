@@ -32,6 +32,7 @@ Fill in every field and click **Create Account & Continue**.
 | **Password** | See requirements below |
 | **Confirm Password** | Must match exactly |
 | **Company Name** | Optional here; editable later in **Admin > Settings** |
+| **Customer Contact Email** | Optional. The address customers are told to contact in emails. Left blank, your email above is used. Editable later as **Email** in **Admin > Settings > Company Information**. |
 | **Currency** | Dropdown of common currencies (USD, CAD, EUR, GBP, AUD, NZD, JPY, MXN, BRL, INR). Affects how prices appear on invoices and reports. |
 | **Locale** | BCP-47 locale (e.g., `en-US`, `fr-CA`, `de-DE`). Controls decimal separators, thousands separators, and date formats. |
 
@@ -204,18 +205,18 @@ The Settings page is organized into sections. Scroll through them, make your cha
 
 ### Company Logo
 
-Click **Upload Logo** (or **Change Logo** if one already exists) to upload a PNG, JPEG, GIF, or WebP image (max 2 MB). The logo appears in the navigation bar and on quote and invoice PDFs.
+Click **Upload Logo** (or **Change Logo** if one already exists) to upload a PNG, JPEG, GIF, or WebP image (max 2 MB). The logo appears at the top of the sidebar, on the login page, and on quote and invoice PDFs.
 
 ### Company Information
 
 | Field | What to Enter |
 |-------|---------------|
-| **Company Name** | Your business name — appears on quotes and invoices |
+| **Company Name** | Your business name — appears on quotes, invoices and customer emails |
 | **Address Line 1 / Line 2** | Street address and optional suite/unit |
 | **City / State / ZIP Code / Country** | Complete address for printed documents |
 | **Timezone** | Your local timezone — affects date/time displays in reports and charts |
 | **Phone** | Auto-formatted as you type, e.g., `(555) 123-4567` |
-| **Email** | Primary contact email |
+| **Email** | Primary contact email — customer emails tell customers to write here |
 | **Website** | Your company URL |
 
 ### Regional Settings

@@ -31,7 +31,7 @@ Navigate to **Admin > Settings** in the sidebar to reach the central configurati
 
 ### Company Logo
 
-Your logo appears on quote PDFs and invoices.
+Your logo appears at the top of the sidebar (in place of the FilaOps wordmark, with a small "Powered by FilaOps" line at the bottom), on the login page, and on quote PDFs and invoices. Without a logo, the sidebar shows FilaOps.
 
 **To upload a logo:**
 
@@ -47,7 +47,7 @@ Fill in your business details. These appear on customer-facing documents like qu
 
 | Field | Notes |
 |-------|-------|
-| **Company Name** | Your business name as it appears on documents |
+| **Company Name** | Your business name as it appears on documents and in customer emails |
 | **Address Line 1** | Street address |
 | **Address Line 2** | Suite, unit, or building (optional) |
 | **City** | City name |
@@ -56,7 +56,7 @@ Fill in your business details. These appear on customer-facing documents like qu
 | **Country** | Country name (defaults to `USA`) |
 | **Timezone** | Selected from a dropdown of IANA timezone names — controls date/time display in reports and charts (defaults to `America/New_York`) |
 | **Phone** | Business phone number — automatically formatted as `(555) 123-4567` as you type |
-| **Email** | Business contact email |
+| **Email** | Business contact email. Customer emails tell customers to contact this address. |
 | **Website** | Your website address (optional) |
 
 ### Regional Settings
