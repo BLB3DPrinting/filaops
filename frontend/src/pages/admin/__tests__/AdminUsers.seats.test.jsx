@@ -1,12 +1,10 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 
-// 4.3.1 lifted the community staff-seat cap while PRO is not on sale: an
-// unlicensed install shows no seat banner and can always add staff.
-
-vi.mock('../../../hooks/useFeatureFlags', () => ({
-  useFeatureFlags: () => ({ isPro: false, hasFeature: () => false }),
-}))
+// 4.3.1 lifted the community staff-seat cap. The page no longer keeps its own
+// copy of the cap: the backend (app/core/seat_limits.py) is the only gate, and
+// a refused add shows the server's message in a toast. So the page never
+// shows a seat banner or disables Add User.
 
 vi.mock('../../../hooks/useApi', () => ({
   useApi: () => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), del: vi.fn() }),
@@ -37,7 +35,7 @@ vi.mock('../../../hooks/useCRUD', () => ({
 
 import AdminUsers from '../AdminUsers'
 
-describe('AdminUsers staff seats (community, cap lifted)', () => {
+describe('AdminUsers staff seats', () => {
   it('keeps Add User enabled with more than one active staff account', () => {
     render(<AdminUsers />)
     const add = screen.getByRole('button', { name: /add user/i })
