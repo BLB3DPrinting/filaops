@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.version import VersionManager
+from app.core.version import UPGRADE_DOCS_URL, VersionManager
 
 
 # ---------------------------------------------------------------------------
@@ -102,19 +102,101 @@ def test_get_current_version_legacy_update_method_matches_install(
 # ---------------------------------------------------------------------------
 
 
-def test_update_instructions_docker_keeps_legacy_runbook(
+def _step_index(steps: list[str], needle: str) -> int:
+    """Index of the first step containing ``needle`` (fails if absent)."""
+    for i, step in enumerate(steps):
+        if needle in step:
+            return i
+    raise AssertionError(f"no step contains {needle!r}: {steps!r}")
+
+
+def test_update_instructions_docker_matches_upgrade_guide(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Existing Docker installs must keep getting the docker-compose runbook —
-    this PR is additive, not a breaking change for the deployment shape that's
-    in production. The first instruction must still be the `docker-compose down`
-    step that every customer-facing Core upgrade has used since the v1 era."""
+    """Docker installs get the docs/UPGRADE.md runbook: back up with pg_dump,
+    fetch tags, check out the release tag, `docker compose up -d --build`,
+    then check /api/v1/system/version. The method label stays
+    "docker-compose" so clients that read it keep working."""
     monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "docker")
     instructions = VersionManager.get_update_instructions()
 
     assert instructions["method"] == "docker-compose"
     assert instructions["requires_manual_steps"] is True
-    assert "docker-compose down" in instructions["instructions"][0]
+    steps = instructions["instructions"]
+
+    backup = _step_index(
+        steps,
+        "docker exec filaops-db pg_dump -U postgres -d filaops "
+        "--no-owner --no-privileges > filaops_before_upgrade.sql",
+    )
+    fetch = _step_index(steps, "git fetch --tags")
+    checkout = _step_index(steps, "git checkout vX.Y.Z")
+    rebuild = _step_index(steps, "docker compose up -d --build")
+    verify = _step_index(steps, "/api/v1/system/version")
+    assert backup < fetch < checkout < rebuild < verify
+
+
+def test_update_instructions_docker_drops_obsolete_steps(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Migrations run in the `migrate` service, so there is no manual alembic
+    step, and the runbook never stops the stack, pulls `main` or rebuilds
+    with --no-cache."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "docker")
+    joined = " ".join(VersionManager.get_update_instructions()["instructions"])
+
+    assert "alembic" not in joined
+    assert "docker-compose" not in joined
+    assert " down" not in joined
+    assert "--no-cache" not in joined
+    assert "git pull" not in joined
+    assert "main" not in joined
+
+
+def test_update_instructions_docker_rollback_restores_backup(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Rolling back means restoring the pre-upgrade backup and checking out
+    the previous tag (docs/UPGRADE.md "Rolling back"), never stepping
+    migrations down one at a time or wiping volumes."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "docker")
+    rollback = VersionManager.get_update_instructions()["rollback_steps"]
+    joined = " ".join(rollback).lower()
+
+    assert "alembic downgrade" not in joined
+    restore = _step_index(rollback, "Restore the database backup")
+    checkout = _step_index(rollback, "git checkout vX.Y.Z")
+    rebuild = _step_index(rollback, "docker compose up -d --build")
+    assert restore < checkout < rebuild
+    # down -v is only mentioned as a warning, never as a step to run.
+    for step in rollback:
+        if "down -v" in step:
+            assert step.startswith("Never")
+
+
+def test_update_instructions_docker_requires_backup_up_front(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The backup is a step, not an optional recommendation."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "docker")
+    instructions = VersionManager.get_update_instructions()
+
+    assert "recommended" not in instructions["backup_recommendation"].lower()
+    assert "restor" in instructions["backup_recommendation"].lower()
+    assert "filaops_config" in instructions["backup_recommendation"]
+
+
+@pytest.mark.parametrize("method", ["docker", "manual", "tauri"])
+def test_update_instructions_link_to_docs_site(
+    monkeypatch: pytest.MonkeyPatch, method: str
+):
+    """Every branch links to the published upgrade guide, not a GitHub path
+    that didn't exist on main."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", method)
+    instructions = VersionManager.get_update_instructions()
+
+    assert instructions["documentation_url"] == UPGRADE_DOCS_URL
+    assert UPGRADE_DOCS_URL == "https://blb3dprinting.github.io/filaops/UPGRADE/"
 
 
 def test_update_instructions_tauri_returns_no_manual_steps(
@@ -154,6 +236,31 @@ def test_update_instructions_manual_returns_baremetal_runbook(
     assert "docker-compose" not in joined
     assert "pip install" in joined
     assert "alembic upgrade head" in joined
+
+
+def test_update_instructions_manual_matches_upgrade_guide(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Manual installs follow docs/UPGRADE.md's manual steps: back up, check
+    out the tag, pip + alembic in backend/, npm ci + build in frontend/,
+    restart, confirm via /api/v1/system/version. Rollback restores the
+    backup instead of stepping migrations down."""
+    monkeypatch.setenv("FILAOPS_INSTALL_METHOD", "manual")
+    instructions = VersionManager.get_update_instructions()
+    steps = instructions["instructions"]
+
+    backup = _step_index(steps, "pg_dump")
+    checkout = _step_index(steps, "git checkout vX.Y.Z")
+    backend = _step_index(steps, "pip install -r requirements.txt, then alembic upgrade head")
+    frontend = _step_index(steps, "npm ci, then npm run build")
+    restart = _step_index(steps, "Restart")
+    verify = _step_index(steps, "/api/v1/system/version")
+    assert backup < checkout < backend < frontend < restart < verify
+    assert "Node.js 24" in steps[frontend]
+
+    rollback = " ".join(instructions["rollback_steps"]).lower()
+    assert "alembic downgrade" not in rollback
+    assert "restore the database backup" in rollback
 
 
 def test_update_instructions_default_when_env_unset_matches_docker(

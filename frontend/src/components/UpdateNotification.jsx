@@ -2,6 +2,10 @@ import React, { useState } from "react";
 import { useUpdateChecker } from "../hooks/useUpdateChecker";
 import { API_URL } from "../config/api";
 
+// FilaOps has no in-app updater: upgrades run on the host (back up, check out
+// the release tag, rebuild). This banner only points the admin at the steps.
+const UPGRADE_DOCS_URL = "https://blb3dprinting.github.io/filaops/UPGRADE/";
+
 const UpdateNotification = () => {
   const { updateInfo, hasUpdate, dismissUpdate } = useUpdateChecker();
   const [showModal, setShowModal] = useState(false);
@@ -13,75 +17,17 @@ const UpdateNotification = () => {
   const loadInstructions = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/system/updates/instructions`);
+      const res = await fetch(`${API_URL}/api/v1/system/updates/instructions`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const data = await res.json();
       setInstructions(data);
       setShowModal(true);
     } catch (err) {
       console.error("Failed to load instructions:", err);
-      window.open("https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md", "_blank");
+      window.open(UPGRADE_DOCS_URL, "_blank", "noopener,noreferrer");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const triggerUpgrade = async () => {
-    if (!confirm("This will trigger an automated upgrade:\n\n1. Create backup\n2. Pull latest code\n3. Rebuild containers\n4. Run migrations\n5. Restart services\n\nThe page will reload automatically when complete.\n\nContinue?")) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      // Confirm the server accepted the request before showing success.
-      // The backend validates prerequisites (admin auth, docker, git, no
-      // in-progress update) and responds before kicking off the background
-      // task that eventually restarts the server, so this fetch will return.
-      const startResponse = await fetch(`${API_URL}/api/v1/admin/system/update/start`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-
-      if (!startResponse.ok) {
-        let detail = `${startResponse.status} ${startResponse.statusText}`;
-        try {
-          const data = await startResponse.json();
-          if (data?.detail) detail = data.detail;
-        } catch { /* response body was not JSON */ }
-        alert(`Failed to start upgrade:\n\n${detail}`);
-        setLoading(false);
-        return;
-      }
-
-      // Server accepted — background task is running. Show feedback and poll.
-      alert("Upgrade started!\n\nContainers are rebuilding. This page will automatically reload in 60 seconds.\n\nDo not close this window.");
-
-      const startTime = Date.now();
-      const maxWait = 120000;
-      const pollInterval = 5000;
-
-      // Wait for upgrade to start
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      
-      // Poll until server is back
-      const pollForServer = async () => {
-        while (Date.now() - startTime < maxWait) {
-          try {
-            const res = await fetch(`${API_URL}/api/v1/system/version`, { signal: AbortSignal.timeout(3000) });
-            if (res.ok) { window.location.reload(); return; }
-          } catch { /* Server still restarting */ }
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
-        window.location.reload();
-      };
-      
-      pollForServer();
-      
-    } catch (err) {
-      console.error("Failed to trigger upgrade:", err);
-      alert(`Failed to start upgrade: ${err.message}\n\nYou may need to upgrade manually.`);
       setLoading(false);
     }
   };
@@ -101,11 +47,8 @@ const UpdateNotification = () => {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={triggerUpgrade} disabled={loading} className="bg-white text-indigo-600 px-4 py-2 rounded font-semibold hover:bg-gray-100 disabled:opacity-50">
-              {loading ? "Updating..." : "Update Now"}
-            </button>
-            <button onClick={loadInstructions} disabled={loading} className="bg-white/20 border border-white/30 px-4 py-2 rounded hover:bg-white/30">
-              Manual Steps
+            <button onClick={loadInstructions} disabled={loading} className="bg-white text-indigo-600 px-4 py-2 rounded font-semibold hover:bg-gray-100 disabled:opacity-50">
+              {loading ? "Loading..." : "How to Upgrade"}
             </button>
             {updateInfo.release_url && (
               <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer" className="bg-white/20 border border-white/30 px-4 py-2 rounded hover:bg-white/30">
@@ -129,8 +72,8 @@ const UpdateNotification = () => {
                 <strong className="text-yellow-800 dark:text-yellow-200">Important:</strong>
                 <ul className="mt-2 text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
                   <li>Downtime: {instructions.downtime}</li>
-                  <li>Backup database first (recommended)</li>
-                  <li>Follow steps in order</li>
+                  {instructions.backup_recommendation && <li>{instructions.backup_recommendation}</li>}
+                  <li>Run these steps on the computer FilaOps is installed on, in order.</li>
                 </ul>
               </div>
               <h3 className="font-semibold dark:text-white mb-3">Instructions:</h3>
@@ -158,7 +101,6 @@ const UpdateNotification = () => {
             </div>
             <div className="border-t dark:border-gray-700 p-6 flex gap-3 justify-end">
               <button onClick={() => setShowModal(false)} className="bg-gray-100 dark:bg-gray-700 px-6 py-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600">Close</button>
-              <button onClick={() => { setShowModal(false); alert("Open your terminal and follow the steps."); }} className="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 font-semibold">Ready to Update</button>
             </div>
           </div>
         </div>

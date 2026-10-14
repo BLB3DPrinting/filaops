@@ -13,8 +13,8 @@ the import system without executing module code, so Core's module graph
 stays free of PRO references whether or not the wheel is present.
 
 Patterns reused:
-  - Background task + module-level status dict:
-      app/api/v1/endpoints/admin/system.py:_update_status
+  - Background task + module-level status dict (``_install_status``),
+      modelled on the one-click updater since removed from admin/system.py
   - subprocess pip install for standard Python deployments:
       app/api/v1/endpoints/settings.py:install_anthropic_package
   - Relay/AppImage sideload target:

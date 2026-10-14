@@ -947,12 +947,11 @@ that operator owns (the list returns only those, the others answer 403).
 
 **Tier**: Core
 **File**: `endpoints/admin/system.py`
-**Endpoints**: 3
+**Endpoints**: 2
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
-| GET | `/admin/system/update/status` | Get current update status | ADMIN |
-| POST | `/admin/system/update/start` | Start system update | ADMIN |
+| POST | `/admin/system/update/start` | Removed one-click update: always 410 Gone with a link to the upgrade guide | ADMIN |
 | GET | `/admin/system/version` | Get current system version | ADMIN |
 
 ### 28.18. Uploads (`/admin/uploads`)

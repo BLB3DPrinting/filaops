@@ -19,7 +19,8 @@ Install-method awareness:
   What differs is how updates are delivered. Deployment artifacts opt in by
   setting `FILAOPS_INSTALL_METHOD` to one of:
 
-      docker   — default; updates via `docker-compose pull && up -d`
+      docker   — default; admin checks out the release tag on the host and
+                 runs `docker compose up -d --build`
       tauri    — native desktop install; updates via the Tauri auto-updater
                  (the shell handles download/swap on next launch)
       manual   — bare-metal install; admin runs alembic/pip themselves
@@ -41,6 +42,10 @@ from typing import Dict, Any, Optional
 import threading
 
 logger = logging.getLogger(__name__)
+
+# Published upgrade guide (docs/UPGRADE.md on the docs site). The update
+# instructions endpoint and the admin update endpoint both point here.
+UPGRADE_DOCS_URL = "https://blb3dprinting.github.io/filaops/UPGRADE/"
 
 
 def _read_version_file() -> Optional[str]:
@@ -311,7 +316,7 @@ class VersionManager:
                     "FilaOps backs up your database automatically before each update. "
                     "No manual action required."
                 ),
-                "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
+                "documentation_url": UPGRADE_DOCS_URL,
                 "rollback_steps": [
                     "Re-install the previous version from "
                     "https://github.com/BLB3DPrinting/filaops/releases — the Tauri installer "
@@ -322,62 +327,89 @@ class VersionManager:
 
         if install_method == "manual":
             # Bare-metal install — no docker, no Tauri shell, just a Python
-            # interpreter pointed at the repo. The operator owns the runbook
-            # end-to-end: pip install, alembic upgrade, service restart. We
-            # don't know whether they're under systemd, supervisord, or a
-            # plain shell, so the restart step stays generic ("restart your
-            # FilaOps service") instead of prescribing one specific verb.
+            # interpreter pointed at the repo. Mirrors the "Manual install"
+            # steps in docs/UPGRADE.md. We don't know whether they're under
+            # systemd, supervisord, or a plain shell, so the restart step
+            # stays generic instead of prescribing one specific verb.
             return {
                 "method": "manual",
-                "estimated_time": "5-15 minutes",
+                "estimated_time": "10-20 minutes",
                 "downtime": "Service restart required",
                 "instructions": [
-                    "1. Back up your database (pg_dump or your usual backup tool).",
-                    "2. Fetch the latest release: git fetch --tags && git checkout vX.X.X",
-                    "3. Upgrade Python dependencies: pip install -r backend/requirements.txt",
-                    "4. Run migrations: cd backend && alembic upgrade head",
-                    "5. Restart your FilaOps service (systemd / supervisord / however you run it).",
-                    "6. Verify health: curl http://localhost:8000/health should return 200.",
+                    "1. Read the upgrade guide (Full Documentation below). "
+                    "From 4.1.x or older, make the 4.2.0 configuration changes first, "
+                    "or the backend may not start.",
+                    "2. Back up the database: pg_dump -U <DB_USER> -d <DB_NAME> "
+                    "--no-owner --no-privileges > filaops_before_upgrade.sql",
+                    "3. Get the release: git fetch --tags",
+                    "4. Check out the release: git checkout vX.Y.Z "
+                    "(the new version number)",
+                    "5. In backend/, with your virtual environment active: "
+                    "pip install -r requirements.txt, then alembic upgrade head",
+                    "6. In frontend/, with Node.js 24 or newer: npm ci, then npm run build",
+                    "7. Restart the backend and your web server.",
+                    "8. Confirm: curl -s <backend address>/api/v1/system/version "
+                    "shows the new version, and alembic current matches alembic heads.",
                 ],
                 "backup_recommendation": (
-                    "Back up your database before running migrations. "
-                    "Alembic downgrades exist but recovering from a botched upgrade "
-                    "via backup is faster and safer."
+                    "Back up the database before you start (step 2) and keep the file. "
+                    "Rolling back means restoring that backup."
                 ),
-                "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
+                "documentation_url": UPGRADE_DOCS_URL,
                 "rollback_steps": [
-                    "1. Restore the pre-upgrade database backup.",
-                    "2. Check out the previous version: git checkout vX.X.X",
-                    "3. Re-install dependencies: pip install -r backend/requirements.txt",
-                    "4. Restart your FilaOps service.",
+                    "1. Stop the backend.",
+                    "2. Restore the database backup taken before the upgrade "
+                    "(drop and recreate the database, then load filaops_before_upgrade.sql). "
+                    "An older version won't start against a database migrated further.",
+                    "3. Check out the version you upgraded from: git checkout vX.Y.Z",
+                    "4. Re-install dependencies and rebuild: pip install -r requirements.txt "
+                    "in backend/, npm ci and npm run build in frontend/",
+                    "5. Restart the backend and your web server.",
                 ],
                 "requires_manual_steps": True,
             }
 
-        # Default: docker-compose (preserves prior behaviour for existing
-        # Docker installs — anyone already running Core got this verbiage).
+        # Default: Docker Compose. Mirrors docs/UPGRADE.md: back up, check out
+        # the release tag, rebuild. The `migrate` service applies database
+        # migrations before the backend starts, so there is no separate
+        # alembic step. The method label stays "docker-compose" so existing
+        # clients that read it keep working.
         return {
             "method": "docker-compose",
-            "estimated_time": "5-10 minutes",
-            "downtime": "Full system downtime during upgrade",
+            "estimated_time": "5-15 minutes",
+            "downtime": "FilaOps is unavailable while the containers rebuild and restart",
             "instructions": [
-                "1. Stop FilaOps: docker-compose down",
-                "2. Get latest code: git fetch --tags",
-                "3. Find latest version: git tag --sort=-v:refname | head -1",
-                "4. Checkout version: git checkout vX.X.X (replace with actual version)",
-                "5. Rebuild containers: docker-compose build --no-cache",
-                "6. Start services: docker-compose up -d",
-                "7. Run migrations: docker-compose exec backend alembic upgrade head",
-                "8. Clear browser cache (Ctrl+Shift+R) and test"
+                "1. Read the upgrade guide (Full Documentation below). "
+                "From 4.1.x or older, make the 4.2.0 configuration changes first, "
+                "or the backend may not start.",
+                "2. Back up the database, from the filaops folder: "
+                "docker exec filaops-db pg_dump -U postgres -d filaops "
+                "--no-owner --no-privileges > filaops_before_upgrade.sql",
+                "3. Get the release: git fetch --tags",
+                "4. Check out the release: git checkout vX.Y.Z "
+                "(the new version number)",
+                "5. Rebuild and start: docker compose up -d --build "
+                "(database migrations run automatically before the backend starts)",
+                "6. Confirm: curl -s http://localhost/api/v1/system/version "
+                "shows the new version",
             ],
-            "backup_recommendation": "Backup database before starting (recommended for production)",
-            "documentation_url": "https://github.com/BLB3DPrinting/filaops/blob/main/UPGRADE.md",
+            "backup_recommendation": (
+                "Back up the database before you start (step 2) and keep the file: "
+                "rolling back means restoring it. Use your own DB_USER and DB_NAME "
+                "if you changed them. On 4.3.0 or later, back up the filaops_config "
+                "volume too."
+            ),
+            "documentation_url": UPGRADE_DOCS_URL,
             "rollback_steps": [
-                "1. Stop services: docker-compose down",
-                "2. Checkout previous version: git checkout vX.X.X",
-                "3. Rebuild: docker-compose build",
-                "4. Start: docker-compose up -d",
-                "5. Rollback migrations: docker-compose exec backend alembic downgrade -1 (repeat as needed)"
+                "1. Stop the backend: docker compose stop backend",
+                "2. Restore the database backup taken before the upgrade "
+                "(Backup and Recovery guide, 'Full Database Restore'). "
+                "An older version won't start against a database migrated further.",
+                "3. Check out the version you upgraded from: git checkout vX.Y.Z",
+                "4. Rebuild and start: docker compose up -d --build",
+                "Never use docker compose down -v to roll back: it also deletes "
+                "the filaops_config volume, and stored secrets such as the AI API "
+                "key then have to be entered again.",
             ],
             "requires_manual_steps": True,
         }

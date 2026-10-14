@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Upgrade instructions match the upgrade guide.** The steps from `GET /api/v1/system/updates/instructions` now follow [docs/UPGRADE.md](docs/UPGRADE.md). For Docker: back up with `pg_dump` as a required first step, `git fetch --tags`, `git checkout vX.Y.Z`, `docker compose up -d --build`, then check `/api/v1/system/version`. Before, they stopped the stack with `docker-compose down`, rebuilt with `--no-cache` and ran `alembic upgrade head` by hand, although the `migrate` service now does that, and only "recommended" a backup. The manual-install steps now include the frontend build (`npm ci`, `npm run build`). Rollback now means restoring the pre-upgrade backup and checking out the previous version, instead of `alembic downgrade -1`. The "Full Documentation" link goes to the docs site (`https://blb3dprinting.github.io/filaops/UPGRADE/`) instead of a GitHub path that didn't exist on `main`.
+- **The update banner has no "Update Now" button.** It offers "How to Upgrade" (the steps above) and "Release Notes". If the steps can't be loaded, it opens the upgrade guide. The banner is not currently shown in the app.
+
+### Security
+
+- **Removed the one-click updater.** `POST /api/v1/admin/system/update/start` now always returns 410 Gone with a link to the upgrade guide, and runs nothing; `GET /api/v1/admin/system/update/status` is gone. On a standard Docker install the endpoint failed with 503 and told the admin to mount `/var/run/docker.sock` into the backend container and install the Docker CLI, which would give the web app root-equivalent control of the host. Do not mount the Docker socket into FilaOps containers. The endpoint also promised a backup it never took, and without a version it ran `git pull origin main` instead of checking out the latest release.
+
 ## [4.3.0] - 2026-10-14
 
 ### Added
