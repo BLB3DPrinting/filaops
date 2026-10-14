@@ -11,17 +11,18 @@ When FilaOps starts with an empty user table, the frontend automatically detects
 - `GET /api/v1/setup/status` -- Returns `needs_setup: true` when zero users exist.
 - `POST /api/v1/setup/initial-admin` -- Creates the first admin account. This endpoint is **permanently disabled** once any user exists (returns `403 Forbidden`).
 
-The setup wizard walks through seven steps:
+The setup wizard walks through eight steps:
 
-1. **Create Admin Account** -- email, name, password, optional company name
+1. **Create Admin Account** -- email, name, password, optional company name and customer contact email (the address customers are told to contact in emails; blank uses the admin email)
 2. **Load Example Data** -- optionally seed sample items, materials, colors, and UOMs
 3. **Import Products** (CSV, optional)
 4. **Import Customers** (CSV, optional)
 5. **Import Orders** (CSV, optional)
 6. **Import Inventory** (CSV, optional)
-7. **Complete** -- redirects to the dashboard
+7. **Connect Your First Printer** (optional)
+8. **Complete** -- redirects to the dashboard
 
-After step 1, the user is immediately authenticated (via httpOnly cookie or bearer token depending on `AUTH_MODE`) and logged in. Steps 2-6 can all be skipped.
+After step 1, the user is immediately authenticated (via httpOnly cookie or bearer token depending on `AUTH_MODE`) and logged in. Steps 2-7 can all be skipped.
 
 ### Password Requirements
 
@@ -105,6 +106,8 @@ ADMIN_APPROVAL_EMAIL=admin@yourcompany.com
 ```
 
 For Gmail, you must use an [App Password](https://myaccount.google.com/apppasswords) (requires 2FA enabled on the Google account).
+
+Customer emails sign with the company name and contact email from **Admin > Settings > Company Information**; `SMTP_FROM_NAME` is only a fallback.
 
 See [EMAIL_CONFIGURATION.md](EMAIL_CONFIGURATION.md) for full details.
 

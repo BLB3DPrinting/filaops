@@ -5,20 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.3.0] - 2026-10-14
 
 ### Added
 
 - **Serial number prefix setting.** Admins can set the prefix for new serial numbers in **Admin > Settings > Serial Numbers** (letters, digits and dashes; a trailing dash is added). New installs use `SN-`, giving serials like `SN-20261013-0001`. Before, every serial started with `BLB-`.
+- **Onboarding asks for a customer contact email.** Step 1 of the setup wizard has a new optional field, "Customer Contact Email": the address customers are told to contact in emails. Left blank, the new admin's email is used. It is saved to Company Settings.
 
 ### Changed
 
+- **Customer emails use the business name and email from Company Settings.** Password reset emails (approved, denied, changed) now take the shop name and contact address from **Admin > Settings > Company Information**. They fall back to `BUSINESS_NAME`, `BUSINESS_EMAIL` and `SMTP_FROM_NAME` in `.env`, then to "FilaOps" and "contact your administrator". Before, they used the `.env` values or their shipped placeholders (`Your Company Name`, `info@yourcompany.com`), and three of them ended with a hard-coded "BLB3D Printing" footer.
+- **The shop's own logo in the sidebar and on the login page.** An uploaded company logo now replaces the FilaOps wordmark at the top of the sidebar, with a small "Powered by FilaOps" line at the bottom. The login page shows the shop's logo above the FilaOps logo. With no logo uploaded, FilaOps shows as before. Before, the login page always showed the BLB3D logo, and an uploaded logo was squeezed to zero width in the sidebar.
 - **AI settings: the Claude model list comes from Anthropic.** The model dropdown now lists the models your saved API key can use (Anthropic's Models API, cached for 10 minutes; admins only) instead of three hard-coded models. If Anthropic can't be reached, a short built-in list of current models is shown with the reason. The per-document cost estimates are gone; the page links to Anthropic's pricing instead.
 - **AI settings: Test Connection checks the selected model.** It now sends a one-token request to Anthropic with the model picked on the page, so a rejected key or a retired or mistyped model ID is reported at setup time. Before, it only checked that the key started with `sk-`.
 - **New default Claude model: `claude-sonnet-5-5`.** The settings page and the API now use the same default. The page's built-in default and its "Haiku 3.5" option used `claude-haiku-3-5-20241022`, which was never a valid model ID; the API defaulted to `claude-sonnet-4-20250514`, which Anthropic has deprecated.
 
 ### Upgrade notes
 
+- **Upgrading from 4.1.x or older?** Read [docs/UPGRADE-4.2.0.md](docs/UPGRADE-4.2.0.md) first. 4.3.0 includes 4.2.0's security fixes and its required configuration changes.
+- **Check Company Settings before customers get email.** The shop name and email in **Admin > Settings > Company Information** now win over `BUSINESS_NAME`, `BUSINESS_EMAIL` and `SMTP_FROM_NAME` in `.env`. If they are filled in, customer emails will use them.
 - **Serial numbering carries on unchanged.** The upgrade runs database migration 104. An install that already has serials starting with `BLB-` keeps `BLB-` as its prefix, so the next serial follows on from the last one; every other install gets `SN-`. Existing serial numbers are never renamed. Changing the prefix later affects new serials only.
 - **Saved Claude models are not changed.** Check the model in **Admin > Integrations > AI Assistant** after upgrading. If someone picked "Haiku 3.5", the install has `claude-haiku-3-5-20241022` stored, which Anthropic does not recognise; installs that never picked a model have `claude-sonnet-4-20250514`, which is deprecated. A saved model Anthropic no longer lists stays selected and is marked "not listed by Anthropic (may be retired)"; pick a listed model, use Test Connection and save.
 - **Docker: re-enter the AI API key once if it shows as not set after upgrading.** The backend's instance ID (`install_uuid`, under `/var/lib/filaops/config`) now lives in a named volume, `filaops_config`. Before this release it was lost whenever the backend container was recreated, including by `docker compose up -d --build`, and stored secrets encrypted with it could no longer be read. The upgrade cannot bring back an ID that is already gone: the container keeps whatever ID it has when the volume is first attached. If **Admin > Integrations > AI Assistant** shows no key afterwards, enter it again; from then on it survives upgrades. If you already mount your own volume or directory at `/var/lib/filaops/config` in an override file, yours still takes precedence (`docker compose config` shows the result).
@@ -29,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Docker: stored secrets survive recreating the backend container.** `docker-compose.yml` mounts the `filaops_config` volume at `/var/lib/filaops/config`, and a test checks that every shipped compose file that runs the backend persists that directory.
 - **Docker: the backend no longer runs as root.** The entrypoint installs plugins as root, then runs migrations and the API server as `appuser`. A test checks that every command the entrypoint runs goes through that switch.
+- **Onboarding saves the company name again.** Since #513 the setup wizard silently failed to save the company name (a broken import inside a `try`), so every fresh install started with an empty Company Settings name.
+- **Mobile navigation button no longer covers the open menu.** The floating "Open navigation menu" button is hidden while the mobile drawer is open; the drawer has its own close button.
 
 ## [4.2.0] - 2026-10-12
 

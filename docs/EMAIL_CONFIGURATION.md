@@ -23,6 +23,18 @@ Then restart the backend. With Docker, run `docker compose up -d`, which recreat
 
 To check that the backend sees the settings, open **Admin > Settings**. The amber "Email (SMTP) Not Configured" banner disappears once `SMTP_USER` and `SMTP_PASSWORD` are set and `ADMIN_APPROVAL_EMAIL` is a real address.
 
+## Shop Name and Contact Address in Emails
+
+Customer emails (password reset approved, denied and changed) name your shop and tell the customer where to get help. FilaOps picks each value in this order:
+
+| Value | First choice | Fallback | Last resort |
+|-------|--------------|----------|-------------|
+| Shop name in the email | **Company Name** in **Admin > Settings > Company Information** | `BUSINESS_NAME` in `.env` | `FilaOps` |
+| From name | **Company Name** | `SMTP_FROM_NAME`, then `BUSINESS_NAME` in `.env` | `FilaOps` |
+| Contact address in the email | **Email** in **Admin > Settings > Company Information** | `BUSINESS_EMAIL` in `.env` | "contact your administrator" |
+
+Blank values and the shipped placeholders (`Your Company Name`, `info@yourcompany.com`, `example.com` addresses) are skipped. The From address itself is always `SMTP_FROM_EMAIL`.
+
 ## Gmail Setup
 
 1. Enable 2-Factor Authentication on your Google account
