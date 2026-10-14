@@ -63,6 +63,19 @@ class WorkflowHardeningTests(unittest.TestCase):
         ):
             self.assertNotIn(f"codecov/codecov-action@{tag_object}", content)
 
+    def test_dependabot_auto_merge_stays_narrow(self) -> None:
+        # Auto-merge is limited to minor/patch pip and npm updates. Widening it
+        # (majors, Docker images, Actions) or running it with secrets on fork
+        # PRs (pull_request_target) must be a deliberate, reviewed change.
+        content = (WORKFLOWS / "dependabot-auto-merge.yml").read_text(encoding="utf-8")
+        self.assertNotIn("pull_request_target", content)
+        self.assertIn("pip|npm) ;;", content)
+        self.assertIn(
+            "version-update:semver-minor|version-update:semver-patch) ;;", content
+        )
+        self.assertIn('MAINTAINER_CHANGES" = "true"', content)
+        self.assertIn('select(.type == "required_status_checks")', content)
+
 
 if __name__ == "__main__":
     unittest.main()
