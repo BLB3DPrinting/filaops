@@ -9,7 +9,7 @@ Supports tiered traceability for B2B compliance:
 
 For recalls:
 - LOT level: "Recall all products using lot #PLA-2025-0042"
-- SERIAL level: "Recall serial numbers BLB-20251205-0001 through 0015"
+- SERIAL level: "Recall serial numbers SN-20251205-0001 through 0015"
 """
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -36,7 +36,8 @@ class SerialNumber(Base):
     Individual unit tracking for finished goods.
 
     Generated when production order completes for products requiring serial tracking.
-    Format: BLB-YYYYMMDD-XXXX (e.g., BLB-20251205-0001)
+    Format: {prefix}YYYYMMDD-XXXX (e.g., SN-20251205-0001). The prefix is the
+    shop-wide Company Settings value (app.services.serial_prefix).
 
     Links back to:
     - Production order (how it was made)
@@ -97,19 +98,21 @@ class SerialNumber(Base):
         return f"<SerialNumber {self.serial_number} ({self.status})>"
 
     @classmethod
-    def generate_serial(cls, date: datetime = None) -> str:
+    def generate_serial(cls, prefix: str, date: datetime = None) -> str:
         """
-        Generate next serial number for a given date.
+        Build the serial stem for a given prefix and date.
 
-        Format: BLB-YYYYMMDD-XXXX
+        Format: {prefix}YYYYMMDD- (caller appends the sequence, e.g. 0001).
+        Pass the shop's configured prefix from
+        app.services.serial_prefix.get_serial_prefix().
 
         Note: The sequence number must be determined by querying
-        existing serials for that date in the calling code.
+        existing serials for that stem in the calling code.
         """
         if date is None:
             date = datetime.now(timezone.utc)
         date_str = date.strftime("%Y%m%d")
-        return f"BLB-{date_str}-"  # Caller appends sequence
+        return f"{prefix}{date_str}-"  # Caller appends sequence
 
 
 class MaterialLot(Base):
@@ -286,7 +289,7 @@ class CustomerTraceabilityProfile(Base):
     record_retention_days = Column(Integer, default=2555)  # ~7 years default
 
     # Customer-specific lot/serial prefix (optional)
-    custom_serial_prefix = Column(String(20), nullable=True)  # e.g., "ACME-" instead of "BLB-"
+    custom_serial_prefix = Column(String(20), nullable=True)  # e.g., "ACME-"; not used yet: serials take the shop-wide prefix
 
     # Compliance standards
     compliance_standards = Column(String(255), nullable=True)  # e.g., "ISO 13485, FDA 21 CFR 820"

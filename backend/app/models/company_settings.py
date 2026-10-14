@@ -54,6 +54,11 @@ class CompanySettings(Base):
     invoice_prefix = Column(String(20), nullable=True, default="INV")
     invoice_terms = Column(String(2000), nullable=True)
 
+    # Serial numbers: shop-wide prefix, e.g. "SN-" gives SN-20261013-0001.
+    # Validated by app.services.serial_prefix. Migration 104 seeds "BLB-" on
+    # installs that already issued BLB- serials so their numbering carries on.
+    serial_number_prefix = Column(String(20), nullable=True, default="SN-")
+
     # Accounting Settings
     fiscal_year_start_month = Column(Integer, nullable=True, default=1)  # 1=January
     accounting_method = Column(String(20), nullable=True, default="cash")  # cash or accrual

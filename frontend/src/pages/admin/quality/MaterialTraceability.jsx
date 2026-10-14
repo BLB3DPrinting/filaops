@@ -350,7 +350,7 @@ function BackwardTrace() {
               onChange={(e) => setSearchValue(e.target.value)}
               placeholder={
                 traceType === "serial"
-                  ? "e.g., BLB-20250120-001"
+                  ? "e.g., SN-20250120-0001"
                   : "Enter sales order ID"
               }
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"

@@ -3,12 +3,13 @@ Traceability Service -- lot tracking, serial numbers, and recall queries.
 
 Extracted from admin/traceability.py and traceability.py (ARCHITECT-003).
 """
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, cast, desc, func, or_
+from sqlalchemy import Integer, Numeric, cast, desc, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -25,6 +26,7 @@ from app.models.traceability import (
 )
 from app.models.user import User
 from app.models.vendor import Vendor
+from app.services.serial_prefix import get_serial_prefix
 from app.schemas.traceability import (
     CustomerTraceabilityProfileCreate,
     CustomerTraceabilityProfileUpdate,
@@ -421,17 +423,20 @@ def create_serial_numbers(db: Session, data: SerialNumberCreate) -> list[SerialN
         raise HTTPException(status_code=404, detail="Product not found")
 
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y%m%d")
-    prefix = f"BLB-{date_str}-"
+    stem = SerialNumber.generate_serial(get_serial_prefix(db), now)
 
-    # DB-side numeric extraction to avoid lexicographic ordering issues
-    seq = (
+    # DB-side numeric extraction to avoid lexicographic ordering issues.
+    # Only rows whose tail after the stem is all digits count, so a manually
+    # entered serial such as "SN-20261013-SPARE" can't break the cast. The cast
+    # is NUMERIC, not INTEGER, so an oversized tail (e.g. "...-2147483648")
+    # can't overflow it either.
+    seq = int(
         db.query(
             func.max(
-                cast(func.replace(SerialNumber.serial_number, prefix, ""), Integer)
+                cast(func.substr(SerialNumber.serial_number, len(stem) + 1), Numeric)
             )
         )
-        .filter(SerialNumber.serial_number.like(f"{prefix}%"))
+        .filter(SerialNumber.serial_number.op("~")(f"^{re.escape(stem)}[0-9]+$"))
         .scalar()
         or 0
     )
@@ -440,7 +445,7 @@ def create_serial_numbers(db: Session, data: SerialNumberCreate) -> list[SerialN
     for _ in range(data.quantity):
         seq += 1
         serial = SerialNumber(
-            serial_number=f"{prefix}{seq:04d}",
+            serial_number=f"{stem}{seq:04d}",
             product_id=data.product_id,
             production_order_id=data.production_order_id,
             status="manufactured",

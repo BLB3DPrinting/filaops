@@ -15,6 +15,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 
 from app.services import traceability_service, material_service
+from app.services.serial_prefix import get_serial_prefix
 from app.models.product import Product
 from app.models.traceability import (
     CustomerTraceabilityProfile,
@@ -85,7 +86,7 @@ def _make_material_lot(db, product, *, lot_number=None, qty_received=Decimal("10
 def _make_serial_number(db, product, production_order, *, serial=None,
                          status="manufactured"):
     sn = SerialNumber(
-        serial_number=serial or f"BLB-TEST-{_uid()}",
+        serial_number=serial or f"SN-TEST-{_uid()}",
         product_id=product.id,
         production_order_id=production_order.id,
         status=status,
@@ -425,7 +426,8 @@ class TestSerialNumbers:
         )
         serials = traceability_service.create_serial_numbers(db, data)
         assert len(serials) == 3
-        assert all(s.serial_number.startswith("BLB-") for s in serials)
+        prefix = get_serial_prefix(db)
+        assert all(s.serial_number.startswith(prefix) for s in serials)
         assert all(s.status == "manufactured" for s in serials)
 
     def test_create_serial_numbers_po_not_found(self, db, make_product):
@@ -466,7 +468,7 @@ class TestSerialNumbers:
     def test_lookup_serial_number(self, db, make_product):
         product = make_product(item_type="finished_good")
         po = _make_production_order(db, product)
-        serial_str = f"BLB-LOOKUP-{_uid()}"
+        serial_str = f"SN-LOOKUP-{_uid()}"
         sn = _make_serial_number(db, product, po, serial=serial_str)
         result = traceability_service.lookup_serial_number(db, serial_str)
         assert result.id == sn.id
@@ -516,7 +518,7 @@ class TestSerialNumbers:
         product = make_product(item_type="finished_good")
         po = _make_production_order(db, product)
         tag = _uid()
-        _make_serial_number(db, product, po, serial=f"BLB-SRCH-{tag}")
+        _make_serial_number(db, product, po, serial=f"SN-SRCH-{tag}")
 
         resp = traceability_service.list_serial_numbers(db, search=tag)
         assert resp.total >= 1
