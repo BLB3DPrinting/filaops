@@ -221,6 +221,24 @@ export default function AdminLayout() {
     fetchVersion();
   }, []);
 
+  // The hosted buyer portal, when this farm has one. PRO reports it as
+  // buyer_url next to the admin link; a shop with only the Core-served
+  // portal gets null and no button.
+  const [buyerPortalUrl, setBuyerPortalUrl] = useState(null);
+  useEffect(() => {
+    if (!isPro || !isAdmin) return;
+    let cancelled = false;
+    fetch(`${API_URL}/api/v1/pro/portal/admin-link`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setBuyerPortalUrl(data?.buyer_url || null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isPro, isAdmin]);
+
   const handleOpenPortalAdmin = async () => {
     setPortalLinkLoading(true);
     // Open window synchronously to avoid popup blocker (must be in user-click call stack)
@@ -550,6 +568,21 @@ export default function AdminLayout() {
                       {portalLinkLoading ? "Opening..." : "Portal Admin"}
                     </span>
                   </button>
+                )}
+                {isPro && isAdmin && buyerPortalUrl && (
+                  <a
+                    href={buyerPortalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm px-3 py-1.5 rounded-lg transition-all"
+                    style={{
+                      color: "var(--text-secondary)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                    title="Open the buyer-facing portal"
+                  >
+                    Buyer Portal
+                  </a>
                 )}
                 {user && (
                   <span
