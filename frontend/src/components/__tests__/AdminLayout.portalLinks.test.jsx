@@ -6,6 +6,7 @@ const { mocks } = vi.hoisted(() => ({
   mocks: {
     flags: { tier: 'community', features: [], isPro: false, loading: false, hasFeature: () => false },
     get: vi.fn(() => Promise.resolve({})),
+    buyerUrl: null,
   },
 }))
 
