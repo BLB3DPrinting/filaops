@@ -136,7 +136,10 @@ def _build_info_response(
         install_uuid=install_uuid,
         license_key=_mask_license_key(cache.license_key),
         expires_at=cache.expires_at,
-        activated_at=cache.activated_at,
+        # A cache written without an activation time (e.g. by the PRO
+        # plugin's validation) reads back as the epoch placeholder; report it
+        # as unknown rather than as 1 January 1970.
+        activated_at=None if cache.activated_at == EPOCH_ZERO_ISO else cache.activated_at,
         message=message,
     )
 

@@ -116,7 +116,7 @@ export default function AdminLicense() {
 
   return (
     <div className="space-y-6">
-      <Header />
+      <Header isActivated={isActivated} />
 
       <CurrentStateCard
         info={info}
@@ -148,7 +148,15 @@ export default function AdminLicense() {
   );
 }
 
-function Header() {
+function Header({ isActivated = false }) {
+  if (isActivated) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold text-white">License & PRO Activation</h1>
+        <p className="text-gray-400 mt-1">Your FilaOps PRO license is active.</p>
+      </div>
+    );
+  }
   return (
     <div>
       <h1 className="text-2xl font-bold text-white">License & PRO Activation</h1>
@@ -253,13 +261,6 @@ function CurrentStateCard({
             mono
             hint="Stable identifier for this Core instance. Sent to the license server during activation."
           />
-        </div>
-      )}
-
-      {isActivated && (
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg px-4 py-3 text-sm text-blue-200">
-          <strong>Restart Core</strong> to load PRO features after activation
-          changes.
         </div>
       )}
     </div>

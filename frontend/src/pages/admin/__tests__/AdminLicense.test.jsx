@@ -310,6 +310,45 @@ describe('AdminLicense', () => {
     }
   })
 
+  it('active license with PRO loaded: says it is active, no key prompt, no restart banner', async () => {
+    mocks.isPro = true
+    mocks.get.mockResolvedValue({
+      activated: true,
+      tier: 'professional',
+      license_key: 'FILAOPS-PRO-***9dab',
+      install_uuid: 'install-uuid-123',
+      features: ['multi_user'],
+      expires_at: null,
+      activated_at: '2026-04-01T12:00:00Z',
+    })
+    render(<AdminLicense />)
+    await waitFor(() => {
+      expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Your FilaOps PRO license is active\./i)).toBeInTheDocument()
+    expect(screen.queryByText(/Enter your FilaOps PRO license key/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /filaops\.blb3dprinting\.com/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Restart Core/i)).not.toBeInTheDocument()
+  })
+
+  it('shows an unknown activation date as a dash, never 1969', async () => {
+    mocks.get.mockResolvedValue({
+      activated: true,
+      tier: 'professional',
+      license_key: 'FILAOPS-PRO-***9dab',
+      features: [],
+      expires_at: null,
+      activated_at: null,
+    })
+    render(<AdminLicense />)
+    await waitFor(() => {
+      expect(screen.getByText('PROFESSIONAL')).toBeInTheDocument()
+    })
+    const label = screen.getByText(/^Activated$/i)
+    expect(label.parentElement).toHaveTextContent('—')
+    expect(screen.queryByText(/1969|1970/)).not.toBeInTheDocument()
+  })
+
   it('Header external link to filaops.blb3dprinting.com uses target="_blank" and rel="noopener noreferrer"', async () => {
     mocks.get.mockResolvedValue({
       activated: false,

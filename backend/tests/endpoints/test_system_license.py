@@ -515,6 +515,33 @@ def test_info_returns_active_state_when_cache_present(client, _license_env):
     # Key is masked, never returned in full
     assert body["license_key"] != VALID_KEY
     assert MASK_RE.match(body["license_key"])
+    assert body["activated_at"] == "2026-05-01T00:00:00+00:00"
+
+
+def test_info_reports_unknown_activation_time_as_null(client, _license_env):
+    """A cache written without ``activated_at`` (the PRO plugin's validation
+    writes this shape) reads back as the epoch placeholder. /info must report
+    it as unknown, not as 1 January 1970 (shown as Dec 31 1969 in US time
+    zones)."""
+    cache_file = {
+        "license_key": VALID_KEY,
+        "install_uuid": "uuid-x",
+        "tier": "professional",
+        "features": ["multi_user"],
+        "expires_at": None,
+        "status": "active",
+        "last_verified_at": "2026-10-14T15:21:00+00:00",
+        "last_server_timestamp": "2026-10-14T15:21:00+00:00",
+        "grace_until": "2026-10-21T15:21:00+00:00",
+        "nonce_history": [],
+    }
+    (_license_env / LICENSE_CACHE_FILENAME).write_text(json.dumps(cache_file))
+
+    resp = client.get(INFO_URL)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["activated"] is True
+    assert body["activated_at"] is None
 
 
 def test_info_no_auth_returns_401(unauthed_client):
