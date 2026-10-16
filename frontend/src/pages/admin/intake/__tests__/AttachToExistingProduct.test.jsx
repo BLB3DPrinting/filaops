@@ -7,6 +7,7 @@ const { mocks } = vi.hoisted(() => ({
     post: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+    toastWarning: vi.fn(),
   },
 }))
 
@@ -19,7 +20,7 @@ vi.mock('../../../../components/Toast', () => {
   const toast = {
     success: mocks.toastSuccess,
     error: mocks.toastError,
-    warning: vi.fn(),
+    warning: mocks.toastWarning,
     info: vi.fn(),
   }
   return { useToast: () => toast }
@@ -50,9 +51,16 @@ function jsonResponse(status, body) {
 }
 
 // Routes fetch calls the panel makes. `current` controls the slice-file probe.
-function installFetch({ current = 'present', attachStatus = 200 } = {}) {
+function installFetch({ current = 'present', attachStatus = 200, imageStatus = 200 } = {}) {
   const fetchMock = vi.fn(async (url, init = {}) => {
     const method = (init.method || 'GET').toUpperCase()
+    if (method === 'POST' && url.endsWith('/admin/uploads/product-image')) {
+      if (imageStatus !== 200) return jsonResponse(imageStatus, { detail: 'Failed to save file' })
+      return jsonResponse(200, { filename: 'thumb.png', url: '/static/uploads/products/thumb.png', size: 70 })
+    }
+    if (method === 'PUT' && /\/api\/v1\/products\/\d+$/.test(url)) {
+      return jsonResponse(200, { id: 11 })
+    }
     if (method === 'GET' && url.endsWith('/slice-file')) {
       if (current === 'present') {
         return new Response('PK-old-bytes', {
@@ -109,6 +117,7 @@ beforeEach(() => {
   mocks.post.mockReset()
   mocks.toastSuccess.mockReset()
   mocks.toastError.mockReset()
+  mocks.toastWarning.mockReset()
   mocks.get.mockResolvedValue({ total: 2, items: [DRAGON, PLA] })
 })
 
@@ -282,5 +291,99 @@ describe('AttachToExistingProduct — attaching', () => {
       expect(screen.getByTestId('current-slice-file')).toHaveTextContent('Crystal Dragon.gcode.3mf')
     )
     expect(screen.getByRole('button', { name: 'Replace slice file' })).toBeDisabled()
+  })
+})
+
+describe('AttachToExistingProduct — plate preview as product image', () => {
+  // 1x1 PNG
+  const THUMB_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const WITH_THUMB = { ...SERVER_SLICED_PARSE, thumbnail_base64: THUMB_B64, thumbnail_mime: 'image/png' }
+
+  const imageUploads = (fetchMock) =>
+    fetchMock.mock.calls.filter(([url, init]) =>
+      url.endsWith('/admin/uploads/product-image') && init?.method === 'POST')
+  const productPuts = (fetchMock) =>
+    fetchMock.mock.calls.filter(([, init]) => init?.method === 'PUT')
+
+  async function replaceAndConfirm() {
+    const replace = await screen.findByRole('button', { name: 'Replace slice file' })
+    await waitFor(() => expect(replace).toBeEnabled())
+    fireEvent.click(replace)
+    const dialog = screen.getByRole('alertdialog')
+    const message = dialog.textContent
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace' }))
+    return message
+  }
+
+  it('is offered and on by default, and notes it replaces an existing image', async () => {
+    installFetch()
+    mocks.get.mockResolvedValue({
+      total: 1,
+      items: [{ ...DRAGON, image_url: '/static/uploads/products/old.png' }],
+    })
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    const box = screen.getByRole('checkbox', { name: /plate preview as the product image/i })
+    expect(box).toBeChecked()
+    await pickDragon()
+    expect(screen.getByText(/Replaces the product's current image/)).toBeInTheDocument()
+  })
+
+  it('uploads the preview and sets only image_url on the product after attaching', async () => {
+    const fetchMock = installFetch()
+    mocks.get.mockResolvedValue({
+      total: 1,
+      items: [{ ...DRAGON, image_url: '/static/uploads/products/old.png' }],
+    })
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    await pickDragon()
+    const message = await replaceAndConfirm()
+    expect(message).toMatch(/plate preview replaces the product image/i)
+
+    await screen.findByText(/plate preview is now the product image/i)
+    const uploads = imageUploads(fetchMock)
+    expect(uploads).toHaveLength(1)
+    expect(uploads[0][1].body.get('file').type).toBe('image/png')
+
+    const puts = productPuts(fetchMock)
+    expect(puts).toHaveLength(1)
+    expect(puts[0][0]).toBe('http://api.test/api/v1/products/11')
+    expect(JSON.parse(puts[0][1].body)).toEqual({ image_url: '/static/uploads/products/thumb.png' })
+    expectNoSkuCall(fetchMock)
+  })
+
+  it('leaves the image alone when unticked', async () => {
+    const fetchMock = installFetch()
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /plate preview as the product image/i }))
+    await pickDragon()
+    const message = await replaceAndConfirm()
+    expect(message).not.toMatch(/product image/i)
+
+    await screen.findByText(/Slice file attached to FG-011/)
+    expect(imageUploads(fetchMock)).toHaveLength(0)
+    expect(productPuts(fetchMock)).toHaveLength(0)
+  })
+
+  it('keeps the attached slice file and warns when the image fails', async () => {
+    const fetchMock = installFetch({ imageStatus: 500 })
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    await pickDragon()
+    await replaceAndConfirm()
+
+    await screen.findByText(/Slice file attached to FG-011/)
+    expect(screen.getByText(/product image was not updated/i)).toBeInTheDocument()
+    expect(mocks.toastWarning).toHaveBeenCalledWith('Product image not updated: Failed to save file')
+    expect(productPuts(fetchMock)).toHaveLength(0)
+  })
+
+  it('is not offered when the upload has no plate preview', () => {
+    installFetch()
+    render(<AttachToExistingProduct parseResult={SERVER_SLICED_PARSE} sourceFile={null} />)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 })

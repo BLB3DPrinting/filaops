@@ -11,6 +11,11 @@ import SearchableSelect from "../../components/SearchableSelect";
 import OperationMaterialModal from "../../components/OperationMaterialModal";
 import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
 import AttachToExistingProduct from "./intake/AttachToExistingProduct";
+import {
+  discardUploadedProductImage,
+  hasStorableThumbnail,
+  uploadThumbnailAsProductImage,
+} from "./intake/productImage";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1980,6 +1985,20 @@ export default function AdminIntakeStudio() {
 
   const runCreateSku = async () => {
     setSkuBusy(true);
+    // The plate preview becomes the product image. Non-fatal: without it the
+    // product is still created, just without a picture.
+    let imageUrl = null;
+    if (hasStorableThumbnail(parseResult)) {
+      const upload = await uploadThumbnailAsProductImage(
+        parseResult,
+        skuCode || productName
+      );
+      if (upload.ok) {
+        imageUrl = upload.url;
+      } else {
+        toast.warning(`Plate preview not saved as product image: ${upload.error}`);
+      }
+    }
     try {
       const body = {
         name: productName,
@@ -1994,8 +2013,10 @@ export default function AdminIntakeStudio() {
         finishing_ops: buildFinishingOpsPayload(finishingOps),
         packaging: [],
         persist_color_map: true,
+        image_url: imageUrl || undefined,
       };
       const data = await api.post("/api/v1/pro/intake/sku", body);
+      imageUrl = null; // now owned by the product
       // Persist the printable slice file non-fatally — the SKU is already created.
       const createdId = data.product?.id;
       // SERVER-SLICED inputs (a raw .3mf, or a bare .stl/.obj) carry the worker
@@ -2055,6 +2076,9 @@ export default function AdminIntakeStudio() {
       toast.success(`SKU ${data.product?.sku} created`);
     } catch (err) {
       toast.error(err.message || "SKU creation failed");
+      // The server refused the product, so nothing uses the uploaded image.
+      // (On a network error the product may exist, so keep the file.)
+      if (imageUrl && err?.status >= 400) discardUploadedProductImage(imageUrl);
     } finally {
       setSkuBusy(false);
     }

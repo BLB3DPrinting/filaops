@@ -5,7 +5,8 @@
  * sees the slice file it has now, confirms, and the new slice file is
  * attached through the same PRO endpoints the create flow uses. POST /sku is
  * never called, so the product's name, SKU, BOM, routing and price are left
- * alone.
+ * alone. Optionally (on by default) the plate preview replaces the product
+ * image.
  */
 import { useEffect, useRef, useState } from "react";
 import { useApi } from "../../../hooks/useApi";
@@ -17,6 +18,11 @@ import {
   fetchCurrentSliceFile,
   resolveSliceSource,
 } from "./sliceFileAttach";
+import {
+  hasStorableThumbnail,
+  setProductImage,
+  uploadThumbnailAsProductImage,
+} from "./productImage";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const SEARCH_LIMIT = 20;
@@ -71,6 +77,10 @@ export default function AttachToExistingProduct({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const [attached, setAttached] = useState(null);
+
+  const canSaveImage = hasStorableThumbnail(parseResult);
+  const [useAsImage, setUseAsImage] = useState(true);
+  const willSaveImage = canSaveImage && useAsImage;
 
   const source = resolveSliceSource(parseResult, sourceFile);
 
@@ -139,23 +149,47 @@ export default function AttachToExistingProduct({
     setAttaching(true);
     const filename = `${selected.name || selected.sku || "model"}.gcode.3mf`;
     const result = await attachSliceFile(selected.id, source, filename);
-    setAttaching(false);
-    setConfirmOpen(false);
     if (!result.ok) {
+      setAttaching(false);
+      setConfirmOpen(false);
       toast.error(result.error);
       return;
     }
-    setAttached(result.data);
+    // The slice file is what matters; an image failure is reported, not fatal.
+    let imageError = null;
+    if (willSaveImage) {
+      const upload = await uploadThumbnailAsProductImage(parseResult, selected.sku);
+      const saved = upload.ok
+        ? await setProductImage(selected.id, upload.url)
+        : upload;
+      if (!saved.ok) imageError = saved.error;
+    }
+    setAttaching(false);
+    setConfirmOpen(false);
+    setAttached({
+      ...result.data,
+      image: willSaveImage ? (imageError ? "failed" : "saved") : "skipped",
+    });
     toast.success(`Slice file attached to ${selected.sku}`);
+    if (imageError) {
+      toast.warning(`Product image not updated: ${imageError}`);
+    }
   };
 
+  const imageSentence = willSaveImage
+    ? selected?.image_url
+      ? " The plate preview replaces the product image."
+      : " The plate preview becomes the product image."
+    : "";
   const confirmMessage = selected
-    ? hasExistingFile
-      ? `${selected.sku} (${selected.name}) has: ${describeCurrent(current)}. ` +
-        "The new file becomes the one production downloads. The old file stays " +
-        "on the server as history. Nothing else on the product changes."
-      : `${selected.sku} (${selected.name}) has no slice file on record. ` +
-        "The new file will be attached. Nothing else on the product changes."
+    ? (hasExistingFile
+        ? `${selected.sku} (${selected.name}) has: ${describeCurrent(current)}. ` +
+          "The new file becomes the one production downloads. The old file stays " +
+          "on the server as history."
+        : `${selected.sku} (${selected.name}) has no slice file on record. ` +
+          "The new file will be attached.") +
+      imageSentence +
+      " Nothing else on the product changes."
     : "";
 
   if (attached && selected) {
@@ -173,6 +207,16 @@ export default function AttachToExistingProduct({
             . The product&apos;s name, SKU, BOM, routing and price were not
             changed.
           </p>
+          {attached.image === "saved" && (
+            <p className="text-gray-300 text-sm mt-1">
+              The plate preview is now the product image.
+            </p>
+          )}
+          {attached.image === "failed" && (
+            <p className="text-yellow-400 text-sm mt-1">
+              The product image was not updated.
+            </p>
+          )}
         </div>
         <div className="flex justify-between">
           <a
@@ -196,9 +240,8 @@ export default function AttachToExistingProduct({
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-400">
-        Attach this slice file to a product that already exists. Only the slice
-        file changes. The product&apos;s name, SKU, BOM, routing and price stay
-        as they are.
+        Attach this slice file to a product that already exists. The
+        product&apos;s name, SKU, BOM, routing and price stay as they are.
       </p>
 
       {!source && (
@@ -282,6 +325,25 @@ export default function AttachToExistingProduct({
             </span>
           </div>
         </div>
+      )}
+
+      {canSaveImage && (
+        <label className="flex items-start gap-2 text-sm text-gray-300">
+          <input
+            type="checkbox"
+            checked={useAsImage}
+            onChange={(e) => setUseAsImage(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Use the plate preview as the product image
+            {selected?.image_url && (
+              <span className="block text-gray-500">
+                Replaces the product&apos;s current image.
+              </span>
+            )}
+          </span>
+        </label>
       )}
 
       <div className="flex justify-end">
