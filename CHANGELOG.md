@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Product images survive upgrades.** Uploaded product images were saved inside the backend container (`/app/static/uploads/products`) instead of on the uploads volume, so recreating the container (every Docker upgrade) deleted them. They are now saved to `/app/uploads/products` on the volume. Image links don't change, and images saved before this fix still show for as long as their files exist. In Docker, images uploaded before the last container recreate are already gone and need uploading again.
+
 - **License page with an active license.** It now says the license is active instead of asking for a key and linking to the license site, drops a "Restart Core" banner that never went away, and shows an unknown activation date as "—" instead of Dec 31, 1969. A license cache written without an activation time (as license validation writes it) made the API report 1 January 1970.
 
 ## [4.3.1] - 2026-10-14

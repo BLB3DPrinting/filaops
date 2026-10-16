@@ -6,7 +6,8 @@ Coverage:
 - Each resolver honours a non-blank override string by returning Path(override).
 - Empty / whitespace overrides fall through to the default
   (matches the existing settings.UPLOAD_DIR convention in file_storage.py).
-- resolve_upload_products_dir composes with an explicit static_dir override.
+- resolve_upload_products_dir defaults to the uploads volume and follows an
+  overridden STATIC_DIR.
 
 The functions are pure: no module-level side effects, no settings dependency,
 no filesystem touches. Tests stay isolated and quick.
@@ -18,6 +19,7 @@ from pathlib import Path
 from app.core.paths import (
     BACKEND_DIR,
     resolve_frontend_dist,
+    resolve_legacy_product_images_dir,
     resolve_static_dir,
     resolve_surface_dist,
     resolve_upload_po_docs_dir,
@@ -55,29 +57,44 @@ def test_resolve_static_dir_strips_whitespace_around_override():
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_upload_products_dir_default_uses_default_static():
-    assert resolve_upload_products_dir(None) == BACKEND_DIR / "static" / "uploads" / "products"
+def test_resolve_upload_products_dir_default_is_on_uploads_volume():
+    """Default lives under <backend>/uploads, which is /app/uploads in Docker:
+    the persistent volume. The old default (<backend>/static/...) was inside
+    the container and lost whenever the container was recreated."""
+    assert resolve_upload_products_dir(None) == BACKEND_DIR / "uploads" / "products"
 
 
-def test_resolve_upload_products_dir_default_composes_with_explicit_static():
-    custom_static = Path("/srv/filaops/static")
+def test_resolve_upload_products_dir_follows_overridden_static_dir():
+    """Packaged installs that move STATIC_DIR to a writable per-user location
+    keep their product images there."""
     assert (
-        resolve_upload_products_dir(None, static_dir=custom_static)
-        == custom_static / "uploads" / "products"
+        resolve_upload_products_dir(None, static_override="/srv/filaops/static")
+        == Path("/srv/filaops/static") / "uploads" / "products"
+    )
+
+
+def test_resolve_upload_products_dir_blank_static_override_uses_default():
+    assert (
+        resolve_upload_products_dir(None, static_override="  ")
+        == BACKEND_DIR / "uploads" / "products"
     )
 
 
 def test_resolve_upload_products_dir_honours_override_ignoring_static_dir():
-    """Override takes precedence: if the caller wants the products dir
-    elsewhere entirely, the parent static_dir should be ignored."""
+    """Override takes precedence over STATIC_DIR."""
     overridden = resolve_upload_products_dir(
-        "/var/lib/filaops/products", static_dir=Path("/srv/filaops/static")
+        "/var/lib/filaops/products", static_override="/srv/filaops/static"
     )
     assert overridden == Path("/var/lib/filaops/products")
 
 
 def test_resolve_upload_products_dir_empty_falls_through():
-    assert resolve_upload_products_dir("") == BACKEND_DIR / "static" / "uploads" / "products"
+    assert resolve_upload_products_dir("") == BACKEND_DIR / "uploads" / "products"
+
+
+def test_resolve_legacy_product_images_dir_is_under_static():
+    static = Path("/srv/filaops/static")
+    assert resolve_legacy_product_images_dir(static) == static / "uploads" / "products"
 
 
 # ---------------------------------------------------------------------------

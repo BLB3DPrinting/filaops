@@ -79,26 +79,40 @@ def resolve_static_dir(override: str | None = None) -> Path:
 
 
 def resolve_upload_products_dir(
-    override: str | None = None, *, static_dir: Path | None = None
+    override: str | None = None, *, static_override: str | None = None
 ) -> Path:
     """Product image upload directory.
 
-    Default: ``<static_dir>/uploads/products`` (kept directly under the
-    static-files root so the images are web-served via the existing
-    ``/static`` mount).
-    Override: ``UPLOAD_PRODUCTS_DIR`` env / ``settings.UPLOAD_PRODUCTS_DIR``.
+    Resolution order:
+    1. ``UPLOAD_PRODUCTS_DIR`` (``override``) when set.
+    2. ``<STATIC_DIR>/uploads/products`` when ``STATIC_DIR``
+       (``static_override``) is set — packaged installs that moved the
+       static root to a writable per-user location keep images there.
+    3. Default: ``<backend>/uploads/products``. In Docker that is
+       ``/app/uploads/products``, on the persistent uploads volume. The old
+       default, ``<backend>/static/uploads/products``, lives inside the
+       container and was wiped whenever the container was recreated.
 
-    Note: callers should pass the already-resolved ``static_dir=`` when
-    the static root may have been overridden. Without it, a configured
-    ``STATIC_DIR`` plus empty ``UPLOAD_PRODUCTS_DIR`` would write images
-    under the historical ``<backend>/static/uploads/products`` while
-    ``/static`` serves the overridden root — image URLs would 404.
+    Images are served at ``/static/uploads/products/<name>`` from this
+    directory, falling back to ``resolve_legacy_product_images_dir`` so
+    images saved under the old default keep resolving (see ``app.main``).
     """
     overridden = _coerce_override(override)
     if overridden is not None:
         return overridden
-    base = static_dir if static_dir is not None else resolve_static_dir(None)
-    return base / "uploads" / "products"
+    static_overridden = _coerce_override(static_override)
+    if static_overridden is not None:
+        return static_overridden / "uploads" / "products"
+    return BACKEND_DIR / "uploads" / "products"
+
+
+def resolve_legacy_product_images_dir(static_dir: Path) -> Path:
+    """Where product images were written before they moved to the uploads
+    volume: ``<static_dir>/uploads/products``. Still served as a fallback so
+    existing ``image_url`` values keep working on installs where those files
+    survived (source and packaged installs; not recreated Docker containers).
+    """
+    return static_dir / "uploads" / "products"
 
 
 def resolve_upload_po_docs_dir(override: str | None = None) -> Path:

@@ -127,6 +127,12 @@ ALLOWLIST: dict[tuple[str, str], Entry] = {
         "public",
         "StaticFiles: product images (public by design); PO docs, QC photos and quote uploads are "
         "stored outside it"),
+    ("MOUNT", "/static/uploads/products"): Entry(
+        "public",
+        "Product images (same files /static served before they moved to the "
+        "uploads volume); MultiDirStaticFiles = StaticFiles over two dirs",
+        True,
+    ),
     ("MOUNT", "/portal-admin"): Entry("public", "StaticFiles SPA bundle (PORTAL_ADMIN_DIST)", True),
     ("MOUNT", "/portal"): Entry("public", "StaticFiles SPA bundle (PORTAL_DIST)", True),
     ("MOUNT", "/quote"): Entry("public", "StaticFiles SPA bundle (QUOTER_DIST)", True),

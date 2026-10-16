@@ -9,7 +9,11 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.core.paths import resolve_static_dir, resolve_upload_products_dir
+from app.core.paths import (
+    resolve_legacy_product_images_dir,
+    resolve_static_dir,
+    resolve_upload_products_dir,
+)
 from app.core.settings import settings
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
@@ -19,17 +23,19 @@ logger = get_logger(__name__)
 
 # Upload configuration.
 #
-# Default resolves to ``<STATIC_DIR>/uploads/products`` (kept under the
-# /static mount so images stay web-served). Compose with the resolved
-# STATIC_DIR — without that, setting only STATIC_DIR (and leaving
-# UPLOAD_PRODUCTS_DIR blank) would write images under <backend>/static/...
-# while /static serves the overridden root, producing 404s on image URLs.
+# Images are written to UPLOAD_DIR (by default <backend>/uploads/products,
+# which is /app/uploads/products on Docker's persistent uploads volume) and
+# served at /static/uploads/products/<name> by a dedicated mount in app.main.
+# LEGACY_DIR is the old in-container default; it is only read (by that mount)
+# and cleaned up (by delete), never written.
 #
-# A packaged install can override either env var (STATIC_DIR and/or
-# UPLOAD_PRODUCTS_DIR) to point at writable per-user directories.
-_STATIC_DIR = resolve_static_dir(settings.STATIC_DIR)
+# A packaged install can override STATIC_DIR and/or UPLOAD_PRODUCTS_DIR to
+# point at writable per-user directories (see app.core.paths).
 UPLOAD_DIR = resolve_upload_products_dir(
-    settings.UPLOAD_PRODUCTS_DIR, static_dir=_STATIC_DIR
+    settings.UPLOAD_PRODUCTS_DIR, static_override=settings.STATIC_DIR
+)
+LEGACY_DIR = resolve_legacy_product_images_dir(
+    resolve_static_dir(settings.STATIC_DIR)
 )
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
@@ -134,6 +140,9 @@ async def delete_product_image(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     file_path = UPLOAD_DIR / safe_filename
+    if not file_path.exists():
+        # Images uploaded before the move to the uploads volume.
+        file_path = LEGACY_DIR / safe_filename
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
