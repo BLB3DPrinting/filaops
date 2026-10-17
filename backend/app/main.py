@@ -24,10 +24,12 @@ from datetime import datetime, timezone
 from app.core.limiter import apply_rate_limiting
 from app.core.paths import (
     resolve_frontend_dist,
+    resolve_legacy_product_images_dir,
     resolve_static_dir,
     resolve_surface_dist,
     resolve_upload_products_dir,
 )
+from app.core.static_files import MultiDirStaticFiles
 from app.api.v1 import router as api_v1_router
 from app.core.config import settings
 from app.exceptions import FilaOpsException
@@ -396,8 +398,9 @@ app.include_router(api_v1_router, prefix="/api/v1")
 # startup log already names the cause.
 STATIC_DIR = resolve_static_dir(settings.STATIC_DIR)
 PRODUCT_UPLOADS_DIR = resolve_upload_products_dir(
-    settings.UPLOAD_PRODUCTS_DIR, static_dir=STATIC_DIR
+    settings.UPLOAD_PRODUCTS_DIR, static_override=settings.STATIC_DIR
 )
+LEGACY_PRODUCT_IMAGES_DIR = resolve_legacy_product_images_dir(STATIC_DIR)
 
 
 def _try_mkdir(path: Path) -> bool:
@@ -416,6 +419,19 @@ if not _uploads_ok:
         "Product image uploads will fail at runtime — directory not "
         "writable: %s. Set UPLOAD_PRODUCTS_DIR to a writable path.",
         PRODUCT_UPLOADS_DIR,
+    )
+# Product images keep their /static/uploads/products/<name> URLs but are
+# stored in PRODUCT_UPLOADS_DIR (the uploads volume in Docker). Images saved
+# under the old in-container default are still served as a fallback. This
+# mount must be registered before /static, which would otherwise claim the
+# whole prefix.
+if _uploads_ok:
+    app.mount(
+        "/static/uploads/products",
+        MultiDirStaticFiles(
+            directories=[PRODUCT_UPLOADS_DIR, LEGACY_PRODUCT_IMAGES_DIR]
+        ),
+        name="product-images",
     )
 if _static_ok:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

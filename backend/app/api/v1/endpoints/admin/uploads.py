@@ -4,12 +4,17 @@ File Upload Endpoints for Admin
 Handles product image uploads and other file uploads.
 Files are stored locally and served via static file serving.
 """
+import re
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.core.paths import resolve_static_dir, resolve_upload_products_dir
+from app.core.paths import (
+    resolve_legacy_product_images_dir,
+    resolve_static_dir,
+    resolve_upload_products_dir,
+)
 from app.core.settings import settings
 from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
@@ -19,17 +24,19 @@ logger = get_logger(__name__)
 
 # Upload configuration.
 #
-# Default resolves to ``<STATIC_DIR>/uploads/products`` (kept under the
-# /static mount so images stay web-served). Compose with the resolved
-# STATIC_DIR — without that, setting only STATIC_DIR (and leaving
-# UPLOAD_PRODUCTS_DIR blank) would write images under <backend>/static/...
-# while /static serves the overridden root, producing 404s on image URLs.
+# Images are written to UPLOAD_DIR (by default <backend>/uploads/products,
+# which is /app/uploads/products on Docker's persistent uploads volume) and
+# served at /static/uploads/products/<name> by a dedicated mount in app.main.
+# LEGACY_DIR is the old in-container default; it is only read (by that mount)
+# and cleaned up (by delete), never written.
 #
-# A packaged install can override either env var (STATIC_DIR and/or
-# UPLOAD_PRODUCTS_DIR) to point at writable per-user directories.
-_STATIC_DIR = resolve_static_dir(settings.STATIC_DIR)
+# A packaged install can override STATIC_DIR and/or UPLOAD_PRODUCTS_DIR to
+# point at writable per-user directories (see app.core.paths).
 UPLOAD_DIR = resolve_upload_products_dir(
-    settings.UPLOAD_PRODUCTS_DIR, static_dir=_STATIC_DIR
+    settings.UPLOAD_PRODUCTS_DIR, static_override=settings.STATIC_DIR
+)
+LEGACY_DIR = resolve_legacy_product_images_dir(
+    resolve_static_dir(settings.STATIC_DIR)
 )
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
@@ -50,6 +57,33 @@ def get_file_extension(filename: str) -> str:
 def is_allowed_file(filename: str) -> bool:
     """Check if file extension is allowed"""
     return get_file_extension(filename) in ALLOWED_EXTENSIONS
+
+
+# Exactly the names upload_product_image generates: uuid4().hex plus a
+# lowercased allowed extension. Anything else (including "." and "..") was
+# never stored by this endpoint and is refused before any path is built.
+_STORED_IMAGE_NAME = re.compile(
+    r"[0-9a-f]{32}(?:"
+    + "|".join(re.escape(ext) for ext in sorted(ALLOWED_EXTENSIONS))
+    + r")"
+)
+
+
+def _find_stored_image(filename: str) -> Path | None:
+    """Return the stored image file for ``filename``, or None.
+
+    Looks in UPLOAD_DIR, then LEGACY_DIR (images saved before the move to the
+    uploads volume). Each candidate is resolved and must stay inside its
+    resolved base directory.
+    """
+    for base in (UPLOAD_DIR, LEGACY_DIR):
+        base_dir = base.resolve()
+        candidate = (base_dir / filename).resolve()
+        if not candidate.is_relative_to(base_dir):
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 @router.post("/product-image", response_model=UploadResponse)
@@ -126,22 +160,20 @@ async def delete_product_image(
     """
     Delete a previously uploaded product image.
 
-    Only deletes files in the uploads directory (prevents path traversal).
+    Accepts only names this endpoint's upload generates, and only deletes
+    files inside UPLOAD_DIR or LEGACY_DIR (prevents path traversal).
     """
-    # Sanitize filename to prevent path traversal
-    safe_filename = Path(filename).name
-    if safe_filename != filename:
+    if not _STORED_IMAGE_NAME.fullmatch(filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path = UPLOAD_DIR / safe_filename
-
-    if not file_path.exists():
+    file_path = _find_stored_image(filename)
+    if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
         file_path.unlink()
-        logger.info(f"Deleted product image: {safe_filename} by user {current_user.id}")
+        logger.info(f"Deleted product image: {filename} by user {current_user.id}")
         return {"message": "File deleted successfully"}
     except Exception as e:
-        logger.error(f"Failed to delete file {safe_filename}: {e}")
+        logger.error(f"Failed to delete file {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete file")
