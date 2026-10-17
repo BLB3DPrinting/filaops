@@ -80,7 +80,15 @@ export async function uploadThumbnailAsProductImage(parseResult, baseName) {
       error: (await readDetail(res)) || `Image upload failed (HTTP ${res.status})`,
     };
   }
-  const data = await res.json();
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // fall through to the missing-url error
+  }
+  if (typeof data?.url !== "string" || !data.url) {
+    return { ok: false, error: "Image upload returned no URL" };
+  }
   return { ok: true, url: data.url };
 }
 
@@ -103,8 +111,9 @@ export async function discardUploadedProductImage(url) {
 
 /**
  * Point an existing product at an image. Sends only image_url, so nothing
- * else on the product changes.
- * @returns {Promise<{ok: true} | {ok: false, error: string}>}
+ * else on the product changes. `status` is set when the server answered with
+ * an error (absent on a network error, where the update may have landed).
+ * @returns {Promise<{ok: true} | {ok: false, error: string, status?: number}>}
  */
 export async function setProductImage(productId, imageUrl) {
   let res;
@@ -122,6 +131,7 @@ export async function setProductImage(productId, imageUrl) {
     return {
       ok: false,
       error: (await readDetail(res)) || `Image update failed (HTTP ${res.status})`,
+      status: res.status,
     };
   }
   return { ok: true };

@@ -51,7 +51,7 @@ function jsonResponse(status, body) {
 }
 
 // Routes fetch calls the panel makes. `current` controls the slice-file probe.
-function installFetch({ current = 'present', attachStatus = 200, imageStatus = 200 } = {}) {
+function installFetch({ current = 'present', attachStatus = 200, imageStatus = 200, putStatus = 200 } = {}) {
   const fetchMock = vi.fn(async (url, init = {}) => {
     const method = (init.method || 'GET').toUpperCase()
     if (method === 'POST' && url.endsWith('/admin/uploads/product-image')) {
@@ -59,7 +59,12 @@ function installFetch({ current = 'present', attachStatus = 200, imageStatus = 2
       return jsonResponse(200, { filename: 'thumb.png', url: '/static/uploads/products/thumb.png', size: 70 })
     }
     if (method === 'PUT' && /\/api\/v1\/products\/\d+$/.test(url)) {
+      if (putStatus === 'network') throw new TypeError('Failed to fetch')
+      if (putStatus !== 200) return jsonResponse(putStatus, { detail: 'Validation failed' })
       return jsonResponse(200, { id: 11 })
+    }
+    if (method === 'DELETE' && url.includes('/admin/uploads/product-image/')) {
+      return jsonResponse(200, { message: 'deleted' })
     }
     if (method === 'GET' && url.endsWith('/slice-file')) {
       if (current === 'present') {
@@ -379,6 +384,35 @@ describe('AttachToExistingProduct — plate preview as product image', () => {
     expect(screen.getByText(/product image was not updated/i)).toBeInTheDocument()
     expect(mocks.toastWarning).toHaveBeenCalledWith('Product image not updated: Failed to save file')
     expect(productPuts(fetchMock)).toHaveLength(0)
+  })
+
+  const imageDeletes = (fetchMock) =>
+    fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')
+
+  it('removes the uploaded preview when the product update is refused', async () => {
+    const fetchMock = installFetch({ putStatus: 422 })
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    await pickDragon()
+    await replaceAndConfirm()
+
+    await screen.findByText(/product image was not updated/i)
+    await waitFor(() => expect(imageDeletes(fetchMock)).toHaveLength(1))
+    expect(imageDeletes(fetchMock)[0][0]).toBe(
+      'http://api.test/api/v1/admin/uploads/product-image/thumb.png'
+    )
+    expect(mocks.toastWarning).toHaveBeenCalledWith('Product image not updated: Validation failed')
+  })
+
+  it('keeps the uploaded preview when the product update hits a network error', async () => {
+    const fetchMock = installFetch({ putStatus: 'network' })
+    render(<AttachToExistingProduct parseResult={WITH_THUMB} sourceFile={null} />)
+
+    await pickDragon()
+    await replaceAndConfirm()
+
+    await screen.findByText(/product image was not updated/i)
+    expect(imageDeletes(fetchMock)).toHaveLength(0)
   })
 
   it('is not offered when the upload has no plate preview', () => {

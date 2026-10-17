@@ -19,6 +19,7 @@ import {
   resolveSliceSource,
 } from "./sliceFileAttach";
 import {
+  discardUploadedProductImage,
   hasStorableThumbnail,
   setProductImage,
   uploadThumbnailAsProductImage,
@@ -162,7 +163,14 @@ export default function AttachToExistingProduct({
       const saved = upload.ok
         ? await setProductImage(selected.id, upload.url)
         : upload;
-      if (!saved.ok) imageError = saved.error;
+      if (!saved.ok) {
+        imageError = saved.error;
+        // The server refused the update, so nothing points at the uploaded
+        // file. (On a network error the update may have landed; keep it.)
+        if (upload.ok && saved.status >= 400 && saved.status < 500) {
+          discardUploadedProductImage(upload.url);
+        }
+      }
     }
     setAttaching(false);
     setConfirmOpen(false);

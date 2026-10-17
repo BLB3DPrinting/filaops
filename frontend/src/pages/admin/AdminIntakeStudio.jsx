@@ -1985,21 +1985,21 @@ export default function AdminIntakeStudio() {
 
   const runCreateSku = async () => {
     setSkuBusy(true);
-    // The plate preview becomes the product image. Non-fatal: without it the
-    // product is still created, just without a picture.
     let imageUrl = null;
-    if (hasStorableThumbnail(parseResult)) {
-      const upload = await uploadThumbnailAsProductImage(
-        parseResult,
-        skuCode || productName
-      );
-      if (upload.ok) {
-        imageUrl = upload.url;
-      } else {
-        toast.warning(`Plate preview not saved as product image: ${upload.error}`);
-      }
-    }
     try {
+      // The plate preview becomes the product image. Non-fatal: without it
+      // the product is still created, just without a picture.
+      if (hasStorableThumbnail(parseResult)) {
+        const upload = await uploadThumbnailAsProductImage(
+          parseResult,
+          skuCode || productName
+        );
+        if (upload.ok) {
+          imageUrl = upload.url;
+        } else {
+          toast.warning(`Plate preview not saved as product image: ${upload.error}`);
+        }
+      }
       const body = {
         name: productName,
         actual_price: Number(actualPrice),

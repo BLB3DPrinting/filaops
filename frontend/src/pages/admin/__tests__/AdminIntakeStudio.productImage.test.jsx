@@ -192,6 +192,27 @@ describe('Intake Studio — plate preview as product image (create path)', () =>
     )
   })
 
+  it('still creates the product when the upload answers without a URL', async () => {
+    const fetchMock = installFetch(parseResult())
+    const base = fetchMock.getMockImplementation()
+    fetchMock.mockImplementation(async (url, init = {}) => {
+      if (url.endsWith('/admin/uploads/product-image') && init.method === 'POST') {
+        return new Response('<html>proxy page</html>', { status: 200 })
+      }
+      return base(url, init)
+    })
+    installApi()
+    render(<AdminIntakeStudio />)
+
+    await driveToCreate()
+
+    await waitFor(() => expect(skuCall()).toBeTruthy())
+    expect(skuCall()[1].image_url).toBeUndefined()
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      expect.stringContaining('returned no URL')
+    )
+  })
+
   it('removes the uploaded image when /sku refuses the product', async () => {
     const fetchMock = installFetch(parseResult())
     const err = Object.assign(new Error('SKU already exists'), { status: 409 })
