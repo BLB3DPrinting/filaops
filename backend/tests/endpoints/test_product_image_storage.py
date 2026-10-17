@@ -162,23 +162,70 @@ def test_upload_writes_to_upload_dir_and_keeps_url_format(client, upload_dirs):
     assert not any(legacy.iterdir())
 
 
+NAME = "0123456789abcdef0123456789abcdef.png"  # the shape uploads generate
+
+
 def test_delete_removes_image_from_upload_dir(client, upload_dirs):
-    primary, _ = upload_dirs
+    primary, legacy = upload_dirs
     primary.mkdir(parents=True)
-    (primary / "abc.png").write_bytes(PNG_BYTES)
-    resp = client.delete("/api/v1/admin/uploads/product-image/abc.png")
+    (primary / NAME).write_bytes(PNG_BYTES)
+    (legacy / NAME).write_bytes(PNG_BYTES)
+    resp = client.delete(f"/api/v1/admin/uploads/product-image/{NAME}")
     assert resp.status_code == 200
-    assert not (primary / "abc.png").exists()
+    assert not (primary / NAME).exists()
+    assert (legacy / NAME).exists()  # only the first match is deleted
 
 
 def test_delete_removes_image_saved_under_old_location(client, upload_dirs):
     _, legacy = upload_dirs
-    (legacy / "old.png").write_bytes(PNG_BYTES)
-    resp = client.delete("/api/v1/admin/uploads/product-image/old.png")
+    (legacy / NAME).write_bytes(PNG_BYTES)
+    resp = client.delete(f"/api/v1/admin/uploads/product-image/{NAME}")
     assert resp.status_code == 200
-    assert not (legacy / "old.png").exists()
+    assert not (legacy / NAME).exists()
 
 
 def test_delete_404_when_in_neither(client, upload_dirs):
-    resp = client.delete("/api/v1/admin/uploads/product-image/none.png")
+    resp = client.delete(f"/api/v1/admin/uploads/product-image/{NAME}")
     assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "%2E%2E",  # ..
+        "%2E",  # .
+        "..%5C" + NAME,  # ..\<name>
+        "sub%5C" + NAME,  # backslash
+        "0123456789ABCDEF0123456789ABCDEF.png",  # not what uploads generate
+        "not-a-uuid.png",
+        "0123456789abcdef0123456789abcdef",  # no extension
+        "0123456789abcdef0123456789abcdef.svg",  # extension never allowed
+        "0123456789abcdef0123456789abcdef.PNG",  # uploads lowercase the extension
+        "0123456789abcdef0123456789abcdef.png.txt",
+        "0123456789abcdef0123456789abcdef.png%0A",  # trailing newline
+    ],
+)
+def test_delete_rejects_names_uploads_never_generate(client, upload_dirs, raw):
+    resp = client.delete(f"/api/v1/admin/uploads/product-image/{raw}")
+    assert resp.status_code == 400, (raw, resp.status_code, resp.text)
+
+
+def test_delete_with_slash_never_reaches_a_file(client, upload_dirs, tmp_path):
+    """A '/' can't be part of the path parameter: the route doesn't match."""
+    victim = tmp_path / "uploads" / NAME
+    victim.parent.mkdir(parents=True, exist_ok=True)
+    victim.write_bytes(PNG_BYTES)
+    resp = client.delete(f"/api/v1/admin/uploads/product-image/products%2F..%2F{NAME}")
+    assert resp.status_code in (400, 404, 405)
+    assert victim.exists()
+
+
+def test_find_stored_image_stays_inside_its_directory(upload_dirs, tmp_path):
+    """Defence in depth below the name check: a name that resolves outside
+    the base directory is never returned."""
+    from app.api.v1.endpoints.admin import uploads
+
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(PNG_BYTES)
+    assert uploads._find_stored_image("../../outside.png") is None
+    assert outside.exists()

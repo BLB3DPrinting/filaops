@@ -4,6 +4,7 @@ File Upload Endpoints for Admin
 Handles product image uploads and other file uploads.
 Files are stored locally and served via static file serving.
 """
+import re
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
@@ -56,6 +57,33 @@ def get_file_extension(filename: str) -> str:
 def is_allowed_file(filename: str) -> bool:
     """Check if file extension is allowed"""
     return get_file_extension(filename) in ALLOWED_EXTENSIONS
+
+
+# Exactly the names upload_product_image generates: uuid4().hex plus a
+# lowercased allowed extension. Anything else (including "." and "..") was
+# never stored by this endpoint and is refused before any path is built.
+_STORED_IMAGE_NAME = re.compile(
+    r"[0-9a-f]{32}(?:"
+    + "|".join(re.escape(ext) for ext in sorted(ALLOWED_EXTENSIONS))
+    + r")"
+)
+
+
+def _find_stored_image(filename: str) -> Path | None:
+    """Return the stored image file for ``filename``, or None.
+
+    Looks in UPLOAD_DIR, then LEGACY_DIR (images saved before the move to the
+    uploads volume). Each candidate is resolved and must stay inside its
+    resolved base directory.
+    """
+    for base in (UPLOAD_DIR, LEGACY_DIR):
+        base_dir = base.resolve()
+        candidate = (base_dir / filename).resolve()
+        if not candidate.is_relative_to(base_dir):
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 @router.post("/product-image", response_model=UploadResponse)
@@ -132,25 +160,20 @@ async def delete_product_image(
     """
     Delete a previously uploaded product image.
 
-    Only deletes files in the uploads directory (prevents path traversal).
+    Accepts only names this endpoint's upload generates, and only deletes
+    files inside UPLOAD_DIR or LEGACY_DIR (prevents path traversal).
     """
-    # Sanitize filename to prevent path traversal
-    safe_filename = Path(filename).name
-    if safe_filename != filename:
+    if not _STORED_IMAGE_NAME.fullmatch(filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path = UPLOAD_DIR / safe_filename
-    if not file_path.exists():
-        # Images uploaded before the move to the uploads volume.
-        file_path = LEGACY_DIR / safe_filename
-
-    if not file_path.exists():
+    file_path = _find_stored_image(filename)
+    if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
         file_path.unlink()
-        logger.info(f"Deleted product image: {safe_filename} by user {current_user.id}")
+        logger.info(f"Deleted product image: {filename} by user {current_user.id}")
         return {"message": "File deleted successfully"}
     except Exception as e:
-        logger.error(f"Failed to delete file {safe_filename}: {e}")
+        logger.error(f"Failed to delete file {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete file")
