@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Re-slice an existing product in Intake Studio.** The review step has a "New product / Existing product" switch. Pick an existing product by SKU or name, see the slice file it has now (or that it has none, or that its file is missing from the server), confirm, and the new slice file becomes the one production downloads. The product's name, SKU, BOM, routing and price don't change. Needs FilaOps PRO.
+- **Intake Studio saves the plate preview as the product image.** New products get the preview as their picture. When re-slicing, a checkbox (on by default) replaces the product's image with the new preview.
+
 ### Fixed
 
 - **Product images survive upgrades.** Uploaded product images were saved inside the backend container (`/app/static/uploads/products`) instead of on the uploads volume, so recreating the container (every Docker upgrade) deleted them. They are now saved to `/app/uploads/products` on the volume. Image links don't change, and images saved before this fix still show for as long as their files exist. In Docker, images uploaded before the last container recreate are already gone and need uploading again.

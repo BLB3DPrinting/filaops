@@ -10,6 +10,12 @@ import {
 import SearchableSelect from "../../components/SearchableSelect";
 import OperationMaterialModal from "../../components/OperationMaterialModal";
 import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
+import AttachToExistingProduct from "./intake/AttachToExistingProduct";
+import {
+  discardUploadedProductImage,
+  hasStorableThumbnail,
+  uploadThumbnailAsProductImage,
+} from "./intake/productImage";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -848,6 +854,10 @@ export default function AdminIntakeStudio() {
   const [skuResult, setSkuResult] = useState(null);
   const [skuBusy, setSkuBusy] = useState(false);
   const [sliceFileSaved, setSliceFileSaved] = useState(false);
+
+  // Step 2 — where the slice file goes: "new" creates a product (steps 3-5),
+  // "existing" attaches it to a product that already exists (re-slice).
+  const [attachTarget, setAttachTarget] = useState("new");
 
   // ---------------------------------------------------------------------------
   // PRO gate
@@ -1975,7 +1985,21 @@ export default function AdminIntakeStudio() {
 
   const runCreateSku = async () => {
     setSkuBusy(true);
+    let imageUrl = null;
     try {
+      // The plate preview becomes the product image. Non-fatal: without it
+      // the product is still created, just without a picture.
+      if (hasStorableThumbnail(parseResult)) {
+        const upload = await uploadThumbnailAsProductImage(
+          parseResult,
+          skuCode || productName
+        );
+        if (upload.ok) {
+          imageUrl = upload.url;
+        } else {
+          toast.warning(`Plate preview not saved as product image: ${upload.error}`);
+        }
+      }
       const body = {
         name: productName,
         actual_price: Number(actualPrice),
@@ -1989,8 +2013,10 @@ export default function AdminIntakeStudio() {
         finishing_ops: buildFinishingOpsPayload(finishingOps),
         packaging: [],
         persist_color_map: true,
+        image_url: imageUrl || undefined,
       };
       const data = await api.post("/api/v1/pro/intake/sku", body);
+      imageUrl = null; // now owned by the product
       // Persist the printable slice file non-fatally — the SKU is already created.
       const createdId = data.product?.id;
       // SERVER-SLICED inputs (a raw .3mf, or a bare .stl/.obj) carry the worker
@@ -2050,6 +2076,9 @@ export default function AdminIntakeStudio() {
       toast.success(`SKU ${data.product?.sku} created`);
     } catch (err) {
       toast.error(err.message || "SKU creation failed");
+      // The server refused the product, so nothing uses the uploaded image.
+      // (On a network error the product may exist, so keep the file.)
+      if (imageUrl && err?.status >= 400) discardUploadedProductImage(imageUrl);
     } finally {
       setSkuBusy(false);
     }
@@ -2203,6 +2232,7 @@ export default function AdminIntakeStudio() {
     // slice file
     sourceFileRef.current = null;
     setSliceFileSaved(false);
+    setAttachTarget("new");
   };
 
   // ---------------------------------------------------------------------------
@@ -2889,6 +2919,48 @@ export default function AdminIntakeStudio() {
             </div>
           )}
 
+          {/* Where the slice file goes: a new product, or an existing one */}
+          <div
+            role="radiogroup"
+            aria-label="Slice file destination"
+            className="inline-flex mb-4 rounded-lg border border-gray-700 overflow-hidden"
+          >
+            {[
+              ["new", "New product"],
+              ["existing", "Existing product"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={attachTarget === value}
+                onClick={() => setAttachTarget(value)}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  attachTarget === value
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-300 hover:bg-gray-800"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {attachTarget === "existing" && (
+            <div className="mb-4">
+              <AttachToExistingProduct
+                parseResult={parseResult}
+                sourceFile={sourceFileRef.current}
+                initialQuery={productName}
+                onStartOver={() => {
+                  handleReset();
+                  // Keep the mode: re-slicing usually comes in batches.
+                  setAttachTarget("existing");
+                }}
+              />
+            </div>
+          )}
+
           {/* Buttons */}
           <div className="flex justify-between pt-2">
             <div className="flex gap-2">
@@ -2905,14 +2977,16 @@ export default function AdminIntakeStudio() {
                 Start over
               </button>
             </div>
-            <button
-              onClick={runMatch}
-              disabled={matchBusy || !productName.trim()}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-            >
-              {matchBusy && <Spinner />}
-              {unifiedFlow ? "Next: select material" : "Next: match spools"}
-            </button>
+            {attachTarget === "new" && (
+              <button
+                onClick={runMatch}
+                disabled={matchBusy || !productName.trim()}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+              >
+                {matchBusy && <Spinner />}
+                {unifiedFlow ? "Next: select material" : "Next: match spools"}
+              </button>
+            )}
           </div>
         </div>
       )}
