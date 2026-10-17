@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Re-slice an existing product in Intake Studio.** The review step has a "New product / Existing product" switch. Pick an existing product by SKU or name, see the slice file it has now (or that it has none, or that its file is missing from the server), confirm, and the new slice file becomes the one production downloads. The product's name, SKU, BOM, routing and price don't change. Needs FilaOps PRO.
+- **Intake Studio saves the plate preview as the product image.** New products get the preview as their picture. When re-slicing, a checkbox (on by default) replaces the product's image with the new preview.
+
 ### Fixed
 
 - **License page with an active license.** It now says the license is active instead of asking for a key and linking to the license site, drops a "Restart Core" banner that never went away, and shows an unknown activation date as "—" instead of Dec 31, 1969. A license cache written without an activation time (as license validation writes it) made the API report 1 January 1970.
