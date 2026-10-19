@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **Docker: copy product images onto the volume before upgrading.** While the old version is still running: `docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'`. It prints the number of images copied; if it prints an error, don't upgrade until it succeeds. See [Upgrading FilaOps](docs/UPGRADE.md#2-docker-copy-product-images-onto-the-volume).
+- **Docker: copy product images onto the volume before upgrading.** While the old version is still running: `docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'`. It prints how many images are now on the volume, including any already there; if it prints an error, don't upgrade until it succeeds. See [Upgrading FilaOps](docs/UPGRADE.md#2-docker-copy-product-images-onto-the-volume).
 - **No database migrations.** From 4.3.1, check out `v4.3.2` and rebuild (`docker compose up -d --build`).
 - **Coming from 4.1.x or older?** Read [Upgrading FilaOps](docs/UPGRADE.md) first: it starts with the settings 4.2.0 needs, then upgrades straight to 4.3.2.
 
