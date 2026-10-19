@@ -219,7 +219,7 @@ rolling back means restoring it. Other options are in
 ### 2. Get the 4.2.0 code
 
 These steps stop at 4.2.0. To upgrade to the current release instead, use
-[Upgrading FilaOps](UPGRADE.md#2-get-the-new-code).
+[Upgrading FilaOps](UPGRADE.md#3-get-the-new-code).
 
 From the `filaops` folder, check out the 4.2.0 release:
 
