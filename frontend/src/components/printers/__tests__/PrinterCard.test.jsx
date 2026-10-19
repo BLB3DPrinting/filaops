@@ -84,6 +84,7 @@ describe("PrinterCard live FilaFarm state", () => {
   it("shows Core's status without PRO telemetry", () => {
     render(<PrinterCard printer={basePrinter} />);
     expect(screen.getByTestId("printer-state-badge")).toHaveTextContent("idle");
+    expect(screen.getByTestId("printer-state-badge")).toHaveAttribute("aria-live", "polite");
     expect(screen.queryByTestId("printer-nozzle")).not.toBeInTheDocument();
     expect(screen.queryByTestId("ams-slots")).not.toBeInTheDocument();
   });

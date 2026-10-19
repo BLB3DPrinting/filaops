@@ -13,6 +13,21 @@ const STATE_WORDS = {
   needs_clearing: "needs clearing",
 };
 
+/**
+ * Overlay PRO's live telemetry on Core's printer rows, matched by ID.
+ *
+ * Core returns numeric IDs and PRO returns strings, so they're matched as
+ * strings, and Core's own `id` is kept: other parts of the page (e.g.
+ * maintenance logs' `printer_id`) look printers up by the numeric ID.
+ */
+export function mergeLiveTelemetry(corePrinters, proPrinters) {
+  const live = new Map((proPrinters || []).map((p) => [String(p.id), p]));
+  return corePrinters.map((p) => {
+    const telemetry = live.get(String(p.id));
+    return telemetry ? { ...p, ...telemetry, id: p.id } : p;
+  });
+}
+
 /** Key for status colours: Core's status, except that a live error is "error". */
 export function statusKey(printer) {
   if (printer?.state === "error") return "error";

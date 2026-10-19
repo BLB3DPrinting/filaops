@@ -13,7 +13,7 @@ import PrinterModal from "../../components/printers/PrinterModal";
 import IPProbeSection from "../../components/printers/IPProbeSection";
 import MaintenanceModal from "../../components/printers/MaintenanceModal";
 import PrinterCard from "../../components/printers/PrinterCard";
-import { statusKey, statusText } from "../../components/printers/liveStatus";
+import { mergeLiveTelemetry, statusKey, statusText } from "../../components/printers/liveStatus";
 
 export default function AdminPrinters() {
   const api = useApi();
@@ -152,17 +152,12 @@ export default function AdminPrinters() {
       // Overlay PRO's live telemetry in both views whenever FilaFarm is
       // available. Core's stored printers.status is only a last-known value
       // (often weeks old), so without the overlay the table read "offline"
-      // for printers that were printing. The overlay merges by string-coerced
-      // ID because Core returns numeric IDs and PRO returns string IDs.
+      // for printers that were printing. mergeLiveTelemetry matches by
+      // string ID (PRO sends strings) and keeps Core's numeric `id`.
       if (canUseHud) {
         try {
           const proData = await api.get("/api/v1/pro/filafarm/printers");
-          const proMap = new Map(
-            (proData.printers || []).map((p) => [String(p.id), p])
-          );
-          printerList = printerList.map((p) =>
-            proMap.has(String(p.id)) ? { ...p, ...proMap.get(String(p.id)) } : p
-          );
+          printerList = mergeLiveTelemetry(printerList, proData.printers);
         } catch (err) {
           // PRO endpoint unavailable (fleet not started, license issue,
           // etc.) — degrade gracefully, HUD shows "--" for telemetry.
@@ -624,6 +619,7 @@ export default function AdminPrinters() {
                     </div>
                     <span
                       data-testid={`printer-status-${printer.id}`}
+                      aria-live="polite"
                       className={`px-2 py-1 rounded-full text-xs ${statusColors[statusKey(printer)] || statusColors.offline}`}
                     >
                       {statusText(printer)}

@@ -251,6 +251,7 @@ export default function PrinterCard({
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           <span
             data-testid="printer-state-badge"
+            aria-live="polite"
             className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${badgeStyle}`}
           >
             {stateWord(printer)}

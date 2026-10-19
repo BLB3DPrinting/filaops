@@ -1,5 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { nozzleText, stateWord, statusKey, statusText } from "../liveStatus";
+import { mergeLiveTelemetry, nozzleText, stateWord, statusKey, statusText } from "../liveStatus";
+
+describe("mergeLiveTelemetry", () => {
+  it("overlays PRO telemetry but keeps Core's numeric id", () => {
+    const merged = mergeLiveTelemetry(
+      [{ id: 1, name: "Leonardo", status: "offline" }, { id: 2, name: "Raphael", status: "offline" }],
+      [{ id: "1", status: "printing", state: "preparing" }]
+    );
+
+    expect(merged[0]).toEqual({ id: 1, name: "Leonardo", status: "printing", state: "preparing" });
+    expect(merged[1]).toEqual({ id: 2, name: "Raphael", status: "offline" });
+    // Maintenance logs look printers up by the numeric id
+    expect(merged.find((p) => p.id === 1)?.name).toBe("Leonardo");
+  });
+
+  it("leaves Core's rows alone without PRO data", () => {
+    const core = [{ id: 1, status: "idle" }];
+    expect(mergeLiveTelemetry(core, undefined)).toEqual(core);
+  });
+});
 
 describe("liveStatus", () => {
   it("falls back to Core's status without PRO telemetry", () => {

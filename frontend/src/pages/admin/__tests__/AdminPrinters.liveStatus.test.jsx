@@ -79,6 +79,7 @@ describe("AdminPrinters table view status", () => {
 
     expect(await screen.findByText("Preparing")).toBeInTheDocument();
     expect(screen.getByTestId("printer-status-1")).toHaveTextContent("Preparing");
+    expect(screen.getByTestId("printer-status-1")).toHaveAttribute("aria-live", "polite");
     expect(mocks.get).toHaveBeenCalledWith("/api/v1/pro/filafarm/printers");
   });
 
