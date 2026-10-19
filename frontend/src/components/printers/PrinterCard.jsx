@@ -22,12 +22,18 @@
  *                          maintenance window {starts_at, ends_at, reason, status};
  *                          shows a "Maint Scheduled" / "In Maintenance" badge)
  */
+import AmsSlots from "./AmsSlots";
 import { brandLabels } from "./constants";
+import { nozzleText, stateWord, statusKey } from "./liveStatus";
 import { parseDateTime } from "../../utils/formatting";
 
 const STATUS_STYLES = {
   printing:
     "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30",
+  // Live states from PRO FilaFarm (see liveStatus.js)
+  preparing: "bg-cyan-500/15 text-cyan-300 ring-1 ring-inset ring-cyan-400/30",
+  needs_clearing:
+    "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/30",
   idle: "bg-blue-500/15 text-blue-300 ring-1 ring-inset ring-blue-400/30",
   offline:
     "bg-slate-500/15 text-slate-300 ring-1 ring-inset ring-slate-400/20",
@@ -112,6 +118,11 @@ export default function PrinterCard({
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
   const isPrinting = status === "printing";
+  // Live state from PRO FilaFarm when present (preparing, needs clearing,
+  // error...); actions below still follow `status`.
+  const badgeStyle =
+    STATUS_STYLES[printer.state] || STATUS_STYLES[statusKey(printer)] || STATUS_STYLES.unknown;
+  const nozzle = nozzleText(printer);
   // Coerce + clamp — non-numeric telemetry (null/NaN/"--") must never leak into
   // width styles or aria-valuenow.
   const progressRaw = Number(printer.progress);
@@ -155,49 +166,44 @@ export default function PrinterCard({
     ? printer.hms_descriptions
     : [];
   const printError = Number(printer.print_error) || 0;
-  const hasError = printError > 0 || hmsCodes.length > 0 || status === "error";
+  const hasError =
+    printError > 0 || hmsCodes.length > 0 || status === "error" || printer.state === "error";
   const primaryHmsCode = hmsCodes[0] || null;
   const primaryHmsDescription = hmsDescriptions[0] || null;
   const primaryHmsWikiUrl = primaryHmsCode ? bambuErrorUrl(primaryHmsCode) : null;
 
   // Build contextual actions based on printer state.
   // While a command is in-flight for this printer, disable pause/resume/cancel
-  // so a double-click can't fire duplicate requests.
+  // so a double-click can't fire duplicate requests. PRO FilaFarm reports
+  // control_available=false when the printer won't accept FilaOps commands
+  // (Bambu cloud mode); the buttons are then disabled with its reason.
+  const controlBlocked = printer.control_available === false;
+  const controlReason = controlBlocked
+    ? printer.control_reason || "This printer doesn't accept commands from FilaOps."
+    : undefined;
+  const commandAction = (label, primary, command) => ({
+    label,
+    primary,
+    onClick: () => onCommand(printer.id, command),
+    disabled: commandPending || controlBlocked,
+    title: controlReason,
+  });
   const actions = [];
   if (isPrinting && onCommand) {
-    actions.push({
-      label: "Pause",
-      primary: true,
-      onClick: () => onCommand(printer.id, "pause"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Pause", true, "pause"));
   }
   if (status === "paused" && onCommand) {
-    actions.push({
-      label: "Resume",
-      primary: true,
-      onClick: () => onCommand(printer.id, "resume"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Resume", true, "resume"));
   }
   if (isActive && onCommand) {
-    actions.push({
-      label: "Cancel",
-      primary: false,
-      onClick: () => onCommand(printer.id, "cancel"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Cancel", false, "cancel"));
   }
   // Clear Error is offered whenever an HMI code is active, regardless of
   // status — the printer may be paused, failed, or idle-with-error.
   if (hasError && onCommand) {
-    actions.push({
-      label: "Clear Error",
-      primary: false,
-      onClick: () => onCommand(printer.id, "clear_error"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Clear Error", false, "clear_error"));
   }
+  const showControlNote = controlBlocked && actions.length > 0;
   if (status === "offline") {
     // Disable Test when printer has no IP — there's nothing to probe.
     const hasIp = Boolean(printer.ip_address);
@@ -238,16 +244,17 @@ export default function PrinterCard({
           <h2 className="text-xl font-semibold text-white">{printer.name}</h2>
           <div className="mt-1 text-sm text-slate-400">
             {brandLabels[printer.brand] || printer.brand} {printer.model}
+            {nozzle && <span data-testid="printer-nozzle">{` • ${nozzle} nozzle`}</span>}
             {printer.location && ` • ${printer.location}`}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
-              STATUS_STYLES[status] || STATUS_STYLES.unknown
-            }`}
+            data-testid="printer-state-badge"
+            aria-live="polite"
+            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${badgeStyle}`}
           >
-            {status}
+            {stateWord(printer)}
           </span>
           {/* SCHED-4: Maintenance due-soon badge (7-day threshold) */}
           {maintenanceDueSoon && (
@@ -296,9 +303,10 @@ export default function PrinterCard({
                 {primaryHmsDescription ||
                   (primaryHmsCode
                     ? `HMS ${primaryHmsCode}`
-                    : printError
-                    ? `Print error ${printError}`
-                    : "Printer reported an error")}
+                    : printer.print_error_description ||
+                      (printError
+                        ? `Print error ${printer.print_error_code || printError}`
+                        : "Printer reported an error"))}
               </div>
               {primaryHmsDescription && primaryHmsCode && (
                 <div className="mt-1 font-mono text-xs text-red-300/70">
@@ -336,7 +344,7 @@ export default function PrinterCard({
                   Current Job
                 </div>
                 <div className="mt-1 text-sm font-medium text-white">
-                  {printer.current_job || (isPrinting ? "Printing" : "Paused")}
+                  {printer.current_job || printer.state_label || (isPrinting ? "Printing" : "Paused")}
                 </div>
               </div>
               {eta && (
@@ -381,7 +389,7 @@ export default function PrinterCard({
                   Current State
                 </div>
                 <div className="mt-1 text-sm font-medium text-white">
-                  {stateLabel(status)}
+                  {printer.state_label || stateLabel(status)}
                 </div>
               </div>
               <div className="text-right text-sm text-slate-400">
@@ -403,6 +411,9 @@ export default function PrinterCard({
         <Metric label="Filament" value={ams.material} swatchColor={ams.color} />
         <Metric label="Feed" value={ams.slot} />
       </div>
+
+      {/* Every AMS slot, when PRO telemetry reports them */}
+      <AmsSlots slots={printer.ams_slots} units={printer.ams_units} />
 
       {/* Footer: heartbeat + actions */}
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-800 pt-4">
@@ -430,6 +441,12 @@ export default function PrinterCard({
           })}
         </div>
       </div>
+      {/* Tooltips don't show on touch screens, so say why control is off. */}
+      {showControlNote && (
+        <p className="mt-2 text-right text-xs text-slate-400" data-testid="control-unavailable">
+          {controlReason}
+        </p>
+      )}
     </article>
   );
 }
