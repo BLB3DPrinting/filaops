@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The model line shows the nozzle, e.g. "0.6 mm hardened steel".
   - A print error shows Bambu's code ("1200_8006") instead of a raw number.
   - Every AMS slot is listed with its material, colour and amount left. A spool without an RFID tag shows "?" rather than 0%. Humidity and temperature appear for AMS units that have the sensors.
+  - When a printer won't accept commands from FilaOps, Pause, Resume, Cancel and Clear Error are disabled and the card says why. That's a Bambu printer in cloud mode, which only accepts signed commands; it needs LAN-only + Developer mode.
 
 - **Re-slice an existing product in Intake Studio.** The review step has a "New product / Existing product" switch. Pick an existing product by SKU or name, see the slice file it has now (or that it has none, or that its file is missing from the server), confirm, and the new slice file becomes the one production downloads. The product's name, SKU, BOM, routing and price don't change. Needs FilaOps PRO.
 - **Intake Studio saves the plate preview as the product image.** New products get the preview as their picture. When re-slicing, a checkbox (on by default) replaces the product's image with the new preview.

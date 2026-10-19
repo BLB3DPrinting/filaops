@@ -174,42 +174,36 @@ export default function PrinterCard({
 
   // Build contextual actions based on printer state.
   // While a command is in-flight for this printer, disable pause/resume/cancel
-  // so a double-click can't fire duplicate requests.
+  // so a double-click can't fire duplicate requests. PRO FilaFarm reports
+  // control_available=false when the printer won't accept FilaOps commands
+  // (Bambu cloud mode); the buttons are then disabled with its reason.
+  const controlBlocked = printer.control_available === false;
+  const controlReason = controlBlocked
+    ? printer.control_reason || "This printer doesn't accept commands from FilaOps."
+    : undefined;
+  const commandAction = (label, primary, command) => ({
+    label,
+    primary,
+    onClick: () => onCommand(printer.id, command),
+    disabled: commandPending || controlBlocked,
+    title: controlReason,
+  });
   const actions = [];
   if (isPrinting && onCommand) {
-    actions.push({
-      label: "Pause",
-      primary: true,
-      onClick: () => onCommand(printer.id, "pause"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Pause", true, "pause"));
   }
   if (status === "paused" && onCommand) {
-    actions.push({
-      label: "Resume",
-      primary: true,
-      onClick: () => onCommand(printer.id, "resume"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Resume", true, "resume"));
   }
   if (isActive && onCommand) {
-    actions.push({
-      label: "Cancel",
-      primary: false,
-      onClick: () => onCommand(printer.id, "cancel"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Cancel", false, "cancel"));
   }
   // Clear Error is offered whenever an HMI code is active, regardless of
   // status — the printer may be paused, failed, or idle-with-error.
   if (hasError && onCommand) {
-    actions.push({
-      label: "Clear Error",
-      primary: false,
-      onClick: () => onCommand(printer.id, "clear_error"),
-      disabled: commandPending,
-    });
+    actions.push(commandAction("Clear Error", false, "clear_error"));
   }
+  const showControlNote = controlBlocked && actions.length > 0;
   if (status === "offline") {
     // Disable Test when printer has no IP — there's nothing to probe.
     const hasIp = Boolean(printer.ip_address);
@@ -446,6 +440,12 @@ export default function PrinterCard({
           })}
         </div>
       </div>
+      {/* Tooltips don't show on touch screens, so say why control is off. */}
+      {showControlNote && (
+        <p className="mt-2 text-right text-xs text-slate-400" data-testid="control-unavailable">
+          {controlReason}
+        </p>
+      )}
     </article>
   );
 }

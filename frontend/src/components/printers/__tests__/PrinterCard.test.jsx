@@ -135,3 +135,36 @@ describe("PrinterCard live FilaFarm state", () => {
     expect(screen.getByText("Print error 1200_8006")).toBeInTheDocument();
   });
 });
+
+describe("PrinterCard control in Bambu cloud mode", () => {
+  const reason =
+    "Bambu cloud mode: the printer only accepts signed commands. Turn on LAN-only mode and Developer mode on the printer to control it from FilaOps.";
+  const printing = { ...basePrinter, status: "printing", state: "printing", hms_codes: ["05000500_00010007"] };
+
+  it("disables Pause, Cancel and Clear Error with the reason when control isn't available", () => {
+    render(
+      <PrinterCard
+        printer={{ ...printing, control_available: false, control_reason: reason }}
+        onCommand={() => {}}
+      />
+    );
+    for (const label of ["Pause", "Cancel", "Clear Error"]) {
+      const button = screen.getByRole("button", { name: label });
+      expect(button).toBeDisabled();
+      expect(button.title).toBe(reason);
+    }
+    expect(screen.getByTestId("control-unavailable")).toHaveTextContent(reason);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
+  });
+
+  it("keeps the buttons enabled when control is available or unknown", () => {
+    const { rerender } = render(
+      <PrinterCard printer={{ ...printing, control_available: true }} onCommand={() => {}} />
+    );
+    expect(screen.getByRole("button", { name: "Pause" })).toBeEnabled();
+
+    rerender(<PrinterCard printer={printing} onCommand={() => {}} />);
+    expect(screen.getByRole("button", { name: "Pause" })).toBeEnabled();
+    expect(screen.queryByTestId("control-unavailable")).not.toBeInTheDocument();
+  });
+});
