@@ -22,12 +22,18 @@
  *                          maintenance window {starts_at, ends_at, reason, status};
  *                          shows a "Maint Scheduled" / "In Maintenance" badge)
  */
+import AmsSlots from "./AmsSlots";
 import { brandLabels } from "./constants";
+import { nozzleText, stateWord, statusKey } from "./liveStatus";
 import { parseDateTime } from "../../utils/formatting";
 
 const STATUS_STYLES = {
   printing:
     "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30",
+  // Live states from PRO FilaFarm (see liveStatus.js)
+  preparing: "bg-cyan-500/15 text-cyan-300 ring-1 ring-inset ring-cyan-400/30",
+  needs_clearing:
+    "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/30",
   idle: "bg-blue-500/15 text-blue-300 ring-1 ring-inset ring-blue-400/30",
   offline:
     "bg-slate-500/15 text-slate-300 ring-1 ring-inset ring-slate-400/20",
@@ -112,6 +118,11 @@ export default function PrinterCard({
   const status = (printer.status || "offline").toLowerCase();
   const isActive = status === "printing" || status === "paused";
   const isPrinting = status === "printing";
+  // Live state from PRO FilaFarm when present (preparing, needs clearing,
+  // error...); actions below still follow `status`.
+  const badgeStyle =
+    STATUS_STYLES[printer.state] || STATUS_STYLES[statusKey(printer)] || STATUS_STYLES.unknown;
+  const nozzle = nozzleText(printer);
   // Coerce + clamp — non-numeric telemetry (null/NaN/"--") must never leak into
   // width styles or aria-valuenow.
   const progressRaw = Number(printer.progress);
@@ -155,7 +166,8 @@ export default function PrinterCard({
     ? printer.hms_descriptions
     : [];
   const printError = Number(printer.print_error) || 0;
-  const hasError = printError > 0 || hmsCodes.length > 0 || status === "error";
+  const hasError =
+    printError > 0 || hmsCodes.length > 0 || status === "error" || printer.state === "error";
   const primaryHmsCode = hmsCodes[0] || null;
   const primaryHmsDescription = hmsDescriptions[0] || null;
   const primaryHmsWikiUrl = primaryHmsCode ? bambuErrorUrl(primaryHmsCode) : null;
@@ -238,16 +250,16 @@ export default function PrinterCard({
           <h2 className="text-xl font-semibold text-white">{printer.name}</h2>
           <div className="mt-1 text-sm text-slate-400">
             {brandLabels[printer.brand] || printer.brand} {printer.model}
+            {nozzle && <span data-testid="printer-nozzle">{` • ${nozzle} nozzle`}</span>}
             {printer.location && ` • ${printer.location}`}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
-              STATUS_STYLES[status] || STATUS_STYLES.unknown
-            }`}
+            data-testid="printer-state-badge"
+            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${badgeStyle}`}
           >
-            {status}
+            {stateWord(printer)}
           </span>
           {/* SCHED-4: Maintenance due-soon badge (7-day threshold) */}
           {maintenanceDueSoon && (
@@ -296,9 +308,10 @@ export default function PrinterCard({
                 {primaryHmsDescription ||
                   (primaryHmsCode
                     ? `HMS ${primaryHmsCode}`
-                    : printError
-                    ? `Print error ${printError}`
-                    : "Printer reported an error")}
+                    : printer.print_error_description ||
+                      (printError
+                        ? `Print error ${printer.print_error_code || printError}`
+                        : "Printer reported an error"))}
               </div>
               {primaryHmsDescription && primaryHmsCode && (
                 <div className="mt-1 font-mono text-xs text-red-300/70">
@@ -336,7 +349,7 @@ export default function PrinterCard({
                   Current Job
                 </div>
                 <div className="mt-1 text-sm font-medium text-white">
-                  {printer.current_job || (isPrinting ? "Printing" : "Paused")}
+                  {printer.current_job || printer.state_label || (isPrinting ? "Printing" : "Paused")}
                 </div>
               </div>
               {eta && (
@@ -381,7 +394,7 @@ export default function PrinterCard({
                   Current State
                 </div>
                 <div className="mt-1 text-sm font-medium text-white">
-                  {stateLabel(status)}
+                  {printer.state_label || stateLabel(status)}
                 </div>
               </div>
               <div className="text-right text-sm text-slate-400">
@@ -403,6 +416,9 @@ export default function PrinterCard({
         <Metric label="Filament" value={ams.material} swatchColor={ams.color} />
         <Metric label="Feed" value={ams.slot} />
       </div>
+
+      {/* Every AMS slot, when PRO telemetry reports them */}
+      <AmsSlots slots={printer.ams_slots} units={printer.ams_units} />
 
       {/* Footer: heartbeat + actions */}
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-800 pt-4">

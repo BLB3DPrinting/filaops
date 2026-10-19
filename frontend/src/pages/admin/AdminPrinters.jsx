@@ -13,6 +13,7 @@ import PrinterModal from "../../components/printers/PrinterModal";
 import IPProbeSection from "../../components/printers/IPProbeSection";
 import MaintenanceModal from "../../components/printers/MaintenanceModal";
 import PrinterCard from "../../components/printers/PrinterCard";
+import { statusKey, statusText } from "../../components/printers/liveStatus";
 
 export default function AdminPrinters() {
   const api = useApi();
@@ -106,9 +107,10 @@ export default function AdminPrinters() {
     }
   }, [canUseHud, viewMode]);
 
-  // HUD-mode telemetry polling. Re-fetches when viewMode, canUseHud,
+  // Live telemetry polling (table and HUD views alike, whenever PRO's
+  // FilaFarm is available). Re-fetches when viewMode, canUseHud,
   // or activeTab changes so:
-  //   - switching to HUD immediately picks up live telemetry
+  //   - gaining the feature immediately picks up live telemetry
   //   - switching tabs clears the interval (no leaked polling)
   //   - losing PRO license stops the polling
   // Uses a ref guard to skip the initial mount (the mount effect at
@@ -121,7 +123,7 @@ export default function AdminPrinters() {
     }
     if (activeTab !== "list") return;
     fetchPrinters();
-    if (viewMode === "hud" && canUseHud) {
+    if (canUseHud) {
       const hudInterval = setInterval(() => fetchPrinters({ silent: true }), 15000);
       return () => clearInterval(hudInterval);
     }
@@ -147,12 +149,12 @@ export default function AdminPrinters() {
       const data = await api.get(`/api/v1/printers?${params}`);
       let printerList = data.items || [];
 
-      // Only overlay PRO telemetry when HUD mode is active. Table view
-      // doesn't need live temps/progress, so we skip the extra API call
-      // to avoid unnecessary requests and silent failures when the fleet
-      // isn't running. The overlay merges by string-coerced ID because
-      // Core returns numeric IDs and PRO returns string IDs.
-      if (viewMode === "hud" && canUseHud) {
+      // Overlay PRO's live telemetry in both views whenever FilaFarm is
+      // available. Core's stored printers.status is only a last-known value
+      // (often weeks old), so without the overlay the table read "offline"
+      // for printers that were printing. The overlay merges by string-coerced
+      // ID because Core returns numeric IDs and PRO returns string IDs.
+      if (canUseHud) {
         try {
           const proData = await api.get("/api/v1/pro/filafarm/printers");
           const proMap = new Map(
@@ -620,8 +622,11 @@ export default function AdminPrinters() {
                       <h3 className="text-white font-medium">{printer.name}</h3>
                       <p className="text-gray-500 text-sm">{printer.code}</p>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs ${statusColors[printer.status] || statusColors.offline}`}>
-                      {printer.status}
+                    <span
+                      data-testid={`printer-status-${printer.id}`}
+                      className={`px-2 py-1 rounded-full text-xs ${statusColors[statusKey(printer)] || statusColors.offline}`}
+                    >
+                      {statusText(printer)}
                     </span>
                   </div>
 

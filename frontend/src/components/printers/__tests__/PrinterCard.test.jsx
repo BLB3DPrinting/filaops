@@ -79,3 +79,59 @@ describe("PrinterCard maintenance-window badge (SCHED-7)", () => {
     expect(screen.getByTestId("maintenance-window-badge")).toBeInTheDocument();
   });
 });
+
+describe("PrinterCard live FilaFarm state", () => {
+  it("shows Core's status without PRO telemetry", () => {
+    render(<PrinterCard printer={basePrinter} />);
+    expect(screen.getByTestId("printer-state-badge")).toHaveTextContent("idle");
+    expect(screen.queryByTestId("printer-nozzle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ams-slots")).not.toBeInTheDocument();
+  });
+
+  it("shows preparing instead of printing while the printer heats and levels", () => {
+    render(
+      <PrinterCard printer={{ ...basePrinter, status: "printing", state: "preparing", state_label: "Preparing" }} />
+    );
+    expect(screen.getByTestId("printer-state-badge")).toHaveTextContent("preparing");
+  });
+
+  it("shows needs clearing and the label after a job", () => {
+    render(
+      <PrinterCard printer={{ ...basePrinter, state: "needs_clearing", state_label: "Needs clearing" }} />
+    );
+    expect(screen.getByTestId("printer-state-badge")).toHaveTextContent("needs clearing");
+    expect(screen.getByText("Needs clearing")).toBeInTheDocument();
+  });
+
+  it("shows the nozzle and every AMS slot", () => {
+    render(
+      <PrinterCard
+        printer={{
+          ...basePrinter,
+          nozzle: { diameter_mm: 0.6, type: "hardened_steel" },
+          ams_slots: [{ slot: 1, unit: 0, material: "PLA", color: "#FF6A13", remaining_pct: null, active: true }],
+          ams_units: [{ id: 0, type: "ams_lite", env_sensors: false, humidity_pct: null, temp_c: null }],
+        }}
+      />
+    );
+    expect(screen.getByTestId("printer-nozzle")).toHaveTextContent("0.6 mm hardened steel nozzle");
+    expect(screen.getByTestId("ams-slot-1")).toHaveTextContent("?");
+  });
+
+  it("shows a print error by its Bambu code, not the raw integer", () => {
+    render(
+      <PrinterCard
+        printer={{
+          ...basePrinter,
+          status: "paused",
+          state: "error",
+          state_label: "Failed · 1200_8006",
+          print_error: 0x12008006,
+          print_error_code: "1200_8006",
+        }}
+      />
+    );
+    expect(screen.getByTestId("printer-state-badge")).toHaveTextContent("error");
+    expect(screen.getByText("Print error 1200_8006")).toBeInTheDocument();
+  });
+});
