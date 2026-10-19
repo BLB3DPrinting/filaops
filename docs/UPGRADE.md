@@ -39,11 +39,12 @@ container, and the upgrade replaces that container. Copy them onto the uploads
 volume while the old version is still running:
 
 ```bash
-docker compose exec backend sh -c 'mkdir -p /app/uploads/products && cp -a /app/static/uploads/products/. /app/uploads/products/ 2>/dev/null; ls /app/uploads/products | wc -l'
+docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
 ```
 
 It prints how many images are now on the volume. 0 is fine if you never
-uploaded any. Image links don't change, so products keep their pictures. Skip
+uploaded any. If it prints an error instead, don't upgrade until it
+succeeds: the images would be lost. Image links don't change, so products keep their pictures. Skip
 this step for a manual install, where images were never inside a container.
 
 ### 3. Get the new code

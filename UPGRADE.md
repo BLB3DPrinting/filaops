@@ -18,11 +18,12 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
   still running:
 
   ```bash
-  docker compose exec backend sh -c 'mkdir -p /app/uploads/products && cp -a /app/static/uploads/products/. /app/uploads/products/ 2>/dev/null; ls /app/uploads/products | wc -l'
+  docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
   ```
 
   It prints how many images are now on the volume (0 is fine if you never
-  uploaded any). Image links don't change.
+  uploaded any). If it prints an error instead, don't upgrade until it
+  succeeds: the images would be lost. Image links don't change.
 - **Don't click "Update Now" in the app, and don't mount the Docker socket into
   the backend** to make it work. Doing that gives the web app control of your
   whole machine. Upgrade with the commands below instead.
