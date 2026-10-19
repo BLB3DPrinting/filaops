@@ -12,6 +12,18 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
   docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
   ```
 
+- **Docker, coming from 4.3.1 or older: copy your product images onto the
+  uploads volume.** Before 4.3.2, product images were saved inside the backend
+  container, and the upgrade replaces that container. While the old version is
+  still running:
+
+  ```bash
+  docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
+  ```
+
+  It prints how many images are now on the volume (0 is fine if you never
+  uploaded any). If it prints an error instead, don't upgrade until it
+  succeeds: the images would be lost. Image links don't change.
 - **Don't click "Update Now" in the app, and don't mount the Docker socket into
   the backend** to make it work. Doing that gives the web app control of your
   whole machine. Upgrade with the commands below instead.
@@ -29,7 +41,7 @@ From the `filaops` folder:
 
 ```bash
 git fetch --tags
-git checkout v4.3.1
+git checkout v4.3.2
 docker compose up -d --build
 ```
 

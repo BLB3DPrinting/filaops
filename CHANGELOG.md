@@ -7,24 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Live printer status in the printers table.** With FilaOps PRO's FilaFarm, the table view shows the same live status as the HUD and refreshes every 15 seconds. Before, it showed the stored status, which can be weeks old, so printers that were printing read "offline". Without PRO nothing changes.
-- **More on each printer card (with PRO FilaFarm).**
-  - The badge shows what the printer is doing, including "preparing" while it heats and levels and "needs clearing" after a job.
-  - The model line shows the nozzle, e.g. "0.6 mm hardened steel".
-  - A print error shows Bambu's code ("1200_8006") instead of a raw number.
-  - Every AMS slot is listed with its material, colour and amount left. A spool without an RFID tag shows "?" rather than 0%. Humidity and temperature appear for AMS units that have the sensors.
-  - When a printer won't accept commands from FilaOps, Pause, Resume, Cancel and Clear Error are disabled and the card says why. That's a Bambu printer in cloud mode, which only accepts signed commands; it needs LAN-only + Developer mode.
-
-- **Re-slice an existing product in Intake Studio.** The review step has a "New product / Existing product" switch. Pick an existing product by SKU or name, see the slice file it has now (or that it has none, or that its file is missing from the server), confirm, and the new slice file becomes the one production downloads. The product's name, SKU, BOM, routing and price don't change. Needs FilaOps PRO.
-- **Intake Studio saves the plate preview as the product image.** New products get the preview as their picture. When re-slicing, a checkbox (on by default) replaces the product's image with the new preview.
+## [4.3.2] - 2026-10-19
 
 ### Fixed
 
 - **Product images survive upgrades.** Uploaded product images were saved inside the backend container (`/app/static/uploads/products`) instead of on the uploads volume, so recreating the container (every Docker upgrade) deleted them. They are now saved to `/app/uploads/products` on the volume. Image links don't change, and images saved before this fix still show for as long as their files exist. In Docker, images uploaded before the last container recreate are already gone and need uploading again.
-
 - **License page with an active license.** It now says the license is active instead of asking for a key and linking to the license site, drops a "Restart Core" banner that never went away, and shows an unknown activation date as "—" instead of Dec 31, 1969. A license cache written without an activation time (as license validation writes it) made the API report 1 January 1970.
+
+### Upgrade notes
+
+- **Docker: copy product images onto the volume before upgrading.** While the old version is still running: `docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'`. It prints how many images are now on the volume, including any already there; if it prints an error, don't upgrade until it succeeds. See [Upgrading FilaOps](docs/UPGRADE.md#2-docker-copy-product-images-onto-the-volume).
+- **No database migrations.** From 4.3.1, check out `v4.3.2` and rebuild (`docker compose up -d --build`).
+- **Coming from 4.1.x or older?** Read [Upgrading FilaOps](docs/UPGRADE.md) first: it starts with the settings 4.2.0 needs, then upgrades straight to 4.3.2.
 
 ## [4.3.1] - 2026-10-14
 

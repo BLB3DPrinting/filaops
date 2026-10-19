@@ -56,7 +56,7 @@ A healthy response looks like:
 ```json
 {
   "status": "healthy",
-  "version": "4.3.1",
+  "version": "4.3.2",
   "timestamp": "2024-01-15T10:30:45Z",
   "database_connected": true,
   "services": {

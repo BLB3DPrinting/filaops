@@ -1,6 +1,6 @@
 # Upgrading FilaOps
 
-The current release is **4.3.1**. Upgrade straight to it from any earlier
+The current release is **4.3.2**. Upgrade straight to it from any earlier
 version. There is no need to stop at a release in between: the database
 migrations run in order in one go.
 
@@ -10,8 +10,8 @@ run `cat backend/VERSION` in the `filaops` folder, or open
 
 | You are on | Before you upgrade | Then |
 | --- | --- | --- |
-| **4.3.0** | Nothing extra. Read [What changes in 4.3.1](#what-changes-in-431). | [Upgrade](#upgrade) |
-| **4.2.x** | Nothing extra. Read [What changes in 4.3.1](#what-changes-in-431) and [What changes in 4.3.0](#what-changes-in-430). | [Upgrade](#upgrade) |
+| **4.3.0 or 4.3.1** | Docker: [copy your product images](#2-docker-copy-product-images-onto-the-volume) (step 2). Read [What changes in 4.3.2](#what-changes-in-432). | [Upgrade](#upgrade) |
+| **4.2.x** | Docker: [copy your product images](#2-docker-copy-product-images-onto-the-volume) (step 2). Read [What changes in 4.3.2](#what-changes-in-432), [in 4.3.1](#what-changes-in-431) and [in 4.3.0](#what-changes-in-430). | [Upgrade](#upgrade) |
 | **4.1.x or older** | Make the changes in [Actions you must take](UPGRADE-4.2.0.md#actions-you-must-take) on the 4.2.0 page. 4.2.0 was a security release, and some installs won't start or work as before without them. | [Upgrade](#upgrade) on this page, not the steps on the 4.2.0 page. Afterwards, read [After you upgrade](UPGRADE-4.2.0.md#after-you-upgrade) and [Things that work differently](UPGRADE-4.2.0.md#things-that-work-differently) there. |
 
 The [CHANGELOG](https://github.com/BLB3DPrinting/filaops/blob/main/CHANGELOG.md)
@@ -32,24 +32,39 @@ rolling back means restoring it. If you are already on 4.3.0 or later, back up
 the `filaops_config` volume too (see [Backup and Recovery](BACKUP-AND-RECOVERY.md)).
 Installs older than 4.3.0 don't have it yet.
 
-### 2. Get the new code
+### 2. Docker: copy product images onto the volume
 
-From the `filaops` folder, check out the 4.3.1 release:
+Before 4.3.2, Docker installs saved product images inside the backend
+container, and the upgrade replaces that container. Copy them onto the uploads
+volume while the old version is still running:
+
+```bash
+docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
+```
+
+It prints how many images are now on the volume. 0 is fine if you never
+uploaded any. If it prints an error instead, don't upgrade until it
+succeeds: the images would be lost. Image links don't change, so products keep their pictures. Skip
+this step for a manual install, where images were never inside a container.
+
+### 3. Get the new code
+
+From the `filaops` folder, check out the 4.3.2 release:
 
 ```bash
 git fetch --tags
-git checkout v4.3.1
+git checkout v4.3.2
 ```
 
 If your install follows the `main` branch instead, run `git pull`.
 
-Check that you have the new code. This should print `4.3.1`:
+Check that you have the new code. This should print `4.3.2`:
 
 ```bash
 cat backend/VERSION
 ```
 
-### 3. Rebuild and start (Docker)
+### 4. Rebuild and start (Docker)
 
 ```bash
 docker compose up -d --build
@@ -64,9 +79,9 @@ applies the database migrations before the backend starts.
 `frontend/`, using Node.js 24 or newer, run `npm ci` and `npm run build`. Then
 restart the backend and the web server.
 
-### 4. Confirm the upgrade
+### 5. Confirm the upgrade
 
-This should print `"version":"4.3.1"`:
+This should print `"version":"4.3.2"`:
 
 ```bash
 curl -s http://localhost/api/v1/system/version
@@ -84,7 +99,7 @@ docker compose exec backend alembic heads
 use your backend's address in the `curl` command.)
 
 - **Still the old version?** If `cat backend/VERSION` prints the old version,
-  repeat step 2. If it prints `4.3.1`, the images weren't rebuilt: run
+  repeat step 3. If it prints `4.3.2`, the images weren't rebuilt: run
   `docker compose up -d --build` again.
 - **Migrations not at head?** Run `docker compose logs migrate` to see why the
   `migrate` service stopped, fix the cause, and run `docker compose up -d --build`
@@ -93,6 +108,18 @@ use your backend's address in the `curl` command.)
 - **Coming from 4.1.x and the backend won't start in production?** The usual
   cause is the `SECRET_KEY` check: see
   [Set a real SECRET_KEY](UPGRADE-4.2.0.md#1-set-a-real-secret_key).
+
+## What changes in 4.3.2
+
+- **Product images survive upgrades.** In Docker, product images were saved
+  inside the backend container, so every upgrade or container rebuild deleted
+  them. They are now saved on the uploads volume (`./uploads/products` on the
+  host). Images already lost in an earlier upgrade can't be recovered: upload
+  them again.
+- **License page.** With an active license it says so, instead of asking for a
+  key. It no longer shows a "Restart Core" banner that never went away, or an
+  activation date of Dec 31, 1969.
+- No database migrations.
 
 ## What changes in 4.3.1
 
