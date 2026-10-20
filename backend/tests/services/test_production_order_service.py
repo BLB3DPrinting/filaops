@@ -39,8 +39,12 @@ from app.models.production_order import (
 )
 from app.models.scrap_reason import ScrapReason
 from app.models.work_center import WorkCenter
-from app.models.inventory import Inventory
+from app.models.inventory import Inventory, InventoryTransaction
 from app.services import production_order_service as svc
+from app.services.inventory_service import (
+    _get_net_reserved_by_component,
+    get_or_create_default_location,
+)
 from tests.services._operation_type_seed import seed_operation_types as _seed_operation_types
 
 
@@ -1804,6 +1808,220 @@ class TestSplitProductionOrder:
         with pytest.raises(HTTPException) as exc_info:
             svc.split_production_order(db, order.id, split_quantity=3, user_email="test@filaops.dev")
         assert exc_info.value.status_code == 400
+
+
+# =============================================================================
+# Split recomputes the parent's pending operations (print-batch plan, S2)
+# =============================================================================
+
+def _make_print_order(db, finished_good, raw_material, *, quantity=10, on_hand=Decimal("10000")):
+    """Order of `quantity` units with one PRINT operation (22 min/unit,
+    18 g filament/unit), created through the service so its operation,
+    material row and reservation exist exactly as in production."""
+    location = get_or_create_default_location(db)
+    inv = Inventory(
+        product_id=raw_material.id,
+        location_id=location.id,
+        on_hand_quantity=on_hand,
+        allocated_quantity=Decimal("0"),
+    )
+    db.add(inv)
+
+    routing = Routing(
+        product_id=finished_good.id,
+        code=f"RT-SPLIT-{finished_good.sku}",
+        name="Print routing",
+        is_active=True,
+    )
+    db.add(routing)
+    db.flush()
+    rop = RoutingOperation(
+        routing_id=routing.id,
+        work_center_id=1,
+        sequence=10,
+        operation_code="PRINT",
+        operation_name="Print",
+        setup_time_minutes=0,
+        run_time_minutes=Decimal("22"),
+    )
+    db.add(rop)
+    db.flush()
+    db.add(RoutingOperationMaterial(
+        routing_operation_id=rop.id,
+        component_id=raw_material.id,
+        quantity=Decimal("18"),
+        unit="G",
+    ))
+    db.flush()
+
+    order = svc.create_production_order(
+        db,
+        product_id=finished_good.id,
+        quantity_ordered=quantity,
+        created_by="test@filaops.dev",
+        routing_id=routing.id,
+    )
+    db.flush()
+    return order, inv
+
+
+def _only_op(order):
+    assert len(order.operations) == 1
+    return order.operations[0]
+
+
+def _release_txns(db, order_id, product_id):
+    return db.query(InventoryTransaction).filter(
+        InventoryTransaction.reference_type == "production_order",
+        InventoryTransaction.reference_id == order_id,
+        InventoryTransaction.product_id == product_id,
+        InventoryTransaction.transaction_type == "reservation_release",
+    ).all()
+
+
+class TestSplitRecomputesParent:
+    """10 units split 8 + 2: the parent's pending PRINT operation must plan
+    8 units' minutes and filament, not 10, or completing it over-consumes."""
+
+    def test_split_recomputes_parent_pending_operation(self, db, finished_good, raw_material):
+        order, _ = _make_print_order(db, finished_good, raw_material)
+        assert Decimal(str(_only_op(order).planned_run_minutes)) == Decimal("220")
+
+        parent, child = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+
+        db.expire(parent, ["operations"])
+        parent_op = _only_op(parent)
+        assert Decimal(str(parent_op.planned_run_minutes)) == Decimal("176")
+        assert Decimal(str(parent_op.materials[0].quantity_required)) == Decimal("144")
+
+        child_op = _only_op(child)
+        assert Decimal(str(child_op.planned_run_minutes)) == Decimal("44")
+        assert Decimal(str(child_op.materials[0].quantity_required)) == Decimal("36")
+
+    def test_split_releases_excess_parent_reservation(self, db, finished_good, raw_material):
+        order, inv = _make_print_order(db, finished_good, raw_material)
+        assert _get_net_reserved_by_component(db, order.id)[raw_material.id] == Decimal("180")
+
+        parent, child = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+
+        assert _get_net_reserved_by_component(db, parent.id)[raw_material.id] == Decimal("144")
+        assert _get_net_reserved_by_component(db, child.id)[raw_material.id] == Decimal("36")
+
+        releases = _release_txns(db, parent.id, raw_material.id)
+        assert [Decimal(str(t.quantity)) for t in releases] == [Decimal("36")]
+
+        # 144 g on the parent + 36 g on the child: the pool is unchanged
+        db.refresh(inv)
+        assert Decimal(str(inv.allocated_quantity)) == Decimal("180")
+
+    def test_split_resyncs_parent_material_allocation(self, db, finished_good, raw_material):
+        order, _ = _make_print_order(db, finished_good, raw_material)
+
+        parent, _ = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+
+        db.expire(parent, ["operations"])
+        row = _only_op(parent).materials[0]
+        assert Decimal(str(row.quantity_allocated)) == Decimal("144")
+
+    def test_split_leaves_running_operation_untouched(self, db, finished_good, raw_material):
+        order, _ = _make_print_order(db, finished_good, raw_material)
+        order.status = "released"
+        op = _only_op(order)
+        op.status = "running"
+        op.actual_start = datetime.now(timezone.utc)
+        db.flush()
+
+        parent, _ = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+
+        db.expire(parent, ["operations"])
+        parent_op = _only_op(parent)
+        assert parent_op.status == "running"
+        assert Decimal(str(parent_op.planned_run_minutes)) == Decimal("220")
+        assert Decimal(str(parent_op.materials[0].quantity_required)) == Decimal("180")
+        assert _get_net_reserved_by_component(db, parent.id)[raw_material.id] == Decimal("180")
+        assert _release_txns(db, parent.id, raw_material.id) == []
+
+    def test_split_scales_unlinked_operation_proportionally(self, db, finished_good, raw_material):
+        """No routing link to recompute from: scale by remaining / original."""
+        order = _make_production_order(db, finished_good, quantity=10, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            routing_operation_id=None,
+            work_center_id=1,
+            sequence=10,
+            operation_code="PRINT",
+            operation_name="Print",
+            planned_setup_minutes=Decimal("0"),
+            planned_run_minutes=Decimal("100"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=raw_material.id,
+            quantity_required=Decimal("50"),
+            unit="G",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        parent, _ = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+
+        db.refresh(op)
+        db.refresh(mat)
+        assert Decimal(str(op.planned_run_minutes)) == Decimal("80")
+        assert Decimal(str(mat.quantity_required)) == Decimal("40")
+
+    def test_completing_parent_after_split_consumes_remaining_quantity(
+        self, db, finished_good, raw_material
+    ):
+        """The point of the fix: completing the 8-unit parent consumes 144 g,
+        not the 180 g planned for the original 10."""
+        from app.services import operation_status
+
+        _seed_operation_types(db)
+        order, inv = _make_print_order(db, finished_good, raw_material)
+        order.status = "released"
+        db.flush()
+
+        parent, _ = svc.split_production_order(
+            db, order.id, split_quantity=2, user_email="test@filaops.dev"
+        )
+        db.expire(parent, ["operations"])
+        op = _only_op(parent)
+        op.status = "running"
+        op.actual_start = datetime.now(timezone.utc)
+        db.flush()
+
+        operation_status.complete_operation(
+            db, parent.id, op.id,
+            quantity_completed=Decimal("8"),
+            quantity_scrapped=Decimal("0"),
+        )
+
+        consumed = db.query(InventoryTransaction).filter(
+            InventoryTransaction.reference_type == "production_order",
+            InventoryTransaction.reference_id == parent.id,
+            InventoryTransaction.product_id == raw_material.id,
+            InventoryTransaction.transaction_type == "consumption",
+        ).all()
+        # Consumption rows carry a signed delta: stock went down by 144 g.
+        consumed_g = -sum(Decimal(str(t.quantity)) for t in consumed)
+        assert consumed_g == Decimal("144")
+        db.refresh(inv)
+        assert Decimal(str(inv.on_hand_quantity)) == Decimal("10000") - Decimal("144")
 
 
 # =============================================================================
