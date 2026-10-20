@@ -4,16 +4,21 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.services.maintenance_window_service import create_window
 from app.services.resource_scheduling import (
+    MaintenanceWindowConflictError,
+    SequenceError,
     get_resource_schedule,
     find_conflicts,
     find_running_operations,
+    check_predecessor_scheduling,
     check_resource_available_now,
     find_next_available_slot,
     schedule_operation,
+    schedule_operations_together,
 )
 from app.models.production_order import ProductionOrderOperation
-from app.models.manufacturing import Resource
+from app.models.manufacturing import Resource, Routing, RoutingOperation
 from app.models.printer import Printer
 
 
@@ -402,3 +407,368 @@ class TestScheduleOperation:
         assert success is True
         assert op.printer_id == prt.id
         assert op.resource_id is None
+
+
+def _assert_unscheduled(op):
+    """The operation looks exactly as ``_make_operation`` created it."""
+    assert op.printer_id is None
+    assert op.resource_id is None
+    assert op.scheduled_start is None
+    assert op.scheduled_end is None
+    assert op.status == "pending"
+
+
+class TestFindConflictsExclusion:
+    """``exclude_operation_id`` and ``exclude_operation_ids`` (S3 co-booking)."""
+
+    @staticmethod
+    def _three_overlapping_ops(db, make_product, make_production_order, make_work_center):
+        """Three queued ops on one resource, each on its own PO, all in [now, now+2h]."""
+        wc = make_work_center()
+        res = _make_resource(db, wc.id)
+        product = make_product()
+        now = datetime.now(timezone.utc)
+        ops = []
+        for seq in (10, 20, 30):
+            wo = make_production_order(product_id=product.id)
+            ops.append(_make_operation(
+                db, wo.id, wc.id, sequence=seq, status="queued",
+                resource_id=res.id,
+                scheduled_start=now,
+                scheduled_end=now + timedelta(hours=2),
+            ))
+        return res, now, ops
+
+    def test_no_exclusion_arguments_behaves_as_before(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        res, now, ops = self._three_overlapping_ops(db, make_product, make_production_order, make_work_center)
+        window = (now, now + timedelta(hours=1))
+
+        # Regression: nothing excluded -> every overlapping op is reported
+        conflicts = find_conflicts(db, res.id, *window)
+        assert {c.id for c in conflicts} == {op.id for op in ops}
+
+        # Positional call shape used by existing callers:
+        # (db, resource_id, start, end, exclude_operation_id)
+        conflicts = find_conflicts(db, res.id, *window, ops[0].id)
+        assert {c.id for c in conflicts} == {ops[1].id, ops[2].id}
+
+    def test_exclude_operation_ids_excludes_every_member(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        res, now, ops = self._three_overlapping_ops(db, make_product, make_production_order, make_work_center)
+        conflicts = find_conflicts(
+            db, res.id, now, now + timedelta(hours=1),
+            exclude_operation_ids=[ops[0].id, ops[1].id],
+        )
+        assert [c.id for c in conflicts] == [ops[2].id]
+
+    def test_exclude_operation_id_and_ids_combine(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        res, now, ops = self._three_overlapping_ops(db, make_product, make_production_order, make_work_center)
+        conflicts = find_conflicts(
+            db, res.id, now, now + timedelta(hours=1),
+            exclude_operation_id=ops[0].id,
+            exclude_operation_ids={ops[1].id},
+        )
+        assert [c.id for c in conflicts] == [ops[2].id]
+
+    def test_empty_exclude_operation_ids_excludes_nothing(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        res, now, ops = self._three_overlapping_ops(db, make_product, make_production_order, make_work_center)
+        conflicts = find_conflicts(
+            db, res.id, now, now + timedelta(hours=1),
+            exclude_operation_ids=[],
+        )
+        assert {c.id for c in conflicts} == {op.id for op in ops}
+
+
+class TestScheduleOperationsTogether:
+    """S3: several operations booked as ONE block on one printer or resource."""
+
+    @staticmethod
+    def _members(db, make_production_order, work_center_id, product_id, count=3):
+        """``count`` pending, unscheduled ops, each on its own production order."""
+        ops = []
+        for _ in range(count):
+            wo = make_production_order(product_id=product_id)
+            ops.append(_make_operation(db, wo.id, work_center_id))
+        return ops
+
+    @staticmethod
+    def _window():
+        start = datetime.now(timezone.utc) + timedelta(hours=1)
+        return start, start + timedelta(hours=3)
+
+    def test_books_three_operations_on_one_printer(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        ops = self._members(db, make_production_order, wc.id, product.id)
+        start, end = self._window()
+
+        success, conflicts = schedule_operations_together(
+            db, ops, prt.id, start, end, is_printer=True,
+        )
+
+        assert success is True
+        assert conflicts == []
+        for op in ops:
+            assert op.printer_id == prt.id
+            assert op.resource_id is None
+            assert op.scheduled_start == start
+            assert op.scheduled_end == end
+            assert op.status == "queued"
+        # The block is visible on the printer's schedule
+        scheduled = get_resource_schedule(db, prt.id, is_printer=True)
+        assert {o.id for o in scheduled} == {op.id for op in ops}
+
+    def test_resource_mode_sets_resource_and_clears_printer(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center(center_type="machine")
+        res = _make_resource(db, wc.id)
+        product = make_product()
+        ops = self._members(db, make_production_order, wc.id, product.id, count=2)
+        start, end = self._window()
+
+        success, conflicts = schedule_operations_together(db, ops, res.id, start, end)
+
+        assert success is True
+        assert conflicts == []
+        for op in ops:
+            assert op.resource_id == res.id
+            assert op.printer_id is None
+            assert op.status == "queued"
+
+    def test_fourth_operation_conflicts_with_the_block(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        ops = self._members(db, make_production_order, wc.id, product.id)
+        start, end = self._window()
+        assert schedule_operations_together(db, ops, prt.id, start, end, is_printer=True) == (True, [])
+
+        wo4 = make_production_order(product_id=product.id)
+        op4 = _make_operation(db, wo4.id, wc.id)
+        success, conflicts = schedule_operation(
+            db, op4, prt.id,
+            start + timedelta(hours=1), end + timedelta(hours=1),
+            is_printer=True,
+        )
+
+        assert success is False
+        assert {c.id for c in conflicts} == {op.id for op in ops}
+        _assert_unscheduled(op4)
+
+    def test_second_block_into_same_window_conflicts(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        first = self._members(db, make_production_order, wc.id, product.id)
+        start, end = self._window()
+        assert schedule_operations_together(db, first, prt.id, start, end, is_printer=True) == (True, [])
+
+        second = self._members(db, make_production_order, wc.id, product.id, count=2)
+        success, conflicts = schedule_operations_together(
+            db, second, prt.id, start + timedelta(hours=2), end + timedelta(hours=2), is_printer=True,
+        )
+
+        assert success is False
+        assert {c.id for c in conflicts} == {op.id for op in first}
+        for op in second:
+            _assert_unscheduled(op)
+
+    def test_maintenance_window_raises_and_writes_nothing(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        ops = self._members(db, make_production_order, wc.id, product.id)
+        start, end = self._window()
+        create_window(
+            db,
+            printer_id=prt.id,
+            starts_at=start + timedelta(minutes=30),
+            ends_at=start + timedelta(minutes=90),
+        )
+
+        with pytest.raises(MaintenanceWindowConflictError) as exc_info:
+            schedule_operations_together(db, ops, prt.id, start, end, is_printer=True)
+
+        assert len(exc_info.value.windows) == 1
+        for op in ops:
+            _assert_unscheduled(op)
+
+    def test_predecessor_violation_aborts_the_whole_call(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        clean = self._members(db, make_production_order, wc.id, product.id, count=2)
+        # Third member: its own PO has an unscheduled predecessor (sequence 10)
+        wo3 = make_production_order(product_id=product.id)
+        predecessor = _make_operation(db, wo3.id, wc.id, sequence=10)
+        blocked = _make_operation(db, wo3.id, wc.id, sequence=20)
+        members = clean + [blocked]
+        start, end = self._window()
+
+        with pytest.raises(SequenceError):
+            schedule_operations_together(db, members, prt.id, start, end, is_printer=True)
+
+        # Nothing written: not the member that failed, and not the two that
+        # passed their own checks before it.
+        for op in members:
+            _assert_unscheduled(op)
+        _assert_unscheduled(predecessor)
+        assert find_conflicts(db, prt.id, start, end, is_printer=True) == []
+
+    def test_empty_member_list_is_rejected(self, db, make_work_center):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        start, end = self._window()
+        with pytest.raises(ValueError):
+            schedule_operations_together(db, [], prt.id, start, end, is_printer=True)
+
+    def test_in_block_predecessor_already_scheduled_is_rejected(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        """Both sequences of one PO in the block. The predecessor's OLD window
+        ends before the block, so a check against stored data would pass, but
+        the block would then give both operations the same window."""
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        start, end = self._window()
+        wo = make_production_order(product_id=product.id)
+        earlier = _make_operation(
+            db, wo.id, wc.id, sequence=10, status="queued",
+            printer_id=prt.id,
+            scheduled_start=start - timedelta(hours=3),
+            scheduled_end=start - timedelta(hours=1),
+        )
+        later = _make_operation(db, wo.id, wc.id, sequence=20)
+        other = self._members(db, make_production_order, wc.id, product.id, count=1)
+
+        with pytest.raises(SequenceError):
+            schedule_operations_together(
+                db, [earlier, later] + other, prt.id, start, end, is_printer=True,
+            )
+
+        # The predecessor keeps its original booking; nothing else is written
+        assert earlier.scheduled_start == start - timedelta(hours=3)
+        assert earlier.scheduled_end == start - timedelta(hours=1)
+        assert earlier.status == "queued"
+        _assert_unscheduled(later)
+        for op in other:
+            _assert_unscheduled(op)
+
+    def test_in_block_predecessor_allowed_when_routing_can_overlap(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        prt = _make_printer(db, wc.id)
+        product = make_product()
+        overlap_op = _make_overlap_routing_op(db, product.id, wc.id)
+        wo = make_production_order(product_id=product.id)
+        first = _make_operation(db, wo.id, wc.id, sequence=10)
+        second = _make_operation(db, wo.id, wc.id, sequence=20, routing_operation_id=overlap_op.id)
+        start, end = self._window()
+
+        success, conflicts = schedule_operations_together(
+            db, [first, second], prt.id, start, end, is_printer=True,
+        )
+
+        assert (success, conflicts) == (True, [])
+        for op in (first, second):
+            assert op.printer_id == prt.id
+            assert op.scheduled_start == start
+            assert op.scheduled_end == end
+            assert op.status == "queued"
+
+
+def _make_overlap_routing_op(db, product_id, work_center_id):
+    """A RoutingOperation with can_overlap=True, on a throwaway routing."""
+    routing = Routing(
+        product_id=product_id, code=f"RTG-{_uid()}", name="Overlap routing",
+        is_active=True, version=1,
+    )
+    db.add(routing)
+    db.flush()
+    routing_op = RoutingOperation(
+        routing_id=routing.id, work_center_id=work_center_id, sequence=20,
+        operation_code="PRINT", operation_name="Print",
+        run_time_minutes=Decimal("60"), setup_time_minutes=Decimal("0"),
+        can_overlap=True,
+    )
+    db.add(routing_op)
+    db.flush()
+    return routing_op
+
+
+class TestCheckPredecessorSchedulingInBlock:
+    """``in_block_ids`` on check_predecessor_scheduling (S3 co-booking)."""
+
+    def test_default_behaviour_unchanged(self, db, make_product, make_production_order, make_work_center):
+        wc = make_work_center()
+        product = make_product()
+        wo = make_production_order(product_id=product.id)
+        pred = _make_operation(db, wo.id, wc.id, sequence=10)
+        op = _make_operation(db, wo.id, wc.id, sequence=20)
+        start = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        # Unscheduled predecessor blocks
+        assert "must be scheduled" in check_predecessor_scheduling(db, op, start)
+
+        # Predecessor ending before the start is fine
+        pred.status = "queued"
+        pred.scheduled_start = start - timedelta(hours=2)
+        pred.scheduled_end = start - timedelta(hours=1)
+        db.flush()
+        assert check_predecessor_scheduling(db, op, start) is None
+
+    def test_in_block_predecessor_rejected_even_when_its_old_window_fits(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        product = make_product()
+        wo = make_production_order(product_id=product.id)
+        start = datetime.now(timezone.utc) + timedelta(hours=1)
+        pred = _make_operation(
+            db, wo.id, wc.id, sequence=10, status="queued",
+            scheduled_start=start - timedelta(hours=2),
+            scheduled_end=start - timedelta(hours=1),
+        )
+        op = _make_operation(db, wo.id, wc.id, sequence=20)
+
+        assert check_predecessor_scheduling(db, op, start) is None
+        error = check_predecessor_scheduling(db, op, start, in_block_ids={pred.id})
+        assert error is not None
+        assert "same block" in error
+
+    def test_in_block_predecessor_allowed_with_can_overlap(
+        self, db, make_product, make_production_order, make_work_center
+    ):
+        wc = make_work_center()
+        product = make_product()
+        overlap_op = _make_overlap_routing_op(db, product.id, wc.id)
+        wo = make_production_order(product_id=product.id)
+        pred = _make_operation(db, wo.id, wc.id, sequence=10)  # unscheduled
+        op = _make_operation(db, wo.id, wc.id, sequence=20, routing_operation_id=overlap_op.id)
+        start = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        # Outside a block an unscheduled predecessor still blocks, overlap or not
+        assert "must be scheduled" in check_predecessor_scheduling(db, op, start)
+        # Inside the block it will be scheduled by the same write
+        assert check_predecessor_scheduling(db, op, start, in_block_ids={pred.id}) is None
