@@ -156,13 +156,11 @@ hide:
 
 Manage inventory, production, MRP, sales, purchasing, and accounting — built specifically for additive manufacturing operations.
 
-<div class="hero-buttons">
-  <a href="user-guide/installation/" class="btn-primary">
-    :material-rocket-launch: Get Started
-  </a>
-  <a href="https://github.com/BLB3DPrinting/filaops" target="_blank" class="btn-secondary">
-    :fontawesome-brands-github: View on GitHub
-  </a>
+<div class="hero-buttons" markdown>
+
+[:material-rocket-launch: Get Started](user-guide/installation.md){ .btn-primary }
+[:fontawesome-brands-github: View on GitHub](https://github.com/BLB3DPrinting/filaops){ .btn-secondary target="_blank" rel="noopener" }
+
 </div>
 
 </div>
