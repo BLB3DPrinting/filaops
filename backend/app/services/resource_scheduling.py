@@ -329,6 +329,7 @@ def check_predecessor_scheduling(
     db: Session,
     operation: ProductionOrderOperation,
     scheduled_start: datetime,
+    in_block_ids: Optional[Iterable[int]] = None,
 ) -> Optional[str]:
     """
     Check that predecessor operations are scheduled/complete before this one.
@@ -339,6 +340,17 @@ def check_predecessor_scheduling(
       b) Scheduled to end before this operation's start time
     - If the routing_operation has can_overlap=True, the predecessor's
       scheduled_end may overlap with this operation's scheduled_start.
+    - A predecessor in ``in_block_ids`` is being booked together with this
+      operation as one block (S3), so it will get this operation's window:
+      its stored schedule is not consulted, and it is rejected unless
+      can_overlap=True.
+
+    Args:
+        db: Database session
+        operation: Operation about to be scheduled
+        scheduled_start: Its proposed start
+        in_block_ids: Ids of operations booked together with ``operation``
+            as one block. Omitted, behaviour is unchanged.
 
     Returns:
         None if OK, or an error message string describing the violation.
@@ -360,10 +372,23 @@ def check_predecessor_scheduling(
         if routing_op and routing_op.can_overlap:
             can_overlap = True
 
+    block = {op_id for op_id in (in_block_ids or ()) if op_id is not None}
+
     for pred in predecessors:
         # Terminal statuses are fine - predecessor is done
         if pred.status in TERMINAL_STATUSES:
             continue
+
+        # In-block predecessor: it will share this operation's window, so
+        # its stored schedule (if any) is about to be overwritten. Same
+        # window means overlap, which only the routing can allow.
+        if pred.id in block:
+            if can_overlap:
+                continue
+            return (
+                f"Operation {pred.sequence} ({pred.operation_name or pred.operation_code}) "
+                f"is in the same block and must finish before this operation can start"
+            )
 
         # Predecessor must be scheduled
         if not pred.scheduled_end:
@@ -572,12 +597,13 @@ def schedule_operations_together(
     1. No time conflicts with operations outside the block on the same resource
     2. No overlap with blocking maintenance windows (SCHED-7)
     3. Predecessor operations are scheduled/complete first — checked for
-       EVERY member before anything is written
+       EVERY member before anything is written. A predecessor that is
+       itself a member will share the window, so it is judged as in-block
+       (rejected unless the routing allows overlap) rather than by its
+       stored schedule, which the block is about to overwrite.
 
     All-or-nothing: every check runs before the first write, so a failed
-    check leaves every member untouched. Members are validated against the
-    database as it stands, so a member whose predecessor is another member
-    of the same block is rejected (that predecessor is still unscheduled).
+    check leaves every member untouched.
 
     Args:
         db: Database session
@@ -602,6 +628,7 @@ def schedule_operations_together(
     members = list(operations)
     if not members:
         raise ValueError("schedule_operations_together needs at least one operation")
+    member_ids = {op.id for op in members}
 
     # One conflict query for the whole block: members only conflict with
     # operations outside the block.
@@ -611,7 +638,7 @@ def schedule_operations_together(
         start_time=scheduled_start,
         end_time=scheduled_end,
         is_printer=is_printer,
-        exclude_operation_ids=[op.id for op in members],
+        exclude_operation_ids=member_ids,
     )
 
     if conflicts:
@@ -628,9 +655,12 @@ def schedule_operations_together(
     if window_conflicts:
         raise MaintenanceWindowConflictError(window_conflicts)
 
-    # Every member's predecessors, before any write
+    # Every member's predecessors, before any write. A predecessor inside
+    # the block shares this window, so it is checked as in-block.
     for operation in members:
-        seq_error = check_predecessor_scheduling(db, operation, scheduled_start)
+        seq_error = check_predecessor_scheduling(
+            db, operation, scheduled_start, in_block_ids=member_ids,
+        )
         if seq_error:
             raise SequenceError(seq_error)
 
