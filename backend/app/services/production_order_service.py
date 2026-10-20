@@ -3,7 +3,6 @@ Production Order Service — CRUD, status management, scheduling, and operations
 
 Extracted from production_orders.py (ARCHITECT-003).
 """
-import math
 from datetime import datetime, timezone, date
 from decimal import Decimal
 from typing import Optional
@@ -26,6 +25,7 @@ from app.models.manufacturing import OperationType, Routing, RoutingOperation, R
 from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
+from app.services.production_order_quantity_change import required_quantity_for_routing_material
 from app.services.supply_netting import get_projected_available
 logger = get_logger(__name__)
 
@@ -98,17 +98,13 @@ def copy_routing_to_operations(
             if rom.is_cost_only:
                 continue
 
-            qty_required = rom.calculate_required_quantity(int(order.quantity_ordered))
-
-            unit_upper = (rom.unit or "").upper()
-            if unit_upper in ("EA", "EACH", "PCS", "UNIT", "BOX", "BOXES"):
-                qty_required = math.ceil(qty_required)
-
             mat = ProductionOrderOperationMaterial(
                 production_order_operation_id=op.id,
                 component_id=rom.component_id,
                 routing_operation_material_id=rom.id,
-                quantity_required=Decimal(str(qty_required)),
+                quantity_required=required_quantity_for_routing_material(
+                    rom, int(order.quantity_ordered)
+                ),
                 unit=rom.unit,
                 quantity_allocated=Decimal("0"),
                 quantity_consumed=Decimal("0"),

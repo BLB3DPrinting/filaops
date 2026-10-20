@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Book several operations as one block.** The scheduling engine can book several operations together as one block (`schedule_operations_together`); `find_conflicts` accepts `exclude_operation_ids`. Existing callers are unchanged. Groundwork for print batches: one plate run composed from several production orders.
 
+### Fixed
+
+- **Splitting a production order no longer over-consumes material.** Splitting an order (say 10 units into 8 + 2) moved 2 units to the child but left the parent's operations planned for all 10: the same minutes, the same filament, and the same reservations. Completing the parent then consumed material for 10 units on top of the child's 2. The parent's operations that have not started are now recomputed for the remaining quantity (planned run minutes and each material's required quantity, by the same rule used when the order was created) and the excess reservation is released to the ledger. Operations already queued or running keep their numbers.
+
 ## [4.3.2] - 2026-10-19
 
 ### Fixed

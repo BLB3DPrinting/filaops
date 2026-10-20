@@ -378,6 +378,10 @@ def split_production_order(
         Tuple of (original_order, new_order)
     """
     from app.services.inventory_service import reserve_production_materials
+    from app.services.production_order_quantity_change import (
+        release_excess_reservations,
+        rescale_unstarted_operations,
+    )
     from app.services.production_order_service import (
         get_production_order,
         generate_production_order_code,
@@ -395,15 +399,22 @@ def split_production_order(
     if split_quantity <= 0:
         raise HTTPException(status_code=400, detail="Split quantity must be positive")
 
-    remaining = order.quantity_ordered - split_quantity
+    original_quantity = int(order.quantity_ordered)
+    remaining = original_quantity - split_quantity
     if remaining <= 0:
         raise HTTPException(
             status_code=400,
             detail=f"Split quantity ({split_quantity}) must be less than ordered ({order.quantity_ordered})"
         )
 
-    # Update original order quantity
+    # Update original order quantity, then bring its unstarted operations
+    # (planned minutes, material requirements) and its reservations down to
+    # the remaining quantity. Operations already queued or running keep
+    # their numbers: that work is committed.
     order.quantity_ordered = remaining
+    rescale_unstarted_operations(db, order, original_quantity)
+    db.flush()
+    release_excess_reservations(db, order, created_by=user_email)
 
     # Create new order
     new_code = generate_production_order_code(db)
