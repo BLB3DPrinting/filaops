@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Plan routing-only parts as production (flagged, off by default).** MRP decided make-vs-buy by `has_bom` alone, so a part whose materials live on its routing steps and that has no BOM (every part PRO Intake creates) was planned as a purchase. With `MRP_ROUTING_MAKE_BUY=true` a product is made in-house when it has a BOM **or** an active routing with real (non-cost-only) materials; `procurement_type=buy` always wins, and `make` on its own is not a trigger because the item form defaults every new item to it. The same test gates requirement-explosion recursion and sub-assembly due-date cascading. Before turning it on, audit `procurement_type` and read `GET /api/v1/mrp/planned-orders/dry-run-diff`, which lists the products whose open planned orders would change type and why, without writing anything. Off, nothing changes.
 - **Book several operations as one block.** The scheduling engine can book several operations together as one block (`schedule_operations_together`); `find_conflicts` accepts `exclude_operation_ids`. Existing callers are unchanged. Groundwork for print batches: one plate run composed from several production orders.
 
 ## [4.3.2] - 2026-10-19

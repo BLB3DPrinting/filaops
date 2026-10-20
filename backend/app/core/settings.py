@@ -592,6 +592,14 @@ class Settings(BaseSettings):
     AUTO_MRP_ON_CONFIRMATION: bool = False
     MRP_ENABLE_SUB_ASSEMBLY_CASCADING: bool = False
     MRP_VALIDATION_STRICT_MODE: bool = True
+    # MRP_ROUTING_MAKE_BUY — make-vs-buy by routing materials (print-batch plan S0).
+    # Off (default): a shortage plans as production only when the product has a
+    # BOM, exactly as before. On: production when the product has a BOM OR an
+    # active routing with real (non-cost-only) materials; procurement_type
+    # "buy" always wins and "make" alone is not a trigger (the item form
+    # defaults every new item to "make"). Audit procurement_type and read
+    # GET /api/v1/mrp/planned-orders/dry-run-diff before turning this on.
+    MRP_ROUTING_MAKE_BUY: bool = False
 
     # ===================
     # Manufacturing

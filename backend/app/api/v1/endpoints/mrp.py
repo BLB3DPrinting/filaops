@@ -20,9 +20,11 @@ from app.schemas.mrp import (
     PlannedOrderListResponse,
     FirmPlannedOrderRequest, ReleasePlannedOrderRequest, ReleasePlannedOrderResponse,
     RequirementsSummary, NetRequirement,
-    SupplyDemandTimeline
+    SupplyDemandTimeline,
+    MakeBuyDryRunDiff,
 )
 from app.services.mrp import MRPService
+from app.services.make_buy import make_buy_dry_run_diff
 
 
 router = APIRouter(
@@ -161,6 +163,22 @@ async def list_planned_orders(
         page=page,
         page_size=page_size
     )
+
+
+@router.get("/planned-orders/dry-run-diff", response_model=MakeBuyDryRunDiff)
+async def planned_orders_make_buy_dry_run_diff(
+    db: Session = Depends(get_db)
+):
+    """
+    Dry run of the routing make-vs-buy rule over open planned orders.
+
+    Read-only. For every product with a planned or firmed planned order it
+    decides make-vs-buy both ways: today's test (has_bom only) and the
+    MRP_ROUTING_MAKE_BUY rule (has_bom OR an active routing with real
+    materials; procurement_type "buy" always wins). Lists the products whose
+    order_type would differ and why. Use it before turning the flag on.
+    """
+    return make_buy_dry_run_diff(db)
 
 
 @router.get("/planned-orders/{order_id}", response_model=PlannedOrderResponse)
