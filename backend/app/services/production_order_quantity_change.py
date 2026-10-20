@@ -33,6 +33,14 @@ UNSTARTED_OPERATION_STATUSES = ("pending", "cancelled")
 COUNTED_UNITS = ("EA", "EACH", "PCS", "UNIT", "BOX", "BOXES")
 
 
+def round_up_counted_units(quantity: Decimal, unit: Optional[str]) -> Decimal:
+    """A requirement in a counted unit is a whole number of pieces: round up.
+    Measured units (grams, millilitres) are returned as they are."""
+    if (unit or "").upper() in COUNTED_UNITS:
+        return Decimal(math.ceil(quantity))
+    return quantity
+
+
 def required_quantity_for_routing_material(
     rom: RoutingOperationMaterial,
     order_quantity: int,
@@ -44,10 +52,8 @@ def required_quantity_for_routing_material(
     rule for materialising a routing material onto an order, used when the
     operations are first copied and again when the order's quantity changes.
     """
-    qty_required = rom.calculate_required_quantity(int(order_quantity))
-    if (rom.unit or "").upper() in COUNTED_UNITS:
-        qty_required = math.ceil(qty_required)
-    return Decimal(str(qty_required))
+    qty_required = Decimal(str(rom.calculate_required_quantity(int(order_quantity))))
+    return round_up_counted_units(qty_required, rom.unit)
 
 
 def rescale_unstarted_operations(
@@ -88,7 +94,9 @@ def rescale_unstarted_operations(
             if rom is not None:
                 mat.quantity_required = required_quantity_for_routing_material(rom, new_quantity)
             else:
-                mat.quantity_required = Decimal(str(mat.quantity_required or 0)) * ratio
+                mat.quantity_required = round_up_counted_units(
+                    Decimal(str(mat.quantity_required or 0)) * ratio, mat.unit
+                )
 
         rescaled.append(op)
 

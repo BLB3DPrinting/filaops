@@ -1984,6 +1984,41 @@ class TestSplitRecomputesParent:
         assert Decimal(str(op.planned_run_minutes)) == Decimal("80")
         assert Decimal(str(mat.quantity_required)) == Decimal("40")
 
+    def test_split_rounds_counted_units_up_when_scaling_unlinked_row(
+        self, db, finished_good, make_product
+    ):
+        """3 EA scaled by 8/10 is 2.4 EA; a counted unit rounds up to 3, the
+        same rule order creation applies."""
+        insert = make_product(item_type="component", unit="EA")
+        order = _make_production_order(db, finished_good, quantity=10, status="draft")
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            routing_operation_id=None,
+            work_center_id=1,
+            sequence=10,
+            operation_code="ASSEMBLE",
+            operation_name="Assemble",
+            planned_setup_minutes=Decimal("0"),
+            planned_run_minutes=Decimal("10"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=insert.id,
+            quantity_required=Decimal("3"),
+            unit="EA",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        svc.split_production_order(db, order.id, split_quantity=2, user_email="test@filaops.dev")
+
+        db.refresh(mat)
+        assert Decimal(str(mat.quantity_required)) == Decimal("3")
+
     def test_completing_parent_after_split_consumes_remaining_quantity(
         self, db, finished_good, raw_material
     ):
