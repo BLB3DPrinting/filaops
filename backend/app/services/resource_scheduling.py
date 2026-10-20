@@ -10,9 +10,16 @@ ProductionOrderOperation rows — its return type is a public contract used
 by several endpoints). ``schedule_operation`` consults both and raises
 ``MaintenanceWindowConflictError`` for window overlaps;
 ``find_next_available_slot`` skips over windows when hunting for gaps.
+
+S3 (print batches): ``schedule_operations_together`` books several
+operations as ONE block on one printer or resource. ``find_conflicts`` is
+run once with the whole member set excluded (``exclude_operation_ids``) so
+members are never reported as conflicts of each other; maintenance windows
+are checked once and predecessors for every member, and nothing is written
+unless every check passes.
 """
 from datetime import datetime, timezone
-from typing import Optional, List, Tuple
+from typing import Iterable, Optional, List, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.maintenance import WINDOW_BLOCKING_STATUSES, MaintenanceWindow
@@ -70,7 +77,8 @@ def find_conflicts(
     start_time: datetime,
     end_time: datetime,
     exclude_operation_id: Optional[int] = None,
-    is_printer: bool = False
+    is_printer: bool = False,
+    exclude_operation_ids: Optional[Iterable[int]] = None,
 ) -> List[ProductionOrderOperation]:
     """
     Find operations that conflict with proposed time range.
@@ -87,6 +95,10 @@ def find_conflicts(
         end_time: Proposed end
         exclude_operation_id: Operation to exclude (for rescheduling)
         is_printer: True if checking printer conflicts (uses printer_id column)
+        exclude_operation_ids: Further operations to exclude, e.g. every
+            member of a block being booked together (S3). Combined with
+            ``exclude_operation_id``; ``None`` entries are ignored. Omitted,
+            behaviour is unchanged.
 
     Returns:
         List of conflicting operations
@@ -107,8 +119,14 @@ def find_conflicts(
         ProductionOrderOperation.scheduled_end > start_time
     )
 
+    # One exclusion set: the single id (rescheduling) plus any block members.
+    # A None id would turn the whole NOT IN predicate NULL and hide every
+    # conflict, so unflushed operations are dropped rather than passed on.
+    excluded = {op_id for op_id in (exclude_operation_ids or ()) if op_id is not None}
     if exclude_operation_id:
-        query = query.filter(ProductionOrderOperation.id != exclude_operation_id)
+        excluded.add(exclude_operation_id)
+    if excluded:
+        query = query.filter(ProductionOrderOperation.id.notin_(excluded))
 
     return query.all()
 
@@ -528,6 +546,106 @@ def schedule_operation(
     operation.scheduled_start = scheduled_start
     operation.scheduled_end = scheduled_end
     operation.status = 'queued'  # Move from pending to queued
+
+    db.flush()
+
+    return True, []
+
+
+def schedule_operations_together(
+    db: Session,
+    operations: Iterable[ProductionOrderOperation],
+    resource_id: int,
+    scheduled_start: datetime,
+    scheduled_end: datetime,
+    is_printer: bool = False
+) -> Tuple[bool, List[ProductionOrderOperation]]:
+    """
+    Schedule several operations as ONE block on a resource (S3, print batches).
+
+    A print plate often runs parts from several production orders at once.
+    The members share one window on one printer/resource, so they must not
+    be reported as conflicts of each other: ``find_conflicts`` runs once
+    with the whole member set excluded. Otherwise the validation is the
+    same as ``schedule_operation``:
+
+    1. No time conflicts with operations outside the block on the same resource
+    2. No overlap with blocking maintenance windows (SCHED-7)
+    3. Predecessor operations are scheduled/complete first — checked for
+       EVERY member before anything is written
+
+    All-or-nothing: every check runs before the first write, so a failed
+    check leaves every member untouched. Members are validated against the
+    database as it stands, so a member whose predecessor is another member
+    of the same block is rejected (that predecessor is still unscheduled).
+
+    Args:
+        db: Database session
+        operations: Operations to book together (at least one, flushed)
+        resource_id: Target resource/printer ID
+        scheduled_start: Start time of the block
+        scheduled_end: End time of the block
+        is_printer: True if resource_id refers to a printer
+
+    Returns:
+        Tuple of (success, conflicts)
+        - If success=True, every member was scheduled
+        - If success=False, conflicts contains blocking operations and no
+          member was modified
+
+    Raises:
+        ValueError: ``operations`` is empty
+        MaintenanceWindowConflictError: range overlaps a blocking
+            maintenance window (carries ``.windows``)
+        SequenceError: predecessor sequencing violated for any member
+    """
+    members = list(operations)
+    if not members:
+        raise ValueError("schedule_operations_together needs at least one operation")
+
+    # One conflict query for the whole block: members only conflict with
+    # operations outside the block.
+    conflicts = find_conflicts(
+        db=db,
+        resource_id=resource_id,
+        start_time=scheduled_start,
+        end_time=scheduled_end,
+        is_printer=is_printer,
+        exclude_operation_ids=[op.id for op in members],
+    )
+
+    if conflicts:
+        return False, conflicts
+
+    # Maintenance windows are busy time (SCHED-7), checked once for the block.
+    window_conflicts = find_window_conflicts(
+        db=db,
+        resource_id=resource_id,
+        start_time=scheduled_start,
+        end_time=scheduled_end,
+        is_printer=is_printer,
+    )
+    if window_conflicts:
+        raise MaintenanceWindowConflictError(window_conflicts)
+
+    # Every member's predecessors, before any write
+    for operation in members:
+        seq_error = check_predecessor_scheduling(db, operation, scheduled_start)
+        if seq_error:
+            raise SequenceError(seq_error)
+
+    # Same fields schedule_operation writes, on every member
+    for operation in members:
+        if is_printer:
+            operation.printer_id = resource_id
+            operation.resource_id = None  # Clear resource_id when using printer
+        else:
+            operation.resource_id = resource_id
+            operation.printer_id = None  # Clear printer_id when using resource
+
+        operation.scheduled_start = scheduled_start
+        operation.scheduled_end = scheduled_end
+        operation.status = 'queued'  # Move from pending to queued
 
     db.flush()
 

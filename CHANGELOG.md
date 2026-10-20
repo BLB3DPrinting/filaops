@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Book several operations as one block.** The scheduling engine can book several operations together as one block (`schedule_operations_together`); `find_conflicts` accepts `exclude_operation_ids`. Existing callers are unchanged. Groundwork for print batches: one plate run composed from several production orders.
+
 ## [4.3.2] - 2026-10-19
 
 ### Fixed
