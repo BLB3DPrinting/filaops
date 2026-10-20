@@ -33,8 +33,9 @@ and mrp.py itself — gets identical typed results.
 
 IMPORT SAFETY
 -------------
-This module imports ONLY from app.models and app.services.uom_service (which has no
-service-layer deps), so it can be imported by any service without cycles:
+This module imports ONLY from app.models, app.services.uom_service and
+app.services.make_buy (neither has service-layer deps), so it can be imported by
+any service without cycles:
   mrp.py → here           (was circular before — now clean)
   buy_list_service → here  (through MRPService.explode_bom)
   blocking_issues → here
@@ -52,6 +53,7 @@ from sqlalchemy.orm import Session
 from app.models.bom import BOM
 from app.models.product import Product
 from app.services.uom_service import INLINE_UOM_CONVERSIONS as _UOM_CONVERSIONS
+from app.services.make_buy import is_made
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -268,8 +270,9 @@ def explode_requirements(
             )
             requirements.append(req)
 
-            # Recurse into sub-assemblies
-            if component.has_bom:
+            # Recurse into sub-assemblies (made in-house: has_bom, or routing
+            # materials too when MRP_ROUTING_MAKE_BUY is on)
+            if is_made(db, component):
                 sub_reqs = explode_requirements(
                     db=db,
                     product_id=component.id,
@@ -334,8 +337,8 @@ def explode_requirements(
                     )
                     requirements.append(req)
 
-                    # Recurse into sub-assemblies
-                    if component.has_bom:
+                    # Recurse into sub-assemblies (same test as the BOM path)
+                    if is_made(db, component):
                         sub_reqs = explode_requirements(
                             db=db,
                             product_id=component.id,

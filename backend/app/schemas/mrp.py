@@ -259,3 +259,30 @@ class ProductPegging(BaseModel):
     product_sku: str
     supplies: List[PeggingEntry]
     demands: List[PeggingEntry]
+
+
+# ============================================================================
+# Make-vs-buy dry-run diff (MRP_ROUTING_MAKE_BUY)
+# ============================================================================
+
+class MakeBuyDiffEntry(BaseModel):
+    """A product whose open planned orders would change type under the routing make-vs-buy rule"""
+    product_id: int
+    product_sku: str
+    product_name: str
+    procurement_type: Optional[str] = None
+    has_bom: bool
+    current_order_type: str  # today's decision: has_bom only
+    proposed_order_type: str  # decision under the rule
+    reason: str  # buy_override | bom | routing_materials | no_make_source
+    planned_order_ids: List[int]
+
+
+class MakeBuyDryRunDiff(BaseModel):
+    """Read-only comparison of make-vs-buy decisions over open planned orders"""
+    flag_enabled: bool  # MRP_ROUTING_MAKE_BUY as currently configured
+    statuses: List[str]
+    planned_orders_checked: int
+    products_checked: int
+    changes: List[MakeBuyDiffEntry]
+    total_changes: int

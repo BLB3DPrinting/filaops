@@ -24,6 +24,7 @@ from app.logging_config import get_logger
 from app.services.uom_service import INLINE_UOM_CONVERSIONS as UOM_CONVERSIONS
 from app.services.purchase_order_service import generate_po_number
 from app.services.production_order_service import generate_production_order_code
+from app.services import make_buy
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -131,6 +132,9 @@ class NetRequirement:
     min_order_qty: Optional[Decimal] = None
     item_type: str = "component"
     has_bom: bool = False  # Whether this component is a manufactured sub-assembly
+    # Make-vs-buy decision (services.make_buy): equals has_bom unless
+    # MRP_ROUTING_MAKE_BUY is on, when routing materials count too.
+    is_made: bool = False
     unit_cost: Decimal = Decimal("0")  # Standard or last cost for costing
 
 
@@ -318,7 +322,7 @@ class MRPService:
                 if (settings.MRP_ENABLE_SUB_ASSEMBLY_CASCADING and 
                     original_req and 
                     original_req.parent_product_id and
-                    shortage.has_bom):
+                    shortage.is_made):
                     # This is a sub-assembly - find parent's due date
                     parent_req = requirement_by_product.get(original_req.parent_product_id)
                     if parent_req and parent_req.due_date:
@@ -494,6 +498,7 @@ class MRPService:
                 reorder_point=product.reorder_point,
                 min_order_qty=product.min_order_qty,
                 has_bom=product.has_bom or False,
+                is_made=make_buy.is_made(self.db, product),
                 unit_cost=unit_cost,
             )
             net_requirements.append(net_req)
@@ -511,7 +516,9 @@ class MRPService:
         Generate planned orders for material shortages.
 
         Creates purchase orders for raw materials/supplies and
-        production orders for items with BOMs.
+        production orders for items made in-house (services.make_buy
+        decides: has_bom only, or routing materials too when
+        MRP_ROUTING_MAKE_BUY is on).
 
         Args:
             shortages: List of NetRequirement with shortages
@@ -533,9 +540,10 @@ class MRPService:
             if not product:
                 continue
 
-            # Determine order type based on item type and BOM
-            # CRITICAL: Components with has_bom=True are manufactured sub-assemblies
-            if product.has_bom:
+            # Determine order type: made in-house -> production, else purchase.
+            # services.make_buy owns the rule (has_bom only, or routing
+            # materials too behind MRP_ROUTING_MAKE_BUY).
+            if make_buy.is_made(self.db, product):
                 order_type = "production"
             else:
                 order_type = "purchase"
