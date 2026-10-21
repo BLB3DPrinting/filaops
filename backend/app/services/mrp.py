@@ -24,7 +24,7 @@ from app.logging_config import get_logger
 from app.services.uom_service import INLINE_UOM_CONVERSIONS as UOM_CONVERSIONS
 from app.services.purchase_order_service import generate_po_number
 from app.services.production_order_service import generate_production_order_code
-from app.services import make_buy
+from app.services import make_buy, open_supply
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -662,7 +662,11 @@ class MRPService:
         self,
         product_ids: List[int]
     ) -> Dict[int, Decimal]:
-        """Get incoming supply from open purchase orders"""
+        """Get incoming supply from open purchase orders.
+
+        Behind MRP_OPEN_PO_SUPPLY it also counts what open production orders
+        have left to make (services/open_supply.py).
+        """
         result = defaultdict(Decimal)
 
         # Query open PO lines
@@ -679,6 +683,11 @@ class MRPService:
 
         for row in po_lines:
             result[row.product_id] = Decimal(str(row.incoming or 0))
+
+        for product_id, quantity in open_supply.get_open_production_supply_qty(
+            self.db, product_ids
+        ).items():
+            result[product_id] += quantity
 
         return dict(result)
 

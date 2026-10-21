@@ -11,13 +11,20 @@ Usage
 
     result = get_projected_available(db, component.id)
     # result.available     — on_hand − allocated (may be negative)
-    # result.incoming_qty  — Σ remaining qty on open POs
+    # result.incoming_qty  — Σ remaining qty on open POs, plus open production
+    #                        orders when MRP_OPEN_PO_SUPPLY is on
     # result.projected     — available + incoming_qty
     # result.details       — list[IncomingSupplyDetail], sorted by expected_date
+    #                        (purchase orders only; callers read PO ids from it)
     # result.best_detail   — first detail (earliest-arriving PO), or None
+    # result.production_details — open production orders (flag on), earliest first
 
 Statuses that count as "open" match item_demand.get_incoming_supply:
   draft | ordered | shipped  (NOT received, closed, cancelled).
+
+Open production orders are added by services/open_supply.py, behind
+MRP_OPEN_PO_SUPPLY, using one status set and date rule shared with MRP and the
+item demand summary.
 
 The "partially_received" label used by mrp.py is not a real PO status in the
 PurchaseOrder model (status field is free-form string, model docstring says
@@ -35,6 +42,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
+from app.services.open_supply import OpenProductionSupply, get_open_production_supply
 
 
 # Statuses that represent open / in-transit purchase orders.
@@ -59,9 +67,12 @@ class ProjectedAvailability:
     on_hand: Decimal
     allocated: Decimal
     available: Decimal          # on_hand − allocated (may be negative)
-    incoming_qty: Decimal       # Σ remaining on open POs
+    incoming_qty: Decimal       # Σ remaining on open POs (+ production orders, flag on)
     projected: Decimal          # available + incoming_qty
+    # Purchase-order lines only: consumers dereference purchase_order_id, so
+    # production orders are kept apart in production_details.
     details: List[IncomingSupplyDetail] = field(default_factory=list)
+    production_details: List[OpenProductionSupply] = field(default_factory=list)
 
     @property
     def best_detail(self) -> Optional[IncomingSupplyDetail]:
@@ -83,9 +94,10 @@ def get_projected_available(db: Session, product_id: int) -> ProjectedAvailabili
     """
     Return current and projected availability for *product_id*.
 
-    Performs two queries:
+    Performs two queries (a third only when MRP_OPEN_PO_SUPPLY is on):
       1. Inventory table  → on_hand, allocated
       2. PurchaseOrderLine + PurchaseOrder → open-PO remaining quantities
+      3. ProductionOrder → open production-order remaining quantities
 
     Returns a ProjectedAvailability dataclass.  Never raises; missing inventory
     or missing POs both return Decimal("0") for the relevant fields.
@@ -128,7 +140,12 @@ def get_projected_available(db: Session, product_id: int) -> ProjectedAvailabili
             status=po.status,
         ))
 
-    incoming_qty = sum((d.quantity for d in details), Decimal("0"))
+    # --- 3. Open production orders (MRP_OPEN_PO_SUPPLY; empty when off) ----
+    production_details = get_open_production_supply(db, [product_id]).get(product_id, [])
+
+    incoming_qty = sum((d.quantity for d in details), Decimal("0")) + sum(
+        (d.quantity for d in production_details), Decimal("0")
+    )
     projected = available + incoming_qty
 
     return ProjectedAvailability(
@@ -139,6 +156,7 @@ def get_projected_available(db: Session, product_id: int) -> ProjectedAvailabili
         incoming_qty=incoming_qty,
         projected=projected,
         details=details,
+        production_details=production_details,
     )
 
 
@@ -165,9 +183,11 @@ def get_projected_available_bulk(
     """
     Batch version of get_projected_available for a list of product IDs.
 
-    Executes exactly two queries regardless of the number of products:
+    Executes exactly two queries regardless of the number of products (a third
+    only when MRP_OPEN_PO_SUPPLY is on):
       1. One grouped Inventory aggregate for on_hand + allocated sums.
       2. One PurchaseOrderLine + PurchaseOrder join for open-PO supply.
+      3. One ProductionOrder query for open production-order supply.
 
     Returns a dict mapping product_id → ProjectedAvailability.  Products with
     no inventory row and no open PO are included with all-zero values.
@@ -230,7 +250,10 @@ def get_projected_available_bulk(
             status=po.status,
         ))
 
-    # --- 3. Assemble results ------------------------------------------------
+    # --- 3. Open production orders (MRP_OPEN_PO_SUPPLY; empty when off) ----
+    production_map = get_open_production_supply(db, product_ids)
+
+    # --- 4. Assemble results ------------------------------------------------
     result: Dict[int, ProjectedAvailability] = {}
     for pid in product_ids:
         if pid in inv_map:
@@ -243,7 +266,10 @@ def get_projected_available_bulk(
 
         available = on_hand - allocated
         details = po_details_map.get(pid, [])
-        incoming_qty = sum((d.quantity for d in details), Decimal("0"))
+        production_details = production_map.get(pid, [])
+        incoming_qty = sum((d.quantity for d in details), Decimal("0")) + sum(
+            (d.quantity for d in production_details), Decimal("0")
+        )
         projected = available + incoming_qty
 
         result[pid] = ProjectedAvailability(
@@ -254,6 +280,7 @@ def get_projected_available_bulk(
             incoming_qty=incoming_qty,
             projected=projected,
             details=details,
+            production_details=production_details,
         )
 
     return result

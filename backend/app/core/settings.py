@@ -600,6 +600,14 @@ class Settings(BaseSettings):
     # defaults every new item to "make"). Audit procurement_type and read
     # GET /api/v1/mrp/planned-orders/dry-run-diff before turning this on.
     MRP_ROUTING_MAKE_BUY: bool = False
+    # MRP_OPEN_PO_SUPPLY — open production orders count as incoming supply
+    # (print-batch plan S0b). Off (default): MRP, supply netting and the item
+    # demand summary count purchase-order lines only, exactly as before, so an
+    # order that is already being made is planned again on every run. On: each
+    # also adds quantity_ordered - quantity_completed of production orders in
+    # draft, released, scheduled and in_progress, dated by scheduled_end, else
+    # due_date, else today (services/open_supply.py).
+    MRP_OPEN_PO_SUPPLY: bool = False
 
     # ===================
     # Manufacturing
