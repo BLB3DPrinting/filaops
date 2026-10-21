@@ -7,7 +7,7 @@ change.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -361,7 +361,7 @@ def accept_short_production_order(
 def split_production_order(
     db: Session,
     order_id: int,
-    split_quantity: int,
+    split_quantity: Union[int, Decimal],
     user_email: str,
     reason: Optional[str] = None,
 ) -> tuple[ProductionOrder, ProductionOrder]:
@@ -370,7 +370,7 @@ def split_production_order(
 
     Args:
         order_id: Order to split
-        split_quantity: Quantity for the new order
+        split_quantity: Quantity for the new order (may be fractional)
         user_email: User performing the split
         reason: Reason for split
 
@@ -396,10 +396,12 @@ def split_production_order(
             detail=f"Cannot split order in {order.status} status"
         )
 
+    split_quantity = Decimal(str(split_quantity))
     if split_quantity <= 0:
         raise HTTPException(status_code=400, detail="Split quantity must be positive")
 
-    original_quantity = int(order.quantity_ordered)
+    # Exact quantities: a fractional order keeps its fraction through the split.
+    original_quantity = Decimal(str(order.quantity_ordered))
     remaining = original_quantity - split_quantity
     if remaining <= 0:
         raise HTTPException(

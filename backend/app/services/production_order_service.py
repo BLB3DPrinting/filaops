@@ -5,7 +5,7 @@ Extracted from production_orders.py (ARCHITECT-003).
 """
 from datetime import datetime, timezone, date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, cast, func, desc, or_, case
@@ -103,7 +103,7 @@ def copy_routing_to_operations(
                 component_id=rom.component_id,
                 routing_operation_material_id=rom.id,
                 quantity_required=required_quantity_for_routing_material(
-                    rom, int(order.quantity_ordered)
+                    rom, order.quantity_ordered
                 ),
                 unit=rom.unit,
                 quantity_allocated=Decimal("0"),
@@ -189,7 +189,7 @@ def create_production_order(
     db: Session,
     *,
     product_id: int,
-    quantity_ordered: int,
+    quantity_ordered: Union[int, Decimal],
     created_by: str,
     bom_id: Optional[int] = None,
     routing_id: Optional[int] = None,

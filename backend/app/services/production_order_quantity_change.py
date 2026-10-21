@@ -14,7 +14,7 @@ schedule and their material requirement reflect work that is committed.
 import math
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ def round_up_counted_units(quantity: Decimal, unit: Optional[str]) -> Decimal:
 
 def required_quantity_for_routing_material(
     rom: RoutingOperationMaterial,
-    order_quantity: int,
+    order_quantity: Union[int, Decimal],
 ) -> Decimal:
     """How much of ``rom`` an order of ``order_quantity`` units needs.
 
@@ -51,15 +51,16 @@ def required_quantity_for_routing_material(
     included), rounded up to a whole piece for counted units. This is the one
     rule for materialising a routing material onto an order, used when the
     operations are first copied and again when the order's quantity changes.
+    ``order_quantity`` is the order's exact quantity: it may be fractional.
     """
-    qty_required = Decimal(str(rom.calculate_required_quantity(int(order_quantity))))
+    qty_required = rom.calculate_required_quantity(order_quantity)
     return round_up_counted_units(qty_required, rom.unit)
 
 
 def rescale_unstarted_operations(
     db: Session,
     order: ProductionOrder,
-    original_quantity: int,
+    original_quantity: Union[int, Decimal],
 ) -> List[ProductionOrderOperation]:
     """Recompute planned minutes and material requirements of the order's
     unstarted operations for its current ``quantity_ordered``.
@@ -67,14 +68,16 @@ def rescale_unstarted_operations(
     An operation linked to its routing operation is recomputed from the
     routing (run time per unit, each material's own quantity rule). One
     without a routing link is scaled by ``quantity_ordered / original_quantity``.
-    Material rows already consumed are never touched.
+    Material rows already consumed are never touched. Both quantities are
+    exact: a fractional order is not truncated to whole pieces.
 
     Returns the operations that were recomputed.
     """
-    new_quantity = int(order.quantity_ordered)
+    original_quantity = Decimal(str(original_quantity))
+    new_quantity = Decimal(str(order.quantity_ordered))
     if original_quantity <= 0 or new_quantity == original_quantity:
         return []
-    ratio = Decimal(new_quantity) / Decimal(original_quantity)
+    ratio = new_quantity / original_quantity
 
     rescaled: List[ProductionOrderOperation] = []
     for op in order.operations:
@@ -102,7 +105,7 @@ def rescale_unstarted_operations(
 
     if rescaled:
         logger.info(
-            "Rescaled %d unstarted operation(s) of %s from %d to %d units",
+            "Rescaled %d unstarted operation(s) of %s from %s to %s units",
             len(rescaled), order.code, original_quantity, new_quantity,
         )
     return rescaled
