@@ -226,6 +226,9 @@ class ReleasePlannedOrderRequest(BaseModel):
     """Release a planned order to actual PO or MO"""
     vendor_id: Optional[int] = None  # Required for purchase orders
     notes: Optional[str] = None
+    # Release only this much of the planned quantity; the rest stays planned.
+    # Omit to release it all. More than planned is rejected with 422.
+    quantity: Optional[Decimal] = Field(None, gt=0, decimal_places=4)
 
 
 class ReleasePlannedOrderResponse(BaseModel):
@@ -236,6 +239,8 @@ class ReleasePlannedOrderResponse(BaseModel):
     created_purchase_order_code: Optional[str] = None
     created_production_order_id: Optional[int] = None
     created_production_order_code: Optional[str] = None
+    released_quantity: Optional[Decimal] = None  # quantity on the created order
+    remaining_quantity: Optional[Decimal] = None  # still planned; 0 after a full release
 
 
 # ============================================================================
