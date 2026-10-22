@@ -380,6 +380,7 @@ def split_production_order(
     from app.services.inventory_service import reserve_production_materials
     from app.services.production_order_quantity_change import (
         release_excess_reservations,
+        require_storable_order_quantity,
         rescale_unstarted_operations,
     )
     from app.services.production_order_service import (
@@ -396,7 +397,9 @@ def split_production_order(
             detail=f"Cannot split order in {order.status} status"
         )
 
-    split_quantity = Decimal(str(split_quantity))
+    # Refused before either order is touched: a split the column cannot store
+    # (0.00001 -> 0) would still size the child's materials from the longer figure.
+    split_quantity = require_storable_order_quantity(split_quantity, "Split quantity")
     if split_quantity <= 0:
         raise HTTPException(status_code=400, detail="Split quantity must be positive")
 

@@ -13,9 +13,10 @@ schedule and their material requirement reflect work that is committed.
 """
 import math
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Union
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -39,6 +40,32 @@ def round_up_counted_units(quantity: Decimal, unit: Optional[str]) -> Decimal:
     if (unit or "").upper() in COUNTED_UNITS:
         return Decimal(math.ceil(quantity))
     return quantity
+
+
+def require_storable_order_quantity(
+    quantity: Union[int, float, str, Decimal],
+    label: str = "Quantity",
+) -> Decimal:
+    """``quantity`` as a Decimal, if ``ProductionOrder.quantity_ordered`` can
+    store it as it is.
+
+    The column keeps four decimal places, so 0.00001 would be stored as 0 while
+    the sizing code still saw 0.00001 and, for a counted unit, asked for a whole
+    piece. A quantity with more places than the column holds, or that is not a
+    finite number, is refused with a 400 before an order is created or changed.
+    """
+    places = ProductionOrder.quantity_ordered.type.scale
+    try:
+        value = Decimal(str(quantity))
+        storable = value.is_finite() and value == value.quantize(Decimal(1).scaleb(-places))
+    except InvalidOperation:  # not a number, or too many digits to quantize
+        storable = False
+    if not storable:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} must be a number with at most {places} decimal places",
+        )
+    return value
 
 
 def required_quantity_for_routing_material(
@@ -77,8 +104,10 @@ def rescale_unstarted_operations(
     new_quantity = Decimal(str(order.quantity_ordered))
     if original_quantity <= 0 or new_quantity == original_quantity:
         return []
-    ratio = new_quantity / original_quantity
 
+    # Unlinked rows scale as value * new / original, multiplying first: 1 / 6
+    # is already rounded (0.1666...67), and 18 x that is 3.000...001, which a
+    # counted unit rounds up to 4 instead of the exact 3.
     rescaled: List[ProductionOrderOperation] = []
     for op in order.operations:
         if op.status not in UNSTARTED_OPERATION_STATUSES:
@@ -88,7 +117,9 @@ def rescale_unstarted_operations(
         if rop is not None:
             op.planned_run_minutes = Decimal(str(rop.run_time_minutes or 0)) * new_quantity
         else:
-            op.planned_run_minutes = Decimal(str(op.planned_run_minutes or 0)) * ratio
+            op.planned_run_minutes = (
+                Decimal(str(op.planned_run_minutes or 0)) * new_quantity / original_quantity
+            )
 
         for mat in op.materials:
             if mat.status == "consumed":
@@ -98,7 +129,8 @@ def rescale_unstarted_operations(
                 mat.quantity_required = required_quantity_for_routing_material(rom, new_quantity)
             else:
                 mat.quantity_required = round_up_counted_units(
-                    Decimal(str(mat.quantity_required or 0)) * ratio, mat.unit
+                    Decimal(str(mat.quantity_required or 0)) * new_quantity / original_quantity,
+                    mat.unit,
                 )
 
         rescaled.append(op)

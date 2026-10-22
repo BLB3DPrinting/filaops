@@ -25,7 +25,10 @@ from app.models.manufacturing import OperationType, Routing, RoutingOperation, R
 from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
-from app.services.production_order_quantity_change import required_quantity_for_routing_material
+from app.services.production_order_quantity_change import (
+    require_storable_order_quantity,
+    required_quantity_for_routing_material,
+)
 from app.services.supply_netting import get_projected_available
 logger = get_logger(__name__)
 
@@ -203,6 +206,11 @@ def create_production_order(
 ) -> ProductionOrder:
     """Create a new production order."""
     from app.services.inventory_service import reserve_production_materials
+
+    # Refused before anything is created: the column keeps four decimal places,
+    # so a longer quantity would be stored rounded (0.00001 -> 0) while the
+    # routing copy sized and reserved its materials from the longer figure.
+    require_storable_order_quantity(quantity_ordered, "Quantity")
 
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:

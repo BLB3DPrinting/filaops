@@ -387,6 +387,44 @@ class TestSplitSizesFromExactQuantity:
         assert _dec(op.planned_run_minutes) == Decimal("75")
         assert _dec(mat.quantity_required) == Decimal("37.5")
 
+    def test_split_unlinked_counted_row_is_not_rounded_up_by_the_ratio(
+        self, db, finished_good, make_product, make_production_order
+    ):
+        """18 EA on an order of 6 is 3 EA for the 1 unit that stays. Dividing
+        1 / 6 first gives 0.1666...67, and 18 x that is 3.000...001, which a
+        counted unit rounds up to 4."""
+        insert = make_product(item_type="component", unit="EA")
+        order = make_production_order(product_id=finished_good.id, quantity=6)
+        op = ProductionOrderOperation(
+            production_order_id=order.id,
+            routing_operation_id=None,
+            work_center_id=1,
+            sequence=10,
+            operation_code="ASSEMBLE",
+            operation_name="Assemble",
+            planned_setup_minutes=Decimal("0"),
+            planned_run_minutes=Decimal("60"),
+            status="pending",
+        )
+        db.add(op)
+        db.flush()
+        mat = ProductionOrderOperationMaterial(
+            production_order_operation_id=op.id,
+            component_id=insert.id,
+            quantity_required=Decimal("18"),
+            unit="EA",
+            status="pending",
+        )
+        db.add(mat)
+        db.flush()
+
+        svc.split_production_order(db, order.id, split_quantity=5, user_email=USER)
+
+        db.refresh(op)
+        db.refresh(mat)
+        assert _dec(op.planned_run_minutes) == Decimal("10")
+        assert _dec(mat.quantity_required) == Decimal("3")
+
     def test_split_rejects_a_quantity_that_leaves_nothing(self, db, finished_good, raw_material):
         from fastapi import HTTPException
 
@@ -399,3 +437,68 @@ class TestSplitSizesFromExactQuantity:
                 db, order.id, split_quantity=Decimal("2.5"), user_email=USER
             )
         assert exc.value.status_code == 400
+
+
+# =============================================================================
+# Quantities the order column can store
+# =============================================================================
+
+class TestStorableQuantity:
+    """``quantity_ordered`` is Numeric(18,4). A quantity with more places than
+    that is stored rounded (0.00001 becomes 0) while the sizing code would still
+    see the longer figure, so it is refused before anything is created or
+    changed."""
+
+    @pytest.mark.parametrize("value", ["1", "1.5", "2.5000", "0.0001", "999999", 3, 0.25])
+    def test_accepts_what_the_column_stores(self, value):
+        from app.services.production_order_quantity_change import require_storable_order_quantity
+
+        assert require_storable_order_quantity(value) == Decimal(str(value))
+
+    @pytest.mark.parametrize("value", ["0.00001", "1.23456", "NaN", "Infinity", "1E+30"])
+    def test_rejects_what_the_column_would_change(self, value):
+        from fastapi import HTTPException
+
+        from app.services.production_order_quantity_change import require_storable_order_quantity
+
+        with pytest.raises(HTTPException) as exc:
+            require_storable_order_quantity(Decimal(value))
+        assert exc.value.status_code == 400
+
+    def test_create_rejects_an_unstorable_quantity_before_creating_anything(
+        self, db, finished_good, raw_material
+    ):
+        from fastapi import HTTPException
+
+        routing = _routing_with_material(db, finished_good, raw_material, quantity=18)
+        inv = _stock(db, raw_material)
+        orders_before = db.query(ProductionOrder).count()
+
+        with pytest.raises(HTTPException) as exc:
+            _create_order(db, finished_good, routing, Decimal("0.00001"))
+
+        assert exc.value.status_code == 400
+        assert db.query(ProductionOrder).count() == orders_before
+        db.refresh(inv)
+        assert _dec(inv.allocated_quantity) == Decimal("0")
+
+    def test_split_rejects_an_unstorable_quantity_before_changing_either_order(
+        self, db, finished_good, raw_material
+    ):
+        from fastapi import HTTPException
+
+        routing = _routing_with_material(db, finished_good, raw_material, quantity=18)
+        _stock(db, raw_material)
+        order = _create_order(db, finished_good, routing, 3)
+        orders_before = db.query(ProductionOrder).count()
+
+        with pytest.raises(HTTPException) as exc:
+            svc.split_production_order(
+                db, order.id, split_quantity=Decimal("0.00001"), user_email=USER
+            )
+
+        assert exc.value.status_code == 400
+        assert db.query(ProductionOrder).count() == orders_before
+        assert _dec(order.quantity_ordered) == Decimal("3")
+        assert _dec(_only_material(order).quantity_required) == Decimal("54")
+        assert _get_net_reserved_by_component(db, order.id)[raw_material.id] == Decimal("54")
