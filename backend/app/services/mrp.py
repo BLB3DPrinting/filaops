@@ -25,6 +25,7 @@ from app.services.uom_service import INLINE_UOM_CONVERSIONS as UOM_CONVERSIONS
 from app.services.purchase_order_service import generate_po_number
 from app.services.production_order_service import generate_production_order_code
 from app.services import make_buy, open_supply
+from app.services import mrp_release
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -893,10 +894,17 @@ class MRPService:
         planned_order_id: int,
         vendor_id: Optional[int] = None,
         user_id: Optional[int] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        quantity: Optional[Decimal] = None,
     ) -> Tuple[PlannedOrder, Optional[int]]:
         """
         Release a planned order - converts it to an actual PO or MO.
+
+        With ``quantity`` below the planned quantity only that much is
+        released: the planned order keeps its status (planned or firmed) with
+        the remainder as its quantity, and is not linked to the new order
+        because it is still open. Zero, a negative, or more than planned
+        raises InvalidReleaseQuantity.
 
         Returns:
             Tuple of (PlannedOrder, created_order_id)
@@ -908,19 +916,31 @@ class MRPService:
         if order.status not in ("planned", "firmed"):
             raise ValueError(f"Cannot release order with status '{order.status}'")
 
+        release_quantity = mrp_release.resolve_release_quantity(order, quantity)
+        is_partial = release_quantity < order.quantity
+
         created_order_id = None
 
         if order.order_type == "purchase":
             if not vendor_id:
                 raise ValueError("vendor_id required for purchase orders")
-            created_order_id = self._create_purchase_order(order, vendor_id, user_id)
-            order.converted_to_po_id = created_order_id
+            created_order_id = self._create_purchase_order(order, vendor_id, user_id, release_quantity)
+            if not is_partial:
+                order.converted_to_po_id = created_order_id
         else:
-            created_order_id = self._create_production_order(order, user_id)
-            order.converted_to_mo_id = created_order_id
+            created_order_id = self._create_production_order(order, user_id, release_quantity)
+            if not is_partial:
+                order.converted_to_mo_id = created_order_id
 
-        order.status = "released"
-        order.released_at = datetime.now(timezone.utc)
+        if is_partial:
+            order.quantity = order.quantity - release_quantity
+            order.notes = (order.notes or "") + (
+                f"\nPartially released: {release_quantity} as {order.order_type} "
+                f"order id {created_order_id}; {order.quantity} still open"
+            )
+        else:
+            order.status = "released"
+            order.released_at = datetime.now(timezone.utc)
         if notes:
             order.notes = (order.notes or "") + f"\nReleased: {notes}"
 
@@ -931,9 +951,12 @@ class MRPService:
         self,
         planned_order: PlannedOrder,
         vendor_id: int,
-        user_id: Optional[int]
+        user_id: Optional[int],
+        quantity: Optional[Decimal] = None,
     ) -> int:
-        """Create a purchase order from a planned order"""
+        """Create a purchase order from a planned order (all of it unless ``quantity`` is given)"""
+        if quantity is None:
+            quantity = planned_order.quantity
         # Generate PO number using the canonical hardened generator
         po_number = generate_po_number(self.db)
 
@@ -959,10 +982,10 @@ class MRPService:
             purchase_order_id=po.id,
             product_id=planned_order.product_id,
             line_number=1,
-            quantity_ordered=planned_order.quantity,
+            quantity_ordered=quantity,
             quantity_received=Decimal("0"),
             unit_cost=unit_cost,
-            line_total=unit_cost * planned_order.quantity
+            line_total=unit_cost * quantity
         )
         self.db.add(line)
 
@@ -975,9 +998,20 @@ class MRPService:
     def _create_production_order(
         self,
         planned_order: PlannedOrder,
-        user_id: Optional[int]
+        user_id: Optional[int],
+        quantity: Optional[Decimal] = None,
     ) -> int:
-        """Create a production order from a planned order"""
+        """Create a production order from a planned order (all of it unless ``quantity`` is given)
+
+        With MRP_RELEASE_COPIES_ROUTING on, the order is built by
+        production_order_service (routing, operations, reservations); off, it
+        is the bare order with ``bom_id`` only.
+        """
+        if quantity is None:
+            quantity = planned_order.quantity
+        if mrp_release.copies_routing():
+            return mrp_release.create_full_production_order(self.db, planned_order, quantity, user_id)
+
         # Generate production order code using the canonical hardened generator
         po_code = generate_production_order_code(self.db)
 
@@ -991,7 +1025,7 @@ class MRPService:
             code=po_code,
             product_id=planned_order.product_id,
             bom_id=bom.id if bom else None,
-            quantity_ordered=planned_order.quantity,
+            quantity_ordered=quantity,
             quantity_completed=Decimal("0"),
             quantity_scrapped=Decimal("0"),
             status="draft",

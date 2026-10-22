@@ -600,6 +600,15 @@ class Settings(BaseSettings):
     # defaults every new item to "make"). Audit procurement_type and read
     # GET /api/v1/mrp/planned-orders/dry-run-diff before turning this on.
     MRP_ROUTING_MAKE_BUY: bool = False
+    # MRP_RELEASE_COPIES_ROUTING — releasing a planned order builds a full
+    # production order (print-batch plan S1). Off (default): release creates a
+    # bare order with bom_id only: no routing, no operations, no reservation.
+    # On: release goes through the same service the UI uses, so the order gets
+    # its routing, routing operations and operation materials, and its
+    # materials are reserved. Reserving at release lowers available-to-promise
+    # at release instead of at a later manual step, and a BOM-only product now
+    # reserves its BOM lines too; check stock levels before turning this on.
+    MRP_RELEASE_COPIES_ROUTING: bool = False
     # MRP_OPEN_PO_SUPPLY — open production orders count as incoming supply
     # (print-batch plan S0b). Off (default): MRP, supply netting and the item
     # demand summary count purchase-order lines only, exactly as before, so an
