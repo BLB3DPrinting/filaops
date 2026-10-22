@@ -289,16 +289,16 @@ async def get_production_queue(
     # Apply filters
     if status_filter:
         if status_filter == "active":
-            # Show all non-complete, non-cancelled
+            # Show all non-complete, non-cancelled, non-scrapped
             query = query.filter(
-                ~ProductionOrder.status.in_(["complete", "cancelled"])
+                ~ProductionOrder.status.in_(["complete", "cancelled", "scrapped"])
             )
         else:
             query = query.filter(ProductionOrder.status == status_filter)
     else:
         # Default: show active orders
         query = query.filter(
-            ~ProductionOrder.status.in_(["complete", "cancelled"])
+            ~ProductionOrder.status.in_(["complete", "cancelled", "scrapped"])
         )
 
     if priority_filter:
@@ -328,7 +328,7 @@ async def get_production_queue(
         "printed": db.query(ProductionOrder).filter(ProductionOrder.status == "printed").count(),
         "urgent_count": db.query(ProductionOrder).filter(
             ProductionOrder.priority == 1,  # 1 = urgent (highest priority)
-            ~ProductionOrder.status.in_(["complete", "cancelled"])
+            ~ProductionOrder.status.in_(["complete", "cancelled", "scrapped"])
         ).count(),
     }
 

@@ -3443,3 +3443,40 @@ class TestClosedShortReconcile:
         assert so.closed_short is True
         assert so.status == "ready_to_ship"
         assert so.close_short_reason is not None
+
+    def test_scrapped_production_order_does_not_block_close_short(
+        self, db, make_sales_order, make_product
+    ):
+        """A production order closed as scrapped is resolved (S6): the sale it
+        was for can be closed short rather than waiting on an order that will
+        never complete."""
+        product = make_product(selling_price=Decimal("10.00"))
+        so = make_sales_order(
+            status="in_production",
+            order_type="line_item",
+        )
+        line = _make_order_line(db, so.id, product.id, quantity=5)
+
+        po = ProductionOrder(
+            code="PO-CLSHRT-SCRAP-001",
+            product_id=product.id,
+            sales_order_id=so.id,
+            sales_order_line_id=line.id,
+            quantity_ordered=5,
+            quantity_completed=0,
+            quantity_scrapped=5,
+            status="scrapped",
+            created_by="test",
+        )
+        db.add(po)
+        db.flush()
+
+        sales_order_service.close_short_sales_order(
+            db, so.id, user_id=1, reason="Whole run failed"
+        )
+        db.flush()
+        db.refresh(so)
+
+        assert so.closed_short is True
+        assert so.status == "ready_to_ship"
+        assert po.sales_order_id == so.id  # the link is untouched

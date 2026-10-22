@@ -784,6 +784,11 @@ class AcceptShortRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=2000, description="Reason for accepting short")
 
 
+class CloseScrappedRequest(BaseModel):
+    """Request body for closing a zero-good short order as scrapped."""
+    notes: Optional[str] = Field(None, max_length=2000, description="What happened to the run")
+
+
 # ============================================================================
 # Operation-Level Scrap Schemas
 # ============================================================================
