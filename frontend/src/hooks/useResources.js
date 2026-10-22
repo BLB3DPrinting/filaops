@@ -126,19 +126,38 @@ export function useResources(workCenterId = null) {
 /**
  * Hook for checking resource scheduling conflicts
  *
- * Uses the existing schedule endpoint to check for conflicts without committing.
- * Since we don't have a dedicated conflicts endpoint, this simulates by checking
- * if scheduling would succeed.
+ * Read-only: asks GET /scheduling/resource-conflicts which operations (and
+ * maintenance windows) overlap the window, without committing anything.
+ *
+ * Pass `operationId` while editing an already-scheduled operation. The server
+ * then leaves that operation out of its own conflicts and, when the window is
+ * the slot of the co-booked block it belongs to, its block siblings too. It
+ * derives the siblings itself from the stored window; the browser never sends
+ * a list of ids to ignore.
  */
-export function useResourceConflicts(resourceId, startTime, endTime, isPrinter = false) {
+export function useResourceConflicts(
+  resourceId,
+  startTime,
+  endTime,
+  isPrinter = false,
+  operationId = null,
+) {
   const [conflicts, setConflicts] = useState([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Set on cleanup: once the inputs change (or the component unmounts) the
+    // response to this effect's request is stale and must not overwrite the
+    // state of the request that replaced it.
+    let ignore = false;
+
     const checkConflicts = async () => {
       if (!resourceId || !startTime || !endTime) {
         setConflicts([]);
+        // A request from a previous effect may still be in flight; its
+        // response is ignored now, so it will never clear this.
+        setChecking(false);
         return;
       }
 
@@ -152,6 +171,9 @@ export function useResourceConflicts(resourceId, startTime, endTime, isPrinter =
           end: new Date(endTime).toISOString(),
           is_printer: isPrinter ? 'true' : 'false'
         });
+        if (operationId != null) {
+          params.set('operation_id', String(operationId));
+        }
 
         const res = await fetch(
           `${API_URL}/api/v1/scheduling/resource-conflicts?${params}`,
@@ -160,8 +182,10 @@ export function useResourceConflicts(resourceId, startTime, endTime, isPrinter =
 
         if (res.ok) {
           const data = await res.json();
+          if (ignore) return;
           setConflicts(data.conflicts || []);
         } else if (res.status === 404) {
+          if (ignore) return;
           // Endpoint might not exist yet, no conflicts
           setConflicts([]);
         } else {
@@ -169,18 +193,23 @@ export function useResourceConflicts(resourceId, startTime, endTime, isPrinter =
         }
         setError(null);
       } catch {
+        if (ignore) return;
         // If conflict check fails, assume no conflicts (endpoint may not exist)
         setConflicts([]);
         setError(null);
       } finally {
-        setChecking(false);
+        // A superseded request leaves "checking" to the one that replaced it
+        if (!ignore) setChecking(false);
       }
     };
 
     // Debounce the conflict check
     const timer = setTimeout(checkConflicts, 300);
-    return () => clearTimeout(timer);
-  }, [resourceId, startTime, endTime, isPrinter]);
+    return () => {
+      ignore = true;
+      clearTimeout(timer);
+    };
+  }, [resourceId, startTime, endTime, isPrinter, operationId]);
 
   return { conflicts, checking, error, hasConflicts: conflicts.length > 0 };
 }

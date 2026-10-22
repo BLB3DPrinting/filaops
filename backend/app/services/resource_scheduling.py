@@ -17,9 +17,18 @@ run once with the whole member set excluded (``exclude_operation_ids``) so
 members are never reported as conflicts of each other; maintenance windows
 are checked once and predecessors for every member, and nothing is written
 unless every check passes.
+
+Editing ONE member of such a block: ``find_block_siblings`` derives the
+block from the operation's STORED window (never from anything a client
+sends) and ``resolve_edit_slot`` decides whether the proposed slot is the
+block's own slot. Only then are the siblings not conflicts; any other slot
+is a real move of that one member, and overlapping the block partly is a
+genuine conflict. ``schedule_operation`` and the reschedule / live-conflict
+endpoints all go through it so they agree.
 """
-from datetime import datetime, timezone
-from typing import Iterable, Optional, List, Tuple
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import FrozenSet, Iterable, Optional, List, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.maintenance import WINDOW_BLOCKING_STATUSES, MaintenanceWindow
@@ -28,6 +37,12 @@ from app.models.manufacturing import RoutingOperation
 
 # Terminal statuses don't block scheduling
 TERMINAL_STATUSES = ['complete', 'skipped', 'cancelled']
+
+# The scheduler's datetime inputs work in whole minutes and a browser round
+# trip cannot reproduce microseconds, so a block booked at 10:00:37.5 comes
+# back from the modal as 10:00:00. A request whose start AND end are each
+# less than this far from the block's own are a request for that slot.
+SLOT_MATCH_TOLERANCE = timedelta(minutes=1)
 
 
 def get_resource_schedule(
@@ -129,6 +144,139 @@ def find_conflicts(
         query = query.filter(ProductionOrderOperation.id.notin_(excluded))
 
     return query.all()
+
+
+def _naive_utc(dt: datetime) -> datetime:
+    """Stored windows are naive UTC; bring a possibly aware value to match."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _stored_machine(operation: ProductionOrderOperation) -> Optional[Tuple[bool, int]]:
+    """The machine an operation is booked on as ``(is_printer, id)``, if any.
+
+    Printers and Resources have separate id spaces, so the kind is part of
+    the identity (printer 3 and resource 3 are different machines).
+    """
+    if operation.printer_id is not None:
+        return True, operation.printer_id
+    if operation.resource_id is not None:
+        return False, operation.resource_id
+    return None
+
+
+def find_block_siblings(
+    db: Session,
+    operation: ProductionOrderOperation,
+) -> List[ProductionOrderOperation]:
+    """
+    Other operations co-booked with ``operation`` (print batches, S3/S4).
+
+    The block is derived from the operation's STORED schedule: non-terminal
+    operations on the same machine (same kind and id) with exactly the same
+    ``scheduled_start`` and ``scheduled_end``. This is the same definition
+    the scheduler board uses to draw one block. It is deliberately computed
+    here, from the database, so callers never have to accept a list of ids
+    from a client.
+
+    Returns ``[]`` for an operation with no stored machine or window, and
+    for an ordinary solo operation.
+    """
+    machine = _stored_machine(operation)
+    if machine is None or operation.scheduled_start is None or operation.scheduled_end is None:
+        return []
+    is_printer, machine_id = machine
+    if is_printer:
+        machine_filter = ProductionOrderOperation.printer_id == machine_id
+    else:
+        machine_filter = ProductionOrderOperation.resource_id == machine_id
+
+    return (
+        db.query(ProductionOrderOperation)
+        .filter(
+            machine_filter,
+            ProductionOrderOperation.id != operation.id,
+            ProductionOrderOperation.status.notin_(TERMINAL_STATUSES),
+            ProductionOrderOperation.scheduled_start == _naive_utc(operation.scheduled_start),
+            ProductionOrderOperation.scheduled_end == _naive_utc(operation.scheduled_end),
+        )
+        .order_by(ProductionOrderOperation.id)
+        .all()
+    )
+
+
+@dataclass(frozen=True)
+class EditSlot:
+    """The slot to validate (and write) when ONE operation is edited.
+
+    ``start_time`` / ``end_time`` are what the caller asked for, unless the
+    request was for the operation's own co-booked block slot, in which case
+    they are that block's exact stored window. ``exclude_ids`` are the
+    operations ``find_conflicts`` must ignore: the operation itself and, for
+    the block's own slot only, its siblings.
+    """
+
+    start_time: datetime
+    end_time: datetime
+    exclude_ids: FrozenSet[int]
+
+
+def resolve_edit_slot(
+    db: Session,
+    operation: ProductionOrderOperation,
+    resource_id: int,
+    start_time: datetime,
+    end_time: datetime,
+    is_printer: bool = False,
+) -> EditSlot:
+    """
+    Decide what editing ``operation`` into the given slot may ignore.
+
+    Semantics for an operation that is co-booked with others:
+
+    - Same machine and the block's own window (within ``SLOT_MATCH_TOLERANCE``
+      on both ends): nothing is moving. The siblings are not conflicts and
+      the block's exact stored window is returned so a minute-truncated
+      request cannot shift the member out of step with its siblings.
+    - Any other window or machine: a real move of this one member (it leaves
+      the block). Its siblings stay put and are NOT excluded, so overlapping
+      the block partly is a genuine conflict with them.
+
+    Operations without siblings (the ordinary case) only ever exclude
+    themselves and keep the requested window untouched.
+
+    The siblings come from ``find_block_siblings`` (stored state); no caller
+    supplies ids.
+    """
+    own = {operation.id} if operation.id is not None else set()
+    unchanged = EditSlot(start_time, end_time, frozenset(own))
+
+    if _stored_machine(operation) != (is_printer, resource_id):
+        return unchanged
+    if operation.scheduled_start is None or operation.scheduled_end is None:
+        return unchanged
+    stored_start = _naive_utc(operation.scheduled_start)
+    stored_end = _naive_utc(operation.scheduled_end)
+    if (
+        abs(_naive_utc(start_time) - stored_start) >= SLOT_MATCH_TOLERANCE
+        or abs(_naive_utc(end_time) - stored_end) >= SLOT_MATCH_TOLERANCE
+    ):
+        return unchanged
+
+    siblings = find_block_siblings(db, operation)
+    if not siblings:
+        return unchanged
+
+    def _like(proposed: datetime, stored: datetime) -> datetime:
+        # Same awareness as the request, so downstream comparisons behave
+        return stored.replace(tzinfo=timezone.utc) if proposed.tzinfo is not None else stored
+
+    return EditSlot(
+        _like(start_time, stored_start),
+        _like(end_time, stored_end),
+        frozenset(own | {s.id for s in siblings}),
+    )
 
 
 def find_window_conflicts(
@@ -455,6 +603,7 @@ def check_successor_scheduling(
     db: Session,
     operation: ProductionOrderOperation,
     scheduled_end: datetime,
+    in_block_ids: Optional[Iterable[int]] = None,
 ) -> Optional[List["ProductionOrderOperation"]]:
     """
     Check that moving this operation's end time doesn't violate any SUCCESSOR's
@@ -464,6 +613,11 @@ def check_successor_scheduling(
     - Is NOT in a terminal status, AND
     - Has an existing scheduled_start set (is already scheduled), AND
     - Its scheduled_start < our new scheduled_end  (i.e. we'd push past it)
+
+    A successor in ``in_block_ids`` is co-booked with this operation (S3) and
+    shares its window by design: it was accepted into the block under its
+    routing's ``can_overlap`` rule, so keeping the block's slot is not a
+    violation. Omitted, behaviour is unchanged.
 
     Returns:
         None if no violations, or a list of impacted successor operations.
@@ -480,8 +634,12 @@ def check_successor_scheduling(
         ProductionOrderOperation.scheduled_start.isnot(None),
     ).order_by(ProductionOrderOperation.sequence).all()
 
+    block = {op_id for op_id in (in_block_ids or ()) if op_id is not None}
+
     violated: List[ProductionOrderOperation] = []
     for succ in successors:
+        if succ.id in block:
+            continue
         succ_start = succ.scheduled_start
         end = scheduled_end
         # Normalize timezone — DB stores naive UTC, caller may pass tz-aware
@@ -529,14 +687,23 @@ def schedule_operation(
             maintenance window (carries ``.windows``)
         SequenceError: predecessor sequencing violated
     """
+    # Editing one member of a co-booked block: its own slot is not a conflict
+    # with the siblings, any other slot is a real move (see resolve_edit_slot).
+    # For an ordinary operation this is the same window with only itself
+    # excluded.
+    slot = resolve_edit_slot(
+        db, operation, resource_id, scheduled_start, scheduled_end, is_printer,
+    )
+    scheduled_start, scheduled_end = slot.start_time, slot.end_time
+
     # Check for conflicts using the appropriate column
     conflicts = find_conflicts(
         db=db,
         resource_id=resource_id,
         start_time=scheduled_start,
         end_time=scheduled_end,
-        exclude_operation_id=operation.id,
-        is_printer=is_printer
+        is_printer=is_printer,
+        exclude_operation_ids=slot.exclude_ids,
     )
 
     if conflicts:

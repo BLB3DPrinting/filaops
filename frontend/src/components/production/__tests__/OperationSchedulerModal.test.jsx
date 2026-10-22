@@ -17,6 +17,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import OperationSchedulerModal from '../OperationSchedulerModal'
+import { toLocalInputValue } from '../../../utils/formatting'
 
 // ---------------------------------------------------------------------------
 // Module-level mutable state — lets individual tests inject custom resource
@@ -26,15 +27,20 @@ let _mockResources = []
 let _mockConflicts = []
 let _mockChecking = false
 let _mockHasConflicts = false
+// Arguments of every useResourceConflicts call, oldest first
+let _conflictCalls = []
 
 vi.mock('../../../hooks/useResources', () => ({
   useResources: () => ({ resources: _mockResources, loading: false, error: null }),
-  useResourceConflicts: () => ({
-    conflicts: _mockConflicts,
-    checking: _mockChecking,
-    error: null,
-    hasConflicts: _mockHasConflicts,
-  }),
+  useResourceConflicts: (...args) => {
+    _conflictCalls.push(args)
+    return {
+      conflicts: _mockConflicts,
+      checking: _mockChecking,
+      error: null,
+      hasConflicts: _mockHasConflicts,
+    }
+  },
 }))
 
 // Silence fetch calls the component may fire (compat check, next-available, etc.)
@@ -43,6 +49,7 @@ beforeEach(() => {
   _mockConflicts = []
   _mockChecking = false
   _mockHasConflicts = false
+  _conflictCalls = []
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }))
   vi.useFakeTimers({ shouldAdvanceTime: true })
 })
@@ -432,6 +439,112 @@ describe('OperationSchedulerModal — edit mode (already scheduled op)', () => {
       ([url]) => typeof url === 'string' && url.includes('/reschedule')
     )
     expect(rescheduleCalls.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5b. Live conflict check names the operation being edited (co-booked blocks)
+//
+// The server derives the operation's block siblings from its stored window;
+// the modal only says WHICH operation is being edited, never a list of ids.
+// ---------------------------------------------------------------------------
+describe('OperationSchedulerModal — live conflict check names the edited operation', () => {
+  const PRINTER = { id: 7, code: 'PRINTER-01', name: 'Bambu X1C', is_printer: true }
+  const EDITED_OP_ARG = 4 // useResourceConflicts(resourceId, start, end, isPrinter, operationId)
+
+  it('passes the operation id when editing an already-scheduled operation', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(scheduledOp) })
+
+    expect(_conflictCalls.length).toBeGreaterThan(0)
+    expect(_conflictCalls.at(-1)[EDITED_OP_ARG]).toBe(scheduledOp.id)
+  })
+
+  it('passes no operation id when scheduling an operation for the first time', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(stringTypedOp) })
+
+    expect(_conflictCalls.length).toBeGreaterThan(0)
+    expect(_conflictCalls.at(-1)[EDITED_OP_ARG] ?? null).toBeNull()
+  })
+
+  // A member of a co-booked block: the block runs for the whole plate (3h),
+  // not for this member's own planned time (3 + 60 = 63 min).
+  const blockMemberOp = {
+    ...scheduledOp,
+    id: 60,
+    planned_setup_minutes: '3.00',
+    planned_run_minutes: '60.00',
+    scheduled_start: '2026-06-11T10:00:00Z',
+    scheduled_end: '2026-06-11T13:00:00Z',
+  }
+
+  const dateTimeInputs = () =>
+    screen.getAllByDisplayValue(/.+/).filter((el) => el.type === 'datetime-local')
+
+  it('keeps the stored end of a longer-than-planned window while the start is untouched', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(blockMemberOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    const [startInput, endInput] = dateTimeInputs()
+    expect(startInput.value).toBe(toLocalInputValue(blockMemberOp.scheduled_start))
+    expect(endInput.value).toBe(toLocalInputValue(blockMemberOp.scheduled_end))
+  })
+
+  it('submits the unchanged stored window of a co-booked member', async () => {
+    _mockResources = [PRINTER]
+    const fetchSpy = vi.fn().mockImplementation((url, opts) => {
+      if (typeof url === 'string' && url.includes('reschedule') && opts?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, operation_id: blockMemberOp.id }) })
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    await act(async () => { renderModal(blockMemberOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Reschedule$/i })) })
+    await act(async () => { vi.runAllTimers() })
+
+    const [, opts] = fetchSpy.mock.calls.find(([url]) => String(url).includes('/reschedule'))
+    const body = JSON.parse(opts.body)
+    expect(body.scheduled_start).toBe(new Date(blockMemberOp.scheduled_start).toISOString())
+    expect(body.scheduled_end).toBe(new Date(blockMemberOp.scheduled_end).toISOString())
+  })
+
+  it('still recalculates the end from the planned duration once the start is changed', async () => {
+    _mockResources = [PRINTER]
+    await act(async () => { renderModal(blockMemberOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    const [startInput] = dateTimeInputs()
+    const newStart = '2026-06-12T09:00'
+    await act(async () => { fireEvent.change(startInput, { target: { value: newStart } }) })
+    await act(async () => { vi.runAllTimers() })
+
+    const [, endInput] = dateTimeInputs()
+    const expectedEnd = toLocalInputValue(new Date(new Date(newStart).getTime() + 63 * 60000))
+    expect(endInput.value).toBe(expectedEnd)
+  })
+
+  it('lets the operator reschedule when the check reports no conflicts', async () => {
+    _mockResources = [PRINTER]
+    _mockHasConflicts = false
+    await act(async () => { renderModal(scheduledOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    expect(screen.getByRole('button', { name: /^Reschedule$/i })).not.toBeDisabled()
+  })
+
+  it('blocks the reschedule while the check reports conflicts', async () => {
+    _mockResources = [PRINTER]
+    _mockConflicts = [{ type: 'operation', operation_id: 51, po_code: 'PO-2', operation_code: 'PRINT' }]
+    _mockHasConflicts = true
+    await act(async () => { renderModal(scheduledOp) })
+    await act(async () => { vi.runAllTimers() })
+
+    expect(screen.getByRole('button', { name: /^Reschedule$/i })).toBeDisabled()
   })
 })
 

@@ -95,6 +95,7 @@ from app.services.resource_scheduling import (
     check_predecessor_scheduling,
     check_successor_scheduling,
     get_earliest_start_after_predecessors,
+    resolve_edit_slot,
     TERMINAL_STATUSES,
 )
 from app.logging_config import get_logger
@@ -1103,14 +1104,21 @@ async def reschedule_operation(
             detail="scheduled_end must be after scheduled_start",
         )
 
-    # --- Conflict check (exclude self so we don't block on our own current slot) ---
+    # --- Conflict check ---
+    # Excludes the operation itself so it doesn't block on its own current
+    # slot and, when it keeps the slot of the co-booked block it belongs to,
+    # that block's siblings. The siblings are derived from the stored window,
+    # never from the request; any other slot is a real move of this one
+    # operation (resolve_edit_slot).
+    slot = resolve_edit_slot(db, op, new_resource_id, new_start, new_end, is_printer)
+    new_start, new_end = slot.start_time, slot.end_time
     resource_conflicts = find_conflicts(
         db=db,
         resource_id=new_resource_id,
         start_time=new_start,
         end_time=new_end,
-        exclude_operation_id=op_id,
         is_printer=is_printer,
+        exclude_operation_ids=slot.exclude_ids,
     )
 
     if resource_conflicts:
@@ -1223,7 +1231,11 @@ async def reschedule_operation(
         )
 
     # --- Successor implication check ---
-    successor_violations = check_successor_scheduling(db, op, new_end)
+    # Co-booked siblings (only when the block's own slot is kept) share this
+    # window by design; they are not successors we would be pushing past.
+    successor_violations = check_successor_scheduling(
+        db, op, new_end, in_block_ids=slot.exclude_ids - {op_id},
+    )
     if successor_violations:
         succ_details = [
             SuccessorConflictInfo(
