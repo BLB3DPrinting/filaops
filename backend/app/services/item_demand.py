@@ -23,6 +23,7 @@ from app.schemas.item_demand import (
     ItemDemandSummary, QuantitySummary, AllocationDetail,
     IncomingDetail, ShortageInfo, LinkedSalesOrder
 )
+from app.services import open_supply
 
 
 def get_item_on_hand(db: Session, product_id: int) -> Decimal:
@@ -181,6 +182,9 @@ def get_incoming_supply(db: Session, product_id: int) -> List[IncomingDetail]:
     Get all open purchase order lines for this product.
 
     Open PO statuses: draft, ordered, shipped (not received, closed, cancelled)
+
+    Behind MRP_OPEN_PO_SUPPLY, open production orders for the product are
+    listed too (type "production_order"), earliest expected date first.
     """
     # Active purchase order statuses
     active_statuses = ['draft', 'ordered', 'shipped']
@@ -225,6 +229,21 @@ def get_incoming_supply(db: Session, product_id: int) -> List[IncomingDetail]:
             status=po.status,
             vendor=vendor_name
         ))
+
+    production = open_supply.get_open_production_supply(db, [product_id]).get(product_id, [])
+    if production:
+        for supply in production:
+            incoming.append(IncomingDetail(
+                type="production_order",
+                reference_code=supply.code,
+                reference_id=supply.production_order_id,
+                quantity=supply.quantity,
+                expected_date=supply.expected_date,
+                status=supply.status,
+                vendor=None
+            ))
+        # Same ordering as the query above: earliest first, undated last
+        incoming.sort(key=lambda i: (i.expected_date is None, i.expected_date or date.max))
 
     return incoming
 

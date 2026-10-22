@@ -609,6 +609,15 @@ class Settings(BaseSettings):
     # at release instead of at a later manual step, and a BOM-only product now
     # reserves its BOM lines too; check stock levels before turning this on.
     MRP_RELEASE_COPIES_ROUTING: bool = False
+    # MRP_OPEN_PO_SUPPLY — open production orders count as incoming supply
+    # (print-batch plan S0b). Off (default): MRP, supply netting and the item
+    # demand summary count purchase-order lines only, exactly as before, so an
+    # order that is already being made is planned again on every run. On: each
+    # also adds quantity_ordered - quantity_completed of production orders in
+    # draft, released, scheduled and in_progress (not those made for a specific
+    # sales order), dated by scheduled_end, else due_date, else today
+    # (services/open_supply.py).
+    MRP_OPEN_PO_SUPPLY: bool = False
 
     # ===================
     # Manufacturing
