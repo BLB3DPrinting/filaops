@@ -122,6 +122,35 @@ class TestOpenSupplyFunction:
 
         assert qty == {part.id: Decimal("6")}
 
+    def test_scrapped_units_are_not_incoming(self, db, make_product, make_order, flag_on):
+        part = make_product(procurement_type="make")
+        make_order(part, quantity=10, completed=4, quantity_scrapped=2, status="in_progress")
+
+        qty = open_supply.get_open_production_supply_qty(db, [part.id])
+
+        assert qty == {part.id: Decimal("4")}  # 10 - 4 good - 2 scrapped
+
+    def test_order_with_everything_completed_or_scrapped_contributes_nothing(
+        self, db, make_product, make_order, flag_on
+    ):
+        part = make_product(procurement_type="make")
+        make_order(part, quantity=10, completed=8, quantity_scrapped=2, status="in_progress")
+
+        assert open_supply.get_open_production_supply(db, [part.id]) == {}
+
+    def test_scrap_with_a_replacement_order_is_not_counted_twice(
+        self, db, make_product, make_order, flag_on
+    ):
+        # create_replacement=True puts the scrapped units on a separate order and
+        # leaves the original's quantity_ordered alone.
+        part = make_product(procurement_type="make")
+        make_order(part, quantity=10, completed=8, quantity_scrapped=2, status="in_progress")
+        make_order(part, quantity=2, status="released")
+
+        qty = open_supply.get_open_production_supply_qty(db, [part.id])
+
+        assert qty == {part.id: Decimal("2")}
+
     @pytest.mark.parametrize("completed", [10, 12])
     def test_fully_or_over_completed_order_contributes_nothing(
         self, db, make_product, make_order, flag_on, completed
@@ -280,6 +309,17 @@ class TestMrpOpenProductionSupply:
 
         assert _planned_quantity(db, part) == Decimal("10")
 
+    def test_scrapped_units_are_planned_again(
+        self, db, make_product, make_bom, make_sales_order, make_order, flag_on, monkeypatch
+    ):
+        part = _plan_demand_for_part(db, make_product, make_bom, make_sales_order, monkeypatch)
+        make_order(part, quantity=10, completed=6, quantity_scrapped=3, status="in_progress")
+
+        self._run(db)
+
+        # 10 needed, 1 still to make (10 - 6 good - 3 scrapped): 9 more are planned
+        assert _planned_quantity(db, part) == Decimal("9")
+
     def test_flag_off_planned_orders_are_unchanged(
         self, db, make_product, make_bom, make_sales_order, make_order, flag_off, monkeypatch
     ):
@@ -317,6 +357,7 @@ class TestHelpersAgree:
         make_order(part, quantity=5, status="released")                         # 5
         make_order(part, quantity=4, status="scheduled")                        # 4
         make_order(part, quantity=2, status="draft")                            # 2
+        make_order(part, quantity=6, completed=1, quantity_scrapped=2, status="in_progress")  # 3
         make_order(part, quantity=100, status="cancelled")
         make_order(part, quantity=100, status="complete")
         make_order(part, quantity=100, completed=100, status="in_progress")
@@ -329,8 +370,8 @@ class TestHelpersAgree:
     ):
         part = self._data(db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order)
 
-        # 7 on the purchase order + 7 + 5 + 4 + 2 still to make
-        assert _three_way(db, part) == (Decimal("25"),) * 5
+        # 7 on the purchase order + 7 + 5 + 4 + 2 + 3 still to make
+        assert _three_way(db, part) == (Decimal("28"),) * 5
 
     def test_flag_off_all_report_only_the_purchase_order(
         self, db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order, flag_off

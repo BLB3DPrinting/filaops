@@ -613,7 +613,7 @@ class Settings(BaseSettings):
     # (print-batch plan S0b). Off (default): MRP, supply netting and the item
     # demand summary count purchase-order lines only, exactly as before, so an
     # order that is already being made is planned again on every run. On: each
-    # also adds quantity_ordered - quantity_completed of production orders in
+    # also adds ordered - completed - scrapped of production orders in
     # draft, released, scheduled and in_progress (not those made for a specific
     # sales order), dated by scheduled_end, else due_date, else today
     # (services/open_supply.py).

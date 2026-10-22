@@ -10,9 +10,12 @@ date rule.
 Rule, behind ``settings.MRP_OPEN_PO_SUPPLY`` (default False):
 
 * Orders in ``OPEN_PRODUCTION_STATUSES`` contribute
-  ``quantity_ordered - quantity_completed`` of their product (nothing once that
-  reaches zero). ``complete``, ``short``, ``cancelled``, ``scrapped``,
-  ``on_hold``, ``qc_hold`` and ``closed`` contribute nothing.
+  ``quantity_ordered - quantity_completed - quantity_scrapped`` of their
+  product (nothing once that reaches zero). Scrapped units are never coming,
+  and a scrap with a replacement order puts them on a separate order that
+  counts for itself; item_demand's allocation query subtracts them the same
+  way. ``complete``, ``short``, ``cancelled``, ``scrapped``, ``on_hold``,
+  ``qc_hold`` and ``closed`` contribute nothing.
 * An order linked to a sales order (``sales_order_id`` set) contributes
   nothing: its output is committed to that sale. MRP already leaves such a
   sales order out of demand (``_get_sales_orders_within_horizon``), so counting
@@ -51,7 +54,7 @@ class OpenProductionSupply:
     production_order_id: int
     code: str
     product_id: int
-    quantity: Decimal  # quantity_ordered - quantity_completed, always > 0
+    quantity: Decimal  # ordered - completed - scrapped, always > 0
     expected_date: date
     status: str
 
@@ -97,15 +100,18 @@ def get_open_production_supply(
             ProductionOrder.status.in_(OPEN_PRODUCTION_STATUSES),
             ProductionOrder.sales_order_id.is_(None),
             ProductionOrder.quantity_ordered
-            > func.coalesce(ProductionOrder.quantity_completed, 0),
+            > func.coalesce(ProductionOrder.quantity_completed, 0)
+            + func.coalesce(ProductionOrder.quantity_scrapped, 0),
         )
         .all()
     )
 
     result: Dict[int, List[OpenProductionSupply]] = {}
     for order in orders:
-        remaining = Decimal(str(order.quantity_ordered or 0)) - Decimal(
-            str(order.quantity_completed or 0)
+        remaining = (
+            Decimal(str(order.quantity_ordered or 0))
+            - Decimal(str(order.quantity_completed or 0))
+            - Decimal(str(order.quantity_scrapped or 0))
         )
         if remaining <= Decimal("0"):
             continue
