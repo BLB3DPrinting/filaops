@@ -25,7 +25,8 @@ from app.api.v1.deps import get_current_staff_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
-from pydantic import BaseModel, Field, field_validator
+from app.services.quote_line_rules import check_line_price
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = get_logger(__name__)
 
@@ -48,10 +49,15 @@ class QuoteLineCreate(BaseModel):
     product_id: Optional[int] = Field(None, description="Link to product")
     product_name: str = Field(..., max_length=255, description="Product/item name")
     quantity: int = Field(1, ge=1, le=10000, description="Quantity")
-    unit_price: Decimal = Field(..., ge=0, description="Price per unit")
+    unit_price: Decimal = Field(..., description="Price per unit (negative only on product-less discount lines)")
     material_type: Optional[str] = Field(None, max_length=50)
     color: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = Field(None, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_discount_line(self):
+        check_line_price(self.product_id, self.unit_price)
+        return self
 
 
 class QuoteLineResponse(BaseModel):

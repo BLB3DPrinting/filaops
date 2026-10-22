@@ -576,7 +576,8 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
 
     def _fmt(amount) -> str:
         value = Decimal(str(amount or "0")).quantize(Decimal("0.01"))
-        return f"{_sym}{value:,.2f}"
+        sign = "-" if value < 0 else ""
+        return f"{sign}{_sym}{abs(value):,.2f}"
 
     # -- Brand colors (matches quote PDF) --
     BRAND_DARK = colors.HexColor('#0f172a')
