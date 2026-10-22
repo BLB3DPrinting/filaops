@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Splitting a production order no longer over-consumes material.** Splitting an order (say 10 units into 8 + 2) moved 2 units to the child but left the parent's operations planned for all 10: the same minutes, the same filament, and the same reservations. Completing the parent then consumed material for 10 units on top of the child's 2. The parent's operations that have not started are now recomputed for the remaining quantity (planned run minutes and each material's required quantity, by the same rule used when the order was created) and the excess reservation is released to the ledger. Operations already queued or running keep their numbers.
 
+### Security
+
+- **Storybook packages 10.6.1 → 10.6.3.** `storybook` and the `@storybook/*` packages it ships with move together to 10.6.3 to pick up the fix for missing origin validation in the Storybook preview ([GHSA-f2ph-cmg5-wxc8](https://github.com/advisories/GHSA-f2ph-cmg5-wxc8)). They are development dependencies for the component workbench and are not part of the production build.
+
 ## [4.3.2] - 2026-10-19
 
 ### Fixed
