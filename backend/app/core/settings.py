@@ -614,8 +614,9 @@ class Settings(BaseSettings):
     # demand summary count purchase-order lines only, exactly as before, so an
     # order that is already being made is planned again on every run. On: each
     # also adds quantity_ordered - quantity_completed of production orders in
-    # draft, released, scheduled and in_progress, dated by scheduled_end, else
-    # due_date, else today (services/open_supply.py).
+    # draft, released, scheduled and in_progress (not those made for a specific
+    # sales order), dated by scheduled_end, else due_date, else today
+    # (services/open_supply.py).
     MRP_OPEN_PO_SUPPLY: bool = False
 
     # ===================

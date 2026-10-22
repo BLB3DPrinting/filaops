@@ -13,6 +13,11 @@ Rule, behind ``settings.MRP_OPEN_PO_SUPPLY`` (default False):
   ``quantity_ordered - quantity_completed`` of their product (nothing once that
   reaches zero). ``complete``, ``short``, ``cancelled``, ``scrapped``,
   ``on_hold``, ``qc_hold`` and ``closed`` contribute nothing.
+* An order linked to a sales order (``sales_order_id`` set) contributes
+  nothing: its output is committed to that sale. MRP already leaves such a
+  sales order out of demand (``_get_sales_orders_within_horizon``), so counting
+  the output as supply would let it cover other demand for the same product.
+  MRP-released and manual orders have no sales order and are the supply.
 * The expected date is ``scheduled_end`` where set, else ``due_date``, else
   today.
 
@@ -75,7 +80,8 @@ def get_open_production_supply(
     today: Optional[date] = None,
 ) -> Dict[int, List[OpenProductionSupply]]:
     """
-    Remaining output of open production orders, per product, earliest first.
+    Remaining output of open, unpegged production orders, per product,
+    earliest first.
 
     Only products with something outstanding appear in the result. Empty when
     the flag is off or ``product_ids`` is empty (no query in either case).
@@ -89,6 +95,7 @@ def get_open_production_supply(
         .filter(
             ProductionOrder.product_id.in_(ids),
             ProductionOrder.status.in_(OPEN_PRODUCTION_STATUSES),
+            ProductionOrder.sales_order_id.is_(None),
             ProductionOrder.quantity_ordered
             > func.coalesce(ProductionOrder.quantity_completed, 0),
         )

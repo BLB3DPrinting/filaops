@@ -138,6 +138,15 @@ class TestOpenSupplyFunction:
 
         assert open_supply.get_open_production_supply(db, [part.id]) == {}
 
+    def test_order_linked_to_a_sales_order_is_committed_not_supply(
+        self, db, make_product, make_order, make_sales_order, flag_on
+    ):
+        part = make_product(procurement_type="make")
+        sale = make_sales_order(product_id=part.id, quantity=10)
+        make_order(part, quantity=10, sales_order_id=sale.id)
+
+        assert open_supply.get_open_production_supply(db, [part.id]) == {}
+
     def test_date_is_scheduled_end_then_due_date_then_today(
         self, db, make_product, make_order, flag_on
     ):
@@ -253,6 +262,24 @@ class TestMrpOpenProductionSupply:
 
         assert _planned_quantity(db, part) == Decimal("10")
 
+    def test_order_made_for_a_sales_order_does_not_cover_other_demand(
+        self, db, make_product, make_bom, make_sales_order, make_order, flag_on, monkeypatch
+    ):
+        # The part is needed by sale B (through its parent's BOM) and is also sold
+        # loose on sale A, which has its own production order. MRP leaves sale A
+        # out of demand, so that order's output is committed to A and must not
+        # also cover B.
+        part = _plan_demand_for_part(db, make_product, make_bom, make_sales_order, monkeypatch)
+        sale_a = make_sales_order(
+            product_id=part.id, quantity=10, status="confirmed", order_type="quote_based",
+            estimated_completion_date=datetime.now(timezone.utc) + timedelta(days=5),
+        )
+        make_order(part, quantity=10, status="released", sales_order_id=sale_a.id)
+
+        self._run(db)
+
+        assert _planned_quantity(db, part) == Decimal("10")
+
     def test_flag_off_planned_orders_are_unchanged(
         self, db, make_product, make_bom, make_sales_order, make_order, flag_off, monkeypatch
     ):
@@ -283,7 +310,7 @@ def _three_way(db, product):
 
 class TestHelpersAgree:
 
-    def _data(self, db, make_product, make_order, make_vendor, make_purchase_order):
+    def _data(self, db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order):
         part = make_product(procurement_type="make")
         _make_open_po_line(db, make_vendor, make_purchase_order, part, 7)
         make_order(part, quantity=10, completed=3, status="in_progress")        # 7
@@ -293,20 +320,22 @@ class TestHelpersAgree:
         make_order(part, quantity=100, status="cancelled")
         make_order(part, quantity=100, status="complete")
         make_order(part, quantity=100, completed=100, status="in_progress")
+        sale = make_sales_order(product_id=part.id, quantity=100)
+        make_order(part, quantity=100, status="released", sales_order_id=sale.id)  # committed to a sale
         return part
 
     def test_flag_on_all_report_the_same_quantity(
-        self, db, make_product, make_order, make_vendor, make_purchase_order, flag_on
+        self, db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order, flag_on
     ):
-        part = self._data(db, make_product, make_order, make_vendor, make_purchase_order)
+        part = self._data(db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order)
 
         # 7 on the purchase order + 7 + 5 + 4 + 2 still to make
         assert _three_way(db, part) == (Decimal("25"),) * 5
 
     def test_flag_off_all_report_only_the_purchase_order(
-        self, db, make_product, make_order, make_vendor, make_purchase_order, flag_off
+        self, db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order, flag_off
     ):
-        part = self._data(db, make_product, make_order, make_vendor, make_purchase_order)
+        part = self._data(db, make_product, make_order, make_vendor, make_purchase_order, make_sales_order)
 
         assert _three_way(db, part) == (Decimal("7"),) * 5
 
