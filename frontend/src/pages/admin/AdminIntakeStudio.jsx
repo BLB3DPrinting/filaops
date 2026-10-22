@@ -12,6 +12,7 @@ import OperationMaterialModal from "../../components/OperationMaterialModal";
 import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
 import AttachToExistingProduct from "./intake/AttachToExistingProduct";
 import IntakeModeChooser from "./intake/IntakeModeChooser";
+import PlateCompositionIntakePanel from "./intake/PlateCompositionIntakePanel";
 import {
   discardUploadedProductImage,
   hasStorableThumbnail,
@@ -2317,6 +2318,8 @@ export default function AdminIntakeStudio() {
             intakeMode === "assembly" &&
             isMultiPlatePending ? (
             <StepHeader step={1} total={2} label="Slice all plates" />
+          ) : isMultiPlatePending && intakeMode === "plateLayouts" ? (
+            <StepHeader step={1} total={1} label="Parts and plate layouts" />
           ) : (
             <StepHeader step={1} total={5} label="Upload file" />
           )}
@@ -2623,18 +2626,27 @@ export default function AdminIntakeStudio() {
                above the chooser would misrepresent the default plate's slots as
                file-wide. The PlatePicker shows the correct per-plate detail. */
             <div className="space-y-5">
-              {/* Assembly mode choice — RAW multi-plate only. A sliced
-                  .gcode.3mf stays on the untouched single-plate path (assembly
-                  needs the async slice-all pipeline, which only raw files
-                  take), and single-plate files never reach this branch. */}
-              {isRawPreparse && (
-                <IntakeModeChooser
-                  mode={intakeMode}
-                  onModeChange={setIntakeMode}
-                  plateCount={preparseResult?.plate_count}
+              {/* Mode choice. Assembly is RAW multi-plate only (it needs the
+                  async slice-all pipeline, which only raw files take); a
+                  sliced .gcode.3mf keeps the single-plate path and, with PRO,
+                  can instead become parts + plate layouts. Single-plate files
+                  never reach this branch. */}
+              <IntakeModeChooser
+                mode={intakeMode}
+                onModeChange={setIntakeMode}
+                plateCount={preparseResult?.plate_count}
+                isRaw={isRawPreparse}
+                showPlateLayouts={isPro}
+              />
+              {intakeMode === "plateLayouts" ? (
+                /* PRO: a sliced multi-plate file becomes parts + one saved
+                   plate layout per plate (the panel does its own preview
+                   and save against the file held for the plate picker). */
+                <PlateCompositionIntakePanel
+                  file={pendingPlateFileRef.current}
+                  onStartOver={handleReset}
                 />
-              )}
-              {isRawPreparse && intakeMode === "assembly" ? (
+              ) : isRawPreparse && intakeMode === "assembly" ? (
                 /* Assembly path: no per-plate picker — every plate is sliced
                    in ONE async job (no plate_index → worker --slice 0). */
                 <>
