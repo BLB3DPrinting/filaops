@@ -11,6 +11,7 @@ import SearchableSelect from "../../components/SearchableSelect";
 import OperationMaterialModal from "../../components/OperationMaterialModal";
 import AssemblyIntakePanel from "./intake/AssemblyIntakePanel";
 import AttachToExistingProduct from "./intake/AttachToExistingProduct";
+import IntakeModeChooser from "./intake/IntakeModeChooser";
 import {
   discardUploadedProductImage,
   hasStorableThumbnail,
@@ -2627,50 +2628,11 @@ export default function AdminIntakeStudio() {
                   needs the async slice-all pipeline, which only raw files
                   take), and single-plate files never reach this branch. */}
               {isRawPreparse && (
-                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
-                  <h2 className="text-base font-semibold text-white mb-3">
-                    How do you want to intake this file?
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIntakeMode("plate")}
-                      aria-pressed={intakeMode === "plate"}
-                      className={`text-left rounded-lg border px-4 py-3 transition-colors ${
-                        intakeMode === "plate"
-                          ? "border-blue-500 bg-blue-500/10"
-                          : "border-gray-700 bg-gray-800 hover:border-gray-600"
-                      }`}
-                    >
-                      <span className="block text-white font-medium">
-                        Intake one plate
-                      </span>
-                      <span className="block text-gray-500 text-sm mt-1">
-                        Pick a single plate below — it&apos;s sliced and becomes
-                        one SKU.
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIntakeMode("assembly")}
-                      aria-pressed={intakeMode === "assembly"}
-                      className={`text-left rounded-lg border px-4 py-3 transition-colors ${
-                        intakeMode === "assembly"
-                          ? "border-blue-500 bg-blue-500/10"
-                          : "border-gray-700 bg-gray-800 hover:border-gray-600"
-                      }`}
-                    >
-                      <span className="block text-white font-medium">
-                        Intake whole model as an assembly (
-                        {preparseResult?.plate_count} plates)
-                      </span>
-                      <span className="block text-gray-500 text-sm mt-1">
-                        Slice every plate, create one component per plate plus
-                        an assembly BOM — all in one flow.
-                      </span>
-                    </button>
-                  </div>
-                </div>
+                <IntakeModeChooser
+                  mode={intakeMode}
+                  onModeChange={setIntakeMode}
+                  plateCount={preparseResult?.plate_count}
+                />
               )}
               {isRawPreparse && intakeMode === "assembly" ? (
                 /* Assembly path: no per-plate picker — every plate is sliced
