@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.db.session import get_db
-from app.models.production_order import ProductionOrder
+from app.models.production_order import ProductionOrder, ProductionOrderOperation
 from app.models.manufacturing import Resource
 from app.models.printer import Printer
 from app.models.work_center import WorkCenter
@@ -39,6 +39,7 @@ from app.services.resource_scheduling import (
     find_next_available_slot,
     find_window_conflicts,
     get_resource_schedule,
+    resolve_edit_slot,
     schedule_operation,
 )
 
@@ -796,6 +797,16 @@ async def get_resource_conflicts(
     start: str = Query(..., description="Start time (ISO 8601)"),
     end: str = Query(..., description="End time (ISO 8601)"),
     is_printer: bool = Query(False, description="True if resource is a printer"),
+    operation_id: Optional[int] = Query(
+        None,
+        description=(
+            "Operation being edited. It never conflicts with its own stored "
+            "slot and, when the proposed slot is the slot of the co-booked "
+            "block it belongs to, neither do its block siblings (derived "
+            "server-side from the stored window). Advisory: the reschedule "
+            "endpoint does the authoritative check."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_staff_user),
 ):
@@ -806,6 +817,11 @@ async def get_resource_conflicts(
     Returns list of conflicting operations with their PO codes and times,
     plus maintenance-window conflicts (SCHED-7) discriminated by
     ``type: "maintenance"`` (operations carry ``type: "operation"``).
+
+    Pass ``operation_id`` when editing an already-scheduled operation so the
+    check agrees with the reschedule endpoint. There is deliberately no
+    parameter for a list of ids to ignore. An unknown ``operation_id`` is
+    ignored (nothing is excluded).
     """
     from app.services.resource_scheduling import (
         find_conflicts,
@@ -822,12 +838,21 @@ async def get_resource_conflicts(
             detail="Invalid ISO 8601 timestamp for 'start' or 'end'"
         )
 
+    editing = db.get(ProductionOrderOperation, operation_id) if operation_id is not None else None
+    if editing is not None:
+        slot = resolve_edit_slot(db, editing, resource_id, start_time, end_time, is_printer)
+        start_time, end_time = slot.start_time, slot.end_time
+        exclude_ids = slot.exclude_ids
+    else:
+        exclude_ids = None
+
     conflicting_ops = find_conflicts(
         db=db,
         resource_id=resource_id,
         start_time=start_time,
         end_time=end_time,
         is_printer=is_printer,
+        exclude_operation_ids=exclude_ids,
     )
 
     conflicts = []

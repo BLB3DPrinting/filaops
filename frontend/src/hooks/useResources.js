@@ -126,11 +126,22 @@ export function useResources(workCenterId = null) {
 /**
  * Hook for checking resource scheduling conflicts
  *
- * Uses the existing schedule endpoint to check for conflicts without committing.
- * Since we don't have a dedicated conflicts endpoint, this simulates by checking
- * if scheduling would succeed.
+ * Read-only: asks GET /scheduling/resource-conflicts which operations (and
+ * maintenance windows) overlap the window, without committing anything.
+ *
+ * Pass `operationId` while editing an already-scheduled operation. The server
+ * then leaves that operation out of its own conflicts and, when the window is
+ * the slot of the co-booked block it belongs to, its block siblings too. It
+ * derives the siblings itself from the stored window; the browser never sends
+ * a list of ids to ignore.
  */
-export function useResourceConflicts(resourceId, startTime, endTime, isPrinter = false) {
+export function useResourceConflicts(
+  resourceId,
+  startTime,
+  endTime,
+  isPrinter = false,
+  operationId = null,
+) {
   const [conflicts, setConflicts] = useState([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
@@ -152,6 +163,9 @@ export function useResourceConflicts(resourceId, startTime, endTime, isPrinter =
           end: new Date(endTime).toISOString(),
           is_printer: isPrinter ? 'true' : 'false'
         });
+        if (operationId != null) {
+          params.set('operation_id', String(operationId));
+        }
 
         const res = await fetch(
           `${API_URL}/api/v1/scheduling/resource-conflicts?${params}`,
@@ -180,7 +194,7 @@ export function useResourceConflicts(resourceId, startTime, endTime, isPrinter =
     // Debounce the conflict check
     const timer = setTimeout(checkConflicts, 300);
     return () => clearTimeout(timer);
-  }, [resourceId, startTime, endTime, isPrinter]);
+  }, [resourceId, startTime, endTime, isPrinter, operationId]);
 
   return { conflicts, checking, error, hasConflicts: conflicts.length > 0 };
 }

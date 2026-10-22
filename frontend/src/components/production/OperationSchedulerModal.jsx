@@ -66,6 +66,10 @@ export default function OperationSchedulerModal({
     (currentOp.status === "queued" ||
       (currentOp.scheduled_start != null && currentOp.status !== "pending"));
 
+  // The stored window of an already-scheduled op (naive-UTC server strings).
+  const storedStart = currentOp?.scheduled_start ?? null;
+  const storedEnd = currentOp?.scheduled_end ?? null;
+
   // Sync external operation prop into internal state.
   // Depends on isOpen too: if the same operation is clicked twice, the prop
   // reference hasn't changed so the effect won't re-fire — isOpen going
@@ -98,12 +102,16 @@ export default function OperationSchedulerModal({
   // Get the selected resource object to check if it's a printer
   const selectedResource = resources.find((r) => String(r.id) === resourceId);
 
-  // Check for conflicts
+  // Check for conflicts. When editing an already-scheduled op, name it so the
+  // server leaves the op itself — and, if it keeps the slot of the co-booked
+  // block it belongs to, its block siblings — out of the conflicts. The server
+  // derives that block from the stored window; no ids are sent from here.
   const { conflicts, checking, hasConflicts } = useResourceConflicts(
     resourceId ? parseInt(resourceId) : null,
     startTime,
     endTime,
     selectedResource?.is_printer || false,
+    isEditMode ? currentOp.id : null,
   );
 
   // Parse a Numeric-as-string value from the API into a finite number.
@@ -120,11 +128,22 @@ export default function OperationSchedulerModal({
   // Auto-calculate end time when start time changes
   useEffect(() => {
     if (startTime && estimatedMinutes > 0) {
+      // Editing a scheduled op: while the start is still the stored one, the
+      // stored end stays too. For a member of a co-booked block that end is
+      // the whole plate's, not start + this op's own duration, and replacing
+      // it would turn "save unchanged" into a move off the block.
+      if (
+        isEditMode &&
+        storedEnd &&
+        startTime === toLocalInputValue(storedStart)
+      ) {
+        return;
+      }
       const start = new Date(startTime);
       const end = new Date(start.getTime() + estimatedMinutes * 60000);
       setEndTime(toLocalInputValue(end));
     }
-  }, [startTime, estimatedMinutes]);
+  }, [startTime, estimatedMinutes, isEditMode, storedStart, storedEnd]);
 
   // Set default start time to now (rounded to next 15 min)
   useEffect(() => {
