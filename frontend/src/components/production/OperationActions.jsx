@@ -69,7 +69,7 @@ function StartButton({ operation, productionOrderId, onSuccess, onError }) {
         handleStart();
       }}
       disabled={loading}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--orange)] text-white border border-transparent rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--accent)] text-accent-ink border border-transparent rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 transition-colors"
     >
       {loading ? (
         <>
@@ -100,7 +100,7 @@ function CompleteButton({ operation, onClick }) {
         e.stopPropagation();
         onClick?.();
       }}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--orange)] text-white border border-transparent rounded-lg hover:bg-[var(--orange-press)] transition-colors"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-[var(--accent)] text-accent-ink border border-transparent rounded-lg hover:bg-[var(--accent-press)] transition-colors"
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

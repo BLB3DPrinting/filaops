@@ -259,7 +259,7 @@ export default function OperationsPanel({ productionOrderId, productionOrder, or
       {/* Loading state */}
       {loading && operations.length === 0 && (
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]"></div>
         </div>
       )}
 
