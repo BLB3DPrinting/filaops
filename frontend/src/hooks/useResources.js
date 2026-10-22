@@ -147,9 +147,17 @@ export function useResourceConflicts(
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Set on cleanup: once the inputs change (or the component unmounts) the
+    // response to this effect's request is stale and must not overwrite the
+    // state of the request that replaced it.
+    let ignore = false;
+
     const checkConflicts = async () => {
       if (!resourceId || !startTime || !endTime) {
         setConflicts([]);
+        // A request from a previous effect may still be in flight; its
+        // response is ignored now, so it will never clear this.
+        setChecking(false);
         return;
       }
 
@@ -174,8 +182,10 @@ export function useResourceConflicts(
 
         if (res.ok) {
           const data = await res.json();
+          if (ignore) return;
           setConflicts(data.conflicts || []);
         } else if (res.status === 404) {
+          if (ignore) return;
           // Endpoint might not exist yet, no conflicts
           setConflicts([]);
         } else {
@@ -183,17 +193,22 @@ export function useResourceConflicts(
         }
         setError(null);
       } catch {
+        if (ignore) return;
         // If conflict check fails, assume no conflicts (endpoint may not exist)
         setConflicts([]);
         setError(null);
       } finally {
-        setChecking(false);
+        // A superseded request leaves "checking" to the one that replaced it
+        if (!ignore) setChecking(false);
       }
     };
 
     // Debounce the conflict check
     const timer = setTimeout(checkConflicts, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      ignore = true;
+      clearTimeout(timer);
+    };
   }, [resourceId, startTime, endTime, isPrinter, operationId]);
 
   return { conflicts, checking, error, hasConflicts: conflicts.length > 0 };

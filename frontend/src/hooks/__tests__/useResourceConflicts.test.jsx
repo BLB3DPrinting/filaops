@@ -125,3 +125,73 @@ describe('useResourceConflicts', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('useResourceConflicts — overlapping requests', () => {
+  /** A fetch whose responses the test resolves by hand, in any order. */
+  function stubDeferredFetch() {
+    const pending = []
+    const fetchSpy = vi.fn(() => new Promise((resolve) => { pending.push(resolve) }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const respond = async (index, conflicts) => {
+      await act(async () => {
+        pending[index]({ ok: true, json: async () => ({ conflicts }) })
+      })
+    }
+    return { fetchSpy, respond }
+  }
+
+  it('ignores a slow response that arrives after a newer request has answered', async () => {
+    const { fetchSpy, respond } = stubDeferredFetch()
+    const { result, rerender } = renderHook(
+      ({ opId }) => useResourceConflicts(7, START, END, true, opId),
+      { initialProps: { opId: 50 } },
+    )
+    await settle()
+    rerender({ opId: 51 })
+    await settle()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+
+    const fresh = [{ type: 'operation', operation_id: 61 }]
+    const stale = [{ type: 'operation', operation_id: 60 }]
+    await respond(1, fresh)
+    await respond(0, stale)
+
+    expect(result.current.conflicts).toEqual(fresh)
+    expect(result.current.checking).toBe(false)
+  })
+
+  it('does not report a response for an older window once the inputs have changed', async () => {
+    const { respond, fetchSpy } = stubDeferredFetch()
+    const { result, rerender } = renderHook(
+      ({ end }) => useResourceConflicts(7, START, end, true, 50),
+      { initialProps: { end: END } },
+    )
+    await settle()
+    rerender({ end: '2026-06-11T15:00' })
+    await settle()
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+
+    await respond(0, [{ type: 'operation', operation_id: 60 }])
+
+    // The newer request has not answered yet: still checking, nothing stale shown
+    expect(result.current.conflicts).toEqual([])
+    expect(result.current.checking).toBe(true)
+  })
+
+  it('stops reporting "checking" when the inputs are cleared while a request is in flight', async () => {
+    const { respond } = stubDeferredFetch()
+    const { result, rerender } = renderHook(
+      ({ resourceId }) => useResourceConflicts(resourceId, START, END, true, 50),
+      { initialProps: { resourceId: 7 } },
+    )
+    await settle()
+    expect(result.current.checking).toBe(true)
+
+    rerender({ resourceId: null })
+    await settle()
+    await respond(0, [{ type: 'operation', operation_id: 60 }])
+
+    expect(result.current.checking).toBe(false)
+    expect(result.current.conflicts).toEqual([])
+  })
+})
