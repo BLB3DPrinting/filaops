@@ -419,6 +419,39 @@ describe("SchedulerBoard", () => {
       expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
     });
 
+    it("moves focus to the first member when the list opens", async () => {
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      fireEvent.click(await screen.findByTestId("gantt-block-31"));
+
+      expect(screen.getByTestId("cobooked-member-31")).toHaveFocus();
+    });
+
+    it("restores focus to the block when the list is closed", async () => {
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      const block = await screen.findByTestId("gantt-block-31");
+      fireEvent.click(block);
+      fireEvent.click(screen.getByLabelText("Close member list"));
+
+      expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
+      expect(block).toHaveFocus();
+    });
+
+    it("Escape closes the list and returns focus to the block", async () => {
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      const block = await screen.findByTestId("gantt-block-31");
+      fireEvent.click(block);
+      fireEvent.keyDown(screen.getByTestId("cobooked-member-31"), { key: "Escape" });
+
+      expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
+      expect(block).toHaveFocus();
+    });
+
     it("a lone operation still opens the modal directly", async () => {
       const onSchedule = vi.fn();
       mocks.get.mockResolvedValue(

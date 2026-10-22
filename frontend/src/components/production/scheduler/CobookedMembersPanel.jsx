@@ -7,7 +7,13 @@
  *
  * Rendered below the Gantt table rather than as a popover: the table sits in
  * an overflow container that would clip an absolutely positioned list.
+ *
+ * Keyboard: focus moves to the first member when the panel mounts (it sits
+ * before the table in the DOM, so Tab from the block would skip it), and
+ * Escape closes it. The parent returns focus to the block that opened it, and
+ * remounts the panel (key) when a different group is opened.
  */
+import { useEffect, useRef } from "react";
 import { parseDateTime } from "../../../utils/formatting";
 import { describeMember } from "./groupOperationBlocks";
 
@@ -21,9 +27,18 @@ const fmt = (d) =>
 
 export default function CobookedMembersPanel({ group, laneCode, onSelect, onClose }) {
   const { members, primary } = group;
+  const firstMemberRef = useRef(null);
+
+  useEffect(() => {
+    firstMemberRef.current?.focus();
+  }, []);
+
   return (
     <div
       data-testid="cobooked-members"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
       className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-3 shadow-[var(--shadow-pop)]"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -46,10 +61,11 @@ export default function CobookedMembersPanel({ group, laneCode, onSelect, onClos
         </button>
       </div>
       <ul className="space-y-1">
-        {members.map((op) => (
+        {members.map((op, i) => (
           <li key={op.id}>
             <button
               type="button"
+              ref={i === 0 ? firstMemberRef : null}
               data-testid={`cobooked-member-${op.id}`}
               onClick={() => onSelect(op)}
               className="w-full text-left px-2 py-1.5 bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg text-xs text-[var(--ink-2)] hover:text-[var(--ink)]"

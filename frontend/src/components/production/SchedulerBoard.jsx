@@ -223,6 +223,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openGroupKey, setOpenGroupKey] = useState(null);
+  const openerRef = useRef(null); // block button that opened the member list
 
   const { start, end } = useMemo(() => getWindow(anchor, viewMode), [anchor, viewMode]);
 
@@ -289,13 +290,20 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
   };
 
   // A lone operation opens the modal; a co-booked block toggles its member
-  // list so every member stays reachable.
-  const handleGroupClick = (group) => {
+  // list so every member stays reachable. The block that opened the list is
+  // remembered so closing it can hand keyboard focus back.
+  const handleGroupClick = (group, blockEl) => {
     if (group.members.length === 1) {
       handleBlockClick(group.primary);
     } else {
+      openerRef.current = blockEl;
       setOpenGroupKey((open) => (open === group.key ? null : group.key));
     }
+  };
+
+  const closeMemberList = () => {
+    setOpenGroupKey(null);
+    openerRef.current?.focus();
   };
 
   const handleUnscheduledClick = (item) => {
@@ -409,10 +417,11 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
 
       {openGroup && (
         <CobookedMembersPanel
+          key={openGroup.group.key}
           group={openGroup.group}
           laneCode={openGroup.lane.code}
           onSelect={handleBlockClick}
-          onClose={() => setOpenGroupKey(null)}
+          onClose={closeMemberList}
         />
       )}
 
@@ -534,7 +543,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                             group={group}
                             windowStart={start}
                             windowEnd={end}
-                            onClick={() => handleGroupClick(group)}
+                            onClick={(e) => handleGroupClick(group, e.currentTarget)}
                           />
                         ))}
                       </td>
