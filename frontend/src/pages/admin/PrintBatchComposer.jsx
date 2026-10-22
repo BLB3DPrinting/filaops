@@ -177,7 +177,10 @@ export default function PrintBatchComposer() {
 
   const action = async (path, body, done) => {
     const card = await run(() => api.post(`${BATCH_API}/${batch.id}/${path}`, body, { retry: 0 }), done);
-    if (card) await refresh(card);
+    if (!card) return;
+    // A booking can carry something to check, such as a nozzle nobody recorded.
+    (card.warnings || []).forEach((w) => toast.warning?.(w));
+    await refresh(card);
   };
 
   const detach = async (memberId) => {
@@ -463,8 +466,14 @@ export default function PrintBatchComposer() {
                     >
                       <option value="">Printer…</option>
                       {printers.map((p) => (
-                        <option key={p.id} value={p.id} disabled={!p.eligible} title={p.problems.join("; ")}>
-                          {p.name} ({p.model || "?"}{p.nozzle ? ` ${p.nozzle} mm` : ""}){p.eligible ? "" : " — can't print this plate"}
+                        <option
+                          key={p.id}
+                          value={p.id}
+                          disabled={!p.eligible}
+                          title={[...p.problems, ...(p.warnings || [])].join("; ")}
+                        >
+                          {p.name} ({p.model || "?"}{p.nozzle ? ` ${p.nozzle} mm` : ""})
+                          {p.eligible ? (p.warnings?.length ? " — check nozzle" : "") : " — can't print this plate"}
                         </option>
                       ))}
                     </select>
