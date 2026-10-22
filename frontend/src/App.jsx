@@ -75,6 +75,9 @@ const AdminIntakeStudio = lazy(
 const AdminIntakeBatch = lazy(
   () => import("./pages/admin/AdminIntakeBatch"),
 );
+const PrintBatchComposer = lazy(
+  () => import("./pages/admin/PrintBatchComposer"),
+);
 const AdminNotifications = lazy(
   () => import("./pages/admin/AdminNotifications"),
 );
@@ -458,6 +461,14 @@ export default function App() {
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <AdminIntakeBatch />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="print-batches"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrintBatchComposer />
                         </Suspense>
                       }
                     />
