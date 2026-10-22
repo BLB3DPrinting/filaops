@@ -26,6 +26,7 @@ vi.mock('../../../hooks/useFeatureFlags', () => ({
 
 import PrintBatchComposer from '../PrintBatchComposer'
 import ConfirmBatchCountsModal from '../print-batches/ConfirmBatchCountsModal'
+import CompositionPicker from '../print-batches/CompositionPicker'
 import { partsOnPlate, printerModelKey } from '../print-batches/printBatchHelpers'
 
 const BATCH = {
@@ -137,5 +138,30 @@ describe('ConfirmBatchCountsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
     expect(await screen.findByText(/Goes on to its next step/)).toBeTruthy()
     expect(mocks.post.mock.calls[0][1].dry_run).toBe(true)
+  })
+})
+
+describe('CompositionPicker', () => {
+  const composition = (id, code) => ({
+    id,
+    code,
+    printer_model: 'A1',
+    verbatim: true,
+    current_version: { id: id * 10, version: 1, plate_time_minutes: 60, items: [{ product_id: 1, quantity: 2 }, { product_id: 2, quantity: 1 }] },
+  })
+
+  it('shows the plan of the composition chosen last, whatever answers first', async () => {
+    const answers = {}
+    mocks.get.mockResolvedValue({ compositions: [composition(1, 'PLATE-A'), composition(2, 'PLATE-B')] })
+    mocks.post.mockImplementation((path, body) => new Promise((resolve) => { answers[body.composition_version_id] = resolve }))
+    render(<CompositionPicker isOpen onClose={() => {}} printerModel="A1" />)
+    fireEvent.click(await screen.findByText('PLATE-A'))
+    fireEvent.click(screen.getByText('PLATE-B'))
+    const plan = (code) => ({ code, version: 1, printer_model: 'A1', parts: [] })
+    answers[20](plan('PLATE-B'))
+    await screen.findByText(/PLATE-B v1: books only on a A1/)
+    answers[10](plan('PLATE-A'))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText(/PLATE-A v1: books only/)).toBeNull()
   })
 })

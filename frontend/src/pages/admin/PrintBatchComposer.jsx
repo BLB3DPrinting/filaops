@@ -108,6 +108,8 @@ export default function PrintBatchComposer() {
       const card = await api.get(`${BATCH_API}/${id}`);
       setBatch(card);
       setUpload({ file: null, preview: null, mapping: {} });
+      // Another batch, another printer list: don't carry the last choice over.
+      setBooking({ printer_id: "", start: "" });
       setVariance(card.status === "complete" ? await api.get(`${BATCH_API}/${id}/variance`) : null);
       if (card.printer_model) setModel(card.printer_model);
       if (card.has_plate) {
@@ -144,9 +146,14 @@ export default function PrintBatchComposer() {
       .catch(() => setCandidates([]));
   }, [isPro, api, model]);
 
+  // After a change PRO accepted: a failed reload must not look like a failed change.
   const refresh = async (card) => {
-    await Promise.all([loadBatches(), loadCandidates()]);
-    if (card?.id) await openBatch(card.id);
+    try {
+      await Promise.all([loadBatches(), loadCandidates()]);
+      if (card?.id) await openBatch(card.id);
+    } catch (err) {
+      toast.error(err?.message || "Saved, but the page could not reload");
+    }
   };
 
   const lines = useMemo(
@@ -396,7 +403,12 @@ export default function PrintBatchComposer() {
                       <td>{m.quantity_good != null ? `${m.quantity_good} good / ${m.quantity_scrapped} scrap` : ""}</td>
                       <td className="text-right">
                         {(editable || batch.status === "broken") && batch.compose_mode !== "composition" && (
-                          <button type="button" onClick={() => detach(m.id)} className="text-red-300 hover:text-red-200">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => detach(m.id)}
+                            className="text-red-300 hover:text-red-200 disabled:opacity-50"
+                          >
                             Remove
                           </button>
                         )}

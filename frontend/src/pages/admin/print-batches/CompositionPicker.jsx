@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "../../../hooks/useApi";
 import { useToast } from "../../../components/Toast";
 import Modal from "../../../components/Modal";
@@ -42,22 +42,30 @@ export default function CompositionPicker({ isOpen, onClose, printerModel, onCre
       .catch((err) => toast.error(err?.message || "Could not load compositions"));
   }, [isOpen, printerModel, api, toast]);
 
+  // Only the latest choice may fill in the plan: a slower answer for an
+  // earlier click must not show its plan under the composition now chosen.
+  const latestChoice = useRef(0);
+
   const choose = async (composition) => {
+    const token = ++latestChoice.current;
     setChosen(composition);
     setPlan(null);
+    setOrders([]);
     setRunOp("");
     setRuns("");
     const version = composition.current_version;
     try {
-      setPlan(await api.post(`${BATCH_API}/from-composition`, { composition_version_id: version.id, preview: true }));
+      const preview = await api.post(`${BATCH_API}/from-composition`, { composition_version_id: version.id, preview: true });
+      let open = [];
       if (version.items.length === 1) {
         const data = await api.get(`${BATCH_API}/candidates`);
-        setOrders((data?.candidates || []).filter((c) => c.product.id === version.items[0].product_id));
-      } else {
-        setOrders([]);
+        open = (data?.candidates || []).filter((c) => c.product.id === version.items[0].product_id);
       }
+      if (token !== latestChoice.current) return;
+      setPlan(preview);
+      setOrders(open);
     } catch (err) {
-      toast.error(err?.message || "Could not plan this composition");
+      if (token === latestChoice.current) toast.error(err?.message || "Could not plan this composition");
     }
   };
 
