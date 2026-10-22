@@ -555,6 +555,37 @@ class TestCloseScrappedProductionOrder:
         assert "scrapped" in str(exc_info.value.detail).lower()
 
 
+class TestScrapFirstThenCompleteStillWorks:
+    """The print-batch plan's interim ordering: scrap the running operation,
+    then complete it with 0 good and nothing further scrapped."""
+
+    def test_posts_once_and_closes_as_scrapped(self, db, plate):
+        from app.services.scrap_service import process_operation_scrap
+
+        order, op, _, _ = plate(quantity=8)
+        process_operation_scrap(
+            db=db, po_id=order.id, op_id=op.id,
+            quantity_scrapped=8, scrap_reason_code=REASON_CODE,
+        )
+
+        _, scrap_result = operation_status.complete_operation(
+            db, order.id, op.id,
+            quantity_completed=Decimal("0"),
+            quantity_scrapped=Decimal("0"),
+        )
+
+        db.refresh(order)
+        assert scrap_result is None
+        assert order.status == "short"
+        assert order.quantity_scrapped == Decimal("8")
+        assert len(_scrap_entries(db, order)) == 1
+
+        closed = svc.close_scrapped_production_order(db, order.id, "test@filaops.dev", user_id=1)
+
+        assert closed.status == "scrapped"
+        assert _wip_balance(db, order) == Decimal("0")
+
+
 class TestAcceptShortWithGoodUnitsUnchanged:
     """6 good / 2 scrapped still accepts short and receipts the 6 good ones."""
 
