@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The scheduler board draws operations booked together as one block.** Operations booked into the same window on the same machine (a print batch: several orders' print steps on one plate run) used to show as stacked blocks, one per operation. Each block in `GET /api/v1/scheduling/board` now also carries a `group_key` (machine, start, end); blocks that share it are one run. The board draws them as a single block labelled with the first order and the number of others (`PO-… +2`), and its tooltip lists every member's order, product and quantity. Clicking a block with several members opens a member list; choosing a member opens the usual scheduler modal for it. A block with one operation behaves as before. Moving a whole group from the board is not part of this change. No fields were removed from the board response.
+- Intake Studio's mode chooser moved to its own component (no behaviour change).
 
 ### Fixed
 
