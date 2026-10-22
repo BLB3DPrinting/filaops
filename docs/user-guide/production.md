@@ -267,6 +267,7 @@ graph LR
     D --> F[short]
     F --> E
     D --> G[scrapped]
+    F --> G
     B --> H[on_hold]
     H --> B
     A --> I[cancelled]

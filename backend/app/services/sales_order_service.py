@@ -1180,8 +1180,10 @@ def cancel_sales_order(
 
 EDITABLE_STATUSES = {"pending", "confirmed", "in_production", "on_hold"}
 CLOSE_SHORT_STATUSES = {"confirmed", "in_production", "ready_to_ship"}
-# Terminal PO statuses that allow SO close-short (includes legacy variants)
-RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled"}
+# Terminal PO statuses that allow SO close-short (includes legacy variants).
+# "scrapped" is a finished order that made nothing: it keeps its sales-order
+# link, so it must not hold the sale open.
+RESOLVED_PO_STATUSES = {"complete", "completed", "closed", "cancelled", "scrapped"}
 
 
 def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
