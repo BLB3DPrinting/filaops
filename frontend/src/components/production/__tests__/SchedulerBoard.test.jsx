@@ -289,6 +289,161 @@ describe("SchedulerBoard", () => {
     expect(screen.getByText("Maintenance")).toBeInTheDocument();
   });
 
+  describe("co-booked operations (print-batch S4)", () => {
+    const GROUP_KEY = "printer-3|2026-06-15T08:00:00|2026-06-15T09:00:00";
+    const member = (id, code, product, qty, overrides = {}) => ({
+      id,
+      operation_code: "OP010",
+      operation_name: "3D Print",
+      sequence: 10,
+      status: "queued",
+      scheduled_start: at(8),
+      scheduled_end: at(9),
+      planned_setup_minutes: "0",
+      planned_run_minutes: "60",
+      production_order_id: 300 + id,
+      production_order_code: code,
+      production_order_status: "released",
+      product_name: product,
+      quantity: qty,
+      group_key: GROUP_KEY,
+      ...overrides,
+    });
+    const boardWith = (operations) => ({
+      ...BOARD,
+      lanes: [
+        {
+          key: "printer-3",
+          kind: "printer",
+          id: 3,
+          code: "PRT-P1S",
+          name: "Bambu P1S",
+          status: "available",
+          work_center_code: null,
+          utilization_percent: 4.2,
+          windows: [],
+          operations,
+        },
+      ],
+    });
+    const trio = () => [
+      member(31, "PO-2026-0301", "Wheel", 4),
+      member(32, "PO-2026-0302", "Axle", 8),
+      member(33, "PO-2026-0303", "Bumper", 2),
+    ];
+
+    it("draws three co-booked operations as one block listing all three", async () => {
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      const block = await screen.findByTestId("gantt-block-31");
+      expect(screen.getAllByTestId(/^gantt-block-/)).toHaveLength(1);
+      expect(block).toHaveTextContent("PO-2026-0301");
+      expect(block).toHaveTextContent("+2");
+      for (const line of [
+        "PO-2026-0301 · Wheel × 4",
+        "PO-2026-0302 · Axle × 8",
+        "PO-2026-0303 · Bumper × 2",
+      ]) {
+        expect(block.title).toContain(line);
+      }
+      // Position comes from the shared window: 8h→9h on a 24h axis.
+      expect(parseFloat(block.style.left)).toBeCloseTo(33.33, 1);
+      expect(parseFloat(block.style.width)).toBeCloseTo(4.17, 1);
+    });
+
+    it("keeps a different window on the same lane as its own block", async () => {
+      mocks.get.mockResolvedValue(
+        boardWith([
+          ...trio(),
+          member(34, "PO-2026-0304", "Spoiler", 1, {
+            group_key: "printer-3|2026-06-15T09:00:00|2026-06-15T10:00:00",
+            scheduled_start: at(9),
+            scheduled_end: at(10),
+          }),
+        ])
+      );
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      await screen.findByTestId("gantt-block-31");
+      expect(screen.getAllByTestId(/^gantt-block-/)).toHaveLength(2);
+      expect(screen.getByTestId("gantt-block-34")).not.toHaveTextContent("+");
+    });
+
+    it("clicking a grouped block lists its members instead of opening the modal", async () => {
+      const onSchedule = vi.fn();
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={onSchedule} />);
+
+      fireEvent.click(await screen.findByTestId("gantt-block-31"));
+
+      expect(onSchedule).not.toHaveBeenCalled();
+      const panel = screen.getByTestId("cobooked-members");
+      expect(panel).toHaveTextContent("PRT-P1S");
+      expect(panel).toHaveTextContent("3 operations");
+      expect(screen.getByTestId("cobooked-member-31")).toHaveTextContent(
+        "PO-2026-0301 · Wheel × 4"
+      );
+      expect(screen.getByTestId("cobooked-member-32")).toHaveTextContent(
+        "PO-2026-0302 · Axle × 8"
+      );
+      expect(screen.getByTestId("cobooked-member-33")).toHaveTextContent(
+        "PO-2026-0303 · Bumper × 2"
+      );
+    });
+
+    it("choosing a member opens the scheduler modal for that member", async () => {
+      const onSchedule = vi.fn();
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={onSchedule} />);
+
+      fireEvent.click(await screen.findByTestId("gantt-block-31"));
+      fireEvent.click(screen.getByTestId("cobooked-member-32"));
+
+      expect(onSchedule).toHaveBeenCalledTimes(1);
+      const [op, po] = onSchedule.mock.calls[0];
+      expect(op.id).toBe(32);
+      expect(op.scheduled_start).toBe(at(8));
+      expect(po).toEqual({ id: 332, code: "PO-2026-0302" });
+      expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
+    });
+
+    it("clicking the grouped block again closes the member list", async () => {
+      mocks.get.mockResolvedValue(boardWith(trio()));
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      const block = await screen.findByTestId("gantt-block-31");
+      fireEvent.click(block);
+      expect(screen.getByTestId("cobooked-members")).toBeInTheDocument();
+      fireEvent.click(block);
+      expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
+    });
+
+    it("a lone operation still opens the modal directly", async () => {
+      const onSchedule = vi.fn();
+      mocks.get.mockResolvedValue(
+        boardWith([member(35, "PO-2026-0305", "Hub", 6)])
+      );
+      render(<SchedulerBoard onScheduleOperation={onSchedule} />);
+
+      fireEvent.click(await screen.findByTestId("gantt-block-35"));
+
+      expect(onSchedule).toHaveBeenCalledTimes(1);
+      expect(onSchedule.mock.calls[0][0].id).toBe(35);
+      expect(screen.queryByTestId("cobooked-members")).not.toBeInTheDocument();
+    });
+
+    it("draws one block per operation when the payload has no group_key", async () => {
+      mocks.get.mockResolvedValue(
+        boardWith(trio().map((o) => ({ ...o, group_key: undefined })))
+      );
+      render(<SchedulerBoard onScheduleOperation={vi.fn()} />);
+
+      await screen.findByTestId("gantt-block-31");
+      expect(screen.getAllByTestId(/^gantt-block-/)).toHaveLength(3);
+    });
+  });
+
   it("tolerates lanes without a windows array (older payloads)", async () => {
     mocks.get.mockResolvedValue({
       ...BOARD,

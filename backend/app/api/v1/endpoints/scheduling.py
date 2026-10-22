@@ -115,6 +115,24 @@ def _merged_hours(intervals: List[Tuple[datetime, datetime]]) -> float:
     return total
 
 
+def _block_group_key(op) -> str:
+    """Identity of the block an operation occupies on the board: lane, start,
+    end. Operations booked together (resource_scheduling.
+    schedule_operations_together) share all three, so the frontend draws them
+    as one block. Printers and Resources have separate id spaces, so the lane
+    kind prefixes the id (same shape as the lane key)."""
+    kind, machine_id = (
+        ("printer", op.printer_id)
+        if op.printer_id is not None
+        else ("resource", op.resource_id)
+    )
+    return (
+        f"{kind}-{machine_id}"
+        f"|{_naive_utc(op.scheduled_start).isoformat()}"
+        f"|{_naive_utc(op.scheduled_end).isoformat()}"
+    )
+
+
 @router.get("/board")
 async def get_scheduler_board(
     start_date: datetime = Query(..., description="Window start (ISO 8601)"),
@@ -230,6 +248,8 @@ async def get_scheduler_board(
             "production_order_status": po.status if po else None,
             "product_name": po.product.name if po and po.product else None,
             "quantity": float(po.quantity_ordered) if po else None,
+            # S4: blocks sharing a group_key are one co-booked run.
+            "group_key": _block_group_key(op),
         }
 
     ops_by_lane: dict[str, list] = {}
@@ -276,12 +296,17 @@ async def get_scheduler_board(
     def _lane(kind: str, obj, work_center_code: Optional[str]) -> dict:
         key = f"{kind}-{obj.id}"
         lane_ops = ops_by_lane.get(key, [])
-        # Utilization = scheduled time clipped to the window / window length
-        busy_hours = 0.0
+        # Utilization = union of scheduled time clipped to the window / window
+        # length. Merged, not summed: operations co-booked into one block
+        # occupy the machine once (S4).
+        clipped: List[Tuple[datetime, datetime]] = []
         for op in lane_ops:
             clip_start = max(_naive_utc(op.scheduled_start), start_date)
             clip_end = min(_naive_utc(op.scheduled_end), end_date)
-            busy_hours += max(0.0, (clip_end - clip_start).total_seconds() / 3600)
+            if clip_end > clip_start:
+                clipped.append((clip_start, clip_end))
+        clipped.sort(key=lambda pair: pair[0])
+        busy_hours = _merged_hours(clipped)
         utilization = (busy_hours / window_hours * 100) if window_hours > 0 else 0.0
         return {
             "key": key,
