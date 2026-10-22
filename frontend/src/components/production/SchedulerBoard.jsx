@@ -9,6 +9,10 @@
  *
  * READ-ONLY by design: no drag-and-drop in v1 (deferred per plan v3).
  *
+ * Operations co-booked into one window on one machine share a `group_key` and
+ * draw as ONE block (print-batch S4); clicking it lists the members. Moving a
+ * whole group (drag or reschedule) is a later item.
+ *
  * Data: GET /api/v1/scheduling/board?start_date&end_date — one call returns
  * all lanes (machine Resources + Printers; operations may be scheduled on
  * either) plus the unscheduled queue. See scheduling.py::get_scheduler_board.
@@ -22,6 +26,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { parseDateTime } from "../../utils/formatting";
+import CobookedMembersPanel from "./scheduler/CobookedMembersPanel";
+import { groupOperationBlocks, describeMember } from "./scheduler/groupOperationBlocks";
 
 /**
  * Local midnight N days after the given date. Uses calendar arithmetic
@@ -115,7 +121,14 @@ function toLocalDateInput(d) {
   return `${y}-${m}-${day}`;
 }
 
-function OperationBlock({ op, windowStart, windowEnd, onClick }) {
+/**
+ * One drawn block: a single operation, or several operations co-booked into
+ * the same window (S4) — `group.members` lists them, `group.primary` supplies
+ * the shared window and the label.
+ */
+function OperationBlock({ group, windowStart, windowEnd, onClick }) {
+  const { primary: op, members } = group;
+  const cobooked = members.length > 1;
   // Backend sends naive-UTC timestamps; parseDateTime appends 'Z' so the
   // block lands at the right LOCAL position (same convention as formatTime).
   const start = parseDateTime(op.scheduled_start);
@@ -123,7 +136,7 @@ function OperationBlock({ op, windowStart, windowEnd, onClick }) {
   const left = pctOf(start, windowStart, windowEnd);
   const right = pctOf(end, windowStart, windowEnd);
   const width = Math.max(right - left, 0.6);
-  const style = BLOCK_STYLES[op.status] || BLOCK_STYLES.pending;
+  const style = BLOCK_STYLES[group.status] || BLOCK_STYLES.pending;
 
   const fmt = (d) =>
     d.toLocaleString(undefined, {
@@ -133,22 +146,32 @@ function OperationBlock({ op, windowStart, windowEnd, onClick }) {
       minute: "2-digit",
     });
 
+  const when = `${fmt(start)} → ${fmt(end)} · ${group.status.replace(/_/g, " ")}`;
+  const title = cobooked
+    ? `${members.length} operations co-booked as one run\n${members
+        .map(describeMember)
+        .join("\n")}\n${when}`
+    : `${op.production_order_code} · ${op.operation_name || op.operation_code}\n${
+        op.product_name || ""
+      }\n${when}`;
+
   return (
     <button
       type="button"
       data-testid={`gantt-block-${op.id}`}
       onClick={onClick}
-      title={`${op.production_order_code} · ${op.operation_name || op.operation_code}\n${
-        op.product_name || ""
-      }\n${fmt(start)} → ${fmt(end)} · ${op.status.replace(/_/g, " ")}`}
+      title={title}
       className={`absolute top-1.5 bottom-1.5 rounded border px-1 overflow-hidden text-left transition-opacity hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-[var(--ink)]/60 ${style}`}
       style={{ left: `${left}%`, width: `${width}%` }}
     >
       <span className="block text-[10px] font-medium leading-tight truncate">
         {op.production_order_code}
+        {cobooked && ` +${members.length - 1}`}
       </span>
       <span className="block text-[9px] opacity-80 leading-tight truncate">
-        {op.operation_name || op.operation_code}
+        {cobooked
+          ? `${members.length} co-booked`
+          : op.operation_name || op.operation_code}
       </span>
     </button>
   );
@@ -199,6 +222,8 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [openGroupKey, setOpenGroupKey] = useState(null);
+  const openerRef = useRef(null); // block button that opened the member list
 
   const { start, end } = useMemo(() => getWindow(anchor, viewMode), [anchor, viewMode]);
 
@@ -246,6 +271,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
   };
 
   const handleBlockClick = (op) => {
+    setOpenGroupKey(null);
     // The modal derives edit-mode from the op's status/scheduled_start.
     onScheduleOperation?.(
       {
@@ -263,6 +289,23 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
     );
   };
 
+  // A lone operation opens the modal; a co-booked block toggles its member
+  // list so every member stays reachable. The block that opened the list is
+  // remembered so closing it can hand keyboard focus back.
+  const handleGroupClick = (group, blockEl) => {
+    if (group.members.length === 1) {
+      handleBlockClick(group.primary);
+    } else {
+      openerRef.current = blockEl;
+      setOpenGroupKey((open) => (open === group.key ? null : group.key));
+    }
+  };
+
+  const closeMemberList = () => {
+    setOpenGroupKey(null);
+    openerRef.current?.focus();
+  };
+
   const handleUnscheduledClick = (item) => {
     onScheduleOperation?.(item.first_unscheduled_operation, {
       id: item.production_order_id,
@@ -270,8 +313,21 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
     });
   };
 
-  const lanes = board?.lanes || [];
   const unscheduled = board?.unscheduled || [];
+
+  // Group each lane's blocks once per payload; keys carry the lane, so the
+  // open group is unique across lanes. A refetch that drops it closes the panel.
+  const groupedLanes = useMemo(
+    () =>
+      (board?.lanes || []).map((lane) => ({
+        lane,
+        groups: groupOperationBlocks(lane.operations),
+      })),
+    [board]
+  );
+  const openGroup = groupedLanes
+    .flatMap(({ lane, groups }) => groups.map((group) => ({ lane, group })))
+    .find(({ group }) => group.key === openGroupKey);
 
   return (
     <div className="space-y-4" data-testid="scheduler-board">
@@ -359,6 +415,16 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
         </div>
       )}
 
+      {openGroup && (
+        <CobookedMembersPanel
+          key={openGroup.group.key}
+          group={openGroup.group}
+          laneCode={openGroup.lane.code}
+          onSelect={handleBlockClick}
+          onClose={closeMemberList}
+        />
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
         {/* Gantt table */}
         <div className="xl:col-span-3 bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl overflow-x-auto shadow-[var(--shadow-pop)]">
@@ -366,7 +432,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
             <div className="h-48 flex items-center justify-center">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]" />
             </div>
-          ) : lanes.length === 0 ? (
+          ) : groupedLanes.length === 0 ? (
             <div className="p-8 text-center text-[var(--ink-4)] text-sm">
               No machines found. Add printers or machine work-center resources to
               see the schedule.
@@ -395,7 +461,7 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                 </tr>
               </thead>
               <tbody>
-                {lanes.map((lane) => {
+                {groupedLanes.map(({ lane, groups }) => {
                   const laneStatus =
                     LANE_STATUS_STYLES[lane.status] || "text-[var(--ink-3)]";
                   const laneTint =
@@ -471,13 +537,13 @@ export default function SchedulerBoard({ onScheduleOperation, refreshSignal = 0 
                           />
                         ))}
                         {/* Operation blocks */}
-                        {lane.operations.map((op) => (
+                        {groups.map((group) => (
                           <OperationBlock
-                            key={op.id}
-                            op={op}
+                            key={group.key}
+                            group={group}
                             windowStart={start}
                             windowEnd={end}
-                            onClick={() => handleBlockClick(op)}
+                            onClick={(e) => handleGroupClick(group, e.currentTarget)}
                           />
                         ))}
                       </td>
