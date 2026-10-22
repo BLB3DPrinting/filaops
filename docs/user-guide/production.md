@@ -280,9 +280,9 @@ graph LR
 | **scheduled** | At least one operation has been assigned a time slot and resource. |
 | **in_progress** | Work has started — at least one operation is running. |
 | **complete** | All units produced (or accepted short). Inventory has been updated. |
-| **short** | All operations finished but `quantity_completed` is less than `quantity_ordered`. Awaiting Accept Short action to update inventory. |
+| **short** | All operations finished but `quantity_completed` is less than `quantity_ordered`. Awaiting Accept Short action to update inventory. If nothing was completed and everything was scrapped, it is closed as scrapped instead (see below). |
 | **on_hold** | Production paused. Can be resumed (returns to released). |
-| **scrapped** | Order abandoned. |
+| **scrapped** | Order abandoned, or a short order that made nothing and had everything scrapped. Final. |
 | **cancelled** | Order terminated before completion. Material reservations are released. |
 
 Individual operation statuses follow: **pending → queued → running → complete** (or **skipped**).
@@ -422,6 +422,18 @@ FilaOps:
 - Closes the order as **complete**
 
 After accepting short on a production order linked to a sales order, use [Close Short](orders.md#close-short-workflow) on the sales order to accept partial fulfillment.
+
+### Closing a Failed Run as Scrapped
+
+When a whole run fails — you complete the operation with 0 good and every unit scrapped — the order enters **short** with nothing completed. There is nothing to receive into inventory, so Accept Short is not available.
+
+Close it as scrapped instead. This is currently an API call, `POST /api/v1/production-orders/{id}/close-scrapped` (optional `notes`), not a button. FilaOps:
+- Marks the order **scrapped** (final) and keeps its link to the sales order, which stays unfulfilled
+- Releases any material reservations the order still holds
+- Posts the material the run consumed to the general ledger, so work in progress for the order ends at zero (the scrap itself was posted when the units were scrapped)
+- Receives nothing into inventory
+
+It works only on a short order with nothing completed and some scrap recorded. An order with good units is accepted short; an order with no scrap recorded is cancelled. To make the parts again, create a new production order.
 
 ### Putting an Order on Hold
 
