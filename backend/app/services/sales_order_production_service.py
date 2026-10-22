@@ -4,7 +4,6 @@ orders, PO code generation, and routing-copy helpers.
 
 Moved verbatim from sales_order_service.py (DEBT-1 D1-A mechanical split).
 """
-import math
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -24,6 +23,7 @@ from app.models.production_order import (
 from app.models.manufacturing import Routing, RoutingOperation
 from app.models.product import Product
 from app.models.bom import BOM
+from app.services.production_order_quantity_change import required_quantity_for_routing_material
 from app.services.sales_order_shared import get_sales_order, record_order_event
 
 logger = get_logger(__name__)
@@ -98,19 +98,16 @@ def copy_routing_to_operations(
             if rom.is_cost_only:
                 continue  # Skip cost-only materials (no inventory consumption)
 
-            # Use built-in method that handles quantity_per and scrap_factor
-            qty_required = rom.calculate_required_quantity(int(production_order.quantity_ordered))
-
-            # Round up for discrete units (can't ship 0.792 boxes)
-            unit_upper = (rom.unit or "").upper()
-            if unit_upper in ("EA", "EACH", "PCS", "UNIT", "BOX", "BOXES"):
-                qty_required = math.ceil(qty_required)
-
+            # The shared sizing rule: quantity_per and scrap_factor from the
+            # routing material, exact order quantity, counted units rounded up
+            # (can't ship 0.792 boxes).
             mat = ProductionOrderOperationMaterial(
                 production_order_operation_id=op.id,
                 component_id=rom.component_id,
                 routing_operation_material_id=rom.id,
-                quantity_required=Decimal(str(qty_required)),
+                quantity_required=required_quantity_for_routing_material(
+                    rom, production_order.quantity_ordered
+                ),
                 unit=rom.unit,
                 quantity_allocated=Decimal("0"),
                 quantity_consumed=Decimal("0"),

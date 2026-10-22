@@ -13,9 +13,10 @@ schedule and their material requirement reflect work that is committed.
 """
 import math
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, List, Optional, Union
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
@@ -41,9 +42,35 @@ def round_up_counted_units(quantity: Decimal, unit: Optional[str]) -> Decimal:
     return quantity
 
 
+def require_storable_order_quantity(
+    quantity: Union[int, float, str, Decimal],
+    label: str = "Quantity",
+) -> Decimal:
+    """``quantity`` as a Decimal, if ``ProductionOrder.quantity_ordered`` can
+    store it as it is.
+
+    The column keeps four decimal places, so 0.00001 would be stored as 0 while
+    the sizing code still saw 0.00001 and, for a counted unit, asked for a whole
+    piece. A quantity with more places than the column holds, or that is not a
+    finite number, is refused with a 400 before an order is created or changed.
+    """
+    places = ProductionOrder.quantity_ordered.type.scale
+    try:
+        value = Decimal(str(quantity))
+        storable = value.is_finite() and value == value.quantize(Decimal(1).scaleb(-places))
+    except InvalidOperation:  # not a number, or too many digits to quantize
+        storable = False
+    if not storable:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} must be a number with at most {places} decimal places",
+        )
+    return value
+
+
 def required_quantity_for_routing_material(
     rom: RoutingOperationMaterial,
-    order_quantity: int,
+    order_quantity: Union[int, Decimal],
 ) -> Decimal:
     """How much of ``rom`` an order of ``order_quantity`` units needs.
 
@@ -51,15 +78,16 @@ def required_quantity_for_routing_material(
     included), rounded up to a whole piece for counted units. This is the one
     rule for materialising a routing material onto an order, used when the
     operations are first copied and again when the order's quantity changes.
+    ``order_quantity`` is the order's exact quantity: it may be fractional.
     """
-    qty_required = Decimal(str(rom.calculate_required_quantity(int(order_quantity))))
+    qty_required = rom.calculate_required_quantity(order_quantity)
     return round_up_counted_units(qty_required, rom.unit)
 
 
 def rescale_unstarted_operations(
     db: Session,
     order: ProductionOrder,
-    original_quantity: int,
+    original_quantity: Union[int, Decimal],
 ) -> List[ProductionOrderOperation]:
     """Recompute planned minutes and material requirements of the order's
     unstarted operations for its current ``quantity_ordered``.
@@ -67,15 +95,19 @@ def rescale_unstarted_operations(
     An operation linked to its routing operation is recomputed from the
     routing (run time per unit, each material's own quantity rule). One
     without a routing link is scaled by ``quantity_ordered / original_quantity``.
-    Material rows already consumed are never touched.
+    Material rows already consumed are never touched. Both quantities are
+    exact: a fractional order is not truncated to whole pieces.
 
     Returns the operations that were recomputed.
     """
-    new_quantity = int(order.quantity_ordered)
+    original_quantity = Decimal(str(original_quantity))
+    new_quantity = Decimal(str(order.quantity_ordered))
     if original_quantity <= 0 or new_quantity == original_quantity:
         return []
-    ratio = Decimal(new_quantity) / Decimal(original_quantity)
 
+    # Unlinked rows scale as value * new / original, multiplying first: 1 / 6
+    # is already rounded (0.1666...67), and 18 x that is 3.000...001, which a
+    # counted unit rounds up to 4 instead of the exact 3.
     rescaled: List[ProductionOrderOperation] = []
     for op in order.operations:
         if op.status not in UNSTARTED_OPERATION_STATUSES:
@@ -85,7 +117,9 @@ def rescale_unstarted_operations(
         if rop is not None:
             op.planned_run_minutes = Decimal(str(rop.run_time_minutes or 0)) * new_quantity
         else:
-            op.planned_run_minutes = Decimal(str(op.planned_run_minutes or 0)) * ratio
+            op.planned_run_minutes = (
+                Decimal(str(op.planned_run_minutes or 0)) * new_quantity / original_quantity
+            )
 
         for mat in op.materials:
             if mat.status == "consumed":
@@ -95,14 +129,15 @@ def rescale_unstarted_operations(
                 mat.quantity_required = required_quantity_for_routing_material(rom, new_quantity)
             else:
                 mat.quantity_required = round_up_counted_units(
-                    Decimal(str(mat.quantity_required or 0)) * ratio, mat.unit
+                    Decimal(str(mat.quantity_required or 0)) * new_quantity / original_quantity,
+                    mat.unit,
                 )
 
         rescaled.append(op)
 
     if rescaled:
         logger.info(
-            "Rescaled %d unstarted operation(s) of %s from %d to %d units",
+            "Rescaled %d unstarted operation(s) of %s from %s to %s units",
             len(rescaled), order.code, original_quantity, new_quantity,
         )
     return rescaled

@@ -8,7 +8,7 @@ change.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -480,7 +480,7 @@ def close_scrapped_production_order(
 def split_production_order(
     db: Session,
     order_id: int,
-    split_quantity: int,
+    split_quantity: Union[int, Decimal],
     user_email: str,
     reason: Optional[str] = None,
 ) -> tuple[ProductionOrder, ProductionOrder]:
@@ -489,7 +489,7 @@ def split_production_order(
 
     Args:
         order_id: Order to split
-        split_quantity: Quantity for the new order
+        split_quantity: Quantity for the new order (may be fractional)
         user_email: User performing the split
         reason: Reason for split
 
@@ -499,6 +499,7 @@ def split_production_order(
     from app.services.inventory_service import reserve_production_materials
     from app.services.production_order_quantity_change import (
         release_excess_reservations,
+        require_storable_order_quantity,
         rescale_unstarted_operations,
     )
     from app.services.production_order_service import (
@@ -515,10 +516,14 @@ def split_production_order(
             detail=f"Cannot split order in {order.status} status"
         )
 
+    # Refused before either order is touched: a split the column cannot store
+    # (0.00001 -> 0) would still size the child's materials from the longer figure.
+    split_quantity = require_storable_order_quantity(split_quantity, "Split quantity")
     if split_quantity <= 0:
         raise HTTPException(status_code=400, detail="Split quantity must be positive")
 
-    original_quantity = int(order.quantity_ordered)
+    # Exact quantities: a fractional order keeps its fraction through the split.
+    original_quantity = Decimal(str(order.quantity_ordered))
     remaining = original_quantity - split_quantity
     if remaining <= 0:
         raise HTTPException(

@@ -9,6 +9,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Union
 
 from app.db.base import Base
 
@@ -345,21 +346,25 @@ class RoutingOperationMaterial(Base):
         qty_with_scrap = qty * (1 + scrap)
         return qty_with_scrap * self.unit_cost
 
-    def calculate_required_quantity(self, order_quantity: int) -> float:
+    def calculate_required_quantity(self, order_quantity: Union[int, Decimal]) -> Decimal:
         """
         Calculate total quantity required for a production order.
 
+        Decimal throughout: an order's quantity is Numeric(18,4) and may be
+        fractional, and float math turns clean figures into noise (5 x 10 at
+        10% scrap is 55.00000000000001), which a counted unit then rounds up.
+
         Args:
-            order_quantity: Number of units being produced
+            order_quantity: Number of units being produced (may be fractional)
 
         Returns:
             Total quantity needed including scrap allowance
         """
-        base_qty = float(self.quantity or 0)
-        scrap = float(self.scrap_factor or 0) / 100
+        base_qty = Decimal(str(self.quantity or 0))
+        scrap = Decimal(str(self.scrap_factor or 0)) / Decimal("100")
 
         if self.quantity_per == 'unit':
-            gross_qty = base_qty * order_quantity
+            gross_qty = base_qty * Decimal(str(order_quantity))
         else:  # batch or order
             gross_qty = base_qty
 
