@@ -21,6 +21,7 @@ class ProductionOrderStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     ON_HOLD = "on_hold"
     SHORT = "short"  # Produced less than ordered, awaiting accept-short decision
+    SCRAPPED = "scrapped"  # Everything scrapped, nothing completed (closed from short)
     COMPLETE = "complete"
     CANCELLED = "cancelled"
     SPLIT = "split"  # Order was split into child orders
@@ -52,9 +53,11 @@ PRODUCTION_ORDER_TRANSITIONS: Dict[str, Set[str]] = {
     },
     ProductionOrderStatus.SHORT: {
         ProductionOrderStatus.COMPLETE,  # Accept short → complete
+        ProductionOrderStatus.SCRAPPED,  # Nothing completed, all scrapped → close as scrapped
         ProductionOrderStatus.CANCELLED,
     },
     ProductionOrderStatus.COMPLETE: set(),  # Terminal state - no transitions allowed
+    ProductionOrderStatus.SCRAPPED: set(),  # Terminal state - a remake is a new order
     ProductionOrderStatus.CANCELLED: set(),  # Terminal state
     ProductionOrderStatus.SPLIT: set(),  # Terminal state - children take over
 }

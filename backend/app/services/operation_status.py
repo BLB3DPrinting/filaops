@@ -421,7 +421,8 @@ def complete_operation(
         Tuple of (updated operation, scrap_result dict or None)
 
     Raises:
-        OperationError: If validation fails
+        OperationError: If validation fails, or if scrapped units cannot be
+            posted (the completion is refused and nothing is changed)
     """
     po, op = get_operation_with_validation(db, po_id, op_id)
 
@@ -447,15 +448,10 @@ def complete_operation(
             400
         )
 
-    # Update operation
-    op.status = 'complete'
-    op.actual_end = datetime.now(timezone.utc)
-    op.quantity_completed = quantity_completed
-    # Note: op.quantity_scrapped is set below — either by scrap_service (cascade)
-    # or directly in the non-cascade path, to avoid double-counting.
-    op.scrap_reason = scrap_reason
-
-    # Calculate actual run time if not provided
+    # Calculate actual run time if not provided. Set before the scrap below
+    # because scrap_service costs the scrapped share of this operation's labor
+    # on actual_run_minutes when it has them.
+    previous_run_minutes = op.actual_run_minutes
     if actual_run_minutes is not None:
         op.actual_run_minutes = actual_run_minutes
     elif op.actual_start:
@@ -465,16 +461,12 @@ def complete_operation(
         elapsed = datetime.now(timezone.utc) - start
         op.actual_run_minutes = int(elapsed.total_seconds() / 60)
 
-    if notes:
-        op.notes = notes
-    op.updated_at = datetime.now(timezone.utc)
-
-    # Consume materials for this operation (for good + scrapped units)
-    consumed = consume_operation_materials(db, op, quantity_completed, quantity_scrapped)
-    if consumed:
-        logger.info(f"Consumed {len(consumed)} materials for operation {op.id}")
-
-    # Process cascading scrap accounting if scrapping
+    # Post the scrap while the operation is still running. scrap_service caps
+    # scrap at the operation's input while it runs, but at quantity_completed
+    # once it is complete, so posting after the flip below capped a whole-plate
+    # failure (0 good, 8 scrapped) at zero and nothing was recorded. A scrap
+    # that cannot be posted refuses the completion before the operation or the
+    # order has changed, rather than completing without it.
     scrap_result = None
     if quantity_scrapped > Decimal("0") and scrap_reason:
         from app.services.scrap_service import process_operation_scrap, ScrapError
@@ -489,16 +481,31 @@ def complete_operation(
                 create_replacement=create_replacement,
                 user_id=user_id,
             )
-            logger.info(
-                f"Processed cascading scrap for {quantity_scrapped} units: "
-                f"{scrap_result['scrap_records_created']} records, "
-                f"${scrap_result['total_scrap_cost']:.2f} total cost"
-            )
         except ScrapError as e:
-            # Log but don't fail the operation completion
-            logger.error(f"Failed to process cascading scrap: {e.message}")
-            # Still record the scrap on the operation, just without cascade accounting
-            pass
+            op.actual_run_minutes = previous_run_minutes
+            raise OperationError(e.message, e.status_code) from e
+        logger.info(
+            f"Processed cascading scrap for {quantity_scrapped} units: "
+            f"{scrap_result['scrap_records_created']} records, "
+            f"${scrap_result['total_scrap_cost']:.2f} total cost"
+        )
+
+    # Update operation
+    op.status = 'complete'
+    op.actual_end = datetime.now(timezone.utc)
+    op.quantity_completed = quantity_completed
+    # Note: op.quantity_scrapped is set below — either by scrap_service (cascade)
+    # or directly in the non-cascade path, to avoid double-counting.
+    op.scrap_reason = scrap_reason
+
+    if notes:
+        op.notes = notes
+    op.updated_at = datetime.now(timezone.utc)
+
+    # Consume materials for this operation (for good + scrapped units)
+    consumed = consume_operation_materials(db, op, quantity_completed, quantity_scrapped)
+    if consumed:
+        logger.info(f"Consumed {len(consumed)} materials for operation {op.id}")
 
     # Auto-skip downstream operations if no good pieces remain
     if quantity_completed == Decimal("0"):
@@ -510,6 +517,8 @@ def complete_operation(
     po.quantity_completed = quantity_completed
     # Don't double-update scrap quantities — scrap_service handles both op and PO
     # when cascade accounting runs.  Only set directly if scrap_service wasn't called.
+    # (Scrapped units always go through scrap_service now, so this is the
+    # nothing-scrapped path.)
     if not scrap_result:
         op.quantity_scrapped = quantity_scrapped
         po.quantity_scrapped = (po.quantity_scrapped or Decimal("0")) + quantity_scrapped

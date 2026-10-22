@@ -503,7 +503,7 @@ def get_schedule_summary(db: Session) -> dict:
             ProductionOrder.status,
             func.count(ProductionOrder.id).label("count")
         )
-        .filter(ProductionOrder.status.notin_(["complete", "cancelled"]))
+        .filter(ProductionOrder.status.notin_(["complete", "cancelled", "scrapped"]))
         .group_by(ProductionOrder.status)
         .all()
     )
@@ -513,12 +513,12 @@ def get_schedule_summary(db: Session) -> dict:
     # Count due today/overdue
     today = date.today()
     due_today = db.query(ProductionOrder).filter(
-        ProductionOrder.status.notin_(["complete", "cancelled"]),
+        ProductionOrder.status.notin_(["complete", "cancelled", "scrapped"]),
         ProductionOrder.due_date == today
     ).count()
 
     overdue = db.query(ProductionOrder).filter(
-        ProductionOrder.status.notin_(["complete", "cancelled"]),
+        ProductionOrder.status.notin_(["complete", "cancelled", "scrapped"]),
         ProductionOrder.due_date < today
     ).count()
 
@@ -1773,5 +1773,6 @@ from app.services.production_order_execution_service import (  # noqa: E402,F401
     start_production_order,
     complete_production_order,
     accept_short_production_order,
+    close_scrapped_production_order,
     split_production_order,
 )

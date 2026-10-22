@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     auth,
     sales_orders,
     production_orders,
+    production_order_close,
     operation_status,
     inventory,
     products,
@@ -90,6 +91,13 @@ router.include_router(
 # Production Orders
 router.include_router(
     production_orders.router,
+    prefix="/production-orders",
+    tags=["production"]
+)
+
+# Close a zero-good short order as scrapped
+router.include_router(
+    production_order_close.router,
     prefix="/production-orders",
     tags=["production"]
 )
