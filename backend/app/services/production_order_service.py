@@ -5,7 +5,7 @@ Extracted from production_orders.py (ARCHITECT-003).
 """
 from datetime import datetime, timezone, date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, cast, func, desc, or_, case
@@ -25,7 +25,10 @@ from app.models.manufacturing import OperationType, Routing, RoutingOperation, R
 from app.models.production_order import ProductionOrderOperationMaterial, ScrapRecord, QCInspection
 from app.models.work_center import WorkCenter
 from app.models.material_spool import MaterialSpool, ProductionOrderSpool
-from app.services.production_order_quantity_change import required_quantity_for_routing_material
+from app.services.production_order_quantity_change import (
+    require_storable_order_quantity,
+    required_quantity_for_routing_material,
+)
 from app.services.supply_netting import get_projected_available
 logger = get_logger(__name__)
 
@@ -103,7 +106,7 @@ def copy_routing_to_operations(
                 component_id=rom.component_id,
                 routing_operation_material_id=rom.id,
                 quantity_required=required_quantity_for_routing_material(
-                    rom, int(order.quantity_ordered)
+                    rom, order.quantity_ordered
                 ),
                 unit=rom.unit,
                 quantity_allocated=Decimal("0"),
@@ -189,7 +192,7 @@ def create_production_order(
     db: Session,
     *,
     product_id: int,
-    quantity_ordered: int,
+    quantity_ordered: Union[int, Decimal],
     created_by: str,
     bom_id: Optional[int] = None,
     routing_id: Optional[int] = None,
@@ -203,6 +206,11 @@ def create_production_order(
 ) -> ProductionOrder:
     """Create a new production order."""
     from app.services.inventory_service import reserve_production_materials
+
+    # Refused before anything is created: the column keeps four decimal places,
+    # so a longer quantity would be stored rounded (0.00001 -> 0) while the
+    # routing copy sized and reserved its materials from the longer figure.
+    require_storable_order_quantity(quantity_ordered, "Quantity")
 
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:

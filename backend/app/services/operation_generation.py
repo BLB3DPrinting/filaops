@@ -4,7 +4,8 @@ Operation generation service.
 Copies routing operations to production order operations on release.
 """
 import logging
-from typing import Optional, List, Tuple
+from decimal import Decimal
+from typing import Optional, List, Tuple, Union
 from sqlalchemy.orm import Session
 
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
@@ -114,7 +115,7 @@ def generate_operations_from_routing(
 def generate_operation_materials(
     db: Session,
     po_operation: ProductionOrderOperation,
-    order_quantity: int
+    order_quantity: Union[int, Decimal]
 ) -> List[ProductionOrderOperationMaterial]:
     """
     Generate PO operation materials from routing operation material templates.
