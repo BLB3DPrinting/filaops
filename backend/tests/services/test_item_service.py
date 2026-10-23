@@ -691,6 +691,25 @@ class TestListItems:
         skus = [i["sku"] for i in items]
         assert "INACT-INC" in skus
 
+    def test_active_filter_inactive_only(self, db, make_product):
+        make_product(sku="ACTF-YES", active=True)
+        make_product(sku="ACTF-NO", active=False)
+        db.commit()
+
+        items, _ = item_service.list_items(db, search="ACTF-", active=False)
+        skus = [i["sku"] for i in items]
+        assert skus == ["ACTF-NO"]
+
+    def test_active_filter_true_overrides_active_only(self, db, make_product):
+        make_product(sku="ACTT-YES", active=True)
+        make_product(sku="ACTT-NO", active=False)
+        db.commit()
+
+        items, _ = item_service.list_items(
+            db, search="ACTT-", active=True, active_only=False
+        )
+        assert [i["sku"] for i in items] == ["ACTT-YES"]
+
     def test_filter_by_category(self, db, make_product):
         cat = _make_category(db, "FILT-CAT", "Filter Cat")
         db.flush()
