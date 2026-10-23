@@ -23,12 +23,6 @@ const parseResponse = async (response) => {
     return null;
   }
 
-  if (contentType?.includes('application/json')) {
-    // Empty body with a JSON content-type would make response.json() throw
-    const text = await response.text();
-    return text ? JSON.parse(text) : null;
-  }
-
   // For blob/file downloads
   if (contentType?.includes('application/octet-stream') ||
       contentType?.includes('application/pdf') ||
@@ -36,7 +30,12 @@ const parseResponse = async (response) => {
     return response.blob();
   }
 
-  return response.text();
+  // Read the body once: an empty body is null (response.json() would throw),
+  // otherwise parse as JSON when declared, else return the text.
+  const text = await response.text();
+  if (!text) return null;
+  if (contentType?.includes('application/json')) return JSON.parse(text);
+  return text;
 };
 
 // Handle response errors
