@@ -21,7 +21,7 @@ async function errorMessage(res, fallback) {
   return fallback;
 }
 
-export default function ItemActiveControls({ item, onChanged }) {
+export default function ItemActiveControls({ item, onChanged, disabled = false }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -83,7 +83,7 @@ export default function ItemActiveControls({ item, onChanged }) {
           <button
             type="button"
             onClick={reactivate}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded-lg bg-green-600 px-3 py-1.5 font-medium text-white hover:bg-green-700 disabled:opacity-50"
           >
             {busy ? "Reactivating..." : "Reactivate"}
@@ -95,12 +95,17 @@ export default function ItemActiveControls({ item, onChanged }) {
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded-lg border border-red-500/40 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10 disabled:opacity-50"
           >
             Deactivate
           </button>
         </div>
+      )}
+      {disabled && (
+        <p className="text-xs text-gray-400">
+          Save or discard your edits before changing the item's status.
+        </p>
       )}
       {error && (
         <p role="alert" className="text-sm text-red-400">

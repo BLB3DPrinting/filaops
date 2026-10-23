@@ -275,7 +275,7 @@ export default function ItemForm({
 
           <FormErrorSummary errors={errors} className="mb-4" />
 
-          <ItemActiveControls item={editingItem} onChanged={(u) => { onSuccess?.(u); onClose(); }} />
+          <ItemActiveControls item={editingItem} disabled={JSON.stringify(formData) !== JSON.stringify(buildFormState(editingItem))} onChanged={(u) => { onSuccess?.(u); onClose(); }} />
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">

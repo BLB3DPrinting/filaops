@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import useItemsActiveFilter, { activeFilterToQuery } from "../../hooks/useItemsActiveFilter";
 import ItemForm from "../../components/ItemForm";
 import MaterialForm from "../../components/MaterialForm";
@@ -115,7 +115,9 @@ export default function AdminItems() {
     fetchCategories();
   }, [fetchCategories]);
 
+  const itemsRequestId = useRef(0);
   const fetchItems = useCallback(async () => {
+    const requestId = ++itemsRequestId.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -134,12 +136,13 @@ export default function AdminItems() {
       if (filters.includeVariants) params.set("exclude_variants", "false");
 
       const data = await api.get(`/api/v1/items?${params}`);
+      if (requestId !== itemsRequestId.current) return; // superseded by a newer filter
       setItems(data.items || []);
       setPagination((prev) => ({ ...prev, total: data.total || 0 }));
     } catch (err) {
-      setError(err.message);
+      if (requestId === itemsRequestId.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === itemsRequestId.current) setLoading(false);
     }
   }, [
     api,

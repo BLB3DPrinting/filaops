@@ -66,3 +66,11 @@ describe('ItemActiveControls', () => {
     expect(container).toBeEmptyDOMElement()
   })
 })
+
+describe('ItemActiveControls with unsaved edits', () => {
+  it('disables status actions and explains why', () => {
+    render(<ItemActiveControls item={item} onChanged={vi.fn()} disabled />)
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeDisabled()
+    expect(screen.getByText(/Save or discard your edits/)).toBeInTheDocument()
+  })
+})
