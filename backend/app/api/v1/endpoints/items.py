@@ -229,6 +229,10 @@ async def list_items(
     category_id: Optional[int] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search SKU or name"),
     active_only: bool = Query(True, description="Only show active items"),
+    active: Optional[bool] = Query(
+        None,
+        description="Exact active filter (true=active, false=inactive only); overrides active_only when set",
+    ),
     needs_reorder: bool = Query(False, description="Only show items below reorder point"),
     exclude_variants: bool = Query(True, description="Hide variant products (show only templates and standalone)"),
     limit: int = Query(50, ge=1, le=2000),
@@ -243,6 +247,7 @@ async def list_items(
         category_id=category_id,
         search=search,
         active_only=active_only,
+        active=active,
         needs_reorder=needs_reorder,
         exclude_variants=exclude_variants,
         limit=limit,

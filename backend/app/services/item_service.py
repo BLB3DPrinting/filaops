@@ -295,6 +295,7 @@ def list_items(
     exclude_variants: bool = True,
     limit: int = 50,
     offset: int = 0,
+    active: bool | None = None,
 ) -> tuple[list[dict], int]:
     """
     List items with filtering and pagination.
@@ -304,7 +305,10 @@ def list_items(
     """
     query = db.query(Product)
 
-    if active_only:
+    if active is not None:
+        # Exact filter wins over the legacy active_only flag
+        query = query.filter(Product.active.is_(active))
+    elif active_only:
         query = query.filter(Product.active.is_(True))
 
     if exclude_variants:

@@ -1,4 +1,5 @@
 import StatCard from "../StatCard";
+import { ACTIVE_FILTER_OPTIONS } from "../../hooks/useItemsActiveFilter";
 
 // Item type options used in the filter dropdown
 const ITEM_TYPES = [
@@ -18,6 +19,8 @@ const ITEM_TYPES = [
 export default function ItemsFilterBar({
   filters,
   onFiltersChange,
+  activeFilter,
+  onActiveFilterChange,
   quickFilter,
   onQuickFilterChange,
   stats,
@@ -69,17 +72,18 @@ export default function ItemsFilterBar({
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-2 text-gray-400">
-          <input
-            type="checkbox"
-            checked={filters.activeOnly}
-            onChange={(e) =>
-              onFiltersChange({ ...filters, activeOnly: e.target.checked })
-            }
-            className="rounded"
-          />
-          Active only
-        </label>
+        <select
+          value={activeFilter}
+          onChange={(e) => onActiveFilterChange(e.target.value)}
+          aria-label="Status"
+          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white"
+        >
+          {ACTIVE_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <label className="flex items-center gap-2 text-gray-400">
           <input
             type="checkbox"

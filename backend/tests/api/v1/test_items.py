@@ -140,6 +140,20 @@ class TestListItems:
         skus = [item["sku"] for item in body["items"]]
         assert product.sku in skus
 
+    def test_list_active_param_inactive_only(self, client, make_product):
+        live = make_product(name="ActiveParam Live")
+        retired = make_product(name="ActiveParam Retired", active=False)
+        resp = client.get(BASE_URL, params={"search": "ActiveParam", "active": "false"})
+        assert resp.status_code == 200
+        skus = [item["sku"] for item in resp.json()["items"]]
+        assert retired.sku in skus
+        assert live.sku not in skus
+
+    def test_list_without_active_param_still_hides_inactive(self, client, make_product):
+        retired = make_product(name="ActiveDefault Retired", active=False)
+        resp = client.get(BASE_URL, params={"search": "ActiveDefault"})
+        assert retired.sku not in [i["sku"] for i in resp.json()["items"]]
+
     def test_list_filter_by_item_type(self, client, make_product):
         make_product(item_type="component", name="Component Filter Test")
         resp = client.get(BASE_URL, params={"item_type": "component"})

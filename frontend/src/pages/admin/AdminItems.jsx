@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import useItemsActiveFilter, { activeFilterToQuery } from "../../hooks/useItemsActiveFilter";
 import ItemForm from "../../components/ItemForm";
 import MaterialForm from "../../components/MaterialForm";
 import RoutingEditor from "../../components/RoutingEditor";
@@ -29,10 +30,10 @@ export default function AdminItems() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [expandedCategories, setExpandedCategories] = useState(new Set());
   const [viewMode, setViewMode] = useState("table"); // "table" | "cards"
+  const [activeFilter, setActiveFilter] = useItemsActiveFilter();
   const [filters, setFilters] = useState({
     search: "",
     itemType: "all",
-    activeOnly: true,
     includeVariants: false,
   });
   const [quickFilter, setQuickFilter] = useState(null); // null | "all" | "finished_good" | "component" | "material" | "supply" | "needs_reorder"
@@ -123,7 +124,9 @@ export default function AdminItems() {
         "offset",
         ((pagination.page - 1) * pagination.pageSize).toString()
       );
-      params.set("active_only", filters.activeOnly.toString());
+      Object.entries(activeFilterToQuery(activeFilter)).forEach(([k, v]) =>
+        params.set(k, v)
+      );
       if (selectedCategory)
         params.set("category_id", selectedCategory.toString());
       if (filters.itemType !== "all") params.set("item_type", filters.itemType);
@@ -142,7 +145,7 @@ export default function AdminItems() {
     api,
     pagination.pageSize,
     pagination.page,
-    filters.activeOnly,
+    activeFilter,
     filters.itemType,
     filters.search,
     filters.includeVariants,
@@ -156,7 +159,7 @@ export default function AdminItems() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [selectedCategory, filters.itemType, filters.activeOnly, filters.includeVariants]);
+  }, [selectedCategory, filters.itemType, activeFilter, filters.includeVariants]);
 
   // Fetch stats from dedicated lightweight endpoint
   const fetchStats = useCallback(async () => {
@@ -513,6 +516,8 @@ export default function AdminItems() {
         <ItemsFilterBar
           filters={filters}
           onFiltersChange={setFilters}
+          activeFilter={activeFilter}
+          onActiveFilterChange={setActiveFilter}
           quickFilter={quickFilter}
           onQuickFilterChange={setQuickFilter}
           stats={stats}
@@ -581,7 +586,8 @@ export default function AdminItems() {
                     icon="filter"
                     title="No items match your filters"
                     onClearFilters={() => {
-                      setFilters({ search: "", itemType: "all", activeOnly: true, includeVariants: false });
+                      setFilters({ search: "", itemType: "all", includeVariants: false });
+                      setActiveFilter("active");
                       setQuickFilter(null);
                     }}
                   />
@@ -617,7 +623,8 @@ export default function AdminItems() {
               icon="filter"
               title="No items match your filters"
               onClearFilters={() => {
-                setFilters({ search: "", itemType: "all", activeOnly: true, includeVariants: false });
+                setFilters({ search: "", itemType: "all", includeVariants: false });
+                      setActiveFilter("active");
                 setQuickFilter(null);
               }}
             />
