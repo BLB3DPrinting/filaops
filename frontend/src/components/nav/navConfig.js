@@ -141,6 +141,15 @@ const navGroups = [
         // Same access model as Intake Studio — isPro page gate, no feature.
         proOnly: true,
       },
+      {
+        path: "/admin/print-batches",
+        label: "Print Batches",
+        icon: PrintersIcon,
+        adminOnly: true,
+        // One plate carrying several orders' print steps (PRO print batches).
+        // Same access model as Intake Studio: an isPro gate on the page.
+        proOnly: true,
+      },
     ],
   },
   {
