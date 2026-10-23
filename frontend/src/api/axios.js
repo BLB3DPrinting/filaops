@@ -19,8 +19,14 @@ const buildUrl = (path) => {
 const parseResponse = async (response) => {
   const contentType = response.headers.get('content-type');
 
+  if (response.status === 204 || response.status === 205) {
+    return null;
+  }
+
   if (contentType?.includes('application/json')) {
-    return response.json();
+    // Empty body with a JSON content-type would make response.json() throw
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
   }
 
   // For blob/file downloads

@@ -92,9 +92,12 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
       }
 
       if (res.ok) {
+        // why: 204/205 (e.g. DELETE) have no body; res.json() would throw
+        if (res.status === 204 || res.status === 205) return null;
         const ct = res.headers?.get?.("content-type") || "";
-        if (ct.includes("application/json")) return res.json();
         const txt = await res.text();
+        if (!txt) return null;
+        if (ct.includes("application/json")) return JSON.parse(txt);
         try {
           return JSON.parse(txt);
         } catch {
@@ -110,12 +113,11 @@ export function createApiClient(/** @type {ApiConfig} */ cfg) {
         continue;
       }
 
-      let payload;
+      // why: the body can only be read once, so read text and parse it
+      let payload = await res.text();
       try {
-        payload = await res.json();
-      } catch {
-        payload = await res.text();
-      }
+        payload = JSON.parse(payload);
+      } catch { /* keep raw text */ }
       const detail =
         payload && typeof payload === "object" ? payload.detail : undefined;
       const message =
