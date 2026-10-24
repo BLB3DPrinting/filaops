@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Frontend dev dependencies undici 8.11.2 → 8.12.3 and zod 4.3.6 → 4.6.7.** Clears two high-severity advisories in the test toolchain: undici's EventSource parser memory exhaustion ([GHSA-4qv8-2p9j-2685](https://github.com/advisories/GHSA-4qv8-2p9j-2685)) and Subresource Integrity bypass ([GHSA-f72v-6w45-q472](https://github.com/advisories/GHSA-f72v-6w45-q472)), and zod's memory exhaustion on oversized collections ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)). Both are development-only (undici via jsdom, zod via the dev toolchain); lockfile-only change, nothing ships in the production build.
 - **Storybook packages 10.6.1 → 10.6.3.** `storybook` and the `@storybook/*` packages it ships with move together to 10.6.3 to pick up the fix for missing origin validation in the Storybook preview ([GHSA-f2ph-cmg5-wxc8](https://github.com/advisories/GHSA-f2ph-cmg5-wxc8)). They are development dependencies for the component workbench and are not part of the production build.
 
 ## [4.3.2] - 2026-10-19
