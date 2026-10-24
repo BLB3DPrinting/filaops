@@ -177,7 +177,11 @@ Apply these tests in order:
 Until Core's UI extension host ships, any PRO screen that must land in Core is
 a thin shell: layout and API calls only. PRO's API returns every default,
 computed value, validation and decision; the shell holds no rules, formulas or
-field relationships.
+field relationships. The shell is Core code, added by an authorized Core change
+in this repo. It reaches PRO only through the HTTP routes PRO mounts with
+`register(app)`, never imports PRO code, and shows nothing (or the generic
+upgrade prompt) when PRO is not installed, so Core still runs identically
+without PRO.
 
 ## Repo Map
 
