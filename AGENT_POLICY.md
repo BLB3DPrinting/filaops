@@ -142,6 +142,47 @@ B2B Portal, quote engine, QuickBooks/Shopify integrations, advanced accounting,
 catalog access control, AI agents, FilaFarm automation, license management, and
 subscription-gated capabilities.
 
+### Where New Code Goes
+
+**Generic manufacturing behaviour → Core. 3D-printing and BLB3D know-how,
+including business rules, formulas and field-level logic → PRO.**
+
+Apply these tests in order:
+
+1. Would a generic discrete-manufacturing ERP have it, described without
+   printers, plates, filament, slicers or BLB3D's way of working? Items,
+   routings, operations, work centres, reservations, MRP, scheduling
+   primitives, purchasing, sales orders, shipping, accounting and auth are
+   Core.
+2. Does it encode how to decide or compute something specific to 3D printing
+   or to how BLB3D runs its farm? That includes a formula, threshold, default,
+   heuristic, parser, vendor protocol or file format, and which fields matter
+   and how they relate. If so it is PRO, even when it reads or writes Core
+   tables.
+3. Core may hold a generic primitive that PRO calls (for example
+   `schedule_operations_together`, `create_production_order`, a hook or
+   provider registry). Name and shape it generically: no 3D-printing-specific
+   or PRO feature terms in its signature, columns, docs or tests.
+4. UI: a screen, panel, field, label or help text that only means something
+   with PRO is PRO UI. It ships in PRO, through Core's extension points, not
+   in this repo. Core shows nothing PRO-specific beyond the generic licensing
+   and upgrade pages.
+5. 3D-printing records Core already has (printers, materials and spools,
+   `bambu_*` columns) stay. New work does not add more of them to Core.
+6. A gate is not protection. Code in Core behind `require_feature` or
+   `isPro` is public. Put it in Core only if it would be fine as free code.
+7. When in doubt, PRO. Moving code from PRO to Core later is easy. Taking it
+   back out of a public repo that converts to Apache 2.0 is impossible.
+
+Until Core's UI extension host ships, any PRO screen that must land in Core is
+a thin shell: layout and API calls only. PRO's API returns every default,
+computed value, validation and decision; the shell holds no rules, formulas or
+field relationships. The shell is Core code, added by an authorized Core change
+in this repo. It reaches PRO only through the HTTP routes PRO mounts with
+`register(app)`, never imports PRO code, and shows nothing (or the generic
+upgrade prompt) when PRO is not installed, so Core still runs identically
+without PRO.
+
 ## Repo Map
 
 | Repo | Purpose |
