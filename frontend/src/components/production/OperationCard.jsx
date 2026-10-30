@@ -200,7 +200,7 @@ export default function OperationCard({
                 <button
                   onClick={() => onSchedule?.(operation)}
                   disabled={loading}
-                  className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg text-sm transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg text-sm transition-colors disabled:opacity-50"
                 >
                   Schedule
                 </button>
@@ -233,7 +233,7 @@ export default function OperationCard({
                 <button
                   onClick={() => onStart?.(operation)}
                   disabled={loading}
-                  className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   ▶ Start Operation
                 </button>
@@ -312,7 +312,7 @@ export default function OperationCard({
                 <button
                   onClick={handleComplete}
                   disabled={loading || (qtyGood + qtyBad === 0 && maxQtyInt > 0) || !scrapReasonValid}
-                  className="flex-1 px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? 'Completing...' : maxQtyInt === 0 ? 'Complete (No Input)' : 'Complete Operation'}
                 </button>

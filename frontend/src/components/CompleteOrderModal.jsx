@@ -405,7 +405,7 @@ export default function CompleteOrderModal({
                     type="checkbox"
                     checked={createRemakeForShortfall}
                     onChange={(e) => setCreateRemakeForShortfall(e.target.checked)}
-                    className="mt-1 w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
+                    className="mt-1 w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--accent)] focus:ring-[var(--accent)] focus:ring-offset-0"
                   />
                   <div>
                     <p className="text-[var(--ink)] font-medium">
@@ -436,7 +436,7 @@ export default function CompleteOrderModal({
           <button
             onClick={handleSubmit}
             disabled={quantityCompleted < 1 || submitting || (isClosingShort && !acknowledgeShort)}
-            className="flex-1 px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Processing..." : isClosingShort ? "Complete Order (Short)" : "Complete Order"}
           </button>
