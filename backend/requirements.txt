@@ -27,7 +27,7 @@ sentry-sdk[fastapi]>=2.71.0
 # AI Invoice Parsing is a PRO feature (anthropic, pypdf)
 
 mypy==2.4.0
-types-python-dateutil==2.9.0.20260807
+types-python-dateutil==2.9.0.20261021
 
 # Testing
 pytest>=9.1.1
