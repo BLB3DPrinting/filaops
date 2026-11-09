@@ -41,6 +41,32 @@ def _positive_decimal(value: Any) -> Optional[Decimal]:
     return number if number > 0 else None
 
 
+def _raw_unit(code: Optional[str]) -> str:
+    """Upper-case and trim only, so the code still matches the product's own."""
+    return (code or "EA").upper().strip() or "EA"
+
+
+def _class_conversion(product: Any) -> Optional[Decimal]:
+    """
+    Stock units per purchase unit when the two are the same unit or in the same
+    measurement class (KG -> G is 1000). None when they are not, which is the
+    pack case (BOX -> EA) and the G / EA / 1000 materials.
+    """
+    stock_unit = normalize_unit(getattr(product, "unit", None))
+    purchase_unit = normalize_unit(getattr(product, "purchase_uom", None) or stock_unit)
+
+    if purchase_unit == stock_unit:
+        return Decimal("1")
+
+    purchase_info = INLINE_UOM_CONVERSIONS.get(purchase_unit)
+    stock_info = INLINE_UOM_CONVERSIONS.get(stock_unit)
+    # Count units (EA, BOX, PK, ROLL) are each their own base in the table, so
+    # only real measurement classes match here.
+    if purchase_info and stock_info and purchase_info["base"] == stock_info["base"]:
+        return purchase_info["factor"] / stock_info["factor"]
+    return None
+
+
 def stock_units_per_purchase_unit(product: Any) -> Optional[Decimal]:
     """
     How many stock units one purchase unit holds (KG -> G is 1000, BOX of 12 -> EA is 12).
@@ -56,19 +82,9 @@ def stock_units_per_purchase_unit(product: Any) -> Optional[Decimal]:
     Returns None when none of these applies: the purchase unit is a pack and no
     pack size is recorded.
     """
-    stock_unit = normalize_unit(getattr(product, "unit", None))
-    purchase_unit = normalize_unit(getattr(product, "purchase_uom", None) or stock_unit)
-
-    if purchase_unit == stock_unit:
-        return Decimal("1")
-
-    purchase_info = INLINE_UOM_CONVERSIONS.get(purchase_unit)
-    stock_info = INLINE_UOM_CONVERSIONS.get(stock_unit)
-    # Count units (EA, BOX, PK, ROLL) are each their own base in the table, so
-    # only real measurement classes match here.
-    if purchase_info and stock_info and purchase_info["base"] == stock_info["base"]:
-        return purchase_info["factor"] / stock_info["factor"]
-
+    units = _class_conversion(product)
+    if units is not None:
+        return units
     return _positive_decimal(getattr(product, "purchase_factor", None))
 
 
@@ -117,23 +133,28 @@ def purchase_line_for_stock_quantity(
     """
     Turn a quantity in stock units into a purchase-order line.
 
-    Returns ``(quantity, purchase_unit, unit_cost)`` with quantity and cost both
-    in the purchase unit, at 4 decimal places (the PO line columns). Quantity
-    rounds up so the order never falls short of the requirement. When the
-    purchase unit cannot be converted, the line is written in the stock unit,
-    which is always consistent.
+    Returns ``(quantity, unit, unit_cost)`` with quantity and cost both in
+    ``unit``, at 4 decimal places (the PO line columns). Quantity rounds up so
+    the order never falls short of the requirement.
+
+    The line is written in the purchase unit only when that unit is in the same
+    measurement class as the stock unit (KG for a G item), because that is the
+    only conversion PO receiving applies. A pack purchase unit (BOX of 12, or a
+    G / EA / 1000 material) is written in the stock unit instead: receiving
+    does not apply ``purchase_factor``, so a "5 BOX" line would be received as
+    5 EA. The returned unit is the product's own code, so receiving sees it as
+    equal to the product unit.
     """
     stock_quantity = Decimal(str(stock_quantity))
     stock_cost = cost_per_stock_unit(product) or Decimal("0")
-    units = stock_units_per_purchase_unit(product)
+    stock_unit = _raw_unit(getattr(product, "unit", None))
 
-    if units is None:
-        unit = normalize_unit(getattr(product, "unit", None))
+    units = _class_conversion(product)
+    if units is None or units == 1:
+        unit = stock_unit
         units = Decimal("1")
     else:
-        unit = normalize_unit(
-            getattr(product, "purchase_uom", None) or getattr(product, "unit", None)
-        )
+        unit = _raw_unit(getattr(product, "purchase_uom", None))
 
     quantity = (stock_quantity / units).quantize(_FOUR_DP, rounding=ROUND_UP)
     unit_cost = (stock_cost * units).quantize(_FOUR_DP, rounding=ROUND_HALF_UP)

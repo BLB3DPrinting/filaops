@@ -275,3 +275,80 @@ class TestInventoryByAccountValuation:
         items = [i for a in resp.json()["accounts"] for i in a["items"]]
         row = next(i for i in items if i["product_id"] == part.id)
         assert row["total_value"] == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------------------
+# MRP release -> PO receipt: the line MRP writes must be receivable
+# ---------------------------------------------------------------------------
+
+class TestMrpReleaseThenReceive:
+    """Release a planned purchase, then receive the PO through the real receipt
+    service. Stock must rise by the planned quantity, in the stock unit."""
+
+    def _release_and_receive(self, db, product, quantity, make_vendor):
+        from app.models.inventory import Inventory
+        from app.services.purchase_order_service import receive_purchase_order
+
+        planned = PlannedOrder(
+            order_type="purchase", product_id=product.id,
+            quantity=Decimal(str(quantity)),
+            due_date=date.today() + timedelta(days=14), start_date=date.today(),
+            status="planned", source_demand_type="mrp_calculation",
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(planned)
+        db.flush()
+        _, po_id = MRPService(db).release_planned_order(
+            planned.id, vendor_id=make_vendor().id, user_id=1)
+
+        po = db.get(PurchaseOrder, po_id)
+        po.status = "ordered"
+        line = db.query(PurchaseOrderLine).filter(
+            PurchaseOrderLine.purchase_order_id == po_id).one()
+        db.flush()
+
+        receive_purchase_order(
+            db, po_id,
+            lines=[{"line_id": line.id, "quantity_received": line.quantity_ordered}],
+            user_id=1, user_email="test@filaops.dev",
+        )
+        on_hand = sum(
+            (inv.on_hand_quantity for inv in
+             db.query(Inventory).filter(Inventory.product_id == product.id).all()),
+            Decimal("0"),
+        )
+        db.refresh(product)
+        return line, on_hand
+
+    def test_kg_filament_is_received_as_grams(self, db, unreceived_filament, make_vendor):
+        line, on_hand = self._release_and_receive(db, unreceived_filament, 5000, make_vendor)
+        assert (line.purchase_unit, line.quantity_ordered) == ("KG", Decimal("5"))
+        assert on_hand == Decimal("5000")
+        assert Decimal(str(unreceived_filament.average_cost)) == Decimal("0.02")
+
+    def test_g_ea_1000_material_is_received_as_grams(self, db, make_product, make_vendor):
+        """The item form saves materials as G / EA / 1000. Receiving cannot
+        convert EA to G, so the line must already be in grams."""
+        material = make_product(
+            item_type="material", unit="G", purchase_uom="EA",
+            purchase_factor=Decimal("1000"), is_raw_material=True,
+            standard_cost=Decimal("20.00"),
+        )
+        line, on_hand = self._release_and_receive(db, material, 5000, make_vendor)
+        assert (line.purchase_unit, line.quantity_ordered) == ("G", Decimal("5000"))
+        assert line.line_total == Decimal("100")
+        assert on_hand == Decimal("5000")
+        assert Decimal(str(material.average_cost)) == Decimal("0.02")
+
+    def test_box_of_12_is_received_as_each(self, db, make_product, make_vendor):
+        """Receiving does not apply purchase_factor, so the line must be in EA:
+        60 planned means 60 on hand, not 5."""
+        part = make_product(
+            item_type="component", unit="EA", purchase_uom="BOX",
+            purchase_factor=Decimal("12"), standard_cost=Decimal("24.00"),
+        )
+        line, on_hand = self._release_and_receive(db, part, 60, make_vendor)
+        assert (line.purchase_unit, line.quantity_ordered) == ("EA", Decimal("60"))
+        assert line.line_total == Decimal("120")
+        assert on_hand == Decimal("60")
+        assert Decimal(str(part.average_cost)) == Decimal("2")

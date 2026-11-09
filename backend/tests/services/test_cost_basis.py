@@ -167,11 +167,31 @@ class TestPurchaseLineForStockQuantity:
         assert purchase_line_for_stock_quantity(p, Decimal("7")) == (
             Decimal("7.0000"), "EA", Decimal("5.0000"))
 
-    def test_unconvertible_pack_falls_back_to_the_stock_unit(self):
-        """No pack size known: order in the stock unit, which is always consistent."""
+    def test_pack_without_a_size_is_ordered_in_the_stock_unit(self):
         p = _product(unit="EA", purchase_uom="BOX", average_cost=Decimal("2.00"))
         assert purchase_line_for_stock_quantity(p, Decimal("60")) == (
             Decimal("60.0000"), "EA", Decimal("2.0000"))
+
+    def test_pack_with_a_size_is_still_ordered_in_the_stock_unit(self):
+        """Receiving does not apply purchase_factor, so a "5 BOX" line would be
+        received as 5 EA. Order 60 EA at the per-EA cost instead."""
+        p = _product(unit="EA", purchase_uom="BOX", purchase_factor=Decimal("12"),
+                     standard_cost=Decimal("24.00"))
+        assert purchase_line_for_stock_quantity(p, Decimal("60")) == (
+            Decimal("60.0000"), "EA", Decimal("2.0000"))
+
+    def test_g_ea_1000_material_is_ordered_in_grams(self):
+        """Receiving cannot convert EA to G for a material and would refuse the line."""
+        p = _product(unit="G", purchase_uom="EA", purchase_factor=Decimal("1000"),
+                     standard_cost=Decimal("20.00"))
+        assert purchase_line_for_stock_quantity(p, Decimal("5000")) == (
+            Decimal("5000.0000"), "G", Decimal("0.0200"))
+
+    def test_unit_code_is_the_products_own(self):
+        """A pcs item gets a PCS line, which receiving sees as equal to the product unit."""
+        p = _product(unit="pcs", purchase_uom="EA", standard_cost=Decimal("0.0575"))
+        assert purchase_line_for_stock_quantity(p, Decimal("100")) == (
+            Decimal("100.0000"), "PCS", Decimal("0.0575"))
 
     def test_no_cost_gives_zero(self):
         p = _product(unit="G", purchase_uom="KG")
