@@ -25,6 +25,7 @@ from app.services.uom_service import INLINE_UOM_CONVERSIONS as UOM_CONVERSIONS
 from app.services.purchase_order_service import generate_po_number
 from app.services.production_order_service import generate_production_order_code
 from app.services import make_buy, open_supply
+from app.services.cost_basis import cost_per_stock_unit, purchase_line_for_stock_quantity
 from app.services import mrp_release
 
 logger = get_logger(__name__)
@@ -469,20 +470,10 @@ class MRPService:
             if net_shortage < 0:
                 net_shortage = Decimal("0")
 
-            # Get cost for costing display
-            # NOTE: For materials (filament), last_cost is stored per reference unit ($/KG)
-            # but inventory and BOM quantities may be in different units (grams).
-            # Use uom_service to properly convert costs.
-            raw_cost = Decimal(str(product.standard_cost or product.last_cost or 0))
-            product_unit = (product.unit or 'EA').upper().strip()
-
-            # Get the reference unit that costs are stored in (e.g., KG for mass)
-            # and convert to the product's tracking unit
-            from app.services.uom_service import get_cost_reference_unit, convert_cost_for_unit
-            cost_ref_unit = get_cost_reference_unit(product_unit)
-            unit_cost = convert_cost_for_unit(raw_cost, cost_ref_unit, product_unit)
-            if unit_cost is None:
-                unit_cost = raw_cost  # Fallback if conversion fails
+            # Cost per STOCK unit for the costing display. Quantities here are
+            # in the product's stock unit, so use the shared cost-basis rule
+            # rather than assuming every cost is per KG.
+            unit_cost = cost_per_stock_unit(product) or Decimal("0")
 
             net_req = NetRequirement(
                 product_id=req.product_id,
@@ -960,9 +951,11 @@ class MRPService:
         # Generate PO number using the canonical hardened generator
         po_number = generate_po_number(self.db)
 
-        # Get product for cost
+        # Planned quantities are in the product's STOCK unit (G for filament).
+        # Write the PO line in the PURCHASE unit, with the cost per that unit,
+        # so 5000 G at $20/KG becomes 5 KG at $20 and not 5000 at $20.
         product = self.db.get(Product, planned_order.product_id)
-        unit_cost = product.standard_cost or product.last_cost or Decimal("0")
+        quantity, purchase_unit, unit_cost = purchase_line_for_stock_quantity(product, quantity)
 
         # Create PO
         po = PurchaseOrder(
@@ -984,6 +977,7 @@ class MRPService:
             line_number=1,
             quantity_ordered=quantity,
             quantity_received=Decimal("0"),
+            purchase_unit=purchase_unit,
             unit_cost=unit_cost,
             line_total=unit_cost * quantity
         )

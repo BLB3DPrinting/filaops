@@ -591,20 +591,28 @@ class TestBaselineToStored:
 
 
 class TestZeroCostGLEntry:
-    """Regression: product with standard_cost=0 must NOT fall through to average_cost."""
+    """Regression: a standard-cost product with standard_cost=0 must NOT fall
+    through to average_cost."""
 
     def test_zero_standard_cost_uses_zero_not_average(self, db, make_product, location):
         """
-        A product with standard_cost=Decimal("0") and average_cost=Decimal("5")
-        must post a GL entry priced at 0, not 5.
+        A standard-cost product with standard_cost=Decimal("0") and
+        average_cost=Decimal("5") must post a GL entry priced at 0, not 5.
 
         The old ``or`` chain treated Decimal("0") as falsy and wrongly fell
         through to average_cost, posting an incorrect GL amount.
+
+        The count is valued by the shared cost-basis rule
+        (app/services/cost_basis.py), which follows the product's cost method,
+        so this product is explicitly ``cost_method="standard"``. An
+        average-cost product is valued at its average cost: see
+        TestReconciliationCountCost in test_cost_basis_paths.py.
         """
         from app.models.accounting import GLJournalEntry, GLJournalEntryLine
         from app.services.inventory_ledger import post as ledger_post
 
         product = make_product(
+            cost_method="standard",
             standard_cost=Decimal("0"),
             average_cost=Decimal("5.00"),
         )

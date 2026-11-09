@@ -17,12 +17,12 @@ from app.models.production_order import ProductionOrder, ProductionOrderOperatio
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.traceability import MaterialLot, ProductionLotConsumption
 from app.logging_config import get_logger
+from app.services.cost_basis import cost_per_stock_unit
 from app.services import inventory_ledger
 from app.services.uom_service import (
     convert_quantity_safe,
     format_conversion_note,
     UOMConversionError,
-    convert_cost_for_unit,
 )
 from app.services.reservation_reconciliation_service import check_allocation_guard
 from app.services.operation_material_mapping import (
@@ -158,72 +158,25 @@ def get_allocations_by_production_order(
 
 
 # ============================================================================
-# CRITICAL: Cost Per Unit Conversion - DO NOT MODIFY WITHOUT DISCUSSION
+# Cost per inventory unit
 # ============================================================================
-# This function converts cost from PURCHASING unit ($/KG) to INVENTORY unit ($/G).
+# The rule lives in app/services/cost_basis.py (cost_per_stock_unit). This name
+# is kept because many callers, and PRO, import it from here.
 #
-# WHY THIS EXISTS:
-# - Products store cost per PURCHASE unit (product.purchase_uom, e.g., $/KG)
-# - Inventory transactions store quantity in STORAGE unit (product.unit, e.g., G)
-# - We must convert cost to match: $20/KG -> $0.02/G
-#
-# WITHOUT THIS: 3856 G * $20 = $77,120 (caused $1.1M fake COGS!)
-# WITH THIS:    3856 G * $0.02 = $77.12 (correct)
-#
-# KEY FIELDS:
-# - product.purchase_uom: Unit we BUY in (KG, BOX, EA) - costs are per this
-# - product.unit: Unit we STORE in (G, EA) - inventory quantities use this
-#
-# DO NOT CHANGE without verifying accounting dashboard COGS calculations.
+# standard_cost is per PURCHASE unit ($/KG); average_cost and last_cost are per
+# STOCK unit ($/G); inventory quantities are in the stock unit. Multiplying a
+# stock quantity by an unconverted standard_cost is what once produced $1.1M of
+# fake COGS (3856 G x $20 instead of 3856 G x $0.02).
 # ============================================================================
 def get_effective_cost_per_inventory_unit(product: "Product") -> "Optional[Decimal]":
     """
-    Get the effective cost for a product in cost per inventory unit.
+    Cost per inventory (stock) unit for a product, or None if it has no cost.
 
-    IMPORTANT: Different cost fields are stored differently:
-    - standard_cost: Stored per PURCHASE unit ($/KG) - needs conversion to $/G
-    - average_cost: Already stored per STORAGE unit ($/G) - NO conversion
-    - last_cost: Already stored per STORAGE unit ($/G) - NO conversion
-
-    This is because average_cost and last_cost are calculated from inventory
-    transactions which are already recorded in storage units.
-
-    Example (standard_cost):
-        - Product has purchase_uom='KG', unit='G', standard_cost=20.00 ($/KG)
-        - Returns: 0.02 ($/G)
-        - So: 1000 G * $0.02/G = $20.00 (correct!)
-
-    Example (average_cost):
-        - Product has unit='G', average_cost=0.02 ($/G, already converted)
-        - Returns: 0.02 ($/G) - no conversion needed!
-
-    Args:
-        product: Product to get cost for
-
-    Returns:
-        Cost per inventory unit (e.g., $/G), or None if no cost available
+    Delegates to :func:`app.services.cost_basis.cost_per_stock_unit`, the single
+    implementation of the cost-basis rule. Do not read ``product.standard_cost``
+    directly or divide by ``purchase_factor`` at a call site; use this.
     """
-    method = (product.cost_method or "average").lower()
-
-    # average_cost and last_cost are already stored in storage unit ($/G)
-    # Only standard_cost needs conversion from purchase unit
-    if method in ("average", "fifo", "last"):
-        if method == "average" and product.average_cost is not None:
-            return Decimal(str(product.average_cost))
-        if product.last_cost is not None:
-            return Decimal(str(product.last_cost))
-        # Fallback to standard if no average/last
-
-    # standard_cost is stored in purchase unit - needs conversion
-    if product.standard_cost is not None:
-        base_cost = Decimal(str(product.standard_cost))
-        storage_unit = (product.unit or 'EA').upper().strip()
-        purchase_unit = (getattr(product, 'purchase_uom', None) or storage_unit).upper().strip()
-        if purchase_unit == storage_unit:
-            return base_cost
-        return convert_cost_for_unit(base_cost, purchase_unit, storage_unit)
-
-    return None
+    return cost_per_stock_unit(product)
 
 
 def convert_and_generate_notes(

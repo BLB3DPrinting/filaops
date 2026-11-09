@@ -26,6 +26,7 @@ from app.models.production_order import ScrapRecord
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.services import inventory_ledger
+from app.services.cost_basis import cost_per_stock_unit
 from app.services.gl_account_map import inventory_account_for
 
 _JOURNAL_ENTRY_NUMBER_LOCK_NAMESPACE = 74002
@@ -859,7 +860,8 @@ class TransactionService:
         # Shared item_type -> account map (#910).
         inv_account = inventory_account_for(product.item_type)
 
-        unit_cost = product.standard_cost or product.average_cost or Decimal("0")
+        # Cost per STOCK unit: the variance is in stock units.
+        unit_cost = cost_per_stock_unit(product) or Decimal("0")
         total_cost = abs(variance) * unit_cost
 
         # Signed variance posts through the canonical ledger: overage adds,

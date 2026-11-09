@@ -24,6 +24,7 @@ from app.models.adjustment_reason import AdjustmentReason
 from app.models.inventory import Inventory, InventoryLocation, InventoryTransaction
 from app.models.product import Product
 from app.services import inventory_ledger
+from app.services.cost_basis import cost_per_stock_unit
 from app.services.inventory_helpers import is_material
 from app.services.transaction_service import TransactionService
 from app.services.uom_service import convert_quantity_safe
@@ -261,15 +262,10 @@ def get_inventory_summary(
     for inv in items:
         product = inv.product
         location = inv.location
-        # Best available unit cost: standard > average > last; None if all null.
-        # Use explicit is-None checks — Decimal("0") is falsy and should not fall through.
-        if product.standard_cost is not None:
-            raw_cost = product.standard_cost
-        elif product.average_cost is not None:
-            raw_cost = product.average_cost
-        else:
-            raw_cost = product.last_cost
-        unit_cost = float(raw_cost) if raw_cost is not None else None
+        # Cost per STOCK unit, matching on_hand_quantity. The cycle-count screen
+        # multiplies the two for its variance preview.
+        stock_cost = cost_per_stock_unit(product)
+        unit_cost = float(stock_cost) if stock_cost is not None else None
         result.append({
             "inventory_id": inv.id,
             "product_id": product.id,

@@ -33,6 +33,7 @@ from app.models.production_order import ProductionOrder
 from app.models.quote import Quote
 from app.models.sales_order import SalesOrder
 from app.models.user import User
+from app.services.cost_basis import cost_per_stock_unit
 from app.services.transaction_service import TransactionService, MaterialConsumption
 
 logger = logging.getLogger(__name__)
@@ -804,9 +805,11 @@ async def complete_print(
     for mat in consumed_materials:
         if mat.get("quantity_consumed", 0) > 0 and mat.get("component_id"):
             product = db.query(Product).filter(Product.id == mat["component_id"]).first()
-            raw_cost = (product.standard_cost or product.average_cost or Decimal("0")) if product else Decimal("0")
-            purchase_factor = Decimal(str(product.purchase_factor or 1)) if product else Decimal("1")
-            cost_per_storage_unit = raw_cost / purchase_factor
+            # Shared cost-basis rule. Dividing average_cost (already per storage
+            # unit) by purchase_factor costed consumption 1000x low.
+            cost_per_storage_unit = (
+                (cost_per_stock_unit(product) or Decimal("0")) if product else Decimal("0")
+            )
             materials_to_consume.append(MaterialConsumption(
                 product_id=mat["component_id"],
                 quantity=Decimal(str(mat["quantity_consumed"])),
