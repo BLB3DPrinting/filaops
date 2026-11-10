@@ -49,15 +49,23 @@ class TestClassify:
     @pytest.mark.parametrize("standard, average, expected", [
         ("0.02", "0.02", "flipped"),
         ("0.0127", "0.0127", "flipped"),
-        ("0.03", "0.02", "flipped"),
+        ("0.0200", "0.02", "flipped"),
         ("20.00", "0.02", "ok"),
         ("24.99", "0.02", "ok"),
+        ("0.03", "0.02", "ambiguous"),
+        ("0.0201", "0.02", "ambiguous"),
         ("0.6", "0.02", "ambiguous"),
         ("500", "0.02", "ambiguous"),
     ])
     def test_filament_cases(self, migration, standard, average, expected):
-        """G stock bought by the KG: 1000 stock units per purchase unit."""
+        """G stock bought by the KG: 1000 stock units per purchase unit. Only a
+        standard cost exactly equal to the average counts as flipped."""
         assert migration.classify("G", "KG", Decimal("1000"), standard, average) == expected
+
+    def test_close_ratio_is_never_enough(self, migration):
+        """10 stock units per purchase unit, standard $4, average $2: a ratio of
+        2 is not the sync's signature, so the item is reported, not repaired."""
+        assert migration.classify("EA", "BOX", 10, "4", "2") == "ambiguous"
 
     def test_missing_costs_are_skipped(self, migration):
         """No standard or no average cost: nothing to compare."""
@@ -69,9 +77,14 @@ class TestClassify:
         """Bought and stocked in EA: equal costs are correct, not flipped."""
         assert migration.classify("EA", "EA", None, "5", "5") == "skip"
 
-    def test_small_pack_is_skipped(self, migration):
-        """A box of 6 is too close to tell the two patterns apart."""
-        assert migration.classify("EA", "BOX", 6, "2", "2") == "skip"
+    def test_small_pack_equal_costs_are_reported_not_repaired(self, migration):
+        """A box of 6 at $2 could be a real, if stale, per-box price."""
+        assert migration.classify("EA", "BOX", 6, "2", "2") == "ambiguous"
+        assert migration.classify("EA", "BOX", 6, "12", "2") == "ok"
+
+    def test_count_synonym_pair_is_skipped(self, migration):
+        """pcs stocked, EA bought: the same unit, so equal costs are correct."""
+        assert migration.classify("pcs", "EA", None, "0.0575", "0.0575") == "skip"
 
     def test_pack_without_a_size_is_skipped(self, migration):
         """No pack size: the units are unknown."""
@@ -126,6 +139,32 @@ class TestRepairStandardCosts:
 
         assert item.standard_cost == Decimal("0.6")
         assert item.sku in {r["sku"] for r in report["ambiguous"]}
+
+    def test_near_but_not_equal_is_reported_and_untouched(self, db, make_product, migration):
+        """standard 0.0300 against average 0.0200 was not written by the sync."""
+        item = _filament(make_product, standard_cost=Decimal("0.03"),
+                         average_cost=Decimal("0.02"))
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("0.03")
+        assert item.sku in {r["sku"] for r in report["ambiguous"]}
+
+    def test_item_with_an_active_bom_is_reported_and_untouched(
+        self, db, make_product, make_bom, migration,
+    ):
+        """The sync never wrote to items with their own BOM, so an equal value
+        there has another cause: report it, do not scale it."""
+        item = _filament(make_product, standard_cost=Decimal("0.02"),
+                         average_cost=Decimal("0.02"))
+        component = make_product(item_type="supply", unit="EA")
+        make_bom(product_id=item.id, lines=[
+            {"component_id": component.id, "quantity": Decimal("1"), "unit": "EA"},
+        ])
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("0.02")
+        entry = next(r for r in report["ambiguous"] if r["sku"] == item.sku)
+        assert "BOM or routing" in entry["reason"]
 
     def test_each_item_is_untouched(self, db, make_product, migration):
         """An EA / EA item with equal costs is correct and is not in scope."""

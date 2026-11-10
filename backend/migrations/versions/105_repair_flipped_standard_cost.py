@@ -20,19 +20,26 @@ Step 1, materials saved with a purchase unit of EA.
     so the meaning of the factor and of every cost is unchanged. Only rows that
     are exactly G / EA / 1000 materials are touched.
 
-Step 2, standard costs that match the average cost.
-    For an item whose purchase unit holds at least 10 stock units, a correct
-    standard cost is about (units x average cost). A standard cost within 0.5x
-    to 2x of the average cost itself can only be the per-stock-unit copy, and is
-    multiplied back up by the units. The repaired value is built from the stored
-    4-decimal average, so $12.67/KG comes back as $12.70.
+Step 2, standard costs the old receipt sync wrote.
+    The old sync did exactly ``standard_cost = average_cost``, and only for
+    items with no active BOM and no active routing of their own. So a standard
+    cost is repaired only when all of these hold:
+      - it EQUALS the average cost, to the 4 decimal places both columns store;
+      - the purchase unit holds at least 10 stock units, so an equal value
+        cannot be a real per-purchase-unit price;
+      - the item has no active BOM and no active routing (the sync never wrote
+        to those; their standard cost comes from a cost rollup).
+    It is then multiplied back up by the units. A ratio that is merely close is
+    never enough. The repaired value is built from the stored 4-decimal
+    average, so $12.67/KG comes back as $12.70.
 
-Left alone, and listed in the upgrade output:
-    - items where the two ranges are too close to tell apart (fewer than 10
-      stock units per purchase unit);
-    - items whose standard cost fits neither pattern;
-    - items with no average cost, or a pack purchase unit with no pack size.
-    Nothing is guessed.
+Left alone, and listed in the upgrade output for a manual check:
+    - a standard cost that equals the average on an item with fewer than 10
+      stock units per purchase unit, or with an active BOM or routing;
+    - a standard cost that is neither equal to the average nor about
+      (units x average).
+Left alone silently: items with no standard or average cost, and a pack
+purchase unit with no pack size. Nothing is guessed.
 
 Idempotent: a repaired item no longer matches, so a rerun changes nothing.
 
@@ -74,8 +81,9 @@ _UNIT_CLASSES = {
 }
 _COUNT_SYNONYMS = {"PCS", "PC", "EACH", "UNIT", "UNITS"}
 
-# Below this many stock units per purchase unit, "equal to the average" and
-# "units x the average" are too close to tell apart, so the item is left alone.
+# Below this many stock units per purchase unit, a standard cost equal to the
+# average could be a real (if stale) per-purchase-unit price, so the item is
+# reported for a manual check instead of repaired.
 MIN_UNITS = Decimal("10")
 _FOUR_DP = Decimal("0.0001")
 
@@ -109,26 +117,57 @@ def classify(unit, purchase_uom, purchase_factor, standard_cost, average_cost) -
     """Say what a product's standard cost looks like.
 
     Returns one of:
-      "flipped"   - standard cost equals the per-stock-unit average: repair it
+      "flipped"   - standard cost EQUALS the per-stock-unit average, which is
+                    what the old receipt sync wrote: a candidate for repair
       "ok"        - standard cost is about units x average: per purchase unit
-      "ambiguous" - fits neither pattern: leave alone and report
-      "skip"      - not enough information, or the ranges overlap: leave alone
+      "ambiguous" - neither: leave alone and report for a manual check
+      "skip"      - not enough information to say anything: leave alone
+
+    Only exact equality (at the 4 decimal places the columns store) counts as
+    flipped. A standard cost that is merely close to the average may have been
+    set on purpose, so it is "ambiguous".
     """
     if standard_cost is None or average_cost is None:
         return "skip"
-    standard = Decimal(str(standard_cost))
-    average = Decimal(str(average_cost))
+    standard = Decimal(str(standard_cost)).quantize(_FOUR_DP, rounding=ROUND_HALF_UP)
+    average = Decimal(str(average_cost)).quantize(_FOUR_DP, rounding=ROUND_HALF_UP)
     if standard <= 0 or average <= 0:
         return "skip"
     units = stock_units_per_purchase_unit(unit, purchase_uom, purchase_factor)
-    if units is None or units < MIN_UNITS:
+    if units is None or units == 1:
         return "skip"
+    if standard == average:
+        return "flipped" if units >= MIN_UNITS else "ambiguous"
     ratio = standard / average
-    if Decimal("0.5") <= ratio <= Decimal("2"):
-        return "flipped"
     if units * Decimal("0.5") <= ratio <= units * Decimal("2"):
         return "ok"
     return "ambiguous"
+
+
+def products_with_own_costing(bind) -> set:
+    """Ids of products with an active BOM or an active routing of their own.
+
+    The old receipt sync skipped these, so it never wrote their standard cost;
+    theirs comes from a cost rollup.
+    """
+    inspector = sa.inspect(bind)
+    ids = set()
+    if inspector.has_table("boms"):
+        ids.update(
+            row[0] for row in bind.execute(
+                sa.text("SELECT DISTINCT product_id FROM boms WHERE active")
+            )
+        )
+    if inspector.has_table("routings"):
+        ids.update(
+            row[0] for row in bind.execute(
+                sa.text(
+                    "SELECT DISTINCT product_id FROM routings "
+                    "WHERE is_active AND product_id IS NOT NULL"
+                )
+            )
+        )
+    return ids
 
 
 def fix_material_purchase_units(bind) -> int:
@@ -146,11 +185,13 @@ def fix_material_purchase_units(bind) -> int:
 
 
 def repair_standard_costs(bind) -> dict:
-    """Multiply flipped standard costs back up to per purchase unit.
+    """Multiply standard costs the old receipt sync wrote back up to per purchase unit.
 
-    Returns ``{"repaired": [...], "ambiguous": [...]}``; each entry is a dict
-    with the sku, the old and (for repairs) new standard cost, and the units.
+    Returns ``{"repaired": [...], "ambiguous": [...]}``. A repaired entry has
+    the sku, the old and new standard cost and the units. An ambiguous entry
+    has the sku, both costs and the reason it was left for a manual check.
     """
+    own_costing = products_with_own_costing(bind)
     rows = bind.execute(
         sa.text(
             "SELECT id, sku, unit, purchase_uom, purchase_factor, "
@@ -168,10 +209,17 @@ def repair_standard_costs(bind) -> dict:
             row["unit"], row["purchase_uom"], row["purchase_factor"],
             row["standard_cost"], row["average_cost"],
         )
+        reason = None
         if kind == "ambiguous":
+            reason = "standard cost is neither equal to the average nor about units x average"
+            if Decimal(str(row["standard_cost"])) == Decimal(str(row["average_cost"])):
+                reason = "equals the average, but too few stock units per purchase unit to be sure"
+        elif kind == "flipped" and row["id"] in own_costing:
+            reason = "equals the average, but the item has an active BOM or routing"
+        if reason:
             report["ambiguous"].append(
                 {"sku": row["sku"], "standard_cost": row["standard_cost"],
-                 "average_cost": row["average_cost"]}
+                 "average_cost": row["average_cost"], "reason": reason}
             )
             continue
         if kind != "flipped":
@@ -210,9 +258,9 @@ def upgrade() -> None:
         )
     for item in report["ambiguous"]:
         log.warning(
-            "105: %s left alone: standard_cost %s fits neither pattern against "
-            "average_cost %s. Check it by hand.",
-            item["sku"], item["standard_cost"], item["average_cost"],
+            "105: %s left alone (standard_cost %s, average_cost %s): %s. "
+            "Check it by hand.",
+            item["sku"], item["standard_cost"], item["average_cost"], item["reason"],
         )
     log.info(
         "105: repaired %d standard cost(s); %d left for a manual check",
