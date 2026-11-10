@@ -104,7 +104,7 @@ If it does not, the file is not a complete backup: stop here.
 
 ```bash
 docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops_restore;"
-docker exec filaops-db psql -U postgres -d filaops_restore -v ON_ERROR_STOP=1 -q -o /dev/null -f /tmp/restore.sql
+docker exec filaops-db psql -U postgres -d filaops_restore -v ON_ERROR_STOP=1 -q -o /dev/null -f /tmp/restore.sql -c "\echo restore complete"
 docker exec filaops-db psql -U postgres -d filaops_restore -c "SELECT version_num FROM alembic_version;"
 ```
 
@@ -113,13 +113,15 @@ docker exec filaops-db psql -U postgres -d filaops_restore -c "SELECT version_nu
   remove it with
   `docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE filaops_restore;"`
   and run the step again.
-- The restore (the second command) stops at the first error. When it works it
-  prints nothing at all. Anything it prints means it failed.
+- The restore (the second command) stops at the first error. When it has
+  worked through the whole file it prints one line, `restore complete`, and
+  nothing else. If it prints anything else, or nothing at all, it did not
+  finish.
 - The last command must print a migration number: the one the backup was
   taken at (`104` for a backup from 4.3.2).
 
-If the restore printed anything, or the last command printed an error instead
-of a number, stop here. The live database is untouched, and the backup file is
+If the restore did not end with `restore complete`, or the last command
+printed an error instead of a number, stop here. The live database is untouched, and the backup file is
 not usable as it is. `docker compose start backend` brings the system back as
 it was while you sort the file out.
 
@@ -196,8 +198,8 @@ in place of `docker exec filaops-db psql`, and with the path to your backup
 file after `-f`. Leave out the `docker cp` and `rm` lines. Look at the last
 lines of your backup file yourself before step 3: they must include
 `PostgreSQL database dump complete`. On Windows, leave out `-o /dev/null`;
-the restore then prints its normal output, and a line containing `error`
-means it failed. Connect as the database user FilaOps
+the restore then prints its normal output as well. It failed if any line
+contains `error`, or if the last line is not `restore complete`. Connect as the database user FilaOps
 uses, so that it owns the restored tables; that user needs the right to create
 databases. Close anything else that is connected to the database first (a
 second backend, pgAdmin): a database cannot be renamed while something is
