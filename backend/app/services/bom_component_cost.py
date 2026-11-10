@@ -34,6 +34,8 @@ from typing import Any, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.core.uom_config import FILAMENT_UOM
+from app.models import BOM
+from app.models.manufacturing import Routing
 from app.services.cost_basis import (
     normalize_unit,
     standard_first_cost_per_stock_unit,
@@ -73,13 +75,41 @@ def _material_cost_per_kg(product: Any) -> Decimal:
     return Decimal("0")
 
 
-def component_cost_for_bom(product: Any) -> Decimal:
+def _recost_owns_standard_cost(db: Session, product: Any) -> bool:
+    """Whether the product's standard cost was built by Recost, per stock unit.
+
+    Recost writes a made item's cost per unit made, and a purchase-order
+    receipt leaves an item with an active BOM or routing alone, so for those
+    items the standard cost is per stock unit whatever purchase unit they
+    carry. Only looked up when it could matter: a positive standard cost and
+    a purchase unit that holds other than one stock unit.
+    """
+    if _positive(getattr(product, "standard_cost", None)) is None:
+        return False
+    if stock_units_per_purchase_unit(product) in (None, Decimal("1")):
+        return False
+    has_bom = db.query(BOM.id).filter(BOM.product_id == product.id, BOM.active.is_(True)).first()
+    if has_bom:
+        return True
+    has_routing = (
+        db.query(Routing.id)
+        .filter(Routing.product_id == product.id, Routing.is_active.is_(True))
+        .first()
+    )
+    return has_routing is not None
+
+
+def component_cost_for_bom(product: Any, db: Optional[Session] = None) -> Decimal:
     """The cost a BOM line multiplies by: $/KG for a material, else per stock unit.
 
+    With a session, a made component (one with its own active BOM or routing)
+    keeps its standard cost as stored, because Recost wrote it per stock unit.
     Returns 0 when the component has no cost at all.
     """
     if is_material(product):
         return _material_cost_per_kg(product)
+    if db is not None and _recost_owns_standard_cost(db, product):
+        return Decimal(str(product.standard_cost))
     return standard_first_cost_per_stock_unit(product) or Decimal("0")
 
 

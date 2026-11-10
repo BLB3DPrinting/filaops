@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.models.manufacturing import Routing
 from app.models.uom import UnitOfMeasure
 from app.services import bom_management_service as bom_service
 
@@ -101,6 +102,50 @@ class TestEveryPathAgrees:
         wrong = {path: float(value) for path, value in _figures(db, bom).items()
                  if float(value) != pytest.approx(expected, abs=0.0001)}
         assert wrong == {}, f"{name}: expected {expected}"
+
+
+class TestMadeComponents:
+    """A made component's standard cost is what Recost wrote: per stock unit."""
+
+    def _made_with_routing(self, db, make_product, **fields):
+        """A component that has its own active routing, so Recost owns its standard cost."""
+        component = make_product(item_type="component", procurement_type="make", **fields)
+        db.add(Routing(product_id=component.id, code=f"RTG-{component.sku}", name="Make", is_active=True, version=1))
+        db.flush()
+        return component
+
+    def _figures_for_line(self, db, make_product, make_bom, component, quantity, unit):
+        """Every money path for a one-line BOM that uses ``component``."""
+        finished = make_product()
+        bom = make_bom(finished.id, lines=[{"component_id": component.id, "quantity": D(quantity), "unit": unit}])
+        db.refresh(bom)
+        return _figures(db, bom)
+
+    def test_made_component_with_a_larger_purchase_unit_is_not_divided(self, db, make_product, make_bom):
+        """Stocked by the inch, purchase unit FT: 24.00 an inch stays 24.00, not 2.00."""
+        made = self._made_with_routing(db, make_product, unit="IN", purchase_uom="FT", standard_cost=D("24"))
+        figures = self._figures_for_line(db, make_product, make_bom, made, "1", "IN")
+        wrong = {path: float(value) for path, value in figures.items()
+                 if float(value) != pytest.approx(24.00, abs=0.0001)}
+        assert wrong == {}
+
+    def test_made_blend_copied_from_a_filament_is_not_divided(self, db, make_product, make_bom):
+        """A made item stocked in G that kept purchase unit KG: 0.05 a gram x 50 G = 2.50."""
+        made = self._made_with_routing(
+            db, make_product, unit="G", purchase_uom="KG", purchase_factor=D("1000"), standard_cost=D("0.05"),
+        )
+        figures = self._figures_for_line(db, make_product, make_bom, made, "50", "G")
+        wrong = {path: float(value) for path, value in figures.items()
+                 if float(value) != pytest.approx(2.50, abs=0.0001)}
+        assert wrong == {}
+
+    def test_bought_component_with_the_same_units_is_still_divided(self, db, make_product, make_bom):
+        """With no BOM or routing of its own, 24.00 a foot is 2.00 an inch."""
+        bought = make_product(item_type="component", unit="IN", purchase_uom="FT", standard_cost=D("24"))
+        figures = self._figures_for_line(db, make_product, make_bom, bought, "1", "IN")
+        wrong = {path: float(value) for path, value in figures.items()
+                 if float(value) != pytest.approx(2.00, abs=0.0001)}
+        assert wrong == {}
 
 
 class TestLineInThePurchaseUnit:

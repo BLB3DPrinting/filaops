@@ -38,14 +38,15 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def get_effective_cost(product: Product) -> Decimal:
+def get_effective_cost(product: Product, db: Optional[Session] = None) -> Decimal:
     """The cost a BOM line multiplies by for this component, or 0 when it has none.
 
     Priority: standard_cost -> average_cost -> last_cost. The result is per KG
     for a material and per stock unit for everything else, which is what the
-    line-cost code in this module expects (see bom_component_cost).
+    line-cost code in this module expects (see bom_component_cost). Pass the
+    session so a made component's standard cost is read as Recost wrote it.
     """
-    return component_cost_for_bom(product)
+    return component_cost_for_bom(product, db)
 
 
 def get_component_inventory(component_id: int, db: Session) -> dict:
@@ -253,7 +254,7 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
     lines = []
     for line in bom.lines:
         component = components_by_id.get(line.component_id)
-        component_cost = get_effective_cost(component) if component else Decimal("0")
+        component_cost = get_effective_cost(component, db) if component else Decimal("0")
 
         # Calculate effective quantity including scrap factor
         qty = line.quantity or Decimal("0")
@@ -343,7 +344,7 @@ def recalculate_bom_cost(
             continue
         component = components_by_id.get(line.component_id)
         if component:
-            cost = get_effective_cost(component)
+            cost = get_effective_cost(component, db)
             if cost > 0:
                 qty = line.quantity or Decimal("0")
                 scrap = line.scrap_factor or Decimal("0")
@@ -454,7 +455,7 @@ def explode_bom_recursive(
 
         # Get effective cost using fallback logic
         from app.services.inventory_helpers import is_material
-        cost = get_effective_cost(component)
+        cost = get_effective_cost(component, db)
         component_cost = float(cost) if cost else 0.0
         # The unit that cost is in: KG for a material, else the stock unit,
         # or the line unit once the cost has been converted to it below.
@@ -561,7 +562,7 @@ def calculate_rolled_up_cost(bom_id: int, db: Session, visited: set = None) -> D
         else:
             # Use component's effective cost with material-aware UOM conversion
             from app.services.inventory_helpers import is_material
-            component_cost = get_effective_cost(component)
+            component_cost = get_effective_cost(component, db)
             if component_cost and component_cost > 0:
                 if is_material(component):
                     total += calculate_material_line_cost(effective_qty, line.unit, component_cost, db)
@@ -955,7 +956,7 @@ def add_bom_line(db: Session, bom_id: int, line_data: BOMLineCreate) -> dict:
     db.refresh(line)
 
     # Get component cost for response
-    comp_cost = get_effective_cost(component)
+    comp_cost = get_effective_cost(component, db)
 
     return build_line_response(line, component, comp_cost, db)
 
@@ -1011,7 +1012,7 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
 
     # Get component for response
     component = db.query(Product).filter(Product.id == line.component_id).first()
-    comp_cost = get_effective_cost(component) if component else Decimal("0")
+    comp_cost = get_effective_cost(component, db) if component else Decimal("0")
 
     return build_line_response(line, component, comp_cost, db)
 
@@ -1086,7 +1087,7 @@ def recalculate_bom_endpoint(db: Session, bom_id: int) -> dict:
     line_costs = []
     for line in bom.lines:
         component = components_by_id.get(line.component_id)
-        component_cost = get_effective_cost(component) if component else Decimal("0")
+        component_cost = get_effective_cost(component, db) if component else Decimal("0")
 
         # Check if this component has a sub-assembly BOM
         sub_bom = sub_bom_map.get(line.component_id)
@@ -1364,7 +1365,7 @@ def get_cost_rollup(db: Session, bom_id: int) -> dict:
         else:
             # Apply UOM conversion for direct components using effective cost
             from app.services.inventory_helpers import is_material
-            component_cost = get_effective_cost(component)
+            component_cost = get_effective_cost(component, db)
             if component_cost and component_cost > 0:
                 unit_cost = component_cost
 
@@ -1522,7 +1523,7 @@ def validate_bom(db: Session, bom_id: int) -> dict:
             continue
 
         # Missing cost
-        component_cost = get_effective_cost(component)
+        component_cost = get_effective_cost(component, db)
         if not component_cost or component_cost <= 0:
             # Check if it's a sub-assembly
             has_sub_bom = component.id in components_with_bom
