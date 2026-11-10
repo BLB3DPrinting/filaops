@@ -44,6 +44,10 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
   It prints how many images are now on the volume (0 is fine if you never
   uploaded any). If it prints an error instead, don't upgrade until it
   succeeds: the images would be lost. Image links don't change.
+- **Upgrade the folder you run FilaOps from. Don't try the new version in a
+  second copy of it on the same computer:** the copy uses the same database,
+  and can upgrade your live data with no warning (ISSUE-012 in
+  `KNOWN_ISSUES.md`).
 - **Don't click "Update Now" in the app, and don't mount the Docker socket into
   the backend** to make it work. Doing that gives the web app control of your
   whole machine. Upgrade with the commands below instead.
@@ -71,6 +75,8 @@ migrations run on their own before the backend starts. Then check the version:
 ```bash
 curl -s http://localhost/api/v1/system/version
 ```
+
+In Windows PowerShell, type `curl.exe` in place of `curl`.
 
 If `git checkout` says your local changes would be overwritten, you edited a
 tracked file such as `docker-compose.yml`. Keep your changes, then put the file

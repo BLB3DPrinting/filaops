@@ -182,11 +182,15 @@ docker compose up -d --build
 
 Going back to 4.3.1 or older: those versions keep product images inside the
 backend container, and the rebuild starts with none. Copy them back from the
-uploads folder, and do it again whenever that older container is rebuilt:
+uploads folder, and do it again whenever that older container is rebuilt or
+recreated:
 
 ```bash
 docker compose exec backend sh -c 'set -eu; src=/app/uploads/products; dst=/app/static/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
 ```
+
+It prints how many images are now in the container. Until it has run, product
+pictures are missing.
 
 Then check that the version you went back to is running on the restored
 data. This must show the migration number you saw in step 3:

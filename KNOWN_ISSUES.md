@@ -130,6 +130,24 @@ When you edit an item on the form, enter its weight and dimensions again before 
 
 ---
 
+### ISSUE-012: A second copy of FilaOps on the same computer uses the first copy's database
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier (Docker installs)
+
+**Description:**
+`docker-compose.yml` gives the containers, the data volumes and the network fixed names, so a second copy of the `filaops` folder on the same computer is not a separate install. It uses the same database volume, and if it holds newer code its `migrate` service upgrades that database.
+
+- A copy in a folder with the same name (for example a fresh clone into another directory, also called `filaops`): `docker compose up -d --build` replaces the first copy's running containers and migrates the database, with no warning.
+- A copy in a folder with a different name: while the first copy's containers exist, it stops with a container-name conflict and the database is left alone. Once they have been removed (`docker compose down`), it starts with only a warning that a volume `already exists but was created for project ...`, and migrates the database.
+
+**Workaround:**
+Run one copy per computer, and upgrade the folder you already run FilaOps from. To try a release before upgrading, use another computer. A second copy on the same computer needs a `docker-compose.override.yml` that sets its own project `name`, renames all four containers, both volumes and the network, and changes the three published ports. Run `docker compose config` and check every name before starting it.
+
+---
+
 ## Low Priority Issues
 
 ### ISSUE-009: The MRP settings cannot be set from `.env` in a Docker install

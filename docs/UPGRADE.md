@@ -97,6 +97,15 @@ Check that you have the new code. This should print `4.4.0`:
 cat backend/VERSION
 ```
 
+**Upgrade the folder you run FilaOps from. Don't try the new version in a
+second copy of it on the same computer.** `docker-compose.yml` gives the
+containers and the data volumes fixed names, so a second copy is not a
+separate install: it uses the same database, and starting it on newer code
+upgrades your live data. A fresh clone into another folder called `filaops`
+does this with no warning at all. To try a release first, use another
+computer. ISSUE-012 in `KNOWN_ISSUES.md` has the details, and what a second
+copy on the same computer needs.
+
 ### 4. Rebuild and start (Docker)
 
 ```bash
@@ -119,6 +128,9 @@ This should print `"version":"4.4.0"`:
 ```bash
 curl -s http://localhost/api/v1/system/version
 ```
+
+In Windows PowerShell, type `curl.exe` in place of `curl`. There, `curl` is a
+different command, and this line stops with an error about a missing `Uri`.
 
 Both of these should print the same revision, and the first should end in
 `(head)`:
@@ -152,7 +164,8 @@ when they are recalculated. Coming from 4.3.2 or older:
    (manual install: they are in the output of `alembic upgrade head`). They
    list each standard cost that was repaired, each material whose purchase unit
    was changed from EA to KG, and each item that was left alone, with the
-   reason. Lines marked `WARNI` are the ones left for you. Read them now:
+   reason. In a repaired line, `x1E+3` means the cost was multiplied by 1000.
+   Lines marked `WARNI` are the ones left for you. Read them now:
    they go when the migrate container is next recreated, for example by the
    next upgrade.
 2. **Correct the items it left alone.** For a bought item, a standard cost is
