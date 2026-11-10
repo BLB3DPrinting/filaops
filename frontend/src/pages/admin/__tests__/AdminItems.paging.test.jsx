@@ -183,6 +183,26 @@ describe('AdminItems paging', () => {
     expect(screen.getByText('Page 1 of 3')).toBeInTheDocument()
   }, TEST_TIMEOUT)
 
+  it('keeps the search term when paging through search results', async () => {
+    await renderItemsPage()
+
+    // "SKU-00" matches SKU-0001 to SKU-0099 (two pages) and not SKU-0100 to SKU-0120.
+    await typeSearch(['SKU-00'])
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
+    const before = itemRequests.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('SKU-0099')
+    await settle()
+
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
+    // SKU-0100 is on page 2 of the unfiltered list, so it shows only if the term was dropped.
+    expect(screen.queryByText('SKU-0100')).not.toBeInTheDocument()
+    expect(itemRequests.slice(before)).toEqual([
+      { offset: 50, limit: 50, search: 'SKU-00', itemType: null },
+    ])
+  }, TEST_TIMEOUT)
+
   it('goes back to page 1 when the page size changes', async () => {
     await renderItemsPage()
     await goToPageTwo()
