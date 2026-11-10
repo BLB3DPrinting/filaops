@@ -26,6 +26,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## 2. Migration Rollback
 
+> Migration 105 (release 4.4.0) repairs data and has no downgrade: `alembic downgrade` past it leaves the
+> repaired values in place. To go back from 4.4.0, restore your backup (section 3).
+
 If a migration failed or caused issues:
 
 ```bash

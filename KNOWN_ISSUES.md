@@ -12,7 +12,105 @@ This document tracks known bugs and issues in the production system.
 
 ## Medium Priority Issues
 
-*(None documented yet)*
+### ISSUE-003: Pickers and tables stop at a fixed number of rows
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+Several screens load a fixed number of rows and have no paging, and their search boxes search only the rows already loaded. Product pickers (Create BOM, BOM components, the routing editor, new production order, the sales order wizard) load the first 500 active products, and item pickers the first 500 items by SKU. The Routings tab shows the newest 50 routings and the inventory transactions page the newest 100. Other tables stop at 50 to 200 rows. The Items page is not affected.
+
+**Workaround:**
+Narrow the list with the screen's filters where it has them. A routing that is not listed on the Routings tab can be opened from the Items page: find the item and click **Route/BOM** (shown on items that are made).
+
+---
+
+### ISSUE-004: Dashboard "Pending Purchases" panel is always empty
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+The panel asks for purchase orders with the status `draft,ordered` as one value, which matches none.
+
+**Workaround:**
+Use the Purchasing page.
+
+---
+
+### ISSUE-005: Orders page: "Highest Value First" fails
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+Choosing that sort order sends a sort field the server rejects, so the list fails to load.
+
+**Workaround:**
+Choose another sort order.
+
+---
+
+### ISSUE-006: CSV imports read a decimal comma as a thousands separator
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+The item, order and material imports remove every comma from a number, so a price written `12,34` is imported as 1234.
+
+**Workaround:**
+Write numbers in import files with a decimal point and no thousands separator.
+
+---
+
+### ISSUE-007: Cost and unit limits
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+- An item bought by a pack with no pack size recorded is costed at its standard cost unconverted. There is no field for a pack size yet.
+- The item form has no purchase-unit field. Change it with `PATCH /api/v1/items/{id}` (`purchase_uom`).
+- Receiving a material bought by the LB or OZ is refused unless those units are in the unit table, which a new install does not fill. BOM costs read such a material's standard cost as per KG.
+- A material stocked by the each is costed correctly on a BOM only when it has just an average or last cost, and its unit cost is then shown 1000 times too high, labelled /KG.
+
+---
+
+### ISSUE-008: A currency other than US dollars is not shown on every screen
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+The currency and locale settings are not applied everywhere. A number of screens still show a `$` and a decimal point whatever the setting, among them the quote form and the sales order wizard. The amounts are right; the symbol and number format are not.
+
+---
+
+### ISSUE-009: The MRP settings cannot be set from `.env` in a Docker install
+
+**Status:** Open
+**Priority:** Low
+**Reported:** 2026-11-10
+**Affects:** 4.4.0
+
+**Description:**
+`docker-compose.yml` passes a fixed list of settings to the backend, and `MRP_ROUTING_MAKE_BUY`, `MRP_OPEN_PO_SUPPLY` and `MRP_RELEASE_COPIES_ROUTING` are not on it.
+
+**Workaround:**
+Add them under the backend service's `environment` in a `docker-compose.override.yml`.
 
 ---
 

@@ -70,11 +70,16 @@ back and try again:
 4.4.0 corrects how costs are worked out, and some stored figures only change
 when they are recalculated:
 
-- Look for lines starting `105:` in `docker compose logs migrate`. They list
-  the standard costs the upgrade repaired and the items it left for you to
-  check.
-- On the **Items** page, clear the category filter, set the item type to
-  **All**, and click **Recost All**. One run is enough.
+- Read the upgrade's report straight away: the lines containing `105:` in
+  `docker compose logs migrate`. They list the standard costs it repaired, any
+  material whose purchase unit it changed from EA to KG, and the items it left
+  for you to check (marked `WARNI`).
+- Correct the listed items. Then, on the **Items** page, click **All Items** in
+  the category list, set the type dropdown to **All Types**, click
+  **Recost All** and confirm.
+
+[Refresh costs](https://blb3dprinting.github.io/filaops/UPGRADE/#6-refresh-costs)
+in the full guide has the detail.
 
 ## If something goes wrong
 

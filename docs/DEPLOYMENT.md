@@ -279,6 +279,8 @@ Compatible with Loki, Datadog, ELK, or any system that reads Docker JSON logs.
 
 ## 9. Updating / Upgrading
 
+For the steps a particular release needs, follow [Upgrading FilaOps](UPGRADE.md). The commands below are the general shape.
+
 ```bash
 cd filaops
 git pull origin main

@@ -13,7 +13,7 @@ run `cat backend/VERSION` in the `filaops` folder, or open
 | **4.3.2** | Read [What changes in 4.4.0](#what-changes-in-440). | [Upgrade](#upgrade), then [refresh costs](#6-refresh-costs) (step 6) |
 | **4.3.0 or 4.3.1** | Docker: [copy your product images](#2-docker-copy-product-images-onto-the-volume) (step 2). Read [What changes in 4.4.0](#what-changes-in-440) and [in 4.3.2](#what-changes-in-432). | [Upgrade](#upgrade), then [refresh costs](#6-refresh-costs) (step 6) |
 | **4.2.x** | Docker: [copy your product images](#2-docker-copy-product-images-onto-the-volume) (step 2). Read [What changes in 4.4.0](#what-changes-in-440), [in 4.3.2](#what-changes-in-432), [in 4.3.1](#what-changes-in-431) and [in 4.3.0](#what-changes-in-430). | [Upgrade](#upgrade), then [refresh costs](#6-refresh-costs) (step 6) |
-| **4.1.x or older** | Make the changes in [Actions you must take](UPGRADE-4.2.0.md#actions-you-must-take) on the 4.2.0 page. 4.2.0 was a security release, and some installs won't start or work as before without them. | [Upgrade](#upgrade) on this page, not the steps on the 4.2.0 page, then [refresh costs](#6-refresh-costs) (step 6). Afterwards, read [After you upgrade](UPGRADE-4.2.0.md#after-you-upgrade) and [Things that work differently](UPGRADE-4.2.0.md#things-that-work-differently) there. |
+| **4.1.x or older** | Make the changes in [Actions you must take](UPGRADE-4.2.0.md#actions-you-must-take) on the 4.2.0 page. 4.2.0 was a security release, and some installs won't start or work as before without them. Also read [What changes in 4.4.0](#what-changes-in-440) and the sections below it. | [Upgrade](#upgrade) on this page, not the steps on the 4.2.0 page, then [refresh costs](#6-refresh-costs) (step 6). Afterwards, read [After you upgrade](UPGRADE-4.2.0.md#after-you-upgrade) and [Things that work differently](UPGRADE-4.2.0.md#things-that-work-differently) there. |
 
 The [CHANGELOG](https://github.com/BLB3DPrinting/filaops/blob/main/CHANGELOG.md)
 lists everything that changed in each release, with its upgrade notes.
@@ -116,13 +116,24 @@ use your backend's address in the `curl` command.)
 4.4.0 corrects how costs are worked out, and some stored figures only change
 when they are recalculated. Coming from 4.3.2 or older:
 
-1. Read what the upgrade reported. Look for lines starting `105:` in the
-   output of `docker compose logs migrate` (manual install: in the output of
-   `alembic upgrade head`). They list each standard cost that was repaired,
-   and each item that was left alone for you to check, with the reason.
-2. On the **Items** page, clear the category filter, set the item type to
-   **All**, and click **Recost All**. One run is enough. It refreshes the
-   standard cost of made items and the stored totals of their BOMs.
+1. **Read what the upgrade reported, straight away.** Run
+   `docker compose logs migrate` and look for the lines containing `105:`
+   (manual install: they are in the output of `alembic upgrade head`). They
+   list each standard cost that was repaired, each material whose purchase unit
+   was changed from EA to KG, and each item that was left alone, with the
+   reason. Lines marked `WARNI` are the ones left for you.
+2. **Correct the items it left alone.** A standard cost is edited on the item
+   form. A purchase unit is not on the form yet: change it through the API
+   (`PATCH /api/v1/items/{id}` with `purchase_uom`). An item bought by a pack
+   with no pack size recorded is not listed when its standard and average
+   costs differ; check those yourself.
+3. **Run Recost All.** On the **Items** page, click **All Items** in the
+   category list, set the type dropdown to **All Types**, click **Recost All**
+   and confirm. It refreshes the standard cost of made items and the stored
+   total of the BOM each is costed from. One run settles every level of
+   sub-assembly. Inactive items are skipped, and items built from themselves
+   are named in the server log. If you correct a component's cost later, run
+   it again.
 
 ## What changes in 4.4.0
 
@@ -133,22 +144,33 @@ when they are recalculated. Coming from 4.3.2 or older:
   could overwrite a filament's standard cost with a per-gram figure. All of
   these now go through one rule.
 - **One database migration (105)** repairs standard costs already overwritten
-  that way, and lists anything it is unsure of. See
+  that way, changes the purchase unit of some filaments from EA to KG, and
+  lists anything it is unsure of. `alembic downgrade` does not undo it. See
   [Refresh costs](#6-refresh-costs).
-- **Recost All works in one run.** It costs sub-assemblies before the items
-  built from them.
+- **Recost All settles every level in one run.** It costs sub-assemblies
+  before the items built from them.
 - **Count variances** are valued by the item's cost method (average cost for
   average-cost items). They used to take standard cost first.
 - **Deactivate and reactivate an item** from its edit form, and filter the
   Items list by Active, Inactive or All.
-- **Scheduling:** several operations can be booked together as one block, and
-  the scheduler board draws them as one.
-- **Production:** splitting an order no longer over-consumes material, a failed
-  plate posts its scrap, an order that made nothing can be closed as scrapped,
-  and fractional order quantities are sized exactly.
-- **MRP** can plan routing-only parts as production, count open production
-  orders as supply, and release a planned order as a full production order.
-  Each is behind a setting that is off by default.
+- **Scheduling:** the scheduler board draws operations that share one machine
+  and one window as a single block, and counts a lane's overlapping bookings
+  once.
+- **Production:** splitting an order no longer over-consumes material. A failed
+  plate posts its scrap, and completing an operation is refused if its scrap
+  cannot be posted. An order that made nothing can be closed as scrapped (API
+  only for now: `POST /api/v1/production-orders/{id}/close-scrapped`).
+  Materials are sized from the exact order quantity, so orders created or split
+  from now on can reserve slightly more or less than before, and a quantity
+  with more than four decimals is refused.
+- **MRP** can plan routing-only parts as production (`MRP_ROUTING_MAKE_BUY`),
+  count open production orders as supply (`MRP_OPEN_PO_SUPPLY`) and release a
+  planned order as a full production order (`MRP_RELEASE_COPIES_ROUTING`). Each
+  is off by default. Manual install: set them in `backend/.env` and restart
+  the backend. Docker: `docker-compose.yml` passes a fixed list of settings to
+  the backend, so add them under the backend service's `environment` in a
+  `docker-compose.override.yml` (for example `MRP_OPEN_PO_SUPPLY: "true"`)
+  and run `docker compose up -d`.
 
 ## What changes in 4.3.2
 
