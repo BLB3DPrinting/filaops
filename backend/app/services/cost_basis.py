@@ -139,7 +139,15 @@ def cost_per_stock_unit(product: Any) -> Optional[Decimal]:
     stored = _stored_stock_cost(product)
     if stored is not None:
         return stored
+    return _standard_cost_per_stock_unit(product)
 
+
+def _standard_cost_per_stock_unit(product: Any) -> Optional[Decimal]:
+    """standard_cost converted from the purchase unit to the stock unit, or None.
+
+    When the purchase unit is a pack with no pack size recorded, the cost is
+    returned unconverted and a warning is logged.
+    """
     standard_cost = getattr(product, "standard_cost", None)
     if standard_cost is None:
         return None
@@ -159,6 +167,24 @@ def cost_per_stock_unit(product: Any) -> Optional[Decimal]:
         )
         return standard_cost
     return standard_cost / units
+
+
+def standard_first_cost_per_stock_unit(product: Any) -> Optional[Decimal]:
+    """Cost per stock unit taking standard cost first, then average, then last.
+
+    This is the order a BOM roll-up uses: it builds a standard cost, so it
+    does not follow the item's cost method the way ``cost_per_stock_unit``
+    does. Only positive costs count. The standard cost is converted from the
+    purchase unit; average and last cost are already per stock unit. None
+    when the product has no positive cost.
+    """
+    if _positive_decimal(getattr(product, "standard_cost", None)) is not None:
+        return _standard_cost_per_stock_unit(product)
+    for column in ("average_cost", "last_cost"):
+        stock_cost = _positive_decimal(getattr(product, column, None))
+        if stock_cost is not None:
+            return stock_cost
+    return None
 
 
 def standard_cost_from_stock_cost(product: Any, stock_cost: Any) -> Decimal:
