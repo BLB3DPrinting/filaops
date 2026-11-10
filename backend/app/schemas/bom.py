@@ -89,6 +89,9 @@ class BOMLineResponse(BOMLineBase):
     inventory_available: Optional[float] = None
     is_available: Optional[bool] = None
     shortage: Optional[float] = None
+    # A purchase-order line that covers the shortage: quantity, unit and unit
+    # cost that agree with each other (e.g. 0.5 KG at the per-KG price).
+    suggested_purchase: Optional[dict] = None
     # Sub-assembly indicator (for MRP make vs buy)
     has_bom: Optional[bool] = None
 

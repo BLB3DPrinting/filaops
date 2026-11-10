@@ -27,6 +27,11 @@ from app.schemas.bom import (
     BOMLineUpdate,
     BOMCopyRequest,
 )
+from app.services.bom_component_cost import (
+    component_cost_for_bom,
+    convert_line_quantity,
+    suggested_purchase,
+)
 from app.services.uom_service import convert_quantity_safe
 
 logger = get_logger(__name__)
@@ -38,18 +43,13 @@ logger = get_logger(__name__)
 
 
 def get_effective_cost(product: Product) -> Decimal:
-    """Get the effective cost for a product using fallback priority.
+    """The cost a BOM line multiplies by for this component, or 0 when it has none.
 
-    Priority: standard_cost -> average_cost -> last_cost -> cost (legacy)
+    Priority: standard_cost -> average_cost -> last_cost. The result is per KG
+    for a material and per stock unit for everything else, which is what the
+    line-cost code in this module expects (see bom_component_cost).
     """
-    if product.standard_cost and product.standard_cost > 0:
-        return Decimal(str(product.standard_cost))
-    if product.average_cost and product.average_cost > 0:
-        return Decimal(str(product.average_cost))
-    if product.last_cost and product.last_cost > 0:
-        return Decimal(str(product.last_cost))
-    # Removed legacy 'cost' field fallback - use standard_cost, average_cost, or last_cost
-    return Decimal("0")
+    return component_cost_for_bom(product)
 
 
 def get_component_inventory(component_id: int, db: Session) -> dict:
@@ -159,7 +159,7 @@ def build_line_response(line: BOMLine, component: Optional[Product], comp_cost: 
         # Non-materials: Convert cost to BOM line's unit if different from component's unit
         # Cost is per component_unit, convert to per line.unit
         # Use _safe variant to handle empty UOM table with inline fallbacks
-        converted_factor, success = convert_quantity_safe(db, Decimal("1"), line.unit, component_unit)
+        converted_factor, success = convert_line_quantity(db, Decimal("1"), line.unit, component)
         if success:
             display_cost = comp_cost * converted_factor
 
@@ -275,7 +275,7 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
             and component_unit
             and line.unit != component_unit
         ):
-            converted_qty, success = convert_quantity_safe(db, effective_qty, line.unit, component_unit)
+            converted_qty, success = convert_line_quantity(db, effective_qty, line.unit, component)
             if success:
                 qty_needed_in_inventory_unit = float(converted_qty)
 
@@ -291,6 +291,7 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
             "inventory_available": inventory["available"],
             "is_available": is_available,
             "shortage": shortage,
+            "suggested_purchase": suggested_purchase(component, shortage),
             "has_bom": line.component_id in components_with_bom,
         })
 
@@ -368,7 +369,7 @@ def recalculate_bom_cost(
                     if line_unit and component_unit and line_unit.upper() != component_unit.upper():
                         # Convert effective_qty from line.unit to component.unit
                         # Use _safe variant to handle empty UOM table with inline fallbacks
-                        converted_qty, success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                        converted_qty, success = convert_line_quantity(db, effective_qty, line_unit, component)
                         if success:
                             total += cost * converted_qty
                         else:
@@ -470,7 +471,7 @@ def explode_bom_recursive(
                 # Non-materials: convert units if needed
                 qty_for_cost = effective_qty
                 if line.unit and component.unit and line.unit.upper() != component.unit.upper():
-                    converted_qty, success = convert_quantity_safe(db, effective_qty, line.unit, component.unit)
+                    converted_qty, success = convert_line_quantity(db, effective_qty, line.unit, component)
                     if success:
                         qty_for_cost = converted_qty
                 line_cost = float(cost * qty_for_cost)
@@ -564,7 +565,7 @@ def calculate_rolled_up_cost(bom_id: int, db: Session, visited: set = None) -> D
                     line_unit = line.unit
 
                     if line_unit and component_unit and line_unit.upper() != component_unit.upper():
-                        converted_qty, success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                        converted_qty, success = convert_line_quantity(db, effective_qty, line_unit, component)
                         if success:
                             total += component_cost * converted_qty
                         else:
@@ -1109,7 +1110,7 @@ def recalculate_bom_endpoint(db: Session, bom_id: int) -> dict:
             elif line_unit and component_unit and line_unit.upper() != component_unit.upper():
                 # Non-materials: Apply UOM conversion if needed
                 # Use _safe variant to handle empty UOM table with inline fallbacks
-                converted_qty, qty_success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                converted_qty, qty_success = convert_line_quantity(db, effective_qty, line_unit, component)
                 if qty_success:
                     line_cost = float(component_cost * converted_qty)
                     # Adjust unit cost to show per line unit
@@ -1367,7 +1368,7 @@ def get_cost_rollup(db: Session, bom_id: int) -> dict:
                     line_unit = line.unit
 
                     if line_unit and component_unit and line_unit.upper() != component_unit.upper():
-                        converted_qty, qty_success = convert_quantity_safe(db, effective_qty, line_unit, component_unit)
+                        converted_qty, qty_success = convert_line_quantity(db, effective_qty, line_unit, component)
                         if qty_success:
                             line_cost = component_cost * converted_qty
                             if effective_qty:

@@ -17,6 +17,7 @@ from app.services.cost_basis import (
     normalize_unit,
     purchase_line_for_stock_quantity,
     standard_cost_from_stock_cost,
+    standard_first_cost_per_stock_unit,
     stock_units_per_purchase_unit,
     uses_standard_cost,
 )
@@ -210,6 +211,58 @@ class TestUsesStandardCost:
             low = cost_per_stock_unit(_product(standard_cost=Decimal("5"), **costs))
             high = cost_per_stock_unit(_product(standard_cost=Decimal("50"), **costs))
             assert (low != high) is uses_standard_cost(_product(standard_cost=Decimal("5"), **costs))
+
+
+class TestStandardFirstCostPerStockUnit:
+    """The BOM roll-up order: standard cost first, converted to the stock unit."""
+
+    def test_boxed_part_standard_is_divided_by_the_pack_size(self):
+        """24.00 per box of 12 is 2.00 per each."""
+        product = _product(purchase_uom="BOX", purchase_factor=Decimal("12"), standard_cost=Decimal("24"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("2")
+
+    def test_filament_standard_is_converted_from_kg_to_g(self):
+        """20.00 per KG is 0.02 per gram."""
+        product = _product(unit="G", purchase_uom="KG", standard_cost=Decimal("20"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("0.02")
+
+    def test_standard_wins_over_average_whatever_the_cost_method(self):
+        """Unlike cost_per_stock_unit, the average is not used while a standard cost exists."""
+        for method in ("average", "standard", "fifo", "last"):
+            product = _product(
+                cost_method=method, purchase_uom="BOX", purchase_factor=Decimal("12"),
+                standard_cost=Decimal("24"), average_cost=Decimal("2.50"),
+            )
+            assert standard_first_cost_per_stock_unit(product) == Decimal("2")
+
+    def test_average_is_used_as_stored_when_there_is_no_standard(self):
+        """Average cost is already per stock unit."""
+        product = _product(unit="G", purchase_uom="KG", average_cost=Decimal("0.02"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("0.02")
+
+    def test_last_is_used_when_there_is_no_standard_or_average(self):
+        """Last cost is already per stock unit."""
+        product = _product(unit="G", purchase_uom="KG", last_cost=Decimal("0.03"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("0.03")
+
+    def test_a_zero_standard_falls_through_to_the_average(self):
+        """Only positive costs count."""
+        product = _product(standard_cost=Decimal("0"), average_cost=Decimal("3"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("3")
+
+    def test_a_zero_average_does_not_hide_a_later_cost(self):
+        """A zero average is skipped and the last cost is used."""
+        product = _product(average_cost=Decimal("0"), last_cost=Decimal("4"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("4")
+
+    def test_no_cost_at_all_is_none(self):
+        """None when nothing positive is stored."""
+        assert standard_first_cost_per_stock_unit(_product()) is None
+
+    def test_pack_with_no_pack_size_passes_the_standard_through(self):
+        """Without a pack size the standard cost is used unconverted, as cost_per_stock_unit does."""
+        product = _product(purchase_uom="BOX", standard_cost=Decimal("24"))
+        assert standard_first_cost_per_stock_unit(product) == Decimal("24")
 
 
 class TestPurchaseLineForStockQuantity:
