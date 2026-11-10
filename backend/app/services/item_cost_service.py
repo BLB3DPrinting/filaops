@@ -13,6 +13,7 @@ from app.logging_config import get_logger
 from app.models import Product, BOM
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.services.bom_management_service import recalculate_bom_cost
+from app.services.cost_basis import standard_cost_from_stock_cost
 
 logger = get_logger(__name__)
 
@@ -100,12 +101,16 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
         total_cost = bom_cost + routing_cost
     else:
         cost_source = "purchased"
+        # The result becomes the item's standard_cost, which is per PURCHASE
+        # unit ($/KG). average_cost and last_cost are per STOCK unit ($/G), so
+        # the fallbacks are scaled up; copying them straight across wrote a
+        # per-gram figure into a per-KG field.
         if item.standard_cost and item.standard_cost > 0:
             purchase_cost = float(item.standard_cost)
         elif item.average_cost:
-            purchase_cost = float(item.average_cost)
+            purchase_cost = float(standard_cost_from_stock_cost(item, item.average_cost))
         elif item.last_cost:
-            purchase_cost = float(item.last_cost)
+            purchase_cost = float(standard_cost_from_stock_cost(item, item.last_cost))
 
         total_cost = purchase_cost
 

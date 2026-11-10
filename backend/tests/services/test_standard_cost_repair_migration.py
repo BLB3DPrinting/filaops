@@ -86,9 +86,11 @@ class TestClassify:
         """pcs stocked, EA bought: the same unit, so equal costs are correct."""
         assert migration.classify("pcs", "EA", None, "0.0575", "0.0575") == "skip"
 
-    def test_pack_without_a_size_is_skipped(self, migration):
-        """No pack size: the units are unknown."""
-        assert migration.classify("EA", "BOX", None, "2", "2") == "skip"
+    def test_pack_without_a_size(self, migration):
+        """No pack size: nothing can be computed. Equal costs are still reported
+        for a manual check; different costs are passed over."""
+        assert migration.classify("EA", "BOX", None, "2", "2") == "ambiguous"
+        assert migration.classify("EA", "BOX", None, "24", "2") == "skip"
 
     def test_box_of_12_flipped(self, migration):
         """A box of 12 whose standard cost equals the per-each average is flipped."""
@@ -165,6 +167,17 @@ class TestRepairStandardCosts:
         assert item.standard_cost == Decimal("0.02")
         entry = next(r for r in report["ambiguous"] if r["sku"] == item.sku)
         assert "BOM or routing" in entry["reason"]
+
+    def test_pack_with_no_size_and_equal_costs_is_reported(self, db, make_product, migration):
+        """A supply stocked in G and bought by the EA with no pack size: equal
+        costs cannot be scaled, but they are listed with the reason."""
+        item = make_product(item_type="supply", unit="g", purchase_uom="EA",
+                            standard_cost=Decimal("0.022"), average_cost=Decimal("0.022"))
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("0.022")
+        entry = next(r for r in report["ambiguous"] if r["sku"] == item.sku)
+        assert "no pack size" in entry["reason"]
 
     def test_each_item_is_untouched(self, db, make_product, migration):
         """An EA / EA item with equal costs is correct and is not in scope."""

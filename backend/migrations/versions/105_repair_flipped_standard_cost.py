@@ -35,11 +35,13 @@ Step 2, standard costs the old receipt sync wrote.
 
 Left alone, and listed in the upgrade output for a manual check:
     - a standard cost that equals the average on an item with fewer than 10
-      stock units per purchase unit, or with an active BOM or routing;
+      stock units per purchase unit, with an active BOM or routing, or whose
+      purchase unit is a pack with no pack size recorded;
     - a standard cost that is neither equal to the average nor about
       (units x average).
-Left alone silently: items with no standard or average cost, and a pack
-purchase unit with no pack size. Nothing is guessed.
+Left alone silently: items with no standard or average cost, and a pack with
+no pack size whose two costs differ (there is nothing to compare them by).
+Nothing is guessed.
 
 Idempotent: a repaired item no longer matches, so a rerun changes nothing.
 
@@ -134,8 +136,12 @@ def classify(unit, purchase_uom, purchase_factor, standard_cost, average_cost) -
     if standard <= 0 or average <= 0:
         return "skip"
     units = stock_units_per_purchase_unit(unit, purchase_uom, purchase_factor)
-    if units is None or units == 1:
+    if units == 1:
         return "skip"
+    if units is None:
+        # A pack with no pack size: nothing can be computed, but an equal value
+        # is still worth a look, so it is reported instead of passed over.
+        return "ambiguous" if standard == average else "skip"
     if standard == average:
         return "flipped" if units >= MIN_UNITS else "ambiguous"
     ratio = standard / average
@@ -213,7 +219,14 @@ def repair_standard_costs(bind) -> dict:
         if kind == "ambiguous":
             reason = "standard cost is neither equal to the average nor about units x average"
             if Decimal(str(row["standard_cost"])) == Decimal(str(row["average_cost"])):
-                reason = "equals the average, but too few stock units per purchase unit to be sure"
+                known_units = stock_units_per_purchase_unit(
+                    row["unit"], row["purchase_uom"], row["purchase_factor"]
+                )
+                reason = (
+                    "equals the average, but too few stock units per purchase unit to be sure"
+                    if known_units is not None
+                    else "equals the average, and the purchase unit is a pack with no pack size"
+                )
         elif kind == "flipped" and row["id"] in own_costing:
             reason = "equals the average, but the item has an active BOM or routing"
         if reason:
