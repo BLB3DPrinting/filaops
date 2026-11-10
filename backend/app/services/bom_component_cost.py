@@ -15,6 +15,18 @@ service already has:
   grams (``bom_management_service.calculate_material_line_cost``);
 * everything else is costed per stock unit and its line quantity is turned
   into stock units (``convert_line_quantity``).
+
+Known limits, left for the cost-contract work:
+
+* A material's standard cost is read as $/KG whatever its purchase unit. The
+  material form and the material import store a price per KG there for every
+  material, while a purchase-order receipt stores it per purchase unit, so
+  for a material bought by the LB or OZ the two writers disagree and the
+  stored figure cannot be told apart.
+* A material stocked by the each has per-each costs. Its average or last cost
+  is still multiplied by 1000 here; the line cost comes out right because the
+  line-cost code divides an each quantity by 1000, but the unit cost shown is
+  1000 times the per-each cost. With a standard cost it is costed as before.
 """
 from decimal import Decimal
 from typing import Any, Optional, Tuple
@@ -23,20 +35,13 @@ from sqlalchemy.orm import Session
 
 from app.services.cost_basis import (
     normalize_unit,
-    purchase_line_for_stock_quantity,
     standard_first_cost_per_stock_unit,
     stock_units_per_purchase_unit,
 )
 from app.services.inventory_helpers import is_material
-from app.services.uom_service import INLINE_UOM_CONVERSIONS, convert_quantity_safe
+from app.services.uom_service import convert_quantity_safe
 
 _GRAMS_PER_KG = Decimal("1000")
-
-# Purchase units whose standard cost is converted to $/KG for a material. A
-# standard cost per KG is used as stored. So is one whose purchase unit is G,
-# EA or a pack: the BOM has always read a material's standard cost as $/KG, and
-# existing rows were entered that way whatever purchase unit they carry.
-_CONVERTED_MASS_UNITS = ("LB", "OZ")
 
 
 def _positive(value: Any) -> Optional[Decimal]:
@@ -50,17 +55,13 @@ def _positive(value: Any) -> Optional[Decimal]:
 def _material_cost_per_kg(product: Any) -> Decimal:
     """A material's cost per KG: standard cost first, then average, then last.
 
-    The standard cost is per purchase unit: per KG as stored, and per LB or OZ
-    converted by weight. Average and last cost are per gram for every material,
-    because receiving stores them that way (see the known limit in
-    ``cost_basis``), so they are multiplied by 1000.
+    The standard cost is used as stored: the BOM has always read a material's
+    standard cost as $/KG. Average and last cost are per gram for a material
+    stocked by weight (G, KG, LB, OZ), because receiving stores them that way
+    whatever the stock unit, so they are multiplied by 1000.
     """
     standard = _positive(getattr(product, "standard_cost", None))
     if standard is not None:
-        purchase_unit = normalize_unit(getattr(product, "purchase_uom", None))
-        if purchase_unit in _CONVERTED_MASS_UNITS:
-            # Table factors are KG per unit, so this is (KG per KG) / (KG per LB).
-            return standard * INLINE_UOM_CONVERSIONS["KG"]["factor"] / INLINE_UOM_CONVERSIONS[purchase_unit]["factor"]
         return standard
 
     for column in ("average_cost", "last_cost"):
@@ -85,9 +86,11 @@ def convert_line_quantity(
 ) -> Tuple[Decimal, bool]:
     """Turn a BOM line quantity into the component's stock unit.
 
-    Tries the unit conversion first (KG to G). When there is none and the line
-    is written in the component's purchase unit, the pack size is used, so a
-    line of 1 BOX of a part bought in boxes of 12 is 12 EA.
+    A line written in the component's purchase unit uses the same figure the
+    cost does (``cost_basis.stock_units_per_purchase_unit``): 1 BOX of a part
+    bought in boxes of 12 is 12 EA, and 1 KG of a gram-stocked item is 1000 G.
+    That comes first, so a unit-table row for BOX cannot disagree with the
+    item's own pack size. Any other unit goes through the unit conversion.
 
     Returns ``(quantity, True)`` when converted or already in the stock unit,
     and ``(the quantity unchanged, False)`` when it cannot be converted.
@@ -96,27 +99,10 @@ def convert_line_quantity(
     if not line_unit or not stock_unit or line_unit.upper() == stock_unit.upper():
         return quantity, True
 
-    converted, success = convert_quantity_safe(db, quantity, line_unit, stock_unit)
-    if success:
-        return converted, True
-
     purchase_unit = getattr(component, "purchase_uom", None)
     if purchase_unit and normalize_unit(line_unit) == normalize_unit(purchase_unit):
         units = stock_units_per_purchase_unit(component)
         if units is not None:
             return quantity * units, True
-    return quantity, False
 
-
-def suggested_purchase(component: Any, shortage: Any) -> Optional[dict]:
-    """A purchase-order line that covers a shortage given in stock units.
-
-    The quantity, unit and unit cost agree with each other and with what
-    receiving can convert (``cost_basis.purchase_line_for_stock_quantity``):
-    500 G of filament short is 0.5 KG at the per-KG price. None when nothing
-    is short.
-    """
-    if component is None or not shortage or shortage <= 0:
-        return None
-    quantity, unit, unit_cost = purchase_line_for_stock_quantity(component, Decimal(str(shortage)))
-    return {"quantity": float(quantity), "unit": unit, "unit_cost": float(unit_cost)}
+    return convert_quantity_safe(db, quantity, line_unit, stock_unit)

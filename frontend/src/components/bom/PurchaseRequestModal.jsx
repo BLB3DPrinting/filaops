@@ -3,17 +3,9 @@ import { API_URL } from "../../config/api";
 
 // Purchase Request Modal content - Creates actual PO from BOM shortage
 export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
-  // The server suggests a purchase line whose quantity, unit and unit cost
-  // agree: 500 G of filament short is 0.5 KG at the per-KG price. Without a
-  // suggestion the line is ordered in the stock unit and the cost is typed
-  // in, because the cost shown on the BOM line can be in another unit.
-  const suggestion = line?.suggested_purchase || null;
-  const purchaseUnit = suggestion?.unit || line?.component_unit || "EA";
-  const [quantity, setQuantity] = useState(
-    suggestion?.quantity ?? (line?.shortage || 1)
-  );
+  const [quantity, setQuantity] = useState(line?.shortage || 1);
   const [vendorId, setVendorId] = useState("");
-  const [unitCost, setUnitCost] = useState(suggestion?.unit_cost ?? 0);
+  const [unitCost, setUnitCost] = useState(line?.component_cost || 0);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [vendors, setVendors] = useState([]);
@@ -70,7 +62,6 @@ export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
             {
               product_id: line.component_id,
               quantity_ordered: quantity,
-              purchase_unit: purchaseUnit,
               unit_cost: unitCost,
               notes: `From BOM shortage`,
             },
@@ -114,7 +105,7 @@ export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
         </div>
         <h4 className="text-white font-medium mb-2">Purchase Order Created</h4>
         <p className="text-gray-400 text-sm mb-2">
-          {createdPO.po_number} for {quantity} {purchaseUnit} of{" "}
+          {createdPO.po_number} for {quantity} {line.component_unit} of{" "}
           {line.component_name}
         </p>
         <p className="text-gray-500 text-xs mb-4">
@@ -189,11 +180,11 @@ export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">
-            Quantity to Order ({purchaseUnit}) *
+            Quantity to Order *
           </label>
           <input
             type="number"
-            step="any"
+            step="0.01"
             value={quantity}
             onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
@@ -201,11 +192,11 @@ export default function PurchaseRequestModal({ line, onClose, onSuccess }) {
         </div>
         <div>
           <label className="block text-sm text-gray-400 mb-1">
-            Unit Cost ($ per {purchaseUnit}) *
+            Unit Cost ($) *
           </label>
           <input
             type="number"
-            step="any"
+            step="0.01"
             value={unitCost}
             onChange={(e) => setUnitCost(parseFloat(e.target.value) || 0)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"

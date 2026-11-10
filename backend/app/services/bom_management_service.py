@@ -27,11 +27,7 @@ from app.schemas.bom import (
     BOMLineUpdate,
     BOMCopyRequest,
 )
-from app.services.bom_component_cost import (
-    component_cost_for_bom,
-    convert_line_quantity,
-    suggested_purchase,
-)
+from app.services.bom_component_cost import component_cost_for_bom, convert_line_quantity
 from app.services.uom_service import convert_quantity_safe
 
 logger = get_logger(__name__)
@@ -291,7 +287,6 @@ def build_bom_response(bom: BOM, db: Session) -> dict:
             "inventory_available": inventory["available"],
             "is_available": is_available,
             "shortage": shortage,
-            "suggested_purchase": suggested_purchase(component, shortage),
             "has_bom": line.component_id in components_with_bom,
         })
 
@@ -461,6 +456,9 @@ def explode_bom_recursive(
         from app.services.inventory_helpers import is_material
         cost = get_effective_cost(component)
         component_cost = float(cost) if cost else 0.0
+        # The unit that cost is in: KG for a material, else the stock unit,
+        # or the line unit once the cost has been converted to it below.
+        component_cost_unit = "KG" if is_material(component) else component.unit
 
         # Calculate line cost with material-aware logic
         line_cost = 0.0
@@ -478,6 +476,7 @@ def explode_bom_recursive(
                             # Show the unit cost per line unit, so it reads
                             # against the quantity column (1 BOX x 24.00).
                             component_cost = float(cost * converted_qty / effective_qty)
+                            component_cost_unit = line.unit
                 line_cost = float(cost * qty_for_cost)
         else:
             line_cost = 0.0
@@ -488,6 +487,8 @@ def explode_bom_recursive(
             "component_name": component.name,
             "component_unit": component.unit,
             "component_cost": component_cost,
+            "component_cost_unit": component_cost_unit,
+            "unit": line.unit,
             "base_quantity": float(qty),
             "effective_quantity": float(effective_qty),
             "scrap_factor": float(scrap) if scrap else 0,
@@ -1289,6 +1290,8 @@ def explode_bom(db: Session, bom_id: int, max_depth: int = 10, flatten: bool = F
             "quantity_per_unit": comp.get("base_quantity", 0),
             "extended_quantity": comp.get("effective_quantity", 0),
             "unit_cost": comp.get("component_cost", 0),
+            "unit_cost_unit": comp.get("component_cost_unit"),
+            "unit": comp.get("unit"),
             "line_cost": comp.get("line_cost", 0),
             "is_sub_assembly": comp.get("is_sub_assembly", False),
             "sub_bom_id": comp.get("sub_bom_id"),
