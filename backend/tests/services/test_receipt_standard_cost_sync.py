@@ -76,11 +76,13 @@ class TestReceiptStandardCostSync:
     def test_standard_cost_comes_from_the_unrounded_average(
         self, db, filament, make_vendor, make_purchase_order,
     ):
-        """$12.67/KG must not come back as $12.70 because the per-gram average
-        was rounded to 4 decimal places first."""
-        _receive(db, make_vendor, make_purchase_order, filament, 3, "12.67", "KG")
+        """$14.99/KG stores a per-gram average of $0.0150 (4 decimal places).
+        Standard cost is built from the unrounded $0.01499, so it is $14.99 and
+        not the $15.00 that scaling the rounded average would give."""
+        _receive(db, make_vendor, make_purchase_order, filament, 1, "14.99", "KG")
 
-        assert Decimal(str(filament.standard_cost)) != Decimal("12.70")
+        assert Decimal(str(filament.average_cost)) == Decimal("0.015")
+        assert Decimal(str(filament.standard_cost)) == Decimal("14.99")
 
     def test_both_cost_fields_give_the_same_cost_per_gram(
         self, db, filament, make_vendor, make_purchase_order,
