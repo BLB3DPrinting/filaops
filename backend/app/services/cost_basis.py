@@ -138,6 +138,26 @@ def cost_per_stock_unit(product: Any) -> Optional[Decimal]:
     return standard_cost / units
 
 
+def standard_cost_from_stock_cost(product: Any, stock_cost: Any) -> Decimal:
+    """
+    Express a cost per stock unit as a standard cost, which is per purchase unit.
+
+    The inverse of the standard-cost branch of :func:`cost_per_stock_unit`:
+    $0.01267/G for a filament bought by the KG is a $12.67 standard cost.
+    Rounded to 4 decimal places, the precision of ``products.standard_cost``.
+    Pass the unrounded stock cost where it is available, so the result is not
+    built on a per-gram figure already rounded to 4 places.
+
+    A pack purchase unit with no pack size is returned unscaled, matching the
+    pass-through in ``cost_per_stock_unit`` so the two stay inverse.
+    """
+    stock_cost = Decimal(str(stock_cost))
+    units = stock_units_per_purchase_unit(product)
+    if units is None:
+        units = Decimal("1")
+    return (stock_cost * units).quantize(_FOUR_DP, rounding=ROUND_HALF_UP)
+
+
 def purchase_line_for_stock_quantity(
     product: Any, stock_quantity: Decimal
 ) -> Tuple[Decimal, str, Decimal]:
