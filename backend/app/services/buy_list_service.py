@@ -51,6 +51,7 @@ from app.schemas.buy_list import (
     BuyListResponse,
     BuyListSummary,
 )
+from app.services.cost_basis import cost_per_stock_unit
 from app.services.mrp import MRPService
 from app.services.supply_netting import get_projected_available, get_projected_available_bulk
 from app.logging_config import get_logger
@@ -358,18 +359,9 @@ def get_buy_list(
         if pref_vendor_id and pref_vendor_id in vendors:
             pref_vendor_name = vendors[pref_vendor_id].name
 
-        # Unit cost (standard preferred; fall back to last_cost)
-        raw_cost = Decimal(str(product.standard_cost or product.last_cost or 0))
-
-        # Apply UOM cost conversion (filament costs stored per KG, inventory in grams)
-        try:
-            from app.services.uom_service import get_cost_reference_unit, convert_cost_for_unit
-            product_unit = (product.unit or "EA").upper().strip()
-            cost_ref_unit = get_cost_reference_unit(product_unit)
-            converted_cost = convert_cost_for_unit(raw_cost, cost_ref_unit, product_unit)
-            unit_cost = converted_cost if converted_cost is not None else raw_cost
-        except Exception:
-            unit_cost = raw_cost
+        # Cost per STOCK unit: suggested_qty is in the product's stock unit, so
+        # use the shared cost-basis rule.
+        unit_cost = cost_per_stock_unit(product) or Decimal("0")
 
         est_buy_value = suggested_qty * unit_cost
         total_buy_value += est_buy_value

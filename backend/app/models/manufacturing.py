@@ -323,20 +323,22 @@ class RoutingOperationMaterial(Base):
         """
         Cost per STORAGE unit of this material (Decimal).
 
-        Component costs are stored per PURCHASE unit (e.g., $/KG for filament).
-        Must divide by purchase_factor to get cost per STORAGE unit (e.g., $/G).
+        Uses the shared cost-basis rule (app/services/cost_basis.py):
+        average_cost and last_cost are already per storage unit, and only
+        standard_cost is converted from the purchase unit. Dividing every cost
+        by purchase_factor here costed received filament 1000x low.
 
         Examples:
-          - Filament: $20/KG ÷ 1000 = $0.02/G
-          - Hardware: $5/EA  ÷ 1    = $5/EA
+          - Filament never received: standard $20/KG -> $0.02/G
+          - Filament received:       average $0.02/G -> $0.02/G
+          - Hardware:                $5/EA           -> $5/EA
         """
         if not self.component:
             return Decimal("0")
-        cost = self.component.standard_cost or self.component.average_cost or self.component.last_cost
-        if not cost:
-            return Decimal("0")
-        purchase_factor = Decimal(str(self.component.purchase_factor or 1))
-        return Decimal(str(cost)) / purchase_factor
+        # Imported here: services import models, not the other way round.
+        from app.services.cost_basis import cost_per_stock_unit
+
+        return cost_per_stock_unit(self.component) or Decimal("0")
 
     @property
     def extended_cost(self):

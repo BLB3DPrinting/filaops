@@ -37,6 +37,7 @@ from app.models.user import User
 from app.api.v1.deps import get_current_staff_user
 from app.services.payment_service import outstanding_balance_summary
 from app.services import cogs_report_service
+from app.services.cost_basis import cost_per_stock_unit
 from app.schemas.accounting import (
     InventoryByAccountResponse,
     TransactionsJournalResponse,
@@ -141,8 +142,8 @@ async def get_inventory_by_account(
         else:
             account = "1300"  # Default to raw materials
 
-        # Calculate value (use product standard_cost if available)
-        unit_cost = getattr(product, 'standard_cost', None) or Decimal("0")
+        # Value at cost per STOCK unit, matching on_hand_quantity.
+        unit_cost = cost_per_stock_unit(product) or Decimal("0")
         total_value = inv.on_hand_quantity * unit_cost
 
         accounts[account]["total_value"] += total_value

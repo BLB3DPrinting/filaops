@@ -848,7 +848,9 @@ async def buy_shipping_label(
             if res_txn:
                 reserved_qty = int(abs(float(res_txn.quantity)))  # PackagingUsed expects int
                 pkg_product = db.query(Product).filter(Product.id == line.component_id).first()
-                pkg_cost = pkg_product.cost if pkg_product and pkg_product.cost else Decimal("0")
+                pkg_cost = (
+                    get_effective_cost_per_inventory_unit(pkg_product) if pkg_product else None
+                ) or Decimal("0")
 
                 packaging_list.append(PackagingUsed(
                     product_id=line.component_id,
@@ -873,9 +875,7 @@ async def buy_shipping_label(
 
     # Call TransactionService for atomic shipment with GL
     if fg_product and qty_shipped > 0:
-        fg_cost = fg_product.standard_cost if fg_product.standard_cost else (
-            fg_product.cost if fg_product.cost else Decimal("0")
-        )
+        fg_cost = get_effective_cost_per_inventory_unit(fg_product) or Decimal("0")
 
         # Build shipment items list (uses ShipmentItem NamedTuple)
         shipment_items = [ShipmentItem(

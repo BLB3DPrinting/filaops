@@ -87,6 +87,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory, InventoryTransaction
 from app.models.product import Product
+from app.services.cost_basis import cost_per_stock_unit
 from app.services.gl_account_map import inventory_account_for
 from app.logging_config import get_logger
 
@@ -382,15 +383,8 @@ def post_reconciliation_baseline(
         # --- Step 3: post GL entry (cycle-count variance semantics) ---
         product = db.get(ProductModel, product_id)
         if product is not None:
-            unit_cost = (
-                product.standard_cost
-                if product.standard_cost is not None
-                else (
-                    product.average_cost
-                    if product.average_cost is not None
-                    else Decimal("0")
-                )
-            )
+            # Cost per STOCK unit: the delta is in stock units.
+            unit_cost = cost_per_stock_unit(product) or Decimal("0")
             total_cost = abs(delta) * unit_cost
 
             # Shared item_type -> account map (#910).
