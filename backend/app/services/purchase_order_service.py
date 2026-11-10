@@ -26,6 +26,7 @@ from app.models.material_spool import MaterialSpool
 from app.models.traceability import MaterialLot
 from app.models.bom import BOM
 from app.models.manufacturing import Routing
+from app.services.cost_basis import standard_cost_from_stock_cost
 from app.services.uom_service import convert_quantity_safe, get_conversion_factor
 from app.services.inventory_helpers import is_material
 from app.services.transaction_service import TransactionService, ReceiptItem
@@ -1027,6 +1028,9 @@ def receive_purchase_order(
                 product.average_cost = float(
                     weighted_avg.quantize(Decimal("0.0001"))
                 )
+                # Kept unrounded for the standard_cost sync below: scaling the
+                # 4-dp per-gram value back to per-KG would turn $12.67 into $12.70.
+                accum["average_unrounded"] = weighted_avg
                 logger.debug(
                     f"Weighted avg for {product.sku}: "
                     f"({old_qty}×${old_cost} + batch_cost ${accum['receipt_cost_total']}) "
@@ -1034,6 +1038,7 @@ def receive_purchase_order(
                 )
             elif total_new_qty > 0:
                 product.average_cost = float(cost_per_unit_for_inventory)
+                accum["average_unrounded"] = cost_per_unit_for_inventory
 
             product.last_cost = float(cost_per_unit_for_inventory)
             product.last_cost_date = datetime.now(timezone.utc)
@@ -1175,6 +1180,10 @@ def receive_purchase_order(
     # standard_cost via cost rollup, so leaving them alone preserves the
     # variance signal and lets recost handle them. Skipped products
     # (effective_unit != product_unit) are absent from product_receipt_accum.
+    #
+    # average_cost is per STOCK unit ($/G) and standard_cost is per PURCHASE
+    # unit ($/KG), so the average is scaled back up. Copying it straight across
+    # turned a $20.00/KG standard cost into $0.0200 on the first receipt.
     if product_receipt_accum:
         synced_pids = list(product_receipt_accum.keys())
         bom_pids = {
@@ -1192,10 +1201,16 @@ def receive_purchase_order(
                 continue
             product_to_sync = db.query(Product).filter(Product.id == pid).first()
             if product_to_sync and product_to_sync.average_cost is not None:
-                product_to_sync.standard_cost = product_to_sync.average_cost
+                stock_cost = product_receipt_accum[pid].get(
+                    "average_unrounded", product_to_sync.average_cost
+                )
+                product_to_sync.standard_cost = standard_cost_from_stock_cost(
+                    product_to_sync, stock_cost
+                )
                 logger.debug(
                     f"Auto-synced standard_cost for purchased item {product_to_sync.sku}: "
-                    f"${product_to_sync.standard_cost} (= average_cost)"
+                    f"${product_to_sync.standard_cost} per purchase unit "
+                    f"(average ${product_to_sync.average_cost} per stock unit)"
                 )
 
     # PO receipt via TransactionService

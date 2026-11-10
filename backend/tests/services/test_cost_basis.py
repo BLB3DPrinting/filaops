@@ -16,6 +16,7 @@ from app.services.cost_basis import (
     cost_per_stock_unit,
     normalize_unit,
     purchase_line_for_stock_quantity,
+    standard_cost_from_stock_cost,
     stock_units_per_purchase_unit,
 )
 
@@ -226,3 +227,37 @@ class TestPurchaseLineForStockQuantity:
         p = _product(unit="G", purchase_uom="KG")
         qty, unit, unit_cost = purchase_line_for_stock_quantity(p, Decimal("1000"))
         assert (qty, unit, unit_cost) == (Decimal("1.0000"), "KG", Decimal("0.0000"))
+
+
+class TestStandardCostFromStockCost:
+    """A cost per stock unit expressed as a standard cost (per purchase unit)."""
+
+    def test_filament_per_gram_becomes_per_kg(self):
+        """$0.01267/G for a KG-bought filament is a $12.67 standard cost."""
+        p = _product(unit="G", purchase_uom="KG", purchase_factor=Decimal("1000"))
+        assert standard_cost_from_stock_cost(p, Decimal("0.01267")) == Decimal("12.6700")
+
+    def test_box_of_12(self):
+        """$2 each is $24 per box of 12."""
+        p = _product(unit="EA", purchase_uom="BOX", purchase_factor=Decimal("12"))
+        assert standard_cost_from_stock_cost(p, Decimal("2")) == Decimal("24.0000")
+
+    def test_same_unit_is_unchanged(self):
+        """Bought and stocked in EA: the same number, at 4 decimal places."""
+        assert standard_cost_from_stock_cost(_product(), Decimal("5")) == Decimal("5.0000")
+
+    def test_pack_without_a_size_is_not_scaled(self):
+        """No pack size known: unscaled, the inverse of the read-side pass-through."""
+        p = _product(unit="EA", purchase_uom="BOX")
+        assert standard_cost_from_stock_cost(p, Decimal("2")) == Decimal("2.0000")
+
+    def test_round_trips_with_cost_per_stock_unit(self):
+        """Writing a standard cost and reading it back gives the stock cost again."""
+        p = _product(cost_method="standard", unit="G", purchase_uom="KG")
+        p.standard_cost = standard_cost_from_stock_cost(p, Decimal("0.025"))
+        assert cost_per_stock_unit(p) == Decimal("0.025")
+
+    def test_accepts_a_float_average_cost(self):
+        """The receipt code holds average_cost as a float."""
+        p = _product(unit="G", purchase_uom="KG")
+        assert standard_cost_from_stock_cost(p, 0.02) == Decimal("20.0000")
