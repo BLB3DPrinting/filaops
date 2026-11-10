@@ -19,6 +19,14 @@ import DuplicateItemModal from "../../components/items/DuplicateItemModal";
 import SuggestPricesModal from "../../components/items/SuggestPricesModal";
 import VariantMatrixModal from "../../components/items/VariantMatrixModal";
 
+/**
+ * Items list page: category sidebar, filters, and a table or card view.
+ *
+ * Paging contract: `pagination.page` is changed only by the paging controls.
+ * It goes back to 1 when a filter, the page size or the settled search term
+ * changes. Search is fetched through `debouncedSearch`, so typing does not fetch
+ * per keystroke and a page change cannot re-arm the search timer.
+ */
 export default function AdminItems() {
   const api = useApi();
   const toast = useToast();

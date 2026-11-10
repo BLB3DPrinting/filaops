@@ -33,6 +33,7 @@ vi.mock('../../../components/Toast', () => ({
 
 import AdminItems from '../AdminItems'
 
+/** Builds the n-th fake item (SKU-0001, SKU-0002, ...) with the fields the table reads. */
 function makeItem(n) {
   return {
     id: n,
@@ -58,6 +59,10 @@ function makeItem(n) {
 
 const ALL_ITEMS = Array.from({ length: TOTAL_ITEMS }, (_, i) => makeItem(i + 1))
 
+/**
+ * Fake `GET /api/v1/items?...`: records the request in `itemRequests` and returns
+ * the requested slice of ALL_ITEMS, narrowed by `search` when one is given.
+ */
 function serveItems(url) {
   const params = new URLSearchParams(url.split('?')[1])
   const offset = Number(params.get('offset') || 0)
@@ -73,8 +78,10 @@ function serveItems(url) {
   return { items: matching.slice(offset, offset + limit), total: matching.length }
 }
 
+/** Lets real timers run for `ms` (inside act), so a stray debounce timer can fire. */
 const settle = (ms = SETTLE_MS) => act(() => new Promise((resolve) => setTimeout(resolve, ms)))
 
+/** Renders the real page and waits until page 1 is shown and its timers have settled. */
 async function renderItemsPage() {
   render(
     <MemoryRouter>
@@ -87,6 +94,7 @@ async function renderItemsPage() {
   await settle() // let any trailing timer from the first load fire before the test starts
 }
 
+/** Clicks Next and checks the table is still on page 2 once the debounce window has passed. */
 async function goToPageTwo() {
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   await screen.findByText('SKU-0051')
@@ -95,8 +103,10 @@ async function goToPageTwo() {
   expect(screen.getByText('Page 2 of 3')).toBeInTheDocument()
 }
 
-// Types each value in turn with no pause between them (one debounce window),
-// then waits for the page to react and for any stray timer to fire.
+/**
+ * Types each value in turn with no pause between them (one debounce window),
+ * then waits for the page to react and for any stray timer to fire.
+ */
 async function typeSearch(values) {
   const before = itemRequests.length
   const box = screen.getByPlaceholderText('Search by SKU, name, or UPC...')
