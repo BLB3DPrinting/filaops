@@ -10,7 +10,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
-from app.models import Product, BOM
+from app.models import Product, BOM, BOMLine
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.services.bom_management_service import recalculate_bom_cost
 from app.services.cost_basis import standard_cost_from_stock_cost
@@ -160,6 +160,99 @@ def recost_item(db: Session, item_id: int) -> dict:
     }
 
 
+def components_first(
+    item_ids: list[int], dependencies: dict[int, set[int]]
+) -> tuple[list[int], set[int]]:
+    """Order ``item_ids`` so each item comes after the items it is built from.
+
+    ``dependencies`` maps an item id to the ids of its direct components.
+    Components that are not in ``item_ids`` are ignored. Items with nothing
+    between them keep the order they were given in.
+
+    Returns the ordered ids and the ids found on a circular path (an item
+    built, directly or through others, from itself). Circular items cannot be
+    ordered against each other; they are still returned once each, after
+    everything else they are built from.
+    """
+    position = {item_id: index for index, item_id in enumerate(item_ids)}
+
+    def components_of(item_id: int) -> list[int]:
+        """The item's components that are part of this run, in the given order."""
+        return sorted(
+            (c for c in dependencies.get(item_id, ()) if c in position),
+            key=position.__getitem__,
+        )
+
+    ordered: list[int] = []
+    done: set[int] = set()
+    circular: set[int] = set()
+
+    # Depth-first, components before the item, with an explicit stack: a long
+    # chain of sub-assemblies must not run into Python's recursion limit.
+    for root in item_ids:
+        if root in done:
+            continue
+        path = [root]
+        on_path = {root}
+        stack = [iter(components_of(root))]
+        while stack:
+            item_id = path[-1]
+            for component_id in stack[-1]:
+                if component_id in done:
+                    continue
+                if component_id in on_path:
+                    # Back to an item still being worked on: everything from
+                    # there to here is built from itself.
+                    circular.update(path[path.index(component_id):])
+                    continue
+                path.append(component_id)
+                on_path.add(component_id)
+                stack.append(iter(components_of(component_id)))
+                break
+            else:
+                stack.pop()
+                path.pop()
+                on_path.discard(item_id)
+                done.add(item_id)
+                ordered.append(item_id)
+
+    return ordered, circular
+
+
+def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
+    """Map each of ``item_ids`` to the items its cost is built from.
+
+    ``calculate_item_cost`` reads a component's stored cost from two places:
+    the lines of the item's active BOM and the materials on the active
+    operations of its active routing. Every active BOM and routing is
+    included, not only the one costing picks, so an item with more than one
+    is still costed after all the items it could be built from.
+    """
+    dependencies: dict[int, set[int]] = {item_id: set() for item_id in item_ids}
+
+    bom_rows = (
+        db.query(BOM.product_id, BOMLine.component_id)
+        .join(BOMLine, BOMLine.bom_id == BOM.id)
+        .filter(BOM.active.is_(True))
+        .all()
+    )
+    routing_rows = (
+        db.query(Routing.product_id, RoutingOperationMaterial.component_id)
+        .join(RoutingOperation, RoutingOperation.routing_id == Routing.id)
+        .join(
+            RoutingOperationMaterial,
+            RoutingOperationMaterial.routing_operation_id == RoutingOperation.id,
+        )
+        .filter(Routing.is_active.is_(True), RoutingOperation.is_active.is_(True))
+        .all()
+    )
+    for product_id, component_id in (*bom_rows, *routing_rows):
+        if product_id in dependencies and component_id is not None:
+            dependencies[product_id].add(component_id)
+
+    return dependencies
+
+
 def recost_all_items(
     db: Session,
     *,
@@ -170,7 +263,11 @@ def recost_all_items(
     """
     Recost all items matching filters.
 
-    Returns dict with: updated, skipped, items (list of results).
+    Items are costed components first, so an assembly is priced from the
+    cost its sub-assemblies have just been given and one run is enough.
+
+    Returns dict with: updated, skipped, items (list of results), and
+    circular_skus (items built from themselves, which cannot be ordered).
     """
     # Function-level import avoids a circular import with item_service,
     # which re-exports this module's public functions.
@@ -187,11 +284,25 @@ def recost_all_items(
 
     items = query.all()
 
+    # An assembly is priced from the stored cost of its direct components, so
+    # a sub-assembly has to be recosted before the items built from it.
+    items_by_id = {item.id: item for item in items}
+    order, circular_ids = components_first(
+        [item.id for item in items], cost_dependencies(db, set(items_by_id))
+    )
+    circular_skus = sorted(items_by_id[item_id].sku for item_id in circular_ids)
+    if circular_skus:
+        logger.warning(
+            "Recost all: these items are built from themselves, directly or "
+            "through other items, so their costs depend on the order they were "
+            "costed in: " + ", ".join(circular_skus)
+        )
+
     updated = 0
     skipped = 0
     results = []
 
-    for item in items:
+    for item in (items_by_id[item_id] for item_id in order):
         cost_data = calculate_item_cost(item, db)
 
         if cost_source_filter and cost_data["cost_source"] != cost_source_filter:
@@ -227,4 +338,5 @@ def recost_all_items(
         "updated": updated,
         "skipped": skipped,
         "items": results,
+        "circular_skus": circular_skus,
     }
