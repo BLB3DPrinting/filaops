@@ -195,6 +195,10 @@ when they are recalculated. Coming from 4.3.2 or older:
   Items list by Active, Inactive or All.
 - **Items page:** the table stays on the page you move to. It used to go back
   to page 1 a moment after you clicked **Next**.
+- **Going back a version:** if an older version is started on an upgraded
+  database, the migrate step's message no longer tells you to delete the
+  database volume. Versions before 4.4.0 still print the old message, so
+  follow [Rolling back](#rolling-back).
 - **Scheduling:** the scheduler board draws operations that share one machine
   and one window as a single block, and counts a lane's overlapping bookings
   once.

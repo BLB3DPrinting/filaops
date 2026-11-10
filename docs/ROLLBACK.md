@@ -196,8 +196,9 @@ docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE filaops_af
 
 **Never start an older version against a database that a newer version has
 upgraded.** Its migrate step stops with a "DATABASE MIGRATION MISMATCH"
-message that suggests removing the database volume. Do not do that: it deletes
-all your data. Restore the backup with the steps above instead.
+message. In versions before 4.4.0 that message tells you to remove the
+database volume. Do not do that: it deletes all your data. Restore the backup
+with the steps above instead.
 
 **Manual install.** The database steps are the same, run with your own `psql`
 in place of `docker exec filaops-db psql`, and with the path to your backup
