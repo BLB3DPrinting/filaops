@@ -338,7 +338,8 @@ def unit_report_lines(report: dict) -> list:
         (
             logging.WARNING,
             f"105: {item['sku']} left at purchase unit EA with factor 1000: "
-            f"{item['reason']}. If it is bought by the KG, set its purchase unit to KG.",
+            f"{item['reason']}. If it is bought by the KG, set its purchase unit to KG "
+            "(PATCH /api/v1/items/{id} with purchase_uom; the item form has no field for it).",
         )
         for item in report["left"]
     )
