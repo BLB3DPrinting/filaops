@@ -70,11 +70,14 @@ macOS shell. Git Bash on Windows rewrites the `/tmp/...` paths, so the
 commands fail there.
 
 If you changed `DB_USER` or `DB_NAME`: put your user after `-U`, and your
-database name in place of `filaops` in the two `ALTER DATABASE` commands of
-step 4. Leave everything else as written. `-d postgres` is PostgreSQL's own
+database name in place of `filaops` in the `ALTER DATABASE` commands of step
+4, including the one that puts the live database back. Leave everything else
+as written. `-d postgres` is PostgreSQL's own
 maintenance database, `filaops-db` is the container, and `filaops_restore` and
 `filaops_after_upgrade` are temporary names. If a database of your own already
-has one of those two names, use other temporary names throughout.
+has one of those two names, use other temporary names throughout. If your
+database is itself called `postgres`, use `-d template1` in step 4: a
+database cannot be renamed from inside itself.
 
 A database name that starts with a digit, or has capital letters, a hyphen, or
 anything else beyond lower-case letters, digits and underscores, has to be
@@ -159,6 +162,9 @@ ALTER DATABASE filaops_restore RENAME TO "My-Shop";
 \q
 ```
 
+If the second statement fails, put the live database back with
+`ALTER DATABASE filaops_after_upgrade RENAME TO "My-Shop";` before leaving.
+
 **5. Going back a version: check out the version you were on.** For example:
 
 ```bash
@@ -195,21 +201,32 @@ all your data. Restore the backup with the steps above instead.
 
 **Manual install.** The database steps are the same, run with your own `psql`
 in place of `docker exec filaops-db psql`, and with the path to your backup
-file after `-f`. Leave out the `docker cp` and `rm` lines. Look at the last
-lines of your backup file yourself before step 3: they must include
-`PostgreSQL database dump complete`. On Windows, leave out `-o /dev/null`;
-the restore then prints its normal output as well. It failed if any line
-contains `error`, or if the last line is not `restore complete`. Connect as the database user FilaOps
-uses, so that it owns the restored tables; that user needs the right to create
-databases. Close anything else that is connected to the database first (a
-second backend, pgAdmin): a database cannot be renamed while something is
-connected to it. Then check out the version you were on and install and
-restart it the way you did before, as in the manual steps of
-[Upgrading FilaOps](UPGRADE.md#upgrade).
+file after `-f`. Leave out the `docker cp` and `rm` lines.
 
-For a custom-format dump, see section 6.1 of
-[Backup and Recovery](BACKUP-AND-RECOVERY.md). Steps 5 and 6 here still apply
-when you are going back a version.
+- Give `psql` the host and port FilaOps itself uses (`DB_HOST` and `DB_PORT` in
+  `backend/.env`, or the ones inside `DATABASE_URL` if you set that) with `-h`
+  and `-p`, so that you are working on the same server as the application.
+- Connect as the database user FilaOps uses, so that it owns the restored
+  tables. That user needs the right to create databases.
+- Before step 3, look at the last lines of a plain SQL backup file yourself.
+  They must include `PostgreSQL database dump complete`.
+- On Windows, leave out `-o /dev/null`. The restore then prints its normal
+  output as well. It failed if any line contains `error`, or if the last line
+  is not `restore complete`.
+- A custom-format dump has no text marker. Restore it with
+  `pg_restore -d filaops_restore --no-owner --no-privileges --exit-on-error`
+  and your dump file, in place of the `psql ... -f` command, and stop if it
+  prints an error.
+- Close anything else that is connected to the database first (a second
+  backend, pgAdmin). A database cannot be renamed while something is connected
+  to it.
+
+Then check out the version you were on and install and restart it the way you
+did before, as in the manual steps of [Upgrading FilaOps](UPGRADE.md#upgrade).
+
+For a custom-format dump on a Docker install, section 6.1 of
+[Backup and Recovery](BACKUP-AND-RECOVERY.md) gives the three changes to make
+to these steps.
 
 ## 4. Docker Compose Full Rollback
 

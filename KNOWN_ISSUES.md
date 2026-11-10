@@ -110,7 +110,7 @@ The currency and locale settings are not applied everywhere. A number of screens
 In Table view, clicking **Next** loads the next page and then, a moment later, the list goes back to page 1. Only the first page can be kept on screen: at most 200 items, with the largest page size. Cards view shows that same page and has no page controls. The **Needs Reorder** card filters only the rows on screen, so it also covers only that page.
 
 **Workaround:**
-Search by SKU or name. The search covers every item that matches the page's other filters: Status is Active by default, and variants are left out unless **Show variants** is ticked. Or narrow the list with the category, type and status filters, and raise the page size to 200.
+Search by SKU or name. The search covers every item that matches the page's other filters: Status is Active by default, and variants are left out unless **Show variants** is ticked. Or narrow the list with the category, type and status filters and, in Table view, raise the page size to 200.
 
 ---
 

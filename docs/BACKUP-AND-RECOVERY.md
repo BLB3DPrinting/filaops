@@ -80,6 +80,9 @@ docker cp filaops-db:/tmp/filaops_backup.dump \
 pg_restore --list ./backups/filaops_20260207_120000.dump | head -30
 ```
 
+This shows that the dump opens and what it holds. It does not prove the data
+is all there: a dump cut short after its list of contents still passes.
+
 ---
 
 ## 2. Automated Backups
@@ -258,33 +261,22 @@ arrived, and replaces the live database only after that worked.
 
 #### From a Custom Format Dump
 
-Run these one command at a time. If one fails, stop: do not run the ones
-after it. This drops the current database before the dump is restored, so
-the third command checks the dump first: it must print a list of the dump's
-contents, not an error. When you are going back a version, check out that
-version before the last command and add `--build` to it.
+Follow section 3 of [Rollback](ROLLBACK.md#3-emergency-database-restore), with
+three changes:
+
+- In step 2, copy the dump to `/tmp/restore.dump` and skip the `tail` command.
+  A custom-format dump has no text marker to look for.
+- In step 3, use the restore command below in place of the `psql ... -f` one.
+  It must end by printing `restore complete`. If it prints an error, or
+  nothing, stop. Put your own user after `-U` in it if you changed `DB_USER`.
+- In step 4, the file to remove is `/tmp/restore.dump`.
 
 ```bash
-docker compose stop backend
-
-docker cp ./backups/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
-docker exec filaops-db pg_restore --list /tmp/restore.dump
-
-docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
-
-docker exec filaops-db pg_restore \
-  -U postgres \
-  -d filaops \
-  --no-owner \
-  --no-privileges \
-  --clean \
-  --if-exists \
-  /tmp/restore.dump
-docker exec filaops-db rm /tmp/restore.dump
-
-docker compose up -d
+docker exec filaops-db sh -c "pg_restore -U postgres -d filaops_restore --no-owner --no-privileges --exit-on-error /tmp/restore.dump && echo restore complete"
 ```
+
+`pg_restore --list` is not a check of the dump. It reads the list of contents
+at the start of the file, so a dump cut short further on still passes it.
 
 ### 6.2 Point-in-Time Recovery (PITR) Overview
 
@@ -367,6 +359,9 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
+If `pg_restore` in step 5 prints an error, stop there. The dump is incomplete,
+and starting the services would run them on a partly restored database.
+
 ---
 
 ## 7. Testing Backups
@@ -376,9 +371,13 @@ Backups are only valuable if they can be restored. Test your backups regularly.
 ### Quick Integrity Check
 
 ```bash
-# Verify a custom-format dump is not corrupted
+# Check that a custom-format dump opens and its list of contents is readable
 pg_restore --list ./backups/filaops_20260207_120000.dump > /dev/null && echo "OK" || echo "CORRUPT"
 ```
+
+"OK" here is not proof that the dump is complete: a dump cut short after its
+list of contents still passes. Only a restore proves that, as in the test
+below.
 
 ### Full Restore Test (Isolated)
 
@@ -401,6 +400,7 @@ docker exec filaops-restore-test pg_restore \
   -d filaops_test \
   --no-owner \
   --no-privileges \
+  --exit-on-error \
   /tmp/restore.dump
 
 # Verify core tables exist and have data
@@ -416,7 +416,9 @@ docker exec filaops-restore-test psql -U postgres -d filaops_test -c "
 docker rm -f filaops-restore-test
 ```
 
-If the counts match your expectations, the backup is valid.
+If `pg_restore` printed no error and the counts match your expectations, the
+backup is valid. An error from `pg_restore` means the dump is incomplete,
+whatever the counts say.
 
 ---
 
@@ -442,7 +444,7 @@ PowerShell, `>` and `<` do not behave the same way: use the forms in sections
 | Task | Command |
 |------|---------|
 | Restore SQL dump | See section 6.1: restore into a new database, then swap it in |
-| Restore custom dump | `docker exec filaops-db pg_restore -U postgres -d filaops --clean --if-exists /tmp/b.dump` |
+| Restore custom dump | See section 6.1: restore into a new database, then swap it in |
 | Restore uploads | `tar -xzf uploads_backup.tar.gz -C .` |
 | Restore config volume (backend stopped) | `docker run --rm -v filaops_config:/data -v $(pwd):/bk alpine tar -xzf /bk/config.tar.gz -C /data` |
 | Full restart | `docker compose down && docker compose up -d` |
