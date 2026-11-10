@@ -99,6 +99,35 @@ def stock_units_per_purchase_unit(product: Any) -> Optional[Decimal]:
     return _positive_decimal(getattr(product, "purchase_factor", None))
 
 
+def _stored_stock_cost(product: Any) -> Optional[Decimal]:
+    """The average or last cost the product's cost method uses, or None.
+
+    ``average`` uses average_cost, then last_cost; ``fifo`` and ``last`` use
+    last_cost. Both are stored per stock unit. None means the cost method
+    is ``standard``, or nothing is stored, and standard_cost is used.
+    """
+    method = (getattr(product, "cost_method", None) or "average").lower()
+    if method not in ("average", "fifo", "last"):
+        return None
+    average_cost = getattr(product, "average_cost", None)
+    if method == "average" and average_cost is not None:
+        return Decimal(str(average_cost))
+    last_cost = getattr(product, "last_cost", None)
+    if last_cost is not None:
+        return Decimal(str(last_cost))
+    return None
+
+
+def uses_standard_cost(product: Any) -> bool:
+    """Whether ``cost_per_stock_unit`` reads the product's standard_cost.
+
+    False when the cost method prices it at a stored average or last cost,
+    in which case a change to its standard cost changes nothing for readers
+    of the shared rule.
+    """
+    return _stored_stock_cost(product) is None
+
+
 def cost_per_stock_unit(product: Any) -> Optional[Decimal]:
     """
     The product's cost per stock unit, or None when it has no cost at all.
@@ -107,15 +136,9 @@ def cost_per_stock_unit(product: Any) -> Optional[Decimal]:
     only) and then last_cost, which are already per stock unit. Otherwise, and
     as the fallback, standard_cost is converted from the purchase unit.
     """
-    method = (getattr(product, "cost_method", None) or "average").lower()
-
-    if method in ("average", "fifo", "last"):
-        average_cost = getattr(product, "average_cost", None)
-        if method == "average" and average_cost is not None:
-            return Decimal(str(average_cost))
-        last_cost = getattr(product, "last_cost", None)
-        if last_cost is not None:
-            return Decimal(str(last_cost))
+    stored = _stored_stock_cost(product)
+    if stored is not None:
+        return stored
 
     standard_cost = getattr(product, "standard_cost", None)
     if standard_cost is None:

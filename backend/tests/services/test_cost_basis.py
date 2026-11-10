@@ -18,6 +18,7 @@ from app.services.cost_basis import (
     purchase_line_for_stock_quantity,
     standard_cost_from_stock_cost,
     stock_units_per_purchase_unit,
+    uses_standard_cost,
 )
 
 
@@ -165,6 +166,50 @@ class TestCostPerStockUnit:
         with caplog.at_level("WARNING"):
             assert cost_per_stock_unit(p) == Decimal("24.00")
         assert "BOX-NO-FACTOR" in caplog.text
+
+
+class TestUsesStandardCost:
+    """Whether the cost rule reads standard_cost for a product, or a stored stock cost."""
+
+    def test_average_method_with_an_average_cost_does_not(self):
+        """An average-cost item with an average cost is priced at that average."""
+        product = _product(standard_cost=Decimal("20"), average_cost=Decimal("0.02"))
+        assert uses_standard_cost(product) is False
+
+    def test_average_method_with_only_a_last_cost_does_not(self):
+        """With no average cost, the last cost is used before the standard cost."""
+        product = _product(standard_cost=Decimal("20"), last_cost=Decimal("0.03"))
+        assert uses_standard_cost(product) is False
+
+    def test_average_method_with_only_a_standard_cost_does(self):
+        """With neither an average nor a last cost, the standard cost is the fallback."""
+        assert uses_standard_cost(_product(standard_cost=Decimal("20"))) is True
+
+    def test_standard_method_always_does(self):
+        """A standard-cost item is priced at standard cost whatever else is stored."""
+        product = _product(
+            cost_method="standard", standard_cost=Decimal("20"), average_cost=Decimal("0.02")
+        )
+        assert uses_standard_cost(product) is True
+
+    def test_fifo_method_ignores_the_average_cost(self):
+        """FIFO uses the last cost only, so an average alone leaves the standard cost in use."""
+        product = _product(cost_method="fifo", average_cost=Decimal("0.02"))
+        assert uses_standard_cost(product) is True
+
+    def test_agrees_with_cost_per_stock_unit(self):
+        """Changing the standard cost changes the result exactly when the rule says it is used."""
+        for costs in (
+            {"average_cost": Decimal("2")},
+            {"last_cost": Decimal("3")},
+            {},
+            {"cost_method": "standard", "average_cost": Decimal("2")},
+            {"cost_method": "fifo", "average_cost": Decimal("2")},
+            {"cost_method": "last", "last_cost": Decimal("3")},
+        ):
+            low = cost_per_stock_unit(_product(standard_cost=Decimal("5"), **costs))
+            high = cost_per_stock_unit(_product(standard_cost=Decimal("50"), **costs))
+            assert (low != high) is uses_standard_cost(_product(standard_cost=Decimal("5"), **costs))
 
 
 class TestPurchaseLineForStockQuantity:
