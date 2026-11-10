@@ -40,6 +40,8 @@ This page covers the issues operators encounter most often in FilaOps Core. If y
 2. From the `backend/` directory, run: `alembic upgrade head`
 3. If the command fails, verify that `DATABASE_URL` in `.env` is correct and that PostgreSQL is reachable.
 
+**Symptom:** `alembic` or the Docker `migrate` container reports `Can't locate revision identified by '…'`, or the `migrate` container stops with a `DATABASE MIGRATION MISMATCH DETECTED` banner. The database was last upgraded by a newer version of FilaOps than the code you are running. Your data is intact. Check out the newer version again, or restore the backup you took before upgrading. Do not delete the database or its Docker volume to clear it. See [Migration mismatch error on Docker](installation.md#migration-mismatch-error-on-docker).
+
 !!! warning "Never use `alembic stamp` to skip migrations"
     Stamping the revision without running the DDL leaves the schema out of sync with the code. This causes silent data loss and hard-to-diagnose errors. Always run `alembic upgrade head` and resolve any errors properly.
 

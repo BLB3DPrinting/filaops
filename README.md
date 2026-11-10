@@ -205,7 +205,13 @@ cd frontend && npm test
 ### Migration errors
 
 - Run `alembic upgrade head` from `backend/`
-- For a fresh start: drop and recreate the database, then re-run migrations
+- `Can't locate revision` means the database was upgraded by a newer version
+  than the code you are running. Check out the newer version again, or restore
+  the backup you took before upgrading (see
+  [Rollback](https://blb3dprinting.github.io/filaops/ROLLBACK/)). Do not drop
+  the database: that deletes your data
+- For a fresh start on a database you do not need: drop and recreate it (this
+  deletes everything in it), then re-run migrations
 
 ### Docker issues
 

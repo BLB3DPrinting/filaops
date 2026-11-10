@@ -243,9 +243,14 @@ INFO  [alembic.runtime.migration] Running upgrade <prev> -> <head>, ...
 ```
 
 !!! warning "If alembic reports a mismatch"
-    `Can't locate revision` usually means a database from a different version of
-    FilaOps is present. Drop and recreate the database, then re-run
-    `alembic upgrade head`.
+    `Can't locate revision` means the database was last upgraded by a newer
+    version of FilaOps than the code you are running, or by a version whose
+    migrations this one does not have. If the database holds data you need, do
+    not drop it: check out the newer version again, or restore the backup you
+    took before upgrading
+    ([Rollback guide, section 3](../ROLLBACK.md#3-emergency-database-restore)).
+    On a new install whose database you do not need, dropping and recreating
+    it deletes everything in it; then re-run `alembic upgrade head`.
 
 ### Step 6: Start the backend
 
@@ -424,17 +429,29 @@ The Onboarding Wizard displays this message if it cannot reach the backend at
 ### Migration mismatch error on Docker
 
 If the `migrate` container exits with a `DATABASE MIGRATION MISMATCH DETECTED`
-banner, your database volume was created by a different version of FilaOps:
+banner, your database was last upgraded by a newer version of FilaOps than the
+one you just started (or by a version whose migrations this one does not
+have). The usual cause is going back to an older version after an upgrade
+without restoring the backup you took first. Nothing was changed, and your
+data is still in the database. The banner names the revision the database is
+on; `docker compose logs migrate` shows it again.
 
-```bash
-docker compose down
-docker volume rm filaops_pgdata
-docker compose up --build -d
-```
+Pick one:
 
-!!! warning "This deletes all data"
-    Removing `filaops_pgdata` permanently deletes your database. Export any
-    data you need before running this command.
+1. **Go back to the newer version.** Check out the version you were running
+   before (`git checkout <that version>`), then run
+   `docker compose up --build -d`.
+2. **Restore the backup you took before upgrading**, if you want to stay on
+   the older version. Follow
+   [section 3 of the Rollback guide](../ROLLBACK.md#3-emergency-database-restore).
+   Anything entered after that backup was taken is not in it.
+
+!!! danger "Do not remove the database volume to clear this error"
+    Versions released before this was changed print a banner that tells you
+    to run `docker volume rm filaops_pgdata`. Ignore that advice.
+    Removing `filaops_pgdata` permanently deletes your whole database. Only do
+    it for a database you do not need, such as a test install, and only after
+    exporting anything you want to keep.
 
 ### "SECRET_KEY is not set" or "placeholder credential" errors, or everyone is signed out after a restart
 
