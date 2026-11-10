@@ -36,6 +36,9 @@ export default function AdminItems() {
     itemType: "all",
     includeVariants: false,
   });
+  // The search term the list is actually fetched with. It trails filters.search
+  // by the typing pause, so a request goes out once per settled term.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState(null); // null | "all" | "finished_good" | "component" | "material" | "supply" | "needs_reorder"
 
   // Sort state - default to stock status (shortage first)
@@ -132,7 +135,7 @@ export default function AdminItems() {
       if (selectedCategory)
         params.set("category_id", selectedCategory.toString());
       if (filters.itemType !== "all") params.set("item_type", filters.itemType);
-      if (filters.search) params.set("search", filters.search);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (filters.includeVariants) params.set("exclude_variants", "false");
 
       const data = await api.get(`/api/v1/items?${params}`);
@@ -150,7 +153,7 @@ export default function AdminItems() {
     pagination.page,
     activeFilter,
     filters.itemType,
-    filters.search,
+    debouncedSearch,
     filters.includeVariants,
     selectedCategory,
   ]);
@@ -260,17 +263,17 @@ export default function AdminItems() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Debounced search
+  // Debounced search: once typing pauses, apply the term and go to page 1.
+  // This must not depend on pagination.page or fetchItems, or moving to
+  // another page would re-arm the timer and send the user back to page 1.
   useEffect(() => {
+    if (filters.search === debouncedSearch) return undefined;
     const timer = setTimeout(() => {
-      if (pagination.page === 1) {
-        fetchItems();
-      } else {
-        setPagination((prev) => ({ ...prev, page: 1 }));
-      }
+      setDebouncedSearch(filters.search);
+      setPagination((prev) => (prev.page === 1 ? prev : { ...prev, page: 1 }));
     }, 300);
     return () => clearTimeout(timer);
-  }, [filters.search, pagination.page, fetchItems]);
+  }, [filters.search, debouncedSearch]);
 
   // Pagination helpers
   const totalPages = Math.ceil(pagination.total / pagination.pageSize);
