@@ -14,9 +14,18 @@ from app.logging_config import get_logger
 from app.models import Product, BOM, BOMLine
 from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
 from app.services.bom_management_service import recalculate_bom_cost
-from app.services.cost_basis import standard_cost_from_stock_cost
+from app.services.cost_basis import standard_cost_from_stock_cost, uses_standard_cost
 
 logger = get_logger(__name__)
+
+
+def _is_per_unit(quantity_per) -> bool:
+    """Whether a routing material is used per unit made (not per batch or order).
+
+    Routing cost counts only per-unit materials (``RoutingOperation.material_cost``).
+    An unset value means per unit.
+    """
+    return not quantity_per or str(quantity_per).strip().lower() == "unit"
 
 
 def calculate_item_cost(item: Product, db: Session) -> dict:
@@ -81,8 +90,7 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
                         # Only include per-unit materials — batch/order are
                         # excluded from material_cost so must not exclude
                         # the matching BOM line either (would lose the cost)
-                        is_per_unit = not mat.quantity_per or str(mat.quantity_per).strip().lower() == "unit"
-                        if is_per_unit and mat.extended_cost and mat.extended_cost > 0:
+                        if _is_per_unit(mat.quantity_per) and mat.extended_cost and mat.extended_cost > 0:
                             routing_material_ids.add(mat.component_id)
 
         # BOM cost calculation (only if BOM exists)
@@ -259,17 +267,21 @@ def _costed_per_product(rows) -> dict[int, int]:
     return {row_id: product_id for product_id, (_, row_id) in best.items()}
 
 
-def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
-    """Map each of ``item_ids`` to the items its cost is built from.
+def cost_dependencies(db: Session, items_by_id: dict[int, Product]) -> dict[int, set[int]]:
+    """Map each item in the run to the items in the run its cost is built from.
 
     ``calculate_item_cost`` reads a component's stored cost from two places:
-    the lines of the item's costed BOM, and the materials on the active
-    operations of its costed routing. An item can have several active BOMs
+    the lines of the item's costed BOM, and the per-unit materials on the
+    active operations of its costed routing (per-batch and per-order
+    materials are not part of the unit cost). An item can have several active BOMs
     or routings. Costing reads one of each (highest version, then newest),
     and the same one is read here: an edge from one that costing ignores
     could turn a real dependency in the other direction into a false circle.
+    For the same reason a routing material counts only when the routing
+    reads its standard cost: a component priced at a stored average or last
+    cost is not affected by its own recost.
     """
-    dependencies: dict[int, set[int]] = {item_id: set() for item_id in item_ids}
+    dependencies: dict[int, set[int]] = {item_id: set() for item_id in items_by_id}
 
     costed_boms = _costed_per_product(
         (bom_id, product_id, (version or 0, bom_id))
@@ -296,8 +308,10 @@ def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
     )
     routing_rows = (
         (costed_routings[routing_id], component_id)
-        for routing_id, component_id in db.query(
-            RoutingOperation.routing_id, RoutingOperationMaterial.component_id
+        for routing_id, component_id, quantity_per in db.query(
+            RoutingOperation.routing_id,
+            RoutingOperationMaterial.component_id,
+            RoutingOperationMaterial.quantity_per,
         )
         .join(
             RoutingOperationMaterial,
@@ -306,6 +320,9 @@ def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
         .filter(RoutingOperation.is_active.is_(True))
         .all()
         if routing_id in costed_routings
+        and _is_per_unit(quantity_per)
+        and component_id in items_by_id
+        and uses_standard_cost(items_by_id[component_id])
     )
 
     for product_id, component_id in (*bom_rows, *routing_rows):
@@ -353,7 +370,7 @@ def recost_all_items(
     # a sub-assembly has to be recosted before the items built from it.
     items_by_id = {item.id: item for item in items}
     order, circular_ids = components_first(
-        [item.id for item in items], cost_dependencies(db, set(items_by_id))
+        [item.id for item in items], cost_dependencies(db, items_by_id)
     )
     circular_skus = sorted(items_by_id[item_id].sku for item_id in circular_ids)
     if circular_skus:

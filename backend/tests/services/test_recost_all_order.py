@@ -43,7 +43,14 @@ def _bought(make_product, category, cost):
 
 
 def _routing_consuming(
-    db, make_work_center, product, component, quantity, version=1, operation_active=True
+    db,
+    make_work_center,
+    product,
+    component,
+    quantity,
+    version=1,
+    operation_active=True,
+    quantity_per="unit",
 ):
     """Give ``product`` an active routing whose one operation uses ``component``."""
     work_center = make_work_center(center_type="assembly")
@@ -74,6 +81,7 @@ def _routing_consuming(
             component_id=component.id,
             quantity=Decimal(quantity),
             unit="EA",
+            quantity_per=quantity_per,
         )
     )
     db.flush()
@@ -326,6 +334,50 @@ class TestRecostAllOrder:
 
         assert result["circular_skus"] == []
         assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
+
+    @pytest.mark.parametrize("quantity_per", ["batch", "order"])
+    def test_batch_or_order_material_is_not_a_dependency(
+        self, db, make_product, make_bom, make_work_center, category, quantity_per
+    ):
+        """A routing material used per batch or per order is not part of the unit cost."""
+        # ``top`` is built from ``sub``. The routing of ``sub`` lists ``top`` as a
+        # per-batch (or per-order) material, which routing cost leaves out.
+        top = _made(make_product, category, "9.00")
+        sub = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        make_bom(top.id, lines=[{"component_id": sub.id, "quantity": Decimal("2")}])
+        make_bom(sub.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+        _routing_consuming(db, make_work_center, sub, top, "1", quantity_per=quantity_per)
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, sub, top) == pytest.approx([6.00, 12.00])
+
+    def test_routing_material_priced_at_its_average_is_not_a_dependency(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        """A routing material priced at its average cost does not wait for its recost."""
+        # The routing of ``first`` uses ``second``, but prices it at its average
+        # cost, so ``first`` does not depend on the recost of ``second``.
+        # ``second`` really is built from ``first``.
+        second = make_product(
+            item_type="component",
+            procurement_type="make",
+            standard_cost=Decimal("9.00"),
+            average_cost=Decimal("4.00"),
+            category_id=category.id,
+        )
+        first = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        _routing_consuming(db, make_work_center, first, second, "1")
+        make_bom(first.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, first, second) == pytest.approx([10.00, 20.00])
 
     def test_tied_routing_versions_use_the_newest(
         self, db, make_product, make_bom, make_work_center, category
