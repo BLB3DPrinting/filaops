@@ -48,42 +48,106 @@ alembic downgrade abc123def456
 alembic current
 ```
 
-**IMPORTANT:** Always backup the database before running migrations:
-```bash
-pg_dump -h localhost -U filaops filaops > backup_$(date +%Y%m%d_%H%M%S).sql
-```
+**IMPORTANT:** Always back up the database before running migrations, the way
+[step 1 of Upgrading FilaOps](UPGRADE.md#1-back-up) does.
 
 ## 3. Emergency Database Restore
 
 If data corruption occurred, or you are going back to a version from before a
 migration that has no downgrade. PostgreSQL has to stay running for the
-restore, so stop only the backend:
+restore, so only the backend is stopped. The backup is restored into a new
+database first, and the live database is replaced only after that worked, so
+a bad backup file cannot leave you with nothing.
+
+These steps are for a Docker install. Run them one at a time and read what
+each prints before going on. Use PowerShell, Command Prompt, or a Linux or
+macOS shell. Git Bash on Windows rewrites the `/tmp/...` paths, so the
+commands fail there.
+
+If you changed `DB_USER` or `DB_NAME`: put your user after `-U`, and your
+database name in place of `filaops` in the two `ALTER DATABASE` commands of
+step 4. Leave everything else as written. `-d postgres` is PostgreSQL's own
+maintenance database, `filaops-db` is the container, and `filaops_restore` and
+`filaops_after_upgrade` are temporary names.
+
+**1. Stop the backend,** so nothing writes during the restore. Leave the
+database running.
 
 ```bash
-# Stop the backend so nothing writes during the restore. Leave the database running.
 docker compose stop backend
+```
 
-# Drop and recreate the database (use your own DB_USER and DB_NAME if you changed them)
-docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
+**2. Copy your backup into the database container.** Use your own file name
+if it differs. If this fails, stop here: nothing has changed.
 
-# Restore from the backup file
+```bash
 docker cp ./filaops_before_upgrade.sql filaops-db:/tmp/restore.sql
-docker exec filaops-db psql -U postgres -d filaops -f /tmp/restore.sql
+```
+
+**3. Restore it into a new, empty database.** `psql` stops at the first error.
+
+```bash
+docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops_restore;"
+docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops_restore;"
+docker exec filaops-db psql -U postgres -d filaops_restore -v ON_ERROR_STOP=1 -q -f /tmp/restore.sql
+```
+
+If the last command printed a line with `ERROR`, stop here. The live database
+is untouched, and the backup file is not usable as it is. `docker compose
+start backend` brings the system back as it was while you sort the file out.
+
+**4. Put the restored database in place.** Only when step 3 finished without
+an error. The database being replaced is kept as `filaops_after_upgrade`.
+
+```bash
+docker exec filaops-db psql -U postgres -d postgres -c "ALTER DATABASE filaops RENAME TO filaops_after_upgrade;"
+docker exec filaops-db psql -U postgres -d postgres -c "ALTER DATABASE filaops_restore RENAME TO filaops;"
 docker exec filaops-db rm /tmp/restore.sql
+```
 
-# Going back a version: check out the previous tag before restarting
-git checkout <previous tag>
+Each of the first two must print `ALTER DATABASE`. If either prints `ERROR`,
+stop, and do not go on to steps 5 and 6. If it says `filaops_after_upgrade`
+already exists, a copy is left over from an earlier rollback: remove it with
+the command at the end of this section, then run step 4 again.
 
-# Rebuild and restart
+**5. Going back a version: check out the version you were on.** For example:
+
+```bash
+git checkout v4.3.2
+```
+
+If Git refuses, sort that out before step 6. Rebuilding while still on the
+newer version would upgrade the restored database again.
+
+**6. Rebuild and restart.**
+
+```bash
 docker compose up -d --build
 ```
 
-These are the steps in section 6.1 of
-[Backup and Recovery](BACKUP-AND-RECOVERY.md), which also covers custom-format
-dumps. Manual install: stop the backend, then run the same `psql` commands
-against your own PostgreSQL server, connecting as the database user FilaOps
-uses so that it owns the restored tables.
+When you have checked that everything is back, remove the kept copy:
+
+```bash
+docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE filaops_after_upgrade;"
+```
+
+**Never start an older version against a database that a newer version has
+upgraded.** Its migrate step stops with a "DATABASE MIGRATION MISMATCH"
+message that suggests removing the database volume. Do not do that: it deletes
+all your data. Restore the backup with the steps above instead.
+
+**Manual install.** The database steps are the same, run with your own `psql`
+in place of `docker exec filaops-db psql`, with no `docker cp`, and with the
+path to your backup file after `-f`. Connect as the database user FilaOps
+uses, so that it owns the restored tables; that user needs the right to create
+databases. Close anything else that is connected to the database first (a
+second backend, pgAdmin): a database cannot be renamed while something is
+connected to it. Then check out the version you were on and install and
+restart it the way you did before, as in the manual steps of
+[Upgrading FilaOps](UPGRADE.md#upgrade).
+
+Section 6 of [Backup and Recovery](BACKUP-AND-RECOVERY.md) covers
+custom-format dumps.
 
 ## 4. Docker Compose Full Rollback
 

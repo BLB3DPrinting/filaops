@@ -152,6 +152,9 @@ docker compose run --rm migrate alembic downgrade -1   # Rollback one step
 docker compose exec db pg_dump -U postgres filaops > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
+This is for a bash-style shell. On Windows, take the backup the way
+[step 1 of Upgrading FilaOps](UPGRADE.md#1-back-up) does.
+
 See `docs/ROLLBACK.md` for full rollback procedures.
 
 ## 6. TLS/SSL with a Reverse Proxy
@@ -279,7 +282,7 @@ Compatible with Loki, Datadog, ELK, or any system that reads Docker JSON logs.
 
 ## 9. Updating / Upgrading
 
-For the steps a particular release needs, follow [Upgrading FilaOps](UPGRADE.md). The commands below are the general shape.
+For the steps a particular release needs, follow [Upgrading FilaOps](UPGRADE.md). The commands below are the general shape, for a bash-style shell. On Windows, take the backup the way [step 1 of that guide](UPGRADE.md#1-back-up) does: `>` in Windows PowerShell 5.1 writes a file that cannot be restored.
 
 ```bash
 cd filaops

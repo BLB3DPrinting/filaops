@@ -33,12 +33,16 @@ docker exec filaops-db pg_dump \
   > filaops_$(date +%Y%m%d_%H%M%S).sql
 ```
 
-On Windows (PowerShell):
+On Windows (PowerShell), write the dump inside the database container and
+copy it out. Do not redirect or pipe `pg_dump` output there (`>` or
+`| Out-File`): Windows PowerShell 5.1 re-encodes it, and the file then either
+cannot be restored or has non-English characters corrupted.
 
 ```powershell
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges `
-  | Out-File -Encoding utf8 "filaops_$timestamp.sql"
+docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_backup.sql
+docker cp filaops-db:/tmp/filaops_backup.sql "filaops_$timestamp.sql"
+docker exec filaops-db rm /tmp/filaops_backup.sql
 ```
 
 ### Option B: Custom Format Dump (Recommended)
@@ -243,18 +247,26 @@ docker compose start db
 # Stop the backend to prevent writes during restore
 docker compose stop backend
 
+# Copy the backup into the container first. If this fails, stop: nothing has been dropped.
+docker cp ./backups/filaops_20260207_120000.sql filaops-db:/tmp/restore.sql
+
 # Drop and recreate the database
 docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
 docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
 
-# Restore from SQL file
-docker cp ./backups/filaops_20260207_120000.sql filaops-db:/tmp/restore.sql
-docker exec filaops-db psql -U postgres -d filaops -f /tmp/restore.sql
+# Restore from the SQL file, stopping at the first error.
+# If it prints a line with ERROR the restore is incomplete: do not restart,
+# fix the cause and run these steps again.
+docker exec filaops-db psql -U postgres -d filaops -v ON_ERROR_STOP=1 -q -f /tmp/restore.sql
 docker exec filaops-db rm /tmp/restore.sql
 
 # Restart all services
 docker compose up -d
 ```
+
+This drops the current database before the backup is restored. To keep it
+until the restore has worked, follow section 3 of [Rollback](ROLLBACK.md)
+instead.
 
 #### From a Custom Format Dump
 
@@ -413,6 +425,10 @@ If the counts match your expectations, the backup is valid.
 ---
 
 ## 8. Quick Reference
+
+These one-liners are for a bash-style shell (Linux, macOS, WSL). In Windows
+PowerShell, `>` and `<` do not behave the same way: use the forms in sections
+1 and 6.1.
 
 ### Backup Commands
 

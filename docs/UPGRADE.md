@@ -25,20 +25,27 @@ lists everything that changed in each release, with its upgrade notes.
 For a Docker install, from the `filaops` folder:
 
 ```bash
-docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
+docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_before_upgrade.sql
+docker cp filaops-db:/tmp/filaops_before_upgrade.sql ./filaops_before_upgrade.sql
+docker exec filaops-db rm /tmp/filaops_before_upgrade.sql
 ```
+
+The dump is written inside the database container and then copied out, so
+the file does not depend on how your shell handles output. Don't send
+`pg_dump` output to a file with `>` in Windows PowerShell: version 5.1 writes
+it in an encoding that cannot be restored. On Windows, run these commands in
+PowerShell or Command Prompt. Git Bash rewrites the `/tmp/...` paths, so they
+fail there.
 
 Use your own `DB_USER` and `DB_NAME` if you changed them. For a manual
 install, run `pg_dump` with the same options against your own PostgreSQL
-server. The command above is for a bash-style shell. In Windows PowerShell,
-use the PowerShell form in section 1 of
-[Backup and Recovery](BACKUP-AND-RECOVERY.md): there, `>` can write the file
-in an encoding that cannot be restored.
+server, writing the file with `-f filaops_before_upgrade.sql`.
 
-Check the backup before you go on. The command must finish without an error,
-and the last few lines of the file must include
-`PostgreSQL database dump complete`. A failed dump can still leave an empty or
-partial file behind.
+Check the backup before you go on. The first command must finish without an
+error, and the last few lines of the file must include
+`PostgreSQL database dump complete` (`tail -n 5 filaops_before_upgrade.sql`,
+or in PowerShell `Get-Content filaops_before_upgrade.sql -Tail 5`). A failed
+dump can still leave an empty or partial file behind.
 
 Keep the file: rolling back means restoring it. If you are already on 4.3.0 or later, back up
 the `filaops_config` volume too (see [Backup and Recovery](BACKUP-AND-RECOVERY.md)).
@@ -138,9 +145,10 @@ when they are recalculated. Coming from 4.3.2 or older:
 2. **Correct the items it left alone.** For a bought item, a standard cost is
    edited on the item form. For an item listed because it has an active BOM
    or routing, do not edit its standard cost: Recost All replaces it with the
-   cost worked out from its BOM and routing. Check the costs of its
-   components instead, and look at its standard cost again after step 3: an
-   item whose cost works out to zero is skipped and keeps its old figure. A
+   cost worked out from its BOM and routing. Check what it is costed from
+   instead: its components' costs and quantities, and its routing's operation
+   times and work-centre rates. Look at its standard cost again after step 3:
+   an item whose cost works out to zero is skipped and keeps its old figure. A
    purchase unit is not on the form yet: change it through the API
    (`PATCH /api/v1/items/{id}` with `purchase_uom`). An item bought by a pack
    with no pack size recorded is not listed when its standard and average
@@ -236,9 +244,11 @@ when they are recalculated. Coming from 4.3.2 or older:
 ## Rolling back
 
 Upgrading changes the database, so going back means restoring the backup from
-step 1 and redeploying the old version (see [Rollback](ROLLBACK.md)). Anything
-entered after the upgrade is lost. An older version won't start against a
-database that has been migrated further, so always restore the backup.
+step 1 and redeploying the old version: follow
+[section 3 of Rollback](ROLLBACK.md#3-emergency-database-restore). Anything
+entered after the upgrade is not in the restored database. An older version
+won't start against a database that has been migrated further, so always
+restore the backup, and never delete the database volume to get it started.
 
 Don't use `docker compose down -v` to roll back. On 4.3.0 and later it also
 deletes the `filaops_config` volume, and without it stored secrets such as the

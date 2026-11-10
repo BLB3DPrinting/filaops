@@ -9,13 +9,20 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
 - **Back up your database first.** Rolling back means restoring that backup:
 
   ```bash
-  docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
+  docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_before_upgrade.sql
+  docker cp filaops-db:/tmp/filaops_before_upgrade.sql ./filaops_before_upgrade.sql
+  docker exec filaops-db rm /tmp/filaops_before_upgrade.sql
   ```
 
-  Use your own `DB_USER` and `DB_NAME` if you changed them (manual install: run
-  `pg_dump` against your own PostgreSQL server). Before you upgrade, check that
-  the command finished without an error and that the last few lines of the
-  file include `PostgreSQL database dump complete`.
+  The dump is written inside the database container and copied out, so the
+  file is the same from any shell (on Windows use PowerShell or Command
+  Prompt, not Git Bash). Don't send `pg_dump` output to a file with `>` in
+  Windows PowerShell: version 5.1 writes a file that cannot be restored. Use
+  your own `DB_USER` and `DB_NAME` if you changed them (manual install: run
+  `pg_dump` against your own PostgreSQL server with the same options and
+  `-f filaops_before_upgrade.sql`). Before you upgrade, check that the first
+  command finished without an error and that the last few lines of the file
+  include `PostgreSQL database dump complete`.
 
 - **Docker, coming from 4.3.1 or older: copy your product images onto the
   uploads volume.** Before 4.3.2, product images were saved inside the backend
@@ -80,10 +87,11 @@ when they are recalculated:
   material whose purchase unit it changed from EA to KG, and the items it left
   for you to check (marked `WARNI`).
 - Correct the listed items. For one that has an active BOM or routing, correct
-  the costs of its components, not its own standard cost: Recost All works
-  that out again.
+  what it is costed from (its components, and its routing's times and rates),
+  not its own standard cost: Recost All works that out again.
 - On the **Items** page, click **All Items** in the category list, set the
-  type dropdown to **All Types**, click **Recost All** and confirm.
+  type dropdown to **All Types**, click **Recost All** and confirm. Then look
+  at the standard cost of each listed item again.
 
 [Refresh costs](https://blb3dprinting.github.io/filaops/UPGRADE/#6-refresh-costs)
 in the full guide has the detail.
