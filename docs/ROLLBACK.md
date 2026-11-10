@@ -208,7 +208,12 @@ file after `-f`. Leave out the `docker cp` and `rm` lines.
   `backend/.env`, or the ones inside `DATABASE_URL` if you set that) with `-h`
   and `-p`, so that you are working on the same server as the application.
 - Connect as the database user FilaOps uses, so that it owns the restored
-  tables. That user needs the right to create databases.
+  tables. That user needs the right to create databases. To rename the live
+  database in step 4 it must also own it. If the rename fails with
+  `must be owner of database`, run step 4 as a PostgreSQL superuser.
+- Before step 4, make sure you are on the application's server:
+  `psql -h HOST -p PORT -U USER -l` must list your live database and
+  `filaops_restore`.
 - Before step 3, look at the last lines of a plain SQL backup file yourself.
   They must include `PostgreSQL database dump complete`.
 - On Windows, leave out `-o /dev/null`. The restore then prints its normal
