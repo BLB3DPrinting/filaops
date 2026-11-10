@@ -115,21 +115,6 @@ Change the page and the page size in Table view: Cards view shows the page the t
 
 ---
 
-### ISSUE-011: Saving the item form clears an item's weight and dimensions
-
-**Status:** Open
-**Priority:** Medium
-**Reported:** 2026-11-10
-**Affects:** 4.4.0 and earlier
-
-**Description:**
-The item form does not load an item's weight, length, width and height when it opens, and it sends all four empty when it saves. Whatever was stored in them is cleared each time the item is edited on the form. For a packaging item nothing is cleared silently, because the form requires the four values, but they have to be typed in again on every edit.
-
-**Workaround:**
-When you edit an item on the form, enter its weight and dimensions again before saving (the Physical / Shipping section). To change one field and leave the rest alone, use the API: `PATCH /api/v1/items/{id}` with only that field.
-
----
-
 ## Low Priority Issues
 
 ### ISSUE-009: The MRP settings cannot be set from `.env` in a Docker install
@@ -191,6 +176,28 @@ Multiple hardcoded `"2.0.1"` fallback strings were never updated when the versio
 - Frontend imports version from `package.json` at Vite build time
 - Fixed missing `await` in `useVersionCheck.js`
 - Added `docs/VERSIONING.md` documenting the version bump process
+
+---
+
+### ISSUE-011: Saving the item form clears an item's weight and dimensions
+
+**Status:** Resolved
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Resolved:** 2026-11-10
+**Affects:** 4.4.0 and earlier. Fixed in the first release after 4.4.0.
+
+**Description:**
+The item form did not load an item's weight, length, width and height when it opened, and it sent all four empty when it saved. Whatever was stored in them was cleared each time the item was edited on the form. For a packaging item nothing was cleared silently, because the form requires the four values, but they had to be typed in again on every edit. The same form also showed a stocked material's reorder point in grams (1000 times the stored value) and saved that figure back, so every save of a stocked material multiplied its reorder point by 1000.
+
+**Root Cause:**
+The form was built from a row of the Items list. That row has no weight or dimensions and reports a material's reorder point in grams, and the update stores every field it is sent.
+
+**Fix:**
+The form loads the full item (`GET /api/v1/items/{id}`) each time it opens for an edit, shows "Loading item…" until it arrives, and cannot be saved if the load fails. The weight, dimensions and reorder point come from that response. Values that were already cleared or multiplied are not repaired.
+
+**Workaround (4.4.0 and earlier):**
+When you edit an item on the form, enter its weight and dimensions again before saving (the Physical / Shipping section). To change one field and leave the rest alone, use the API: `PATCH /api/v1/items/{id}` with only that field. Do not save a stocked material on the form: change its reorder point with `PATCH /api/v1/items/{id}` and only `reorder_point` (kilograms, the unit it is stored in).
 
 ---
 
