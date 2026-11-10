@@ -107,19 +107,10 @@ export default function BOMLinesList({
               </td>
               <td className="py-2 px-3 text-gray-400">
                 {formatCurrency(parseFloat(line.component_cost || 0))}/
-                {(() => {
-                  const isMaterial =
-                    line.is_material ||
-                    line.component_cost_unit === "KG" ||
-                    (line.component_unit === "G" &&
-                      line.component_cost &&
-                      parseFloat(line.component_cost) > 0.01);
-
-                  if (isMaterial) {
-                    return "KG";
-                  }
-                  return line.unit || line.component_unit || "EA";
-                })()}
+                {/* The server says which unit the cost is in. Guessing it
+                    from the size of the number mislabelled per-gram costs. */}
+                {line.component_cost_unit ||
+                  (line.is_material ? "KG" : line.component_unit || line.unit || "EA")}
               </td>
               <td className="py-2 px-3 text-green-400 font-medium">
                 {formatCurrency(parseFloat(line.line_cost || 0))}
