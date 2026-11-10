@@ -379,6 +379,42 @@ class TestRecostAllOrder:
         assert result["circular_skus"] == []
         assert _costs(db, first, second) == pytest.approx([10.00, 20.00])
 
+    def test_bom_line_owned_by_the_routing_is_not_a_dependency(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        """A BOM line whose component the routing prices is cancelled out of the item's cost."""
+        # ``first`` lists ``second`` on its BOM and on its routing. Costing lets
+        # the routing own that material (at its average cost) and takes the BOM
+        # line back out, so ``first`` does not wait for ``second``. ``second``
+        # really is built from ``first``.
+        second = make_product(
+            item_type="component",
+            procurement_type="make",
+            standard_cost=Decimal("9.00"),
+            average_cost=Decimal("4.00"),
+            category_id=category.id,
+        )
+        first = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        first_bom = make_bom(
+            first.id,
+            lines=[
+                {"component_id": second.id, "quantity": Decimal("1")},
+                {"component_id": part.id, "quantity": Decimal("3")},
+            ],
+        )
+        _routing_consuming(db, make_work_center, first, second, "1")
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        # first = 3 x 2.00 from the BOM + 1 x 4.00 from the routing; second = 2 x first.
+        assert _costs(db, first, second) == pytest.approx([10.00, 20.00])
+        # The stored BOM total still counts every line, at the costs the run ended with.
+        db.refresh(first_bom)
+        assert float(first_bom.total_cost) == pytest.approx(26.00)
+
     def test_tied_routing_versions_use_the_newest(
         self, db, make_product, make_bom, make_work_center, category
     ):
