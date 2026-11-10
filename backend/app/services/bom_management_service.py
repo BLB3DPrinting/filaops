@@ -474,6 +474,10 @@ def explode_bom_recursive(
                     converted_qty, success = convert_line_quantity(db, effective_qty, line.unit, component)
                     if success:
                         qty_for_cost = converted_qty
+                        if effective_qty:
+                            # Show the unit cost per line unit, so it reads
+                            # against the quantity column (1 BOX x 24.00).
+                            component_cost = float(cost * converted_qty / effective_qty)
                 line_cost = float(cost * qty_for_cost)
         else:
             line_cost = 0.0

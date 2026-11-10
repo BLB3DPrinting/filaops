@@ -116,6 +116,27 @@ class TestPageLineFigures:
         assert line["component_cost_unit"] == "G"
 
 
+class TestExplodedViewFigures:
+    """The exploded view shows a unit cost that matches its quantity column."""
+
+    def _row(self, db, make_product, make_bom, fields, quantity, unit):
+        """The exploded view's row for a one-line BOM."""
+        bom, _ = _bom_with_one_line(db, make_product, make_bom, fields, quantity, unit)
+        return bom_service.explode_bom(db, bom.id)["lines"][0]
+
+    def test_line_written_in_boxes_shows_the_cost_per_box(self, db, make_product, make_bom):
+        """1 BOX at 24.00 a box reads 1 x 24.00 = 24.00, not 1 x 2.00."""
+        row = self._row(db, make_product, make_bom, {**BOXED, "standard_cost": D("24")}, "1", "BOX")
+        assert row["unit_cost"] == pytest.approx(24.00)
+        assert row["line_cost"] == pytest.approx(24.00)
+
+    def test_line_written_in_the_stock_unit_shows_the_cost_per_each(self, db, make_product, make_bom):
+        """3 EA of a part bought by the box reads 3 x 2.00 = 6.00."""
+        row = self._row(db, make_product, make_bom, {**BOXED, "standard_cost": D("24")}, "3", "EA")
+        assert row["unit_cost"] == pytest.approx(2.00)
+        assert row["line_cost"] == pytest.approx(6.00)
+
+
 class TestShortagePurchase:
     """The purchase the BOM page suggests for a line that is short."""
 
