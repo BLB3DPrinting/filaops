@@ -20,11 +20,14 @@ Step 1, materials saved with a purchase unit of EA.
     so the meaning of the factor and of every cost is unchanged. Only rows that
     are exactly G / EA / 1000 materials are touched.
 
-Step 2, standard costs the old receipt sync wrote.
-    The old sync did exactly ``standard_cost = average_cost``, and only for
-    items with no active BOM and no active routing of their own. So a standard
-    cost is repaired only when all of these hold:
-      - it EQUALS the average cost, to the 4 decimal places both columns store;
+Step 2, standard costs the old receipt sync or Recost wrote.
+    The old receipt sync did exactly ``standard_cost = average_cost``. Recost
+    did the same for a purchased item with no standard cost, using the average
+    cost, or the last cost when there was no average. Both only wrote to items
+    with no active BOM and no active routing of their own. So a standard cost
+    is repaired only when all of these hold:
+      - it EQUALS the average cost (or, when the item has no average cost, the
+        last cost), to the 4 decimal places the columns store;
       - the purchase unit holds at least 10 stock units, so an equal value
         cannot be a real per-purchase-unit price;
       - the item has no active BOM and no active routing (the sync never wrote
@@ -39,9 +42,10 @@ Left alone, and listed in the upgrade output for a manual check:
       purchase unit is a pack with no pack size recorded;
     - a standard cost that is neither equal to the average nor about
       (units x average).
-Left alone silently: items with no standard or average cost, and a pack with
-no pack size whose two costs differ (there is nothing to compare them by).
-Nothing is guessed.
+"The average" above means the last cost for an item with no average cost.
+Left alone silently: items with no standard cost, or with neither an average
+nor a last cost, and a pack with no pack size whose two costs differ (there is
+nothing to compare them by). Nothing is guessed.
 
 Idempotent: a repaired item no longer matches, so a rerun changes nothing.
 
@@ -118,9 +122,13 @@ def stock_units_per_purchase_unit(unit, purchase_uom, purchase_factor):
 def classify(unit, purchase_uom, purchase_factor, standard_cost, average_cost) -> str:
     """Say what a product's standard cost looks like.
 
+    ``average_cost`` is the per-stock-unit cost to compare with: the item's
+    average cost, or its last cost when it has no average (see ``stock_cost``).
+
     Returns one of:
-      "flipped"   - standard cost EQUALS the per-stock-unit average, which is
-                    what the old receipt sync wrote: a candidate for repair
+      "flipped"   - standard cost EQUALS that per-stock-unit cost, which is
+                    what the old receipt sync and Recost wrote: a candidate for
+                    repair
       "ok"        - standard cost is about units x average: per purchase unit
       "ambiguous" - neither: leave alone and report for a manual check
       "skip"      - not enough information to say anything: leave alone
@@ -148,6 +156,19 @@ def classify(unit, purchase_uom, purchase_factor, standard_cost, average_cost) -
     if units * Decimal("0.5") <= ratio <= units * Decimal("2"):
         return "ok"
     return "ambiguous"
+
+
+def stock_cost(average_cost, last_cost):
+    """The per-stock-unit cost to compare a standard cost with, and its name.
+
+    Returns ``(value, "average")`` when the item has a positive average cost,
+    else ``(value, "last")`` for a positive last cost, else ``(None, None)``.
+    This is the order Recost used to fill in a missing standard cost.
+    """
+    for value, name in ((average_cost, "average"), (last_cost, "last")):
+        if value is not None and Decimal(str(value)) > 0:
+            return value, name
+    return None, None
 
 
 def products_with_own_costing(bind) -> set:
@@ -191,18 +212,21 @@ def fix_material_purchase_units(bind) -> int:
 
 
 def repair_standard_costs(bind) -> dict:
-    """Multiply standard costs the old receipt sync wrote back up to per purchase unit.
+    """Multiply standard costs the old sync or Recost wrote back up to per purchase unit.
 
     Returns ``{"repaired": [...], "ambiguous": [...]}``. A repaired entry has
     the sku, the old and new standard cost and the units. An ambiguous entry
-    has the sku, both costs and the reason it was left for a manual check.
+    has the sku, the standard cost, the cost it was compared with
+    (``stock_cost``, and ``basis``: "average" or "last") and the reason it was
+    left for a manual check.
     """
     own_costing = products_with_own_costing(bind)
     rows = bind.execute(
         sa.text(
             "SELECT id, sku, unit, purchase_uom, purchase_factor, "
-            "standard_cost, average_cost FROM products "
-            "WHERE standard_cost IS NOT NULL AND average_cost IS NOT NULL "
+            "standard_cost, average_cost, last_cost FROM products "
+            "WHERE standard_cost IS NOT NULL "
+            "AND (average_cost IS NOT NULL OR last_cost IS NOT NULL) "
             "AND UPPER(TRIM(COALESCE(purchase_uom, unit, 'EA'))) "
             "<> UPPER(TRIM(COALESCE(unit, 'EA'))) "
             "ORDER BY id"
@@ -211,28 +235,36 @@ def repair_standard_costs(bind) -> dict:
 
     report = {"repaired": [], "ambiguous": []}
     for row in rows:
+        compare_cost, basis = stock_cost(row["average_cost"], row["last_cost"])
+        if compare_cost is None:
+            continue
         kind = classify(
             row["unit"], row["purchase_uom"], row["purchase_factor"],
-            row["standard_cost"], row["average_cost"],
+            row["standard_cost"], compare_cost,
         )
         reason = None
         if kind == "ambiguous":
-            reason = "standard cost is neither equal to the average nor about units x average"
-            if Decimal(str(row["standard_cost"])) == Decimal(str(row["average_cost"])):
+            reason = (
+                f"standard cost is neither equal to the {basis} cost "
+                f"nor about units x the {basis} cost"
+            )
+            if Decimal(str(row["standard_cost"])) == Decimal(str(compare_cost)):
                 known_units = stock_units_per_purchase_unit(
                     row["unit"], row["purchase_uom"], row["purchase_factor"]
                 )
                 reason = (
-                    "equals the average, but too few stock units per purchase unit to be sure"
+                    f"equals the {basis} cost, but too few stock units per "
+                    "purchase unit to be sure"
                     if known_units is not None
-                    else "equals the average, and the purchase unit is a pack with no pack size"
+                    else f"equals the {basis} cost, and the purchase unit is a "
+                    "pack with no pack size"
                 )
         elif kind == "flipped" and row["id"] in own_costing:
-            reason = "equals the average, but the item has an active BOM or routing"
+            reason = f"equals the {basis} cost, but the item has an active BOM or routing"
         if reason:
             report["ambiguous"].append(
                 {"sku": row["sku"], "standard_cost": row["standard_cost"],
-                 "average_cost": row["average_cost"], "reason": reason}
+                 "stock_cost": compare_cost, "basis": basis, "reason": reason}
             )
             continue
         if kind != "flipped":
@@ -249,9 +281,34 @@ def repair_standard_costs(bind) -> dict:
         )
         report["repaired"].append(
             {"sku": row["sku"], "old": row["standard_cost"], "new": new_cost,
-             "units": units}
+             "units": units, "basis": basis}
         )
     return report
+
+
+def report_lines(report: dict) -> list:
+    """Turn a repair report into ``(logging level, message)`` pairs for the upgrade log."""
+    lines = []
+    for item in report["repaired"]:
+        lines.append((
+            logging.INFO,
+            f"105: {item['sku']} standard_cost {item['old']} -> {item['new']} "
+            f"(x{item['units']}, back to per purchase unit; it equalled the "
+            f"{item['basis']} cost)",
+        ))
+    for item in report["ambiguous"]:
+        lines.append((
+            logging.WARNING,
+            f"105: {item['sku']} left alone (standard_cost {item['standard_cost']}, "
+            f"{item['basis']}_cost {item['stock_cost']}): {item['reason']}. "
+            "Check it by hand.",
+        ))
+    lines.append((
+        logging.INFO,
+        f"105: repaired {len(report['repaired'])} standard cost(s); "
+        f"{len(report['ambiguous'])} left for a manual check",
+    ))
+    return lines
 
 
 def upgrade() -> None:
@@ -264,21 +321,8 @@ def upgrade() -> None:
     log.info("105: %d material(s) changed from purchase unit EA to KG", changed_units)
 
     report = repair_standard_costs(bind)
-    for item in report["repaired"]:
-        log.info(
-            "105: %s standard_cost %s -> %s (x%s, back to per purchase unit)",
-            item["sku"], item["old"], item["new"], item["units"],
-        )
-    for item in report["ambiguous"]:
-        log.warning(
-            "105: %s left alone (standard_cost %s, average_cost %s): %s. "
-            "Check it by hand.",
-            item["sku"], item["standard_cost"], item["average_cost"], item["reason"],
-        )
-    log.info(
-        "105: repaired %d standard cost(s); %d left for a manual check",
-        len(report["repaired"]), len(report["ambiguous"]),
-    )
+    for level, line in report_lines(report):
+        log.log(level, line)
 
 
 def downgrade() -> None:

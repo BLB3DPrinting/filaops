@@ -239,3 +239,64 @@ class TestFixMaterialPurchaseUnits:
         _run(db, migration)
 
         assert item.purchase_uom == "EA"
+
+
+class TestLastCostFallback:
+    """An item with no average cost: Recost used to copy its last cost across."""
+
+    def test_stock_cost_prefers_average_then_last(self, migration):
+        """Average cost when there is one, else last cost, else nothing."""
+        assert migration.stock_cost(Decimal("0.02"), Decimal("0.03")) == (Decimal("0.02"), "average")
+        assert migration.stock_cost(None, Decimal("0.03")) == (Decimal("0.03"), "last")
+        assert migration.stock_cost(Decimal("0"), Decimal("0.03")) == (Decimal("0.03"), "last")
+        assert migration.stock_cost(None, None) == (None, None)
+
+    def test_standard_equal_to_last_cost_is_repaired(self, db, make_product, migration):
+        """No average cost, standard 0.0250 equal to last cost 0.0250: becomes 25.00."""
+        item = _filament(make_product, standard_cost=Decimal("0.025"),
+                         last_cost=Decimal("0.025"))
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("25")
+        entry = next(r for r in report["repaired"] if r["sku"] == item.sku)
+        assert entry["basis"] == "last"
+
+    def test_average_cost_wins_over_last_cost(self, db, make_product, migration):
+        """Standard equals the last cost but not the average: not the sync's
+        signature, so it is reported and left alone."""
+        item = _filament(make_product, standard_cost=Decimal("0.025"),
+                         average_cost=Decimal("0.02"), last_cost=Decimal("0.025"))
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("0.025")
+        assert item.sku in {r["sku"] for r in report["ambiguous"]}
+
+    def test_correct_standard_with_only_a_last_cost_is_untouched(self, db, make_product, migration):
+        """Standard 25.00 against last cost 0.0250 is already per KG."""
+        item = _filament(make_product, standard_cost=Decimal("25"),
+                         last_cost=Decimal("0.025"))
+        report = _run(db, migration)
+
+        assert item.standard_cost == Decimal("25")
+        assert item.sku not in {r["sku"] for r in report["repaired"]}
+
+
+class TestReportLines:
+    """The upgrade log is built from the repair report."""
+
+    def test_every_entry_kind_becomes_a_line(self, db, make_product, migration):
+        """A repaired item and a reported item each get a line naming the SKU."""
+        repaired = _filament(make_product, standard_cost=Decimal("0.02"),
+                             average_cost=Decimal("0.02"))
+        reported = _filament(make_product, standard_cost=Decimal("0.6"),
+                             average_cost=Decimal("0.02"))
+        report = _run(db, migration)
+        report = {
+            "repaired": [r for r in report["repaired"] if r["sku"] == repaired.sku],
+            "ambiguous": [r for r in report["ambiguous"] if r["sku"] == reported.sku],
+        }
+
+        messages = [message for _, message in migration.report_lines(report)]
+        assert any(repaired.sku in m and "20.0000" in m for m in messages)
+        assert any(reported.sku in m and "Check it by hand" in m for m in messages)
+        assert messages[-1] == "105: repaired 1 standard cost(s); 1 left for a manual check"
