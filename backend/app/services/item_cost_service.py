@@ -7,7 +7,7 @@ item_service re-exports these names for backward compatibility.
 from collections.abc import Iterator
 from datetime import datetime, timezone
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.logging_config import get_logger
@@ -33,9 +33,13 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
     routing_id = None
     cost_source = None
 
+    # An item can have more than one active BOM or routing. Take the highest
+    # version, then the newest, so the choice is the same on every run and
+    # cost_dependencies can make the same one.
     bom = (
         db.query(BOM)
         .filter(BOM.product_id == item.id, BOM.active.is_(True))
+        .order_by(desc(func.coalesce(BOM.version, 0)), desc(BOM.id))
         .first()
     )
 
@@ -51,7 +55,7 @@ def calculate_item_cost(item: Product, db: Session) -> dict:
             .joinedload(RoutingOperationMaterial.component),
         )
         .filter(Routing.product_id == item.id, Routing.is_active.is_(True))
-        .order_by(desc(Routing.version))
+        .order_by(desc(Routing.version), desc(Routing.id))
         .first()
     )
 
@@ -241,38 +245,55 @@ def components_first(
     return ordered, circular
 
 
+def _costed_per_product(rows) -> dict[int, int]:
+    """Pick one BOM or routing per product: the one with the highest rank.
+
+    ``rows`` yields ``(row id, product id, rank)``. Returns ``{row id: product id}``
+    for the picked rows. The ranks mirror the ``order_by`` that
+    ``calculate_item_cost`` uses, so the row picked here is the row it costs.
+    """
+    best: dict[int, tuple] = {}
+    for row_id, product_id, rank in rows:
+        if product_id not in best or rank > best[product_id][0]:
+            best[product_id] = (rank, row_id)
+    return {row_id: product_id for product_id, (_, row_id) in best.items()}
+
+
 def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
     """Map each of ``item_ids`` to the items its cost is built from.
 
     ``calculate_item_cost`` reads a component's stored cost from two places:
-    the lines of the item's active BOM, and the materials on the active
-    operations of its active routing with the highest version. The same
-    rows are read here. An older routing version that is still active is
-    left out: costing ignores it, and an edge from it could turn a real
-    dependency in the other direction into a false circle.
+    the lines of the item's costed BOM, and the materials on the active
+    operations of its costed routing. An item can have several active BOMs
+    or routings. Costing reads one of each (highest version, then newest),
+    and the same one is read here: an edge from one that costing ignores
+    could turn a real dependency in the other direction into a false circle.
     """
     dependencies: dict[int, set[int]] = {item_id: set() for item_id in item_ids}
 
-    bom_rows = (
-        db.query(BOM.product_id, BOMLine.component_id)
-        .join(BOMLine, BOMLine.bom_id == BOM.id)
+    costed_boms = _costed_per_product(
+        (bom_id, product_id, (version or 0, bom_id))
+        for bom_id, product_id, version in db.query(BOM.id, BOM.product_id, BOM.version)
         .filter(BOM.active.is_(True))
         .all()
     )
+    bom_rows = (
+        (costed_boms[bom_id], component_id)
+        for bom_id, component_id in db.query(BOMLine.bom_id, BOMLine.component_id)
+        .join(BOM, BOM.id == BOMLine.bom_id)
+        .filter(BOM.active.is_(True))
+        .all()
+        if bom_id in costed_boms
+    )
 
-    routings = (
-        db.query(Routing.id, Routing.product_id, Routing.version)
+    costed_routings = _costed_per_product(
+        (routing_id, product_id, (version, routing_id))
+        for routing_id, product_id, version in db.query(
+            Routing.id, Routing.product_id, Routing.version
+        )
         .filter(Routing.is_active.is_(True))
         .all()
     )
-    top_version: dict[int, int] = {}
-    for _, product_id, version in routings:
-        top_version[product_id] = max(top_version.get(product_id, version), version)
-    costed_routings = {
-        routing_id: product_id
-        for routing_id, product_id, version in routings
-        if version == top_version[product_id]
-    }
     routing_rows = (
         (costed_routings[routing_id], component_id)
         for routing_id, component_id in db.query(

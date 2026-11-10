@@ -327,6 +327,40 @@ class TestRecostAllOrder:
         assert result["circular_skus"] == []
         assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
 
+    def test_tied_routing_versions_use_the_newest(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        """Of two active routings with the same version, only the newer one counts."""
+        # Both routings of ``first`` are version 1. The older one used ``second``,
+        # which is built from ``first``; the newer one uses a bought part.
+        first = _made(make_product, category, "9.00")
+        second = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        _routing_consuming(db, make_work_center, first, second, "1", version=1)
+        _routing_consuming(db, make_work_center, first, part, "3", version=1)
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
+
+    def test_two_active_boms_use_the_newest(self, db, make_product, make_bom, category):
+        """Of two active BOMs with the same version, only the newer one counts."""
+        # The older BOM of ``first`` listed ``second``, which is built from
+        # ``first``; the newer one lists a bought part.
+        first = _made(make_product, category, "9.00")
+        second = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        make_bom(first.id, lines=[{"component_id": second.id, "quantity": Decimal("1")}])
+        make_bom(first.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
+
     def test_routing_prices_a_sub_assembly_at_its_average_cost(
         self, db, make_product, make_bom, make_work_center, category
     ):
