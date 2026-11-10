@@ -5,10 +5,13 @@ The migration's data functions take a connection, so they are run here against
 real product rows inside the test transaction.
 """
 import importlib.util
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
+
+from app.models.purchase_order import PurchaseOrderLine
 
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[2]
@@ -201,44 +204,122 @@ class TestRepairStandardCosts:
 
 
 class TestFixMaterialPurchaseUnits:
-    """Materials the item form saved as G / EA / 1000."""
+    """Materials saved as G / EA / 1000: the item form's default, or a shop
+    that really buys a 1000 g spool by the each. Only the item's own purchase
+    history says which."""
 
-    def test_g_ea_1000_material_becomes_kg(self, db, make_product, migration):
-        """Purchase unit EA becomes KG; factor and costs are unchanged."""
-        item = make_product(item_type="material", unit="G", purchase_uom="EA",
-                            purchase_factor=Decimal("1000"), is_raw_material=True,
-                            standard_cost=Decimal("22.99"))
-        _run(db, migration)
+    @pytest.fixture
+    def g_ea_material(self, make_product):
+        """Factory for a G / EA / 1000 material."""
+        def _make(**kw):
+            base = dict(item_type="material", unit="G", purchase_uom="EA",
+                        purchase_factor=Decimal("1000"), is_raw_material=True)
+            base.update(kw)
+            return make_product(**base)
+        return _make
+
+    @pytest.fixture
+    def po_line(self, db, make_vendor, make_purchase_order):
+        """Factory that adds one purchase-order line for an item in a given unit."""
+        def _add(product, purchase_unit):
+            po = make_purchase_order(vendor_id=make_vendor().id, status="received")
+            line = PurchaseOrderLine(
+                purchase_order_id=po.id, line_number=1, product_id=product.id,
+                quantity_ordered=Decimal("1"), quantity_received=Decimal("1"),
+                purchase_unit=purchase_unit, unit_cost=Decimal("20"),
+                line_total=Decimal("20"),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(line)
+            db.flush()
+            return line
+        return _add
+
+    def _fix(self, db, migration):
+        """Run step 1 alone and return its report."""
+        db.flush()
+        report = migration.fix_material_purchase_units(db.connection())
+        db.expire_all()
+        return report
+
+    def test_bought_by_the_kg_becomes_kg(self, db, g_ea_material, po_line, migration):
+        """Purchase-order lines in KG: the purchase unit becomes KG; factor and
+        costs are unchanged."""
+        item = g_ea_material(standard_cost=Decimal("22.99"))
+        po_line(item, "KG")
+        report = self._fix(db, migration)
 
         assert item.purchase_uom == "KG"
         assert item.purchase_factor == Decimal("1000")
         assert item.standard_cost == Decimal("22.99")
+        assert item.sku in report["changed"]
 
-    def test_flipped_g_ea_1000_material_is_also_repaired(self, db, make_product, migration):
-        """Unit fixed first, then its per-gram standard cost is scaled back up."""
-        item = make_product(item_type="material", unit="G", purchase_uom="EA",
-                            purchase_factor=Decimal("1000"), is_raw_material=True,
-                            standard_cost=Decimal("0.02"), average_cost=Decimal("0.02"))
+    def test_no_purchase_history_is_left_and_reported(self, db, g_ea_material, migration):
+        """Nothing says how it is bought: leave it and list it."""
+        item = g_ea_material()
+        report = self._fix(db, migration)
+
+        assert item.purchase_uom == "EA"
+        entry = next(r for r in report["left"] if r["sku"] == item.sku)
+        assert "no purchase-order lines in KG" in entry["reason"]
+
+    def test_bought_by_the_each_is_left_and_reported(self, db, g_ea_material, po_line, migration):
+        """A shop that buys 1000 g spools by the each keeps EA, even with a KG line too."""
+        item = g_ea_material()
+        po_line(item, "EA")
+        po_line(item, "KG")
+        report = self._fix(db, migration)
+
+        assert item.purchase_uom == "EA"
+        entry = next(r for r in report["left"] if r["sku"] == item.sku)
+        assert "lines in EA" in entry["reason"]
+
+    def test_only_gram_lines_is_left(self, db, g_ea_material, po_line, migration):
+        """Lines in G do not show the item is bought by the KG."""
+        item = g_ea_material()
+        po_line(item, "G")
+        self._fix(db, migration)
+
+        assert item.purchase_uom == "EA"
+
+    def test_flipped_standard_cost_is_repaired_whatever_the_unit(
+        self, db, g_ea_material, migration,
+    ):
+        """Step 2 reads the 1000 from the factor, so a per-gram standard cost is
+        scaled back up even when the purchase unit stays EA."""
+        item = g_ea_material(standard_cost=Decimal("0.02"), average_cost=Decimal("0.02"))
         _run(db, migration)
 
-        assert item.purchase_uom == "KG"
+        assert item.purchase_uom == "EA"
         assert item.standard_cost == Decimal("20")
 
-    def test_non_material_bought_by_the_each_is_untouched(self, db, make_product, migration):
-        """A supply stocked in G and bought by the EA is not a filament: leave it."""
+    def test_non_material_bought_by_the_each_is_out_of_scope(self, db, make_product, migration):
+        """A supply stocked in G and bought by the EA is not a filament: not even listed."""
         item = make_product(item_type="supply", unit="G", purchase_uom="EA",
                             purchase_factor=Decimal("1000"))
-        _run(db, migration)
+        report = self._fix(db, migration)
 
         assert item.purchase_uom == "EA"
+        assert item.sku not in {r["sku"] for r in report["left"]}
 
-    def test_material_with_another_factor_is_untouched(self, db, make_product, migration):
+    def test_material_with_another_factor_is_out_of_scope(self, db, g_ea_material, migration):
         """A 500 g spool bought by the EA is a real pack, not the form default."""
-        item = make_product(item_type="material", unit="G", purchase_uom="EA",
-                            purchase_factor=Decimal("500"), is_raw_material=True)
-        _run(db, migration)
+        item = g_ea_material(purchase_factor=Decimal("500"))
+        report = self._fix(db, migration)
 
         assert item.purchase_uom == "EA"
+        assert item.sku not in {r["sku"] for r in report["left"]}
+
+    def test_report_lines_name_each_item(self, migration):
+        """The upgrade log lists what changed and what was left, with the reason."""
+        lines = [message for _, message in migration.unit_report_lines({
+            "changed": ["MAT-A"],
+            "left": [{"sku": "MAT-B", "reason": "it has no purchase-order lines in KG"}],
+        })]
+        assert any("MAT-A" in m and "EA -> KG" in m for m in lines)
+        assert any("MAT-B" in m and "no purchase-order lines in KG" in m for m in lines)
+        assert lines[-1].endswith("1 left for a manual check")
 
 
 class TestLastCostFallback:

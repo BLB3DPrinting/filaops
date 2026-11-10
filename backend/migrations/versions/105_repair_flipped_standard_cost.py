@@ -15,10 +15,15 @@ The receipt code is fixed in the same release. This migration repairs the items
 it already changed. Data only: no schema change.
 
 Step 1, materials saved with a purchase unit of EA.
-    The item form saved materials as stock G, purchase EA, factor 1000. EA
-    cannot be converted to G, so these are set to purchase KG. 1 KG is 1000 G,
-    so the meaning of the factor and of every cost is unchanged. Only rows that
-    are exactly G / EA / 1000 materials are touched.
+    The item form saved materials as stock G, purchase EA, factor 1000. A PO
+    line in EA cannot be received for these (EA does not convert to G). But the
+    same row can also be a shop that really buys a 1000 g spool by the each, so
+    the row alone does not say which. The purchase unit is changed to KG only
+    when the item's own purchase history says so: it has purchase-order lines
+    in KG and none in EA. 1 KG is 1000 G, so the factor and every cost keep
+    their meaning. Every other G / EA / 1000 material is left as it is and
+    listed in the upgrade output. Step 2 does not depend on this: it reads the
+    1000 from the item's factor either way.
 
 Step 2, standard costs the old receipt sync or Recost wrote.
     The old receipt sync did exactly ``standard_cost = average_cost``. Recost
@@ -197,18 +202,55 @@ def products_with_own_costing(bind) -> set:
     return ids
 
 
-def fix_material_purchase_units(bind) -> int:
-    """Set G / EA / 1000 materials to purchase unit KG. Returns the row count."""
-    result = bind.execute(
+def fix_material_purchase_units(bind) -> dict:
+    """Set G / EA / 1000 materials to purchase unit KG where their history shows KG.
+
+    A row is changed only when the item has purchase-order lines in KG and none
+    in EA (or a count synonym). Returns ``{"changed": [sku, ...], "left": [...]}``
+    where each ``left`` entry is a dict with the sku and the reason.
+    """
+    report = {"changed": [], "left": []}
+    candidates = bind.execute(
         sa.text(
-            "UPDATE products SET purchase_uom = 'KG' "
+            "SELECT id, sku FROM products "
             "WHERE UPPER(TRIM(unit)) = 'G' "
             "AND UPPER(TRIM(purchase_uom)) = 'EA' "
             "AND purchase_factor = 1000 "
-            "AND (item_type = 'material' OR material_type_id IS NOT NULL)"
+            "AND (item_type = 'material' OR material_type_id IS NOT NULL) "
+            "ORDER BY id"
         )
-    )
-    return result.rowcount or 0
+    ).mappings().all()
+    if not candidates:
+        return report
+
+    has_po_lines = sa.inspect(bind).has_table("purchase_order_lines")
+    for row in candidates:
+        line_units = set()
+        if has_po_lines:
+            line_units = {
+                _unit(unit_row[0]) for unit_row in bind.execute(
+                    sa.text(
+                        "SELECT DISTINCT purchase_unit FROM purchase_order_lines "
+                        "WHERE product_id = :id AND purchase_unit IS NOT NULL"
+                    ),
+                    {"id": row["id"]},
+                )
+            }
+        if "EA" in line_units:
+            report["left"].append(
+                {"sku": row["sku"], "reason": "it has purchase-order lines in EA"}
+            )
+        elif "KG" not in line_units:
+            report["left"].append(
+                {"sku": row["sku"], "reason": "it has no purchase-order lines in KG"}
+            )
+        else:
+            bind.execute(
+                sa.text("UPDATE products SET purchase_uom = 'KG' WHERE id = :id"),
+                {"id": row["id"]},
+            )
+            report["changed"].append(row["sku"])
+    return report
 
 
 def repair_standard_costs(bind) -> dict:
@@ -286,6 +328,28 @@ def repair_standard_costs(bind) -> dict:
     return report
 
 
+def unit_report_lines(report: dict) -> list:
+    """Turn a purchase-unit report into ``(logging level, message)`` pairs."""
+    lines = [
+        (logging.INFO, f"105: {sku} purchase unit EA -> KG (its purchase orders are in KG)")
+        for sku in report["changed"]
+    ]
+    lines.extend(
+        (
+            logging.WARNING,
+            f"105: {item['sku']} left at purchase unit EA with factor 1000: "
+            f"{item['reason']}. If it is bought by the KG, set its purchase unit to KG.",
+        )
+        for item in report["left"]
+    )
+    lines.append((
+        logging.INFO,
+        f"105: {len(report['changed'])} material(s) changed from purchase unit EA "
+        f"to KG; {len(report['left'])} left for a manual check",
+    ))
+    return lines
+
+
 def report_lines(report: dict) -> list:
     """Turn a repair report into ``(logging level, message)`` pairs for the upgrade log."""
     lines = []
@@ -317,8 +381,8 @@ def upgrade() -> None:
     if not sa.inspect(bind).has_table("products"):
         return
 
-    changed_units = fix_material_purchase_units(bind)
-    log.info("105: %d material(s) changed from purchase unit EA to KG", changed_units)
+    for level, line in unit_report_lines(fix_material_purchase_units(bind)):
+        log.log(level, line)
 
     report = repair_standard_costs(bind)
     for level, line in report_lines(report):
