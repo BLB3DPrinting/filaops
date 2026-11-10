@@ -41,7 +41,16 @@ cannot be restored or has non-English characters corrupted.
 ```powershell
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_backup.sql
-docker cp filaops-db:/tmp/filaops_backup.sql "filaops_$timestamp.sql"
+if ($LASTEXITCODE -eq 0) { docker cp filaops-db:/tmp/filaops_backup.sql "filaops_$timestamp.sql" }
+if ($LASTEXITCODE -eq 0) { Get-Content "filaops_$timestamp.sql" -Tail 5 }
+```
+
+Each step runs only if the one before it worked. It ends by printing the last
+lines of the new file, which must include `PostgreSQL database dump complete`.
+If nothing is printed, a step failed: read the error above it. When the lines
+are right, remove the copy left inside the container:
+
+```powershell
 docker exec filaops-db rm /tmp/filaops_backup.sql
 ```
 
@@ -243,40 +252,27 @@ docker compose start db
 
 #### From a Plain SQL Dump
 
-```bash
-# Stop the backend to prevent writes during restore
-docker compose stop backend
-
-# Copy the backup into the container first. If this fails, stop: nothing has been dropped.
-docker cp ./backups/filaops_20260207_120000.sql filaops-db:/tmp/restore.sql
-
-# Drop and recreate the database
-docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
-
-# Restore from the SQL file, stopping at the first error.
-# If it prints a line with ERROR the restore is incomplete: do not restart,
-# fix the cause and run these steps again.
-docker exec filaops-db psql -U postgres -d filaops -v ON_ERROR_STOP=1 -q -f /tmp/restore.sql
-docker exec filaops-db rm /tmp/restore.sql
-
-# Restart all services
-docker compose up -d
-```
-
-This drops the current database before the backup is restored. To keep it
-until the restore has worked, follow section 3 of [Rollback](ROLLBACK.md)
-instead.
+Follow section 3 of [Rollback](ROLLBACK.md#3-emergency-database-restore). It
+copies the dump in, restores it into a new database, checks that the data
+arrived, and replaces the live database only after that worked.
 
 #### From a Custom Format Dump
 
+Run these one command at a time. If one fails, stop: do not run the ones
+after it. This drops the current database before the dump is restored, so
+the third command checks the dump first: it must print a list of the dump's
+contents, not an error. When you are going back a version, check out that
+version before the last command and add `--build` to it.
+
 ```bash
 docker compose stop backend
+
+docker cp ./backups/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
+docker exec filaops-db pg_restore --list /tmp/restore.dump
 
 docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
 docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
 
-docker cp ./backups/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
 docker exec filaops-db pg_restore \
   -U postgres \
   -d filaops \
@@ -445,7 +441,7 @@ PowerShell, `>` and `<` do not behave the same way: use the forms in sections
 
 | Task | Command |
 |------|---------|
-| Restore SQL dump | `docker exec -i filaops-db psql -U postgres -d filaops < backup.sql` |
+| Restore SQL dump | See section 6.1: restore into a new database, then swap it in |
 | Restore custom dump | `docker exec filaops-db pg_restore -U postgres -d filaops --clean --if-exists /tmp/b.dump` |
 | Restore uploads | `tar -xzf uploads_backup.tar.gz -C .` |
 | Restore config volume (backend stopped) | `docker run --rm -v filaops_config:/data -v $(pwd):/bk alpine tar -xzf /bk/config.tar.gz -C /data` |

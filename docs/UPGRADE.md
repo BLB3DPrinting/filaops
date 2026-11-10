@@ -22,13 +22,20 @@ lists everything that changed in each release, with its upgrade notes.
 
 ### 1. Back up
 
-For a Docker install, from the `filaops` folder:
+Do this just before you upgrade, at a time when nobody is using FilaOps:
+anything entered after the backup is taken is not in it.
+
+For a Docker install, from the `filaops` folder. If a
+`filaops_before_upgrade.sql` from an earlier upgrade is still in the folder,
+rename or delete it first, so that it cannot be mistaken for the new one.
 
 ```bash
 docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_before_upgrade.sql
 docker cp filaops-db:/tmp/filaops_before_upgrade.sql ./filaops_before_upgrade.sql
-docker exec filaops-db rm /tmp/filaops_before_upgrade.sql
 ```
+
+Both commands must finish without an error. If `docker cp` fails, the dump is
+still inside the container: fix the cause and run that command again.
 
 The dump is written inside the database container and then copied out, so
 the file does not depend on how your shell handles output. Don't send
@@ -41,11 +48,17 @@ Use your own `DB_USER` and `DB_NAME` if you changed them. For a manual
 install, run `pg_dump` with the same options against your own PostgreSQL
 server, writing the file with `-f filaops_before_upgrade.sql`.
 
-Check the backup before you go on. The first command must finish without an
-error, and the last few lines of the file must include
+Check the backup before you go on. The last few lines of the file must include
 `PostgreSQL database dump complete` (`tail -n 5 filaops_before_upgrade.sql`,
-or in PowerShell `Get-Content filaops_before_upgrade.sql -Tail 5`). A failed
-dump can still leave an empty or partial file behind.
+or in PowerShell `Get-Content filaops_before_upgrade.sql -Tail 5`; in Command
+Prompt, open the file in a text editor and look at its end). A failed dump can
+still leave an empty or partial file behind.
+
+When the check has passed, remove the copy left inside the container:
+
+```bash
+docker exec filaops-db rm /tmp/filaops_before_upgrade.sql
+```
 
 Keep the file: rolling back means restoring it. If you are already on 4.3.0 or later, back up
 the `filaops_config` volume too (see [Backup and Recovery](BACKUP-AND-RECOVERY.md)).
