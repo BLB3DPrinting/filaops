@@ -140,11 +140,22 @@ When you edit an item on the form, enter its weight and dimensions again before 
 **Description:**
 `docker-compose.yml` gives the containers, the data volumes and the network fixed names, so a second copy of the `filaops` folder on the same computer is not a separate install. It uses the same database volume, and if it holds newer code its `migrate` service upgrades that database.
 
-- A copy in a folder with the same name (for example a fresh clone into another directory, also called `filaops`): `docker compose up -d --build` replaces the first copy's running containers and migrates the database, with no warning.
+- A copy in a folder with the same name (for example a fresh clone into another directory, also called `filaops`): `docker compose up -d --build` replaces the first copy's running containers and migrates the database, with no warning. To Docker the two folders are one install, so `docker compose down -v` in the second folder deletes the first copy's database.
 - A copy in a folder with a different name: while the first copy's containers exist, it stops with a container-name conflict and the database is left alone. Once they have been removed (`docker compose down`), it starts with only a warning that a volume `already exists but was created for project ...`, and migrates the database.
 
+Uploaded files are the one thing the copies do not share. Each keeps them in the `uploads` folder next to its own `docker-compose.yml`. While the second copy is running, files uploaded through the first (product pictures, for example) are missing, and anything uploaded through the second stays in the second folder.
+
 **Workaround:**
-Run one copy per computer, and upgrade the folder you already run FilaOps from. To try a release before upgrading, use another computer. A second copy on the same computer needs a `docker-compose.override.yml` that sets its own project `name`, renames all four containers, both volumes and the network, and changes the three published ports. Run `docker compose config` and check every name before starting it.
+Run one copy per computer, and upgrade the folder you already run FilaOps from. To try a release before upgrading, use another computer.
+
+A second copy on the same computer is not a tested setup, and no steps for one are given here. Giving it its own container, volume and network names in a `docker-compose.override.yml` is not enough:
+
+- Ports listed in an override are added to the ones `docker-compose.yml` publishes (5432, 8000 and 80). They only take their place if the list is written `ports: !override`, which needs Docker Compose 2.24.4 or later. `docker compose config` shows the result.
+- Opened on `localhost`, the web app calls the backend at `http://localhost:8000`, the port the first copy publishes, whichever copy served the page. It uses that address when the frontend container's `VITE_API_URL` is empty, which is the default.
+- The sign-in cookies belong to the host name, not the port, so two copies opened on `localhost` share one sign-in. Copies that also share a `SECRET_KEY` accept each other's sign-in tokens.
+
+**If it has already happened:**
+Do not run `docker compose down -v` in either folder. If the second copy held newer code, the database has been upgraded and the older code can no longer start on it. Bring the first folder to that version: check the version out there and run `docker compose up -d --build` (steps 3 and 4 of the upgrade guide). Then copy anything in the second folder's `uploads` into the first folder's `uploads`, and stop using the second folder. To go back to the older version instead, restore a backup taken before it happened, following `docs/ROLLBACK.md` section 3.
 
 ---
 

@@ -103,8 +103,8 @@ containers and the data volumes fixed names, so a second copy is not a
 separate install: it uses the same database, and starting it on newer code
 upgrades your live data. A fresh clone into another folder called `filaops`
 does this with no warning at all. To try a release first, use another
-computer. ISSUE-012 in `KNOWN_ISSUES.md` has the details, and what a second
-copy on the same computer needs.
+computer. ISSUE-012 in `KNOWN_ISSUES.md` has the details, and what to do if
+it has already happened.
 
 ### 4. Rebuild and start (Docker)
 

@@ -192,6 +192,18 @@ docker compose exec backend sh -c 'set -eu; src=/app/uploads/products; dst=/app/
 It prints how many images are now in the container. Until it has run, product
 pictures are missing.
 
+A picture added while you are on that older version is saved inside the
+container only, and the command above cannot bring it back once the container
+has been replaced. Before every later rebuild or recreate of that container,
+copy its pictures onto the uploads folder first. This is the command from
+[step 2 of the upgrade guide](UPGRADE.md#2-docker-copy-product-images-onto-the-volume):
+
+```bash
+docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
+```
+
+Then rebuild or recreate, and run the copy-back again.
+
 Then check that the version you went back to is running on the restored
 data. This must show the migration number you saw in step 3:
 
