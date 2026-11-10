@@ -193,6 +193,8 @@ when they are recalculated. Coming from 4.3.2 or older:
   average-cost items). They used to take standard cost first.
 - **Deactivate and reactivate an item** from its edit form, and filter the
   Items list by Active, Inactive or All.
+- **Items page:** the table stays on the page you move to. It used to go back
+  to page 1 a moment after you clicked **Next**.
 - **Scheduling:** the scheduler board draws operations that share one machine
   and one window as a single block, and counts a lane's overlapping bookings
   once.

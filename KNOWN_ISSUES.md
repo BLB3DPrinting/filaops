@@ -20,7 +20,7 @@ This document tracks known bugs and issues in the production system.
 **Affects:** 4.4.0 and earlier
 
 **Description:**
-Several screens load a fixed number of rows and have no paging, and their search boxes search only the rows already loaded. Product pickers (Create BOM, BOM components, the routing editor, new production order, the sales order wizard) load the first 500 active products. Item pickers load the first 500 items by SKU, or the first 2000 on the Purchasing page and in the inventory transactions item filter. The Routings tab shows the newest 50 routings and the inventory transactions page the newest 100. Other tables and pickers stop at a fixed number of rows, from 50 to 2000 depending on the screen. The Items page's search box does search the server, but its paging has a fault of its own (ISSUE-010).
+Several screens load a fixed number of rows and have no paging, and their search boxes search only the rows already loaded. Product pickers (Create BOM, BOM components, the routing editor, new production order, the sales order wizard) load the first 500 active products. Item pickers load the first 500 items by SKU, or the first 2000 on the Purchasing page and in the inventory transactions item filter. The Routings tab shows the newest 50 routings and the inventory transactions page the newest 100. Other tables and pickers stop at a fixed number of rows, from 50 to 2000 depending on the screen. The Items page's table is not one of these: it pages through every item and its search box searches the server. Its Cards view is covered by ISSUE-010.
 
 **Workaround:**
 Narrow the list with the screen's filters where it has them. A routing that is not listed on the Routings tab can be opened from the Items page in Table view: find the item and click **Route/BOM** (shown on items whose procurement type is Make or Make or Buy). That opens the item's active routing with the highest version number; an older or inactive routing cannot be opened this way.
@@ -99,7 +99,7 @@ The currency and locale settings are not applied everywhere. A number of screens
 
 ---
 
-### ISSUE-010: Items page returns to page 1 after you change page
+### ISSUE-010: Items page: Cards view has no page controls
 
 **Status:** Open
 **Priority:** Medium
@@ -107,10 +107,10 @@ The currency and locale settings are not applied everywhere. A number of screens
 **Affects:** 4.4.0 and earlier
 
 **Description:**
-In Table view, clicking **Next** loads the next page and then, a moment later, the list goes back to page 1. Only the first page can be kept on screen: at most 200 items, with the largest page size. Cards view shows that same page and has no page controls. The **Needs Reorder** card filters only the rows on screen, so it also covers only that page.
+Cards view shows one page of items and has no controls to change the page or the page size. The **Needs Reorder** card filters only the rows on the current page, in either view, so it can miss items that are on other pages. (Before 4.4.0 the table also went back to page 1 a moment after **Next** was clicked. That is fixed in 4.4.0.)
 
 **Workaround:**
-Search by SKU or name. The search covers every item that matches the page's other filters: Status is Active by default, and variants are left out unless **Show variants** is ticked. Or narrow the list with the category, type and status filters and, in Table view, raise the page size to 200.
+Change the page and the page size in Table view: Cards view shows the page the table is on. Raising the page size to 200 brings more items under the **Needs Reorder** card. To find one item, search by SKU or name.
 
 ---
 
