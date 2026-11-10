@@ -33,6 +33,7 @@ from typing import Any, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.core.uom_config import FILAMENT_UOM
 from app.services.cost_basis import (
     normalize_unit,
     standard_first_cost_per_stock_unit,
@@ -41,7 +42,8 @@ from app.services.cost_basis import (
 from app.services.inventory_helpers import is_material
 from app.services.uom_service import convert_quantity_safe
 
-_GRAMS_PER_KG = Decimal("1000")
+# Grams per KG, from the shared unit configuration.
+_GRAMS_PER_KG = FILAMENT_UOM.purchase_factor
 
 
 def _positive(value: Any) -> Optional[Decimal]:
