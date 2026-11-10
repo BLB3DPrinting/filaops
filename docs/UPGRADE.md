@@ -28,8 +28,19 @@ For a Docker install, from the `filaops` folder:
 docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
 ```
 
-Use your own `DB_USER` and `DB_NAME` if you changed them. Keep the file:
-rolling back means restoring it. If you are already on 4.3.0 or later, back up
+Use your own `DB_USER` and `DB_NAME` if you changed them. For a manual
+install, run `pg_dump` with the same options against your own PostgreSQL
+server. The command above is for a bash-style shell. In Windows PowerShell,
+use the PowerShell form in section 1 of
+[Backup and Recovery](BACKUP-AND-RECOVERY.md): there, `>` can write the file
+in an encoding that cannot be restored.
+
+Check the backup before you go on. The command must finish without an error,
+and the last few lines of the file must include
+`PostgreSQL database dump complete`. A failed dump can still leave an empty or
+partial file behind.
+
+Keep the file: rolling back means restoring it. If you are already on 4.3.0 or later, back up
 the `filaops_config` volume too (see [Backup and Recovery](BACKUP-AND-RECOVERY.md)).
 Installs older than 4.3.0 don't have it yet.
 
@@ -121,16 +132,24 @@ when they are recalculated. Coming from 4.3.2 or older:
    (manual install: they are in the output of `alembic upgrade head`). They
    list each standard cost that was repaired, each material whose purchase unit
    was changed from EA to KG, and each item that was left alone, with the
-   reason. Lines marked `WARNI` are the ones left for you.
-2. **Correct the items it left alone.** A standard cost is edited on the item
-   form. A purchase unit is not on the form yet: change it through the API
+   reason. Lines marked `WARNI` are the ones left for you. Read them now:
+   they go when the migrate container is next recreated, for example by the
+   next upgrade.
+2. **Correct the items it left alone.** For a bought item, a standard cost is
+   edited on the item form. For an item listed because it has an active BOM
+   or routing, do not edit its standard cost: Recost All replaces it with the
+   cost worked out from its BOM and routing. Check the costs of its
+   components instead, and look at its standard cost again after step 3: an
+   item whose cost works out to zero is skipped and keeps its old figure. A
+   purchase unit is not on the form yet: change it through the API
    (`PATCH /api/v1/items/{id}` with `purchase_uom`). An item bought by a pack
    with no pack size recorded is not listed when its standard and average
    costs differ; check those yourself.
 3. **Run Recost All.** On the **Items** page, click **All Items** in the
    category list, set the type dropdown to **All Types**, click **Recost All**
-   and confirm. It refreshes the standard cost of made items and the stored
-   total of the BOM each is costed from. One run settles every level of
+   and confirm. It covers the category and type chosen there; the search box
+   and the status filter do not limit it. It refreshes the standard cost of
+   made items and the stored total of the BOM each is costed from. One run settles every level of
    sub-assembly. Inactive items are skipped, and items built from themselves
    are named in the server log. If you correct a component's cost later, run
    it again.

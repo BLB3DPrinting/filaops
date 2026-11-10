@@ -20,10 +20,10 @@ This document tracks known bugs and issues in the production system.
 **Affects:** 4.4.0 and earlier
 
 **Description:**
-Several screens load a fixed number of rows and have no paging, and their search boxes search only the rows already loaded. Product pickers (Create BOM, BOM components, the routing editor, new production order, the sales order wizard) load the first 500 active products, and item pickers the first 500 items by SKU. The Routings tab shows the newest 50 routings and the inventory transactions page the newest 100. Other tables stop at 50 to 200 rows. The Items page is not affected.
+Several screens load a fixed number of rows and have no paging, and their search boxes search only the rows already loaded. Product pickers (Create BOM, BOM components, the routing editor, new production order, the sales order wizard) load the first 500 active products. Item pickers load the first 500 items by SKU, or the first 2000 on the Purchasing page and in the inventory transactions item filter. The Routings tab shows the newest 50 routings and the inventory transactions page the newest 100. Other tables and pickers stop at a fixed number of rows, from 50 to 2000 depending on the screen. On the Items page, Table view pages through every item and the search box searches them all. Cards view shows one page of items (50 by default) and has no page controls: use the search box, or switch to Table view.
 
 **Workaround:**
-Narrow the list with the screen's filters where it has them. A routing that is not listed on the Routings tab can be opened from the Items page: find the item and click **Route/BOM** (shown on items that are made).
+Narrow the list with the screen's filters where it has them. A routing that is not listed on the Routings tab can be opened from the Items page in Table view: find the item and click **Route/BOM** (shown on items whose procurement type is Make or Make or Buy). That opens the item's active routing with the highest version number; an older or inactive routing cannot be opened this way.
 
 ---
 
@@ -82,7 +82,7 @@ Write numbers in import files with a decimal point and no thousands separator.
 **Description:**
 - An item bought by a pack with no pack size recorded is costed at its standard cost unconverted. There is no field for a pack size yet.
 - The item form has no purchase-unit field. Change it with `PATCH /api/v1/items/{id}` (`purchase_uom`).
-- Receiving a material bought by the LB or OZ is refused unless those units are in the unit table, which a new install does not fill. BOM costs read such a material's standard cost as per KG.
+- Materials bought by the LB or OZ are not handled correctly. Where the material is stocked in another unit (grams, for example), the receipt is refused unless LB and OZ are in the unit table. The setup wizard's example data adds them; an install set up without the example data does not have them. Where it is also stocked by the LB or OZ, the receipt is accepted, but the stock movement and the item's average and last cost are recorded in grams (1 LB as 453.592 G) although the item's stock unit says LB or OZ. BOM costs read such a material's standard cost as per KG.
 - A material stocked by the each is costed correctly on a BOM only when it has just an average or last cost, and its unit cost is then shown 1000 times too high, labelled /KG.
 
 ---
@@ -99,6 +99,8 @@ The currency and locale settings are not applied everywhere. A number of screens
 
 ---
 
+## Low Priority Issues
+
 ### ISSUE-009: The MRP settings cannot be set from `.env` in a Docker install
 
 **Status:** Open
@@ -110,13 +112,7 @@ The currency and locale settings are not applied everywhere. A number of screens
 `docker-compose.yml` passes a fixed list of settings to the backend, and `MRP_ROUTING_MAKE_BUY`, `MRP_OPEN_PO_SUPPLY` and `MRP_RELEASE_COPIES_ROUTING` are not on it.
 
 **Workaround:**
-Add them under the backend service's `environment` in a `docker-compose.override.yml`.
-
----
-
-## Low Priority Issues
-
-*(None documented yet)*
+Add them under the backend service's `environment` in a `docker-compose.override.yml`, for example `MRP_OPEN_PO_SUPPLY: "true"`, then run `docker compose up -d` so the backend container is recreated with them.
 
 ---
 

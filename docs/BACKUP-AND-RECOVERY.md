@@ -244,8 +244,8 @@ docker compose start db
 docker compose stop backend
 
 # Drop and recreate the database
-docker exec filaops-db psql -U postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -c "CREATE DATABASE filaops;"
+docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
+docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
 
 # Restore from SQL file
 docker cp ./backups/filaops_20260207_120000.sql filaops-db:/tmp/restore.sql
@@ -261,8 +261,8 @@ docker compose up -d
 ```bash
 docker compose stop backend
 
-docker exec filaops-db psql -U postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -c "CREATE DATABASE filaops;"
+docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
+docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
 
 docker cp ./backups/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
 docker exec filaops-db pg_restore \

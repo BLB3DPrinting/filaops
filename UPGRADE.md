@@ -12,6 +12,11 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
   docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
   ```
 
+  Use your own `DB_USER` and `DB_NAME` if you changed them (manual install: run
+  `pg_dump` against your own PostgreSQL server). Before you upgrade, check that
+  the command finished without an error and that the last few lines of the
+  file include `PostgreSQL database dump complete`.
+
 - **Docker, coming from 4.3.1 or older: copy your product images onto the
   uploads volume.** Before 4.3.2, product images were saved inside the backend
   container, and the upgrade replaces that container. While the old version is
@@ -74,9 +79,11 @@ when they are recalculated:
   `docker compose logs migrate`. They list the standard costs it repaired, any
   material whose purchase unit it changed from EA to KG, and the items it left
   for you to check (marked `WARNI`).
-- Correct the listed items. Then, on the **Items** page, click **All Items** in
-  the category list, set the type dropdown to **All Types**, click
-  **Recost All** and confirm.
+- Correct the listed items. For one that has an active BOM or routing, correct
+  the costs of its components, not its own standard cost: Recost All works
+  that out again.
+- On the **Items** page, click **All Items** in the category list, set the
+  type dropdown to **All Types**, click **Recost All** and confirm.
 
 [Refresh costs](https://blb3dprinting.github.io/filaops/UPGRADE/#6-refresh-costs)
 in the full guide has the detail.

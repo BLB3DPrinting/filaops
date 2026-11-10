@@ -55,18 +55,35 @@ pg_dump -h localhost -U filaops filaops > backup_$(date +%Y%m%d_%H%M%S).sql
 
 ## 3. Emergency Database Restore
 
-If data corruption occurred:
+If data corruption occurred, or you are going back to a version from before a
+migration that has no downgrade. PostgreSQL has to stay running for the
+restore, so stop only the backend:
 
 ```bash
-# Stop all services
-docker-compose down
+# Stop the backend so nothing writes during the restore. Leave the database running.
+docker compose stop backend
 
-# Restore from backup
-psql -h localhost -U filaops filaops < backup_20260131_120000.sql
+# Drop and recreate the database (use your own DB_USER and DB_NAME if you changed them)
+docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS filaops;"
+docker exec filaops-db psql -U postgres -d postgres -c "CREATE DATABASE filaops;"
 
-# Restart services
-docker-compose up -d
+# Restore from the backup file
+docker cp ./filaops_before_upgrade.sql filaops-db:/tmp/restore.sql
+docker exec filaops-db psql -U postgres -d filaops -f /tmp/restore.sql
+docker exec filaops-db rm /tmp/restore.sql
+
+# Going back a version: check out the previous tag before restarting
+git checkout <previous tag>
+
+# Rebuild and restart
+docker compose up -d --build
 ```
+
+These are the steps in section 6.1 of
+[Backup and Recovery](BACKUP-AND-RECOVERY.md), which also covers custom-format
+dumps. Manual install: stop the backend, then run the same `psql` commands
+against your own PostgreSQL server, connecting as the database user FilaOps
+uses so that it owns the restored tables.
 
 ## 4. Docker Compose Full Rollback
 

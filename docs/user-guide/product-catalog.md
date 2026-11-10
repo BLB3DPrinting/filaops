@@ -145,10 +145,10 @@ Instead of deleting items (which would break historical records), deactivate the
 
 **Step 2.** Click **Deactivate** and confirm. An item with stock on hand, or with an active BOM of its own, is refused.
 
-Inactive items are hidden from the main list by default. To see them, set the status dropdown in the filter bar to **Inactive** or **All**. To bring one back, open it and click **Reactivate**.
+Inactive items are hidden from the main list by default. To see them, set the status dropdown in the filter bar to **Inactive** or **All**. An inactive variant is listed only when **Show variants** is checked as well. To bring an item back, open it and click **Reactivate**.
 
 !!! note "Bulk deactivation"
-    To deactivate multiple items at once, select them with the row checkboxes and use the **Bulk Update** toolbar that appears. See [Bulk Operations](#bulk-operations) below.
+    To deactivate multiple items at once, select them with the row checkboxes and use the **Bulk Update** toolbar that appears. See [Bulk Operations](#bulk-operations) below. Bulk Update does not make the checks the **Deactivate** button makes: it sets an item to Inactive even when it has stock on hand or an active BOM of its own.
 
 ---
 
@@ -460,5 +460,5 @@ With your catalog set up, you're ready to start operating:
 | Bulk update items | Check item checkboxes > **Bulk Update** toolbar |
 | Create or edit a category | **Inventory > Items** > category sidebar > **+** or pencil icon |
 | Filter by category | Click a category in the left sidebar |
-| Show inactive items | Set the status dropdown in the filter bar to **Inactive** or **All** |
+| Show inactive items | Set the status dropdown in the filter bar to **Inactive** or **All**; check **Show variants** too to include inactive variants |
 | Show variant products | Check **Show variants** in the filter bar |
