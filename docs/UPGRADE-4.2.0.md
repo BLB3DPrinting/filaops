@@ -214,7 +214,9 @@ docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges
 
 Use your own `DB_USER` and `DB_NAME` if you changed them. Keep the file:
 rolling back means restoring it. Other options are in
-[Backup and Recovery](BACKUP-AND-RECOVERY.md).
+[Backup and Recovery](BACKUP-AND-RECOVERY.md). This command is for a
+bash-style shell: on Windows, take the backup the way
+[step 1 of Upgrading FilaOps](UPGRADE.md#1-back-up) does.
 
 ### 2. Get the 4.2.0 code
 

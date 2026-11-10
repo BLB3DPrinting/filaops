@@ -33,12 +33,25 @@ docker exec filaops-db pg_dump \
   > filaops_$(date +%Y%m%d_%H%M%S).sql
 ```
 
-On Windows (PowerShell):
+On Windows (PowerShell), write the dump inside the database container and
+copy it out. Do not redirect or pipe `pg_dump` output there (`>` or
+`| Out-File`): Windows PowerShell 5.1 re-encodes it, and the file then either
+cannot be restored or has non-English characters corrupted.
 
 ```powershell
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges `
-  | Out-File -Encoding utf8 "filaops_$timestamp.sql"
+docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_backup.sql
+if ($LASTEXITCODE -eq 0) { docker cp filaops-db:/tmp/filaops_backup.sql "filaops_$timestamp.sql" }
+if ($LASTEXITCODE -eq 0) { Get-Content "filaops_$timestamp.sql" -Tail 5 }
+```
+
+Each step runs only if the one before it worked. It ends by printing the last
+lines of the new file, which must include `PostgreSQL database dump complete`.
+If nothing is printed, a step failed: read the error above it. When the lines
+are right, remove the copy left inside the container:
+
+```powershell
+docker exec filaops-db rm /tmp/filaops_backup.sql
 ```
 
 ### Option B: Custom Format Dump (Recommended)
@@ -66,6 +79,9 @@ docker cp filaops-db:/tmp/filaops_backup.dump \
 # List the contents of a custom-format dump (does not restore anything)
 pg_restore --list ./backups/filaops_20260207_120000.dump | head -30
 ```
+
+This shows that the dump opens and what it holds. It does not prove the data
+is all there: a dump cut short after its list of contents still passes.
 
 ---
 
@@ -239,44 +255,28 @@ docker compose start db
 
 #### From a Plain SQL Dump
 
-```bash
-# Stop the backend to prevent writes during restore
-docker compose stop backend
-
-# Drop and recreate the database
-docker exec filaops-db psql -U postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -c "CREATE DATABASE filaops;"
-
-# Restore from SQL file
-docker cp ./backups/filaops_20260207_120000.sql filaops-db:/tmp/restore.sql
-docker exec filaops-db psql -U postgres -d filaops -f /tmp/restore.sql
-docker exec filaops-db rm /tmp/restore.sql
-
-# Restart all services
-docker compose up -d
-```
+Follow section 3 of [Rollback](ROLLBACK.md#3-emergency-database-restore). It
+copies the dump in, restores it into a new database, checks that the data
+arrived, and replaces the live database only after that worked.
 
 #### From a Custom Format Dump
 
+Follow section 3 of [Rollback](ROLLBACK.md#3-emergency-database-restore), with
+three changes:
+
+- In step 2, copy the dump to `/tmp/restore.dump` and skip the `tail` command.
+  A custom-format dump has no text marker to look for.
+- In step 3, use the restore command below in place of the `psql ... -f` one.
+  It must end by printing `restore complete`. If it prints an error, or
+  nothing, stop. Put your own user after `-U` in it if you changed `DB_USER`.
+- In step 4, the file to remove is `/tmp/restore.dump`.
+
 ```bash
-docker compose stop backend
-
-docker exec filaops-db psql -U postgres -c "DROP DATABASE IF EXISTS filaops;"
-docker exec filaops-db psql -U postgres -c "CREATE DATABASE filaops;"
-
-docker cp ./backups/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
-docker exec filaops-db pg_restore \
-  -U postgres \
-  -d filaops \
-  --no-owner \
-  --no-privileges \
-  --clean \
-  --if-exists \
-  /tmp/restore.dump
-docker exec filaops-db rm /tmp/restore.dump
-
-docker compose up -d
+docker exec filaops-db sh -c "pg_restore -U postgres -d filaops_restore --no-owner --no-privileges --exit-on-error /tmp/restore.dump && echo restore complete"
 ```
+
+`pg_restore --list` is not a check of the dump. It reads the list of contents
+at the start of the file, so a dump cut short further on still passes it.
 
 ### 6.2 Point-in-Time Recovery (PITR) Overview
 
@@ -339,14 +339,14 @@ docker compose exec db pg_isready -U postgres  # wait until ready
 
 # 5. Restore the database
 docker cp /path/to/backup/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
-docker exec filaops-db pg_restore \
-  -U postgres \
-  -d filaops \
-  --no-owner \
-  --no-privileges \
-  --clean \
-  --if-exists \
-  /tmp/restore.dump
+docker exec filaops-db sh -c "pg_restore -U postgres -d filaops --no-owner --no-privileges --clean --if-exists --exit-on-error /tmp/restore.dump && echo restore complete"
+```
+
+The restore must end by printing `restore complete`. If it prints an error, or
+nothing, stop there. The dump is incomplete, and starting the services would
+run them on a partly restored database. Only when it has printed that line:
+
+```bash
 docker exec filaops-db rm /tmp/restore.dump
 
 # 6. Restore uploads
@@ -368,9 +368,13 @@ Backups are only valuable if they can be restored. Test your backups regularly.
 ### Quick Integrity Check
 
 ```bash
-# Verify a custom-format dump is not corrupted
+# Check that a custom-format dump opens and its list of contents is readable
 pg_restore --list ./backups/filaops_20260207_120000.dump > /dev/null && echo "OK" || echo "CORRUPT"
 ```
+
+"OK" here is not proof that the dump is complete: a dump cut short after its
+list of contents still passes. Only a restore proves that, as in the test
+below.
 
 ### Full Restore Test (Isolated)
 
@@ -388,12 +392,7 @@ sleep 5
 
 # Restore the backup
 docker cp ./backups/filaops_20260207_120000.dump filaops-restore-test:/tmp/restore.dump
-docker exec filaops-restore-test pg_restore \
-  -U postgres \
-  -d filaops_test \
-  --no-owner \
-  --no-privileges \
-  /tmp/restore.dump
+docker exec filaops-restore-test sh -c "pg_restore -U postgres -d filaops_test --no-owner --no-privileges --exit-on-error /tmp/restore.dump && echo restore complete"
 
 # Verify core tables exist and have data
 docker exec filaops-restore-test psql -U postgres -d filaops_test -c "
@@ -408,11 +407,17 @@ docker exec filaops-restore-test psql -U postgres -d filaops_test -c "
 docker rm -f filaops-restore-test
 ```
 
-If the counts match your expectations, the backup is valid.
+The restore step must print `restore complete`. If it prints an error, or
+nothing, the backup is not valid, whatever the counts say. If it prints the
+line and the counts match your expectations, the backup is valid.
 
 ---
 
 ## 8. Quick Reference
+
+These one-liners are for a bash-style shell (Linux, macOS, WSL). In Windows
+PowerShell, `>` and `<` do not behave the same way: use the forms in sections
+1 and 6.1.
 
 ### Backup Commands
 
@@ -429,8 +434,8 @@ If the counts match your expectations, the backup is valid.
 
 | Task | Command |
 |------|---------|
-| Restore SQL dump | `docker exec -i filaops-db psql -U postgres -d filaops < backup.sql` |
-| Restore custom dump | `docker exec filaops-db pg_restore -U postgres -d filaops --clean --if-exists /tmp/b.dump` |
+| Restore SQL dump | See section 6.1: restore into a new database, then swap it in |
+| Restore custom dump | See section 6.1: restore into a new database, then swap it in |
 | Restore uploads | `tar -xzf uploads_backup.tar.gz -C .` |
 | Restore config volume (backend stopped) | `docker run --rm -v filaops_config:/data -v $(pwd):/bk alpine tar -xzf /bk/config.tar.gz -C /data` |
 | Full restart | `docker compose down && docker compose up -d` |

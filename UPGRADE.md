@@ -6,10 +6,30 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
 
 ## Before you start
 
-- **Back up your database first.** Rolling back means restoring that backup:
+- **Back up your database first,** just before you upgrade and while nobody is
+  using FilaOps. Rolling back means restoring that backup. If an older
+  `filaops_before_upgrade.sql` is still in the folder, rename it first.
 
   ```bash
-  docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges > filaops_before_upgrade.sql
+  docker exec filaops-db pg_dump -U postgres -d filaops --no-owner --no-privileges -f /tmp/filaops_before_upgrade.sql
+  docker cp filaops-db:/tmp/filaops_before_upgrade.sql ./filaops_before_upgrade.sql
+  ```
+
+  Both commands must finish without an error. The dump is written inside the
+  database container and copied out, so the file does not depend on your
+  shell (on Windows use PowerShell or Command Prompt, not Git Bash). Don't
+  send `pg_dump` output to a file with `>` in Windows PowerShell: version 5.1
+  writes a file that cannot be restored. Use your own `DB_USER` and `DB_NAME`
+  if you changed them (manual install: run `pg_dump` against your own
+  PostgreSQL server with the same options and `-f filaops_before_upgrade.sql`).
+
+  Before you upgrade, check that the last few lines of the file include
+  `PostgreSQL database dump complete` (`tail -n 5 filaops_before_upgrade.sql`,
+  or in PowerShell `Get-Content filaops_before_upgrade.sql -Tail 5`). Then
+  remove the copy left in the container:
+
+  ```bash
+  docker exec filaops-db rm /tmp/filaops_before_upgrade.sql
   ```
 
 - **Docker, coming from 4.3.1 or older: copy your product images onto the
@@ -41,7 +61,7 @@ From the `filaops` folder:
 
 ```bash
 git fetch --tags
-git checkout v4.3.2
+git checkout v4.4.0
 docker compose up -d --build
 ```
 
@@ -64,6 +84,25 @@ back and try again:
    reads it automatically, and FilaOps doesn't ship one, so upgrades leave it alone.
 4. Put the original file back: `git checkout -- docker-compose.yml`
 5. Run the upgrade commands again.
+
+## After upgrading to 4.4.0
+
+4.4.0 corrects how costs are worked out, and some stored figures only change
+when they are recalculated:
+
+- Read the upgrade's report straight away: the lines containing `105:` in
+  `docker compose logs migrate`. They list the standard costs it repaired, any
+  material whose purchase unit it changed from EA to KG, and the items it left
+  for you to check (marked `WARNI`).
+- Correct the listed items. For one that has an active BOM or routing, correct
+  what it is costed from (its components, and its routing's times and rates),
+  not its own standard cost: Recost All works that out again.
+- On the **Items** page, click **All Items** in the category list, set the
+  type dropdown to **All Types**, click **Recost All** and confirm. Then look
+  at the standard cost of each listed item again.
+
+[Refresh costs](https://blb3dprinting.github.io/filaops/UPGRADE/#6-refresh-costs)
+in the full guide has the detail.
 
 ## If something goes wrong
 

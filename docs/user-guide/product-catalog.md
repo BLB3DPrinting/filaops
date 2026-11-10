@@ -48,7 +48,7 @@ Navigate to **Inventory > Items** in the sidebar. This is your main catalog mana
 |------|-------------|
 | **Left sidebar** | Category tree — click a category to filter the list |
 | **Top header** | View toggle (Table / Cards), Refresh, Recost All, Suggest Prices, + New Material, + New Item |
-| **Filter bar** | Search by SKU, name, or UPC; item type dropdown; Active only and Show variants checkboxes |
+| **Filter bar** | Search by SKU, name, or UPC; item type dropdown; status dropdown (Active, Inactive, All); Show variants checkbox |
 | **Stat cards** | Clickable counts: Total Items, Finished Goods, Components, Materials, Supplies, Needs Reorder |
 | **Main area** | Item list in table or card view |
 
@@ -143,12 +143,12 @@ Instead of deleting items (which would break historical records), deactivate the
 
 **Step 1.** Click **Edit** on the item.
 
-**Step 2.** Uncheck the **Active** toggle and click **Save**.
+**Step 2.** Click **Deactivate** and confirm. An item with stock on hand, or with an active BOM of its own, is refused.
 
-Inactive items are hidden from the main list by default. To see them, uncheck **Active only** in the filter bar.
+Inactive items are hidden from the main list by default. To see them, set the status dropdown in the filter bar to **Inactive** or **All**. An inactive variant is listed only when **Show variants** is checked as well. To bring an item back, open it and click **Reactivate**.
 
 !!! note "Bulk deactivation"
-    To deactivate multiple items at once, select them with the row checkboxes and use the **Bulk Update** toolbar that appears. See [Bulk Operations](#bulk-operations) below.
+    To deactivate multiple items at once, select them with the row checkboxes and use the **Bulk Update** toolbar that appears. See [Bulk Operations](#bulk-operations) below. Bulk Update does not make the checks the **Deactivate** button makes: it sets an item to Inactive even when it has stock on hand or an active BOM of its own.
 
 ---
 
@@ -460,5 +460,5 @@ With your catalog set up, you're ready to start operating:
 | Bulk update items | Check item checkboxes > **Bulk Update** toolbar |
 | Create or edit a category | **Inventory > Items** > category sidebar > **+** or pencil icon |
 | Filter by category | Click a category in the left sidebar |
-| Show inactive items | Uncheck **Active only** in the filter bar |
+| Show inactive items | Set the status dropdown in the filter bar to **Inactive** or **All**; check **Show variants** too to include inactive variants |
 | Show variant products | Check **Show variants** in the filter bar |
