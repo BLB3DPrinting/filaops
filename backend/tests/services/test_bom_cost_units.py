@@ -148,3 +148,27 @@ class TestShortagePurchase:
         """No suggested purchase when the quantity is zero."""
         line = self._line(db, make_product, make_bom, {**BOXED, "standard_cost": D("24")}, "0", "EA")
         assert line["suggested_purchase"] is None
+
+
+class TestThroughTheApi:
+    """The same figures as they leave GET /api/v1/admin/bom/{id}."""
+
+    def test_page_line_carries_the_cost_unit_and_the_suggested_purchase(
+        self, db, client, make_product, make_bom
+    ):
+        """The response schema keeps component_cost_unit and suggested_purchase."""
+        bom, _ = _bom_with_one_line(
+            db, make_product, make_bom, {**FILAMENT, "average_cost": D("0.02")}, "500", "G"
+        )
+
+        response = client.get(f"/api/v1/admin/bom/{bom.id}")
+
+        assert response.status_code == 200
+        line = response.json()["lines"][0]
+        assert float(line["component_cost"]) == pytest.approx(20.00)
+        assert line["component_cost_unit"] == "KG"
+        assert float(line["line_cost"]) == pytest.approx(10.00)
+        assert line["shortage"] == pytest.approx(500)
+        assert line["suggested_purchase"] == {
+            "quantity": pytest.approx(0.5), "unit": "KG", "unit_cost": pytest.approx(20.00),
+        }
