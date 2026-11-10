@@ -18,6 +18,8 @@ import { FormErrorSummary, RequiredIndicator } from "./ErrorMessage";
 import { ITEM_TYPES } from "./item-wizard/constants";
 import Modal from "./Modal";
 import ItemActiveControls from "./items/ItemActiveControls";
+import ItemFormLoadState from "./items/ItemFormLoadState";
+import useItemEditSource from "../hooks/useItemEditSource";
 
 const PROCUREMENT_TYPES = [
   { value: "make", label: "Make (Manufactured)" },
@@ -73,6 +75,9 @@ export default function ItemForm({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // When editing, the form starts from the full item (the list row lacks the
+  // weight and dimensions), and is not shown until that has loaded.
+  const { item: sourceItem, status: sourceStatus, retry: retrySource } = useItemEditSource(isOpen, editingItem);
   const [formData, setFormData] = useState(() => buildFormState(editingItem));
 
   const fetchCategories = useCallback(async () => {
@@ -117,14 +122,14 @@ export default function ItemForm({
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && sourceStatus === "ready") {
       fetchCategories();
       fetchUomClasses();
-      setFormData(buildFormState(editingItem));
+      setFormData(buildFormState(sourceItem));
       setError(null);
       setErrors({});
     }
-  }, [isOpen, editingItem, fetchCategories, fetchUomClasses]);
+  }, [isOpen, sourceStatus, sourceItem, fetchCategories, fetchUomClasses]);
 
   // Auto-configure material type settings
   useEffect(() => {
@@ -246,6 +251,10 @@ export default function ItemForm({
     }
   };
 
+  if (editingItem && sourceStatus !== "ready") {
+    return <ItemFormLoadState isOpen={isOpen} onClose={onClose} status={sourceStatus} onRetry={retrySource} />;
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -275,7 +284,7 @@ export default function ItemForm({
 
           <FormErrorSummary errors={errors} className="mb-4" />
 
-          <ItemActiveControls item={editingItem} disabled={JSON.stringify(formData) !== JSON.stringify(buildFormState(editingItem))} onChanged={(u) => { onSuccess?.(u); onClose(); }} />
+          <ItemActiveControls item={editingItem} disabled={JSON.stringify(formData) !== JSON.stringify(buildFormState(sourceItem))} onChanged={(u) => { onSuccess?.(u); onClose(); }} />
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">

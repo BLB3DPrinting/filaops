@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Saving an item no longer clears its weight and dimensions.** The item edit form was built from the Items list, and the list does not carry weight, length, width or height. The form showed those four fields empty and sent them as blank on every save, so editing anything on an item (its cost, say) erased the weight and dimensions stored on it. A packaging item, which requires all four, had to have them typed in again on every edit. The form now loads the full item when it opens and shows "Loading item…" until it arrives; if the item cannot be loaded it says so and offers Try again, and there is nothing to save until it loads. Opening an item and saving it without touching those fields leaves them as they were, and clearing one on purpose still clears it. The same form also showed a stocked material's reorder point in grams (the list reports it as 1000 times the stored kilograms) and saved that figure back, so each save multiplied it by 1000; it now shows and saves the stored value. **Nothing is restored for you:** weight and dimensions already erased this way stay empty until you enter them again (or restore them from a backup), and a stocked material whose reorder point has been saved through the form may need its reorder point checked. This affects every released version that has the item edit form, 4.4.0 and 4.3.2 included.
+
 ## [4.4.0] - 2026-11-10
 
 ### Added
