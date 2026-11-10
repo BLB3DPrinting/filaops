@@ -12,6 +12,16 @@ Every reader that multiplies a stock quantity by a cost must get that cost from
 ``purchase_factor`` at the call site, is how the same filament came to be costed
 1000x high in one screen and 1000x low in another.
 
+Known limit: a material whose stock unit is a mass unit other than G (KG, LB,
+OZ). PO receiving posts every material's quantity in grams and writes its
+average_cost and last_cost per gram, whatever ``product.unit`` says, so for
+those items "per stock unit" really means per gram and their on-hand quantity
+is in grams. This module returns average_cost and last_cost as stored, exactly
+as the code before it did, which is right against a gram quantity and wrong
+against a quantity in ``product.unit``. Materials are created stocked in G by
+default, where the two agree. Fixing the other case needs receiving to honour
+the product's stock unit first.
+
 This module is pure: it takes a product-like object and touches no database.
 """
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
