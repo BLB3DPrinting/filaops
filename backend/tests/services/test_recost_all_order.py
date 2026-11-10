@@ -41,7 +41,9 @@ def _bought(make_product, category, cost):
     )
 
 
-def _routing_consuming(db, make_work_center, product, component, quantity):
+def _routing_consuming(
+    db, make_work_center, product, component, quantity, version=1, operation_active=True
+):
     """Give ``product`` an active routing whose one operation uses ``component``."""
     work_center = make_work_center(center_type="assembly")
     routing = Routing(
@@ -49,7 +51,7 @@ def _routing_consuming(db, make_work_center, product, component, quantity):
         code=f"RTG-{uuid.uuid4().hex[:8]}",
         name="Assemble",
         is_active=True,
-        version=1,
+        version=version,
     )
     db.add(routing)
     db.flush()
@@ -61,7 +63,7 @@ def _routing_consuming(db, make_work_center, product, component, quantity):
         operation_name="Assemble",
         setup_time_minutes=Decimal("0"),
         run_time_minutes=Decimal("0"),
-        is_active=True,
+        is_active=operation_active,
     )
     db.add(operation)
     db.flush()
@@ -126,6 +128,20 @@ class TestComponentsFirst:
         assert order.index(3) < order.index(1)
         assert order.index(3) < order.index(2)
         assert circular == {1, 2}
+
+    def test_circle_member_reached_after_another_member_is_finished(self):
+        # 1 is built from 3, 3 from 2, 2 from 1. Walking 1 -> 2 first finishes 2
+        # before 3 is looked at; 3 is on the circle all the same.
+        order, circular = components_first([1, 2, 3], {1: {2, 3}, 2: {1}, 3: {2}})
+        assert sorted(order) == [1, 2, 3]
+        assert circular == {1, 2, 3}
+
+    def test_item_above_a_circle_is_not_circular(self):
+        # 2 and 4 are built from each other. 1 and 3 use them but are not
+        # part of the circle, and are costed after it.
+        order, circular = components_first([1, 2, 3, 4], {1: {2, 3}, 2: {4}, 3: {4}, 4: {2}})
+        assert order == [2, 4, 3, 1]
+        assert circular == {2, 4}
 
     def test_a_very_deep_chain_does_not_hit_the_recursion_limit(self):
         depth = 5000
@@ -217,12 +233,97 @@ class TestRecostAllOrder:
         make_bom(first.id, lines=[{"component_id": first.id, "quantity": Decimal("1")}])
         warnings = []
         monkeypatch.setattr(
-            item_cost_service.logger, "warning", lambda message, *args: warnings.append(message)
+            item_cost_service.logger,
+            "warning",
+            lambda message, *args: warnings.append(message % args),
         )
 
         recost_all_items(db, category_id=category.id)
 
         assert any(first.sku in message for message in warnings)
+
+    def test_manufactured_only_run_is_ordered_too(self, db, make_product, make_bom, category):
+        top = _made(make_product, category, "5.00")
+        sub = _made(make_product, category, "1.00")
+        part = _bought(make_product, category, "2.00")
+        make_bom(top.id, lines=[{"component_id": sub.id, "quantity": Decimal("2")}])
+        make_bom(sub.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+
+        recost_all_items(db, category_id=category.id, cost_source_filter="manufactured")
+
+        assert _costs(db, sub, top) == pytest.approx([6.00, 12.00])
+
+    def test_inactive_bom_is_not_a_dependency(self, db, make_product, make_bom, category):
+        # An old, inactive BOM of the sub-assembly lists the top item. Costing
+        # does not read it, so it must not make the pair look circular.
+        top = _made(make_product, category, "5.00")
+        sub = _made(make_product, category, "1.00")
+        part = _bought(make_product, category, "2.00")
+        make_bom(top.id, lines=[{"component_id": sub.id, "quantity": Decimal("2")}])
+        make_bom(sub.id, lines=[{"component_id": top.id, "quantity": Decimal("1")}], active=False)
+        make_bom(sub.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, sub, top) == pytest.approx([6.00, 12.00])
+
+    def test_inactive_operation_is_not_a_dependency(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        # ``first`` has a switched-off operation that used ``second``; costing
+        # skips it. ``second`` really is built from ``first``.
+        first = _made(make_product, category, "9.00")
+        second = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        _routing_consuming(db, make_work_center, first, second, "1", operation_active=False)
+        make_bom(first.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
+
+    def test_older_routing_version_is_not_a_dependency(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        # ``first`` has two active routings. Costing reads only version 2, which
+        # uses a bought part. Version 1 used ``second``, which is built from
+        # ``first``: that old edge must not make the pair look circular.
+        first = _made(make_product, category, "9.00")
+        second = _made(make_product, category, "9.00")
+        part = _bought(make_product, category, "2.00")
+        _routing_consuming(db, make_work_center, first, second, "1", version=1)
+        _routing_consuming(db, make_work_center, first, part, "3", version=2)
+        make_bom(second.id, lines=[{"component_id": first.id, "quantity": Decimal("2")}])
+
+        result = recost_all_items(db, category_id=category.id)
+
+        assert result["circular_skus"] == []
+        assert _costs(db, first, second) == pytest.approx([6.00, 12.00])
+
+    def test_routing_prices_a_sub_assembly_at_its_average_cost(
+        self, db, make_product, make_bom, make_work_center, category
+    ):
+        # A routing prices a component by its cost method. This sub-assembly
+        # has an average cost, so the routing uses that, not the standard
+        # cost the run has just given it.
+        top = _made(make_product, category, "5.00")
+        sub = make_product(
+            item_type="component",
+            procurement_type="make",
+            standard_cost=Decimal("1.00"),
+            average_cost=Decimal("4.00"),
+            category_id=category.id,
+        )
+        part = _bought(make_product, category, "2.00")
+        _routing_consuming(db, make_work_center, top, sub, "2")
+        make_bom(sub.id, lines=[{"component_id": part.id, "quantity": Decimal("3")}])
+
+        recost_all_items(db, category_id=category.id)
+
+        assert _costs(db, sub, top) == pytest.approx([6.00, 8.00])
 
     def test_sub_assembly_outside_the_filter_keeps_its_stored_cost(
         self, db, make_product, make_bom, category

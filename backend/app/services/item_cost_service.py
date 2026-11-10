@@ -4,6 +4,7 @@ Item Cost Service — standard-cost calculation and recosting for items.
 Extracted verbatim from item_service.py (DEBT-1 D1-B mechanical split).
 item_service re-exports these names for backward compatibility.
 """
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from sqlalchemy import desc
@@ -166,13 +167,13 @@ def components_first(
     """Order ``item_ids`` so each item comes after the items it is built from.
 
     ``dependencies`` maps an item id to the ids of its direct components.
-    Components that are not in ``item_ids`` are ignored. Items with nothing
-    between them keep the order they were given in.
+    Components that are not in ``item_ids`` are ignored. Items are taken in
+    the order given, and each item's components are placed ahead of it.
 
-    Returns the ordered ids and the ids found on a circular path (an item
-    built, directly or through others, from itself). Circular items cannot be
-    ordered against each other; they are still returned once each, after
-    everything else they are built from.
+    Returns the ordered ids and the circular ids: every item that is built,
+    directly or through other items, from itself. The members of one circle
+    cannot be ordered against each other; they are returned together, in the
+    order given, after everything else they are built from.
     """
     position = {item_id: index for index, item_id in enumerate(item_ids)}
 
@@ -183,38 +184,59 @@ def components_first(
             key=position.__getitem__,
         )
 
+    # Tarjan's strongly-connected-components walk. It closes a group of items
+    # only after every group that group is built from, which is the order
+    # wanted here, and a group of more than one item is a circle. An explicit
+    # stack stands in for recursion: a long chain of sub-assemblies must not
+    # run into Python's recursion limit.
     ordered: list[int] = []
-    done: set[int] = set()
     circular: set[int] = set()
+    visit_number: dict[int, int] = {}
+    lowest_reached: dict[int, int] = {}
+    open_items: list[int] = []
+    is_open: set[int] = set()
 
-    # Depth-first, components before the item, with an explicit stack: a long
-    # chain of sub-assemblies must not run into Python's recursion limit.
+    def start(item_id: int) -> tuple[int, Iterator[int]]:
+        """Number an item, mark it open, and return it with its components."""
+        visit_number[item_id] = lowest_reached[item_id] = len(visit_number)
+        open_items.append(item_id)
+        is_open.add(item_id)
+        return item_id, iter(components_of(item_id))
+
     for root in item_ids:
-        if root in done:
+        if root in visit_number:
             continue
-        path = [root]
-        on_path = {root}
-        stack = [iter(components_of(root))]
-        while stack:
-            item_id = path[-1]
-            for component_id in stack[-1]:
-                if component_id in done:
-                    continue
-                if component_id in on_path:
-                    # Back to an item still being worked on: everything from
-                    # there to here is built from itself.
-                    circular.update(path[path.index(component_id):])
-                    continue
-                path.append(component_id)
-                on_path.add(component_id)
-                stack.append(iter(components_of(component_id)))
-                break
+        walk = [start(root)]
+        while walk:
+            item_id, components = walk[-1]
+            for component_id in components:
+                if component_id not in visit_number:
+                    walk.append(start(component_id))
+                    break
+                if component_id in is_open:
+                    lowest_reached[item_id] = min(
+                        lowest_reached[item_id], visit_number[component_id]
+                    )
             else:
-                stack.pop()
-                path.pop()
-                on_path.discard(item_id)
-                done.add(item_id)
-                ordered.append(item_id)
+                walk.pop()
+                if walk:
+                    parent_id = walk[-1][0]
+                    lowest_reached[parent_id] = min(
+                        lowest_reached[parent_id], lowest_reached[item_id]
+                    )
+                if lowest_reached[item_id] == visit_number[item_id]:
+                    # Nothing below reaches back above this item: it and the
+                    # items opened after it form one closed group.
+                    group = []
+                    while True:
+                        member = open_items.pop()
+                        is_open.discard(member)
+                        group.append(member)
+                        if member == item_id:
+                            break
+                    if len(group) > 1 or item_id in dependencies.get(item_id, ()):
+                        circular.update(group)
+                    ordered.extend(sorted(group, key=position.__getitem__))
 
     return ordered, circular
 
@@ -223,10 +245,11 @@ def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
     """Map each of ``item_ids`` to the items its cost is built from.
 
     ``calculate_item_cost`` reads a component's stored cost from two places:
-    the lines of the item's active BOM and the materials on the active
-    operations of its active routing. Every active BOM and routing is
-    included, not only the one costing picks, so an item with more than one
-    is still costed after all the items it could be built from.
+    the lines of the item's active BOM, and the materials on the active
+    operations of its active routing with the highest version. The same
+    rows are read here. An older routing version that is still active is
+    left out: costing ignores it, and an edge from it could turn a real
+    dependency in the other direction into a false circle.
     """
     dependencies: dict[int, set[int]] = {item_id: set() for item_id in item_ids}
 
@@ -236,16 +259,34 @@ def cost_dependencies(db: Session, item_ids: set[int]) -> dict[int, set[int]]:
         .filter(BOM.active.is_(True))
         .all()
     )
+
+    routings = (
+        db.query(Routing.id, Routing.product_id, Routing.version)
+        .filter(Routing.is_active.is_(True))
+        .all()
+    )
+    top_version: dict[int, int] = {}
+    for _, product_id, version in routings:
+        top_version[product_id] = max(top_version.get(product_id, version), version)
+    costed_routings = {
+        routing_id: product_id
+        for routing_id, product_id, version in routings
+        if version == top_version[product_id]
+    }
     routing_rows = (
-        db.query(Routing.product_id, RoutingOperationMaterial.component_id)
-        .join(RoutingOperation, RoutingOperation.routing_id == Routing.id)
+        (costed_routings[routing_id], component_id)
+        for routing_id, component_id in db.query(
+            RoutingOperation.routing_id, RoutingOperationMaterial.component_id
+        )
         .join(
             RoutingOperationMaterial,
             RoutingOperationMaterial.routing_operation_id == RoutingOperation.id,
         )
-        .filter(Routing.is_active.is_(True), RoutingOperation.is_active.is_(True))
+        .filter(RoutingOperation.is_active.is_(True))
         .all()
+        if routing_id in costed_routings
     )
+
     for product_id, component_id in (*bom_rows, *routing_rows):
         if product_id in dependencies and component_id is not None:
             dependencies[product_id].add(component_id)
@@ -263,8 +304,11 @@ def recost_all_items(
     """
     Recost all items matching filters.
 
-    Items are costed components first, so an assembly is priced from the
-    cost its sub-assemblies have just been given and one run is enough.
+    Items are costed components first, so an assembly whose BOM uses a
+    sub-assembly is priced from the standard cost that sub-assembly has
+    just been given, and one run is enough. A routing prices a component
+    by its cost method, so there a sub-assembly that has an average or
+    last cost is priced at that cost, not at its new standard cost.
 
     Returns dict with: updated, skipped, items (list of results), and
     circular_skus (items built from themselves, which cannot be ordered).
@@ -293,9 +337,11 @@ def recost_all_items(
     circular_skus = sorted(items_by_id[item_id].sku for item_id in circular_ids)
     if circular_skus:
         logger.warning(
-            "Recost all: these items are built from themselves, directly or "
+            "Recost all: %d items are built from themselves, directly or "
             "through other items, so their costs depend on the order they were "
-            "costed in: " + ", ".join(circular_skus)
+            "costed in: %s",
+            len(circular_skus),
+            ", ".join(circular_skus),
         )
 
     updated = 0
