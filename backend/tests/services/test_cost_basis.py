@@ -359,3 +359,78 @@ class TestStandardCostFromStockCost:
         """The receipt code holds average_cost as a float."""
         p = _product(unit="G", purchase_uom="KG")
         assert standard_cost_from_stock_cost(p, 0.02) == Decimal("20.0000")
+
+
+def _material(**kw):
+    """A stand-in material (item type 'material'); keyword arguments override."""
+    base = dict(item_type="material", material_type_id=None)
+    base.update(kw)
+    return _product(**base)
+
+
+class TestStandardCostForMaterialStockedByWeight:
+    """A material stocked in KG, LB or OZ has its average and last cost stored per GRAM.
+
+    PO receiving posts every material in grams and stores its average and last
+    cost per gram, whatever the stock unit. The standard cost is per purchase
+    unit, so it is the per-gram cost times the grams in one purchase unit:
+    stock units per purchase unit, times grams per stock unit.
+    """
+
+    @pytest.mark.parametrize(
+        "unit, purchase_uom, purchase_factor, expected",
+        [
+            ("G", "KG", Decimal("1000"), "20.0000"),  # stocked in grams: as before
+            ("G", "EA", Decimal("1000"), "20.0000"),  # the item form's G / EA / 1000: as before
+            ("KG", "KG", None, "20.0000"),
+            ("LB", "LB", None, "9.0718"),
+            ("OZ", "OZ", None, "0.5670"),
+            ("KG", "LB", None, "9.0718"),
+            ("LB", "KG", None, "20.0000"),
+            ("KG", "G", None, "0.0200"),
+        ],
+    )
+    def test_two_cents_a_gram(self, unit, purchase_uom, purchase_factor, expected):
+        """$0.02 a gram is $20.00 a KG, $9.0718 a LB and $0.5670 an OZ."""
+        p = _material(unit=unit, purchase_uom=purchase_uom, purchase_factor=purchase_factor)
+        assert standard_cost_from_stock_cost(p, Decimal("0.02")) == Decimal(expected)
+
+    def test_kg_stocked_uses_the_unrounded_per_gram_cost(self):
+        """$0.01267 a gram for a material stocked and bought by the KG is $12.67."""
+        p = _material(unit="KG", purchase_uom="KG")
+        assert standard_cost_from_stock_cost(p, Decimal("0.01267")) == Decimal("12.6700")
+
+    def test_unit_code_case_does_not_matter(self):
+        """A lower-case 'kg' is KG, as it is for receiving."""
+        p = _material(unit="kg", purchase_uom=" Kg ")
+        assert standard_cost_from_stock_cost(p, Decimal("0.02")) == Decimal("20.0000")
+
+    def test_legacy_material_is_found_by_its_material_type(self):
+        """An older filament has item type 'supply' and a material type: still a material."""
+        p = _material(item_type="supply", material_type_id=7, unit="KG", purchase_uom="KG")
+        assert standard_cost_from_stock_cost(p, Decimal("0.02")) == Decimal("20.0000")
+
+    def test_kg_stocked_material_bought_by_the_box(self):
+        """A box of 10 KG at $0.02 a gram is $200.00 a box."""
+        p = _material(unit="KG", purchase_uom="BOX", purchase_factor=Decimal("10"))
+        assert standard_cost_from_stock_cost(p, Decimal("0.02")) == Decimal("200.0000")
+
+    def test_non_material_stocked_in_kg_is_untouched(self):
+        """A supply stocked by the KG is received in KG at a cost per KG: no gram scaling."""
+        p = _product(item_type="supply", material_type_id=None, unit="KG", purchase_uom="KG")
+        assert standard_cost_from_stock_cost(p, Decimal("20")) == Decimal("20.0000")
+
+    def test_non_material_stocked_in_lb_bought_in_kg_is_untouched(self):
+        """Only the LB to KG conversion applies: $9.07184 a LB is $20.00 a KG."""
+        p = _product(item_type="component", material_type_id=None, unit="LB", purchase_uom="KG")
+        assert standard_cost_from_stock_cost(p, Decimal("9.07184")) == Decimal("20.0000")
+
+    def test_material_stocked_by_the_each_is_untouched(self):
+        """Sheet stock by the each is received by the each: its cost is per each."""
+        p = _material(unit="EA", purchase_uom="EA")
+        assert standard_cost_from_stock_cost(p, Decimal("5")) == Decimal("5.0000")
+
+    def test_material_stocked_by_volume_is_untouched(self):
+        """Only weight units are posted in grams: $0.05 a ML is $50.00 a L."""
+        p = _material(unit="ML", purchase_uom="L")
+        assert standard_cost_from_stock_cost(p, Decimal("0.05")) == Decimal("50.0000")

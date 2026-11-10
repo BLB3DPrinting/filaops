@@ -16,17 +16,31 @@ Known limit: a material whose stock unit is a mass unit other than G (KG, LB,
 OZ). PO receiving posts every material's quantity in grams and writes its
 average_cost and last_cost per gram, whatever ``product.unit`` says, so for
 those items "per stock unit" really means per gram and their on-hand quantity
-is in grams. This module returns average_cost and last_cost as stored, exactly
-as the code before it did, which is right against a gram quantity and wrong
-against a quantity in ``product.unit``. Materials are created stocked in G by
-default, where the two agree. Fixing the other case needs receiving to honour
-the product's stock unit first.
+is in grams. Materials are created stocked in G by default, where none of
+this matters.
+
+  Fixed, for the two places that write a standard cost from a stored cost (a
+  PO receipt and Recost): ``standard_cost_from_stock_cost`` treats the stored
+  average or last cost of such a material as per gram, so the standard cost
+  it returns is per purchase unit ($20.00 for a material stocked and bought
+  by the KG, where it used to return $0.0200).
+
+  Still open, for the readers: ``cost_per_stock_unit`` and the functions
+  around it are unchanged. They return average_cost and last_cost as stored,
+  which is right against a gram quantity and wrong against a quantity in
+  ``product.unit``. They convert standard_cost to ``product.unit`` ($20.00
+  per KG), which is right against a quantity in ``product.unit`` and 1000
+  times too high against the gram quantity receiving posts. So for these
+  materials a reading that uses the standard cost and one that uses the
+  average cost do not agree. Making them agree needs receiving to honour the
+  product's stock unit first.
 
 This module is pure: it takes a product-like object and touches no database.
 """
 from decimal import ROUND_HALF_UP, ROUND_UP, Decimal
 from typing import Any, Optional, Tuple
 
+from app.core.uom_config import is_material
 from app.logging_config import get_logger
 from app.services.uom_service import INLINE_UOM_CONVERSIONS
 
@@ -34,6 +48,13 @@ logger = get_logger(__name__)
 
 # Count units people type that all mean "each".
 _COUNT_SYNONYMS = {"PCS", "PC", "EACH", "UNIT", "UNITS"}
+
+# The stock units PO receiving turns into grams for a material (the
+# "Convert to transaction unit" step of receive_purchase_order). Names only:
+# the factors come from INLINE_UOM_CONVERSIONS. A unit added to that table is
+# not posted in grams until receiving handles it, so it does not belong here
+# until then.
+_GRAM_POSTED_STOCK_UNITS = ("KG", "LB", "OZ")
 
 _FOUR_DP = Decimal("0.0001")
 
@@ -187,12 +208,48 @@ def standard_first_cost_per_stock_unit(product: Any) -> Optional[Decimal]:
     return None
 
 
+def _grams_per_stock_unit(product: Any) -> Decimal:
+    """Grams in one stock unit when the product's stored costs are per gram, else 1.
+
+    PO receiving posts a material stocked in KG, LB or OZ in grams and stores
+    its average_cost and last_cost per gram (see "Known limit" in the module
+    docstring). For those products this is the grams in one ``product.unit``
+    (1000 for KG). For everything else the stored costs are per stock unit and
+    this is 1: a material stocked in G, a material stocked by the each or by
+    volume, and anything that is not a material.
+
+    The material test is the one receiving uses
+    (``inventory_helpers.is_material``, which calls the same function).
+    """
+    stock_unit = normalize_unit(getattr(product, "unit", None))
+    if stock_unit not in _GRAM_POSTED_STOCK_UNITS:
+        return Decimal("1")
+    if not is_material(
+        item_type=getattr(product, "item_type", None),
+        material_type_id=getattr(product, "material_type_id", None),
+    ):
+        return Decimal("1")
+    return INLINE_UOM_CONVERSIONS[stock_unit]["factor"] / INLINE_UOM_CONVERSIONS["G"]["factor"]
+
+
 def standard_cost_from_stock_cost(product: Any, stock_cost: Any) -> Decimal:
     """
-    Express a cost per stock unit as a standard cost, which is per purchase unit.
+    Express a stored average or last cost as a standard cost, which is per purchase unit.
 
-    The inverse of the standard-cost branch of :func:`cost_per_stock_unit`:
-    $0.01267/G for a filament bought by the KG is a $12.67 standard cost.
+    ``stock_cost`` is the product's average_cost or last_cost, or the unrounded
+    figure one of them was rounded from. It is per stock unit, and the result
+    is that cost times the stock units in one purchase unit: $0.01267/G for a
+    filament bought by the KG is a $12.67 standard cost. This is the inverse
+    of the standard-cost branch of :func:`cost_per_stock_unit`.
+
+    A material stocked in KG, LB or OZ is the exception. Its stored cost is
+    per GRAM, not per stock unit, so the result is also multiplied by the
+    grams in one stock unit: $0.02/G for a material stocked and bought by the
+    KG is $20.00, and for one stocked and bought by the LB it is $9.0718. For
+    these materials this is NOT the inverse of the read side, which still
+    converts the standard cost to ``product.unit``; see "Known limit" in the
+    module docstring.
+
     Rounded to 4 decimal places, the precision of ``products.standard_cost``.
     Pass the unrounded stock cost where it is available, so the result is not
     built on a per-gram figure already rounded to 4 places.
@@ -204,7 +261,8 @@ def standard_cost_from_stock_cost(product: Any, stock_cost: Any) -> Decimal:
     units = stock_units_per_purchase_unit(product)
     if units is None:
         units = Decimal("1")
-    return (stock_cost * units).quantize(_FOUR_DP, rounding=ROUND_HALF_UP)
+    purchase_unit_cost = stock_cost * units * _grams_per_stock_unit(product)
+    return purchase_unit_cost.quantize(_FOUR_DP, rounding=ROUND_HALF_UP)
 
 
 def purchase_line_for_stock_quantity(
