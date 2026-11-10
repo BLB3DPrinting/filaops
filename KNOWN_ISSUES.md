@@ -82,6 +82,7 @@ Write numbers in import files with a decimal point and no thousands separator.
 **Description:**
 - An item bought by a pack with no pack size recorded is costed at its standard cost unconverted. There is no field for a pack size yet.
 - The item form has no purchase-unit field. Change it with `PATCH /api/v1/items/{id}` (`purchase_uom`).
+- A material stocked by the KG, LB or OZ, not by the gram, is not costed correctly. Receiving records its stock and its average and last cost in grams whatever its stock unit says, and then writes that per-gram figure as its standard cost: $20.00 a KG becomes $0.0200. Recost does the same for such a material that has no standard cost. The 4.4.0 cost fix covers materials stocked by the gram, which is how the material form creates them. Check the standard cost of any other material after each receipt. Migration 105 neither repairs nor lists a material whose stock and purchase unit are the same.
 - Materials bought by the LB or OZ are not handled correctly. Where the material is stocked in another unit (grams, for example), the receipt is refused unless both the purchase unit and G are active in the unit table. The setup wizard's example data adds G, LB and OZ; an install set up without the example data does not have them, and there is no screen for adding them afterwards. Where it is also stocked by the LB or OZ, the receipt is accepted, but the stock movement and the item's average and last cost are recorded in grams (1 LB as 453.592 G) although the item's stock unit says LB or OZ. BOM costs read such a material's standard cost as per KG.
 - A material stocked by the each is costed correctly on a BOM only when it has just an average or last cost, and its unit cost is then shown 1000 times too high, labelled /KG.
 
@@ -111,6 +112,21 @@ Cards view shows one page of items and has no controls to change the page or the
 
 **Workaround:**
 Change the page and the page size in Table view: Cards view shows the page the table is on. Raising the page size to 200 brings more items under the **Needs Reorder** card. To find one item, search by SKU or name.
+
+---
+
+### ISSUE-011: Saving the item form clears an item's weight and dimensions
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier
+
+**Description:**
+The item form does not load an item's weight, length, width and height when it opens, and it sends all four empty when it saves. Whatever was stored in them is cleared each time the item is edited on the form. For a packaging item nothing is cleared silently, because the form requires the four values, but they have to be typed in again on every edit.
+
+**Workaround:**
+When you edit an item on the form, enter its weight and dimensions again before saving (the Physical / Shipping section). To change one field and leave the rest alone, use the API: `PATCH /api/v1/items/{id}` with only that field.
 
 ---
 

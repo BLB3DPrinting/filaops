@@ -180,6 +180,14 @@ newer version would upgrade the restored database again.
 docker compose up -d --build
 ```
 
+Going back to 4.3.1 or older: those versions keep product images inside the
+backend container, and the rebuild starts with none. Copy them back from the
+uploads folder, and do it again whenever that older container is rebuilt:
+
+```bash
+docker compose exec backend sh -c 'set -eu; src=/app/uploads/products; dst=/app/static/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
+```
+
 Then check that the version you went back to is running on the restored
 data. This must show the migration number you saw in step 3:
 
@@ -204,6 +212,10 @@ with the steps above instead.
 in place of `docker exec filaops-db psql`, and with the path to your backup
 file after `-f`. Leave out the `docker cp` and `rm` lines.
 
+- In place of step 1, stop your own backend, and keep it stopped until the
+  restored version is ready to start. `docker compose stop backend` does
+  nothing on a manual install, and a running backend keeps writing and keeps
+  the database from being renamed.
 - Give `psql` the host and port FilaOps itself uses (`DB_HOST` and `DB_PORT` in
   `backend/.env`, or the ones inside `DATABASE_URL` if you set that) with `-h`
   and `-p`, so that you are working on the same server as the application.
