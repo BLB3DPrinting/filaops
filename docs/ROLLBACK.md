@@ -213,13 +213,25 @@ file after `-f`. Leave out the `docker cp` and `rm` lines.
 - On Windows, leave out `-o /dev/null`. The restore then prints its normal
   output as well. It failed if any line contains `error`, or if the last line
   is not `restore complete`.
-- A custom-format dump has no text marker. Restore it with
-  `pg_restore -d filaops_restore --no-owner --no-privileges --exit-on-error`
-  and your dump file, in place of the `psql ... -f` command, and stop if it
-  prints an error.
+- A custom-format dump has no text marker. Restore it with one of the two
+  commands below in place of the `psql ... -f` one, with your own host, port,
+  user and file. Each prints `restore complete` only if `pg_restore`
+  succeeded.
 - Close anything else that is connected to the database first (a second
   backend, pgAdmin). A database cannot be renamed while something is connected
   to it.
+
+A custom-format dump on a manual install, in bash or Command Prompt:
+
+```bash
+pg_restore -h HOST -p PORT -U USER -d filaops_restore --no-owner --no-privileges --exit-on-error BACKUP.dump && echo restore complete
+```
+
+In PowerShell:
+
+```powershell
+pg_restore -h HOST -p PORT -U USER -d filaops_restore --no-owner --no-privileges --exit-on-error BACKUP.dump; if ($LASTEXITCODE -eq 0) { "restore complete" }
+```
 
 Then check out the version you were on and install and restart it the way you
 did before, as in the manual steps of [Upgrading FilaOps](UPGRADE.md#upgrade).

@@ -339,14 +339,14 @@ docker compose exec db pg_isready -U postgres  # wait until ready
 
 # 5. Restore the database
 docker cp /path/to/backup/filaops_20260207_120000.dump filaops-db:/tmp/restore.dump
-docker exec filaops-db pg_restore \
-  -U postgres \
-  -d filaops \
-  --no-owner \
-  --no-privileges \
-  --clean \
-  --if-exists \
-  /tmp/restore.dump
+docker exec filaops-db sh -c "pg_restore -U postgres -d filaops --no-owner --no-privileges --clean --if-exists --exit-on-error /tmp/restore.dump && echo restore complete"
+```
+
+The restore must end by printing `restore complete`. If it prints an error, or
+nothing, stop there. The dump is incomplete, and starting the services would
+run them on a partly restored database. Only when it has printed that line:
+
+```bash
 docker exec filaops-db rm /tmp/restore.dump
 
 # 6. Restore uploads
@@ -358,9 +358,6 @@ docker compose up -d
 # 8. Verify
 curl http://localhost:8000/health
 ```
-
-If `pg_restore` in step 5 prints an error, stop there. The dump is incomplete,
-and starting the services would run them on a partly restored database.
 
 ---
 
@@ -395,13 +392,7 @@ sleep 5
 
 # Restore the backup
 docker cp ./backups/filaops_20260207_120000.dump filaops-restore-test:/tmp/restore.dump
-docker exec filaops-restore-test pg_restore \
-  -U postgres \
-  -d filaops_test \
-  --no-owner \
-  --no-privileges \
-  --exit-on-error \
-  /tmp/restore.dump
+docker exec filaops-restore-test sh -c "pg_restore -U postgres -d filaops_test --no-owner --no-privileges --exit-on-error /tmp/restore.dump && echo restore complete"
 
 # Verify core tables exist and have data
 docker exec filaops-restore-test psql -U postgres -d filaops_test -c "
@@ -416,9 +407,9 @@ docker exec filaops-restore-test psql -U postgres -d filaops_test -c "
 docker rm -f filaops-restore-test
 ```
 
-If `pg_restore` printed no error and the counts match your expectations, the
-backup is valid. An error from `pg_restore` means the dump is incomplete,
-whatever the counts say.
+The restore step must print `restore complete`. If it prints an error, or
+nothing, the backup is not valid, whatever the counts say. If it prints the
+line and the counts match your expectations, the backup is valid.
 
 ---
 
