@@ -45,6 +45,7 @@ def normalize_unit(code: Optional[str]) -> str:
 
 
 def _positive_decimal(value: Any) -> Optional[Decimal]:
+    """Return the value as a Decimal when it is greater than zero, otherwise None."""
     if value is None:
         return None
     number = Decimal(str(value))

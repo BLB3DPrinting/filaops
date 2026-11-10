@@ -49,6 +49,7 @@ def received_filament(make_product):
 
 
 def _je_total_debits(db, journal_entry_id):
+    """Sum the debit side of a journal entry."""
     lines = db.query(GLJournalEntryLine).filter(
         GLJournalEntryLine.journal_entry_id == journal_entry_id
     ).all()
@@ -60,6 +61,7 @@ def _je_total_debits(db, journal_entry_id):
 # ---------------------------------------------------------------------------
 
 class TestCycleCountCost:
+    """Cycle-count adjustments post the variance at cost per stock unit."""
     def test_unreceived_filament_shortage_posts_dollars_not_thousands(
         self, db, unreceived_filament, location,
     ):
@@ -80,6 +82,7 @@ class TestCycleCountCost:
     def test_received_filament_shortage_uses_average_cost(
         self, db, received_filament, location,
     ):
+        """-100 G at an average of $0.02/G is $2.00."""
         ledger_post(db, product_id=received_filament.id, location_id=location.id,
                     transaction_type="receipt", quantity_delta=Decimal("1000"))
 
@@ -94,9 +97,11 @@ class TestCycleCountCost:
 
 
 class TestReconciliationCountCost:
+    """Reconciliation counts post the variance at cost per stock unit."""
     def test_unreceived_filament_count_posts_dollars_not_thousands(
         self, db, unreceived_filament, location,
     ):
+        """Counting 900 of 1000 G at $20/KG posts $2.00, not $2,000."""
         ledger_post(db, product_id=unreceived_filament.id, location_id=location.id,
                     transaction_type="receipt", quantity_delta=Decimal("1000"))
 
@@ -134,13 +139,16 @@ class TestReconciliationCountCost:
 # ---------------------------------------------------------------------------
 
 class TestRoutingMaterialUnitCost:
+    """A routing material is costed per stock unit in both item states."""
     def _material(self, component, quantity="50"):
+        """Build an unsaved routing material line for the component."""
         mat = RoutingOperationMaterial(quantity=Decimal(quantity), unit="G",
                                        scrap_factor=Decimal("0"))
         mat.component = component
         return mat
 
     def test_unreceived_filament_converts_standard_cost(self, unreceived_filament):
+        """$20/KG standard cost is $0.02/G, so 50 G costs $1.00."""
         mat = self._material(unreceived_filament)
         assert mat.unit_cost == Decimal("0.02")
         assert mat.extended_cost == Decimal("1.00")
@@ -152,6 +160,7 @@ class TestRoutingMaterialUnitCost:
         assert mat.extended_cost == Decimal("1.00")
 
     def test_no_component_or_cost_is_zero(self, make_product):
+        """No component, or a component with no cost, costs zero."""
         assert RoutingOperationMaterial(quantity=Decimal("1")).unit_cost == Decimal("0")
         assert self._material(make_product(unit="G", purchase_uom="KG")).unit_cost == Decimal("0")
 
@@ -161,7 +170,9 @@ class TestRoutingMaterialUnitCost:
 # ---------------------------------------------------------------------------
 
 class TestMrpPurchaseRelease:
+    """Releasing a planned purchase writes a correctly priced PO line."""
     def _planned_purchase(self, db, product, quantity):
+        """Create a planned purchase order for the product."""
         order = PlannedOrder(
             order_type="purchase", product_id=product.id,
             quantity=Decimal(str(quantity)),
@@ -174,6 +185,7 @@ class TestMrpPurchaseRelease:
         return order
 
     def _line(self, db, po_id):
+        """Return the purchase order and its single line."""
         po = db.get(PurchaseOrder, po_id)
         line = db.query(PurchaseOrderLine).filter(
             PurchaseOrderLine.purchase_order_id == po_id
@@ -198,6 +210,7 @@ class TestMrpPurchaseRelease:
     def test_received_filament_po_line_uses_average_cost_per_kg(
         self, db, received_filament, make_vendor,
     ):
+        """Average $0.02/G is ordered as 5 KG at $20."""
         planned = self._planned_purchase(db, received_filament, 5000)
         _, po_id = MRPService(db).release_planned_order(
             planned.id, vendor_id=make_vendor().id, user_id=1)
@@ -208,6 +221,7 @@ class TestMrpPurchaseRelease:
         assert line.line_total == Decimal("100")
 
     def test_each_item_po_line_is_unchanged(self, db, make_product, make_vendor):
+        """An EA item is ordered as before: 40 EA at $1.50."""
         part = make_product(item_type="component", standard_cost=Decimal("1.50"))
         planned = self._planned_purchase(db, part, 40)
         _, po_id = MRPService(db).release_planned_order(
@@ -224,7 +238,9 @@ class TestMrpPurchaseRelease:
 # ---------------------------------------------------------------------------
 
 class TestInventorySummaryUnitCost:
+    """The cycle-count screen is given a cost that matches the on-hand unit."""
     def _row(self, db, product, location):
+        """Receive 1000 of the product and return its inventory-summary row."""
         from app.services.inventory_transaction_service import get_inventory_summary
 
         ledger_post(db, product_id=product.id, location_id=location.id,
@@ -241,13 +257,16 @@ class TestInventorySummaryUnitCost:
         assert row["unit_cost"] == pytest.approx(0.02)
 
     def test_received_filament_cost_is_per_gram(self, db, received_filament, location):
+        """Received filament reports its average cost per gram."""
         assert self._row(db, received_filament, location)["unit_cost"] == pytest.approx(0.02)
 
     def test_item_with_no_cost_is_none(self, db, make_product, location):
+        """An item with no cost reports no unit cost."""
         assert self._row(db, make_product(), location)["unit_cost"] is None
 
 
 class TestInventoryByAccountValuation:
+    """Inventory-by-account values on-hand at cost per stock unit."""
     def test_unreceived_filament_is_valued_in_dollars_not_thousands(
         self, client, db, unreceived_filament, location,
     ):
@@ -266,6 +285,7 @@ class TestInventoryByAccountValuation:
     def test_item_with_only_average_cost_is_not_valued_at_zero(
         self, client, db, make_product, location,
     ):
+        """8 on hand at an average of $1.25 is valued at $10, not $0."""
         part = make_product(item_type="component", average_cost=Decimal("1.25"))
         ledger_post(db, product_id=part.id, location_id=location.id,
                     transaction_type="receipt", quantity_delta=Decimal("8"))
@@ -286,6 +306,7 @@ class TestMrpReleaseThenReceive:
     service. Stock must rise by the planned quantity, in the stock unit."""
 
     def _release_and_receive(self, db, product, quantity, make_vendor):
+        """Release a planned purchase, receive the PO in full, and return the line and on-hand total."""
         from app.models.inventory import Inventory
         from app.services.purchase_order_service import receive_purchase_order
 
@@ -321,6 +342,7 @@ class TestMrpReleaseThenReceive:
         return line, on_hand
 
     def test_kg_filament_is_received_as_grams(self, db, unreceived_filament, make_vendor):
+        """5000 G planned becomes a 5 KG line and 5000 G on hand at $0.02/G."""
         line, on_hand = self._release_and_receive(db, unreceived_filament, 5000, make_vendor)
         assert (line.purchase_unit, line.quantity_ordered) == ("KG", Decimal("5"))
         assert on_hand == Decimal("5000")
