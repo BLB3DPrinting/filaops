@@ -41,7 +41,7 @@ From the `filaops` folder:
 
 ```bash
 git fetch --tags
-git checkout v4.3.2
+git checkout v4.4.0
 docker compose up -d --build
 ```
 
@@ -64,6 +64,17 @@ back and try again:
    reads it automatically, and FilaOps doesn't ship one, so upgrades leave it alone.
 4. Put the original file back: `git checkout -- docker-compose.yml`
 5. Run the upgrade commands again.
+
+## After upgrading to 4.4.0
+
+4.4.0 corrects how costs are worked out, and some stored figures only change
+when they are recalculated:
+
+- Look for lines starting `105:` in `docker compose logs migrate`. They list
+  the standard costs the upgrade repaired and the items it left for you to
+  check.
+- On the **Items** page, clear the category filter, set the item type to
+  **All**, and click **Recost All**. One run is enough.
 
 ## If something goes wrong
 
