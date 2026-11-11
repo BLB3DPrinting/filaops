@@ -20,23 +20,34 @@ Schema
     size in the item's stock unit (a BOX of 12). Nothing fills it here.
 
 Data, in this order
-    1. The unit table. Standard units the install lacks are added. A standard
-       weight, length, area or volume unit whose factor was rounded is made
-       exact. A standard unit that was switched off is switched on. A row the
-       install added is kept as it is. Hours and minutes are added when
-       missing and never changed. A standard code the install filed under a
-       different kind (BOX as a counting unit of 12, OZ as a volume) is left
-       exactly as it is and listed. The same code in two spellings (``kg`` and
-       ``KG``) keeps the upper-case row; the other is switched off and listed.
+    1. The unit table.
+       - Standard units the install lacks are added.
+       - A standard weight, length, area or volume unit whose factor is a
+         rounding of the exact one (0.453592 for the pound) is made exact. A
+         factor that is not a rounding of it is left and listed: that install
+         may measure the kind from another base unit.
+       - A standard unit that was switched off is switched on and listed.
+       - A code typed in lower case or with spaces is rewritten in upper case.
+         Where the same code exists in two spellings (``kg`` and ``KG``) the
+         upper-case row is kept and the other is switched off and listed. If
+         the upper-case row is the one switched off, both are left and listed.
+       - A standard code the install filed under a different kind (BOX as a
+         counting unit of 12, OZ as a volume) is left exactly as it is and
+         listed. It goes on converting as that install filed it.
+       - Hours and minutes are added when missing. An existing HR or MIN row
+         is never changed.
+       - Any other row the install added keeps its kind, factor and state.
     2. Unit codes on items, BOM lines, routing material lines, vendor items,
        open purchase order lines and production order material rows not yet
        consumed are tidied: trimmed, upper-cased, and a known spelling read as
-       its code (``pcs`` is EA). A code the unit table still does not know is
-       listed and left alone. Ledger rows are not touched.
+       its code (``pcs`` is EA). A unit the table holds under the typed code
+       wins over a spelling: an install with its own PACK unit keeps it. A
+       code the unit table does not know is listed with the rows that carry
+       it, and left alone. Ledger rows are not touched.
     3. An item with no unit gets EA, which is what receiving already assumes.
        An item with no purchase unit gets its stock unit.
 
-Safe to run twice: the second run finds nothing to change.
+Safe to run twice: the second run changes nothing.
 
 How it is written
     ``read_state`` reads the rows, ``plan`` decides every change and every
@@ -52,7 +63,7 @@ upgrade is the backup taken before it (docs/ROLLBACK.md).
 """
 import copy
 import logging
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from alembic import op
 import sqlalchemy as sa
@@ -109,6 +120,8 @@ _SPELLINGS = {
 
 # Kinds whose standard factors are exact by definition and are corrected.
 _EXACT_KINDS = ("weight", "length", "area", "volume")
+_TIME = "time"
+_NAMED_ROWS = 25
 
 # state key -> (table, the columns that hold a unit code)
 _CODE_COLUMNS = {
@@ -121,11 +134,17 @@ _CODE_COLUMNS = {
 }
 
 _WHAT = {
-    "items": "item",
-    "bom_lines": "BOM line",
-    "routing_lines": "routing material line",
-    "order_lines": "production order material row",
-    "po_lines": "open purchase order line",
+    ("items", "unit"): "item(s) with the stock unit",
+    ("items", "purchase_uom"): "item(s) with the purchase unit",
+    ("bom_lines", "unit"): "BOM line(s) in the unit",
+    ("routing_lines", "unit"): "routing material line(s) in the unit",
+    ("order_lines", "unit"): "production order material row(s) in the unit",
+    ("po_lines", "purchase_unit"): "open purchase order line(s) in the unit",
+    ("vendor_items", "default_purchase_unit"): "vendor item(s) with the purchase unit",
+}
+_TIDIED = {
+    "items": "item", "bom_lines": "BOM line", "routing_lines": "routing material line",
+    "order_lines": "production order material row", "po_lines": "open purchase order line",
     "vendor_items": "vendor item",
 }
 
@@ -134,6 +153,25 @@ def tidy_code(code) -> str:
     """Trim and upper-case a unit code, and read a known spelling as its code."""
     tidy = (code or "").strip().upper()
     return _SPELLINGS.get(tidy, tidy)
+
+
+def _is_rounding_of(stored: Decimal, exact: Decimal) -> bool:
+    """True when ``stored`` is ``exact`` rounded to some number of decimal places."""
+    for places in range(16):
+        if exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP) == stored:
+            return True
+    return False
+
+
+def _row_name(key: str, row: dict) -> str:
+    """What a person can find a row by."""
+    if key == "items":
+        return str(row["sku"])
+    if key == "bom_lines":
+        return "BOM %s line %s" % (row["bom_id"], row["id"])
+    if key == "po_lines":
+        return "%s line %s" % (row["po_number"], row["id"])
+    return "%s %s" % (_TIDIED[key], row["id"])
 
 
 def _rows(bind, sql) -> list:
@@ -147,8 +185,9 @@ def read_state(bind) -> dict:
     if has("units_of_measure"):
         state["units"] = _rows(
             bind,
-            "SELECT id, code, name, symbol, uom_class, base_unit_id, to_base_factor, active "
-            "FROM units_of_measure ORDER BY id",
+            "SELECT u.id, u.code, u.name, u.symbol, u.uom_class, u.base_unit_id, b.code AS base_code, "
+            "u.to_base_factor, u.active "
+            "FROM units_of_measure u LEFT JOIN units_of_measure b ON b.id = u.base_unit_id ORDER BY u.id",
         )
     if has("products"):
         state["items"] = _rows(
@@ -166,6 +205,7 @@ def read_state(bind) -> dict:
             "SELECT id, component_id, quantity, unit FROM routing_operation_materials ORDER BY id",
         )
     if has("production_order_operation_materials"):
+        # Rows not yet consumed: pending, allocated, and ones whose consumption failed.
         state["order_lines"] = _rows(
             bind,
             "SELECT id, component_id, quantity_required, unit, status "
@@ -192,65 +232,83 @@ def read_state(bind) -> dict:
     return state
 
 
-def _plan_units(units: list) -> dict:
-    """Decide what happens to the unit table. Returns the plan and the codes known afterwards."""
-    plan = {"add": [], "fix": [], "reactivate": [], "rename": [], "switch_off": [], "conflicts": []}
+def _plan_units(units: list) -> tuple:
+    """Decide what happens to the unit table.
+
+    Returns the plan, the codes that convert afterwards, and the codes whose
+    only rows are switched off.
+    """
+    planned = {
+        "add": [], "fix": [], "reactivate": [], "rename": [], "switch_off": [],
+        "conflicts": [], "odd_factors": [], "spellings_left": [],
+    }
+    standard = {row[0]: row for row in _STANDARD_UNITS}
     by_code = {}
     for row in units:
         by_code.setdefault((row["code"] or "").strip().upper(), []).append(row)
 
-    kept = {}
+    known, switched_off = set(), set()
     for code, rows in by_code.items():
         if not code:
             continue
-        # The row typed in upper case is the one kept; failing that, the oldest in use.
+        active = [row for row in rows if row["active"]]
         exact = [row for row in rows if row["code"] == code]
-        keep = (exact or sorted(rows, key=lambda row: (not row["active"], row["id"])))[0]
-        kept[code] = dict(keep)
-        if keep["code"] != code:
-            plan["rename"].append((keep["id"], keep["code"], code))
-            kept[code]["code"] = code
-        for other in rows:
-            if other["id"] != keep["id"] and other["active"]:
-                plan["switch_off"].append((other["id"], other["code"], code))
-        # The code stays usable if any spelling of it was.
-        if not keep["active"] and any(row["active"] for row in rows):
-            plan["reactivate"].append((keep["id"], code))
-            kept[code]["active"] = True
+        # The row conversions use today: the upper-case one if it is in use, else the oldest in use.
+        in_use = ([row for row in active if row["code"] == code] or active or [None])[0]
+        keep = in_use or (exact or rows)[0]
+        here = (keep["uom_class"] or "").strip().lower()
+        usable = bool(active)
+        wanted = standard.get(code)
 
-    known = {code for code, row in kept.items() if row["active"]}
-    for code, name, symbol, kind, base, factor in _STANDARD_UNITS:
-        row = kept.get(code)
-        if row is None:
-            plan["add"].append((code, name, symbol, kind, base, factor))
-            known.add(code)
-            continue
-        here = (row["uom_class"] or "").strip().lower()
-        if here != kind:
-            plan["conflicts"].append((code, here, kind, Decimal(str(row["to_base_factor"]))))
-            continue
-        if kind in _EXACT_KINDS and Decimal(str(row["to_base_factor"])) != Decimal(factor):
-            plan["fix"].append((row["id"], code, Decimal(str(row["to_base_factor"])), Decimal(factor)))
-        if not row["active"]:
-            plan["reactivate"].append((row["id"], code))
-            known.add(code)
-    return plan, known
+        if wanted and wanted[3] == _TIME:
+            pass  # hours and minutes are never changed
+        elif wanted and here != wanted[3]:
+            planned["conflicts"].append((code, here, wanted[3], Decimal(str(keep["to_base_factor"]))))
+        elif exact and not exact[0]["active"] and active:
+            planned["spellings_left"].append((code, in_use["code"]))
+        else:
+            if active and keep["code"] != code:
+                planned["rename"].append((keep["id"], keep["code"], code))
+            for other in active:
+                if other["id"] != keep["id"]:
+                    planned["switch_off"].append((other["id"], other["code"], code))
+            if wanted:
+                stored, exact_factor = Decimal(str(keep["to_base_factor"])), Decimal(wanted[5])
+                if wanted[3] in _EXACT_KINDS and stored != exact_factor:
+                    if _is_rounding_of(stored, exact_factor):
+                        planned["fix"].append((keep["id"], code, stored, exact_factor))
+                    else:
+                        planned["odd_factors"].append((code, stored, exact_factor))
+                if not usable:
+                    planned["reactivate"].append((keep["id"], code))
+                    usable = True
+        (known if usable else switched_off).add(code)
+
+    for row in _STANDARD_UNITS:
+        if row[0] not in by_code:
+            planned["add"].append(row)
+            known.add(row[0])
+    return planned, known, switched_off
 
 
 def plan(state: dict) -> dict:
     """Decide every change and every list. Touches nothing."""
-    units, known = _plan_units(state["units"])
+    units, known, switched_off = _plan_units(state["units"])
     result = {"units": units, "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
 
     def settle(key, row, column):
         """Return the code a column will hold, recording a rewrite or an unknown code."""
         raw = row[column]
-        tidy = tidy_code(raw)
-        if not tidy:
+        upper = (raw or "").strip().upper()
+        if not upper:
             return ""
+        # A unit the table holds under the typed code wins over a spelling.
+        tidy = upper if upper in known else _SPELLINGS.get(upper, upper)
         if tidy not in known:
-            where = (key, column, raw)
-            result["unknown"][where] = result["unknown"].get(where, 0) + 1
+            entry = result["unknown"].setdefault(
+                (key, column, raw), {"off": tidy in switched_off, "rows": []}
+            )
+            entry["rows"].append(_row_name(key, row))
             return raw
         if tidy != raw:
             result["codes"].append((key, row["id"], column, raw, tidy))
@@ -276,16 +334,19 @@ def project(state: dict, planned: dict) -> dict:
     units = {row["id"]: row for row in after["units"]}
     for unit_id, _old, new in planned["units"]["rename"]:
         units[unit_id]["code"] = new
+        for row in after["units"]:
+            if row["base_unit_id"] == unit_id:
+                row["base_code"] = new
     for unit_id, _code, _kept in planned["units"]["switch_off"]:
         units[unit_id]["active"] = False
     for unit_id, _code, _old, new in planned["units"]["fix"]:
         units[unit_id]["to_base_factor"] = new
     for unit_id, _code in planned["units"]["reactivate"]:
         units[unit_id]["active"] = True
-    for code, name, symbol, kind, _base, factor in planned["units"]["add"]:
+    for code, name, symbol, kind, base, factor in planned["units"]["add"]:
         after["units"].append({
             "id": None, "code": code, "name": name, "symbol": symbol, "uom_class": kind,
-            "base_unit_id": None, "to_base_factor": Decimal(factor), "active": True,
+            "base_unit_id": None, "base_code": base, "to_base_factor": Decimal(factor), "active": True,
         })
 
     rows = {key: {row["id"]: row for row in after[key]} for key in _CODE_COLUMNS}
@@ -316,7 +377,7 @@ def apply(bind, planned: dict) -> None:
     insert = sa.text(
         "INSERT INTO units_of_measure (code, name, symbol, uom_class, base_unit_id, to_base_factor, active) "
         "VALUES (:code, :name, :symbol, :kind, "
-        "(SELECT id FROM units_of_measure WHERE code = :base AND active), :factor, true)"
+        "(SELECT id FROM units_of_measure WHERE code = :base), :factor, true)"
     )
     # Base units first, so the others can point at them.
     for wants_base in (False, True):
@@ -351,6 +412,13 @@ def _plain(number) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
+def _named(names: list) -> str:
+    """The first rows by name, and how many more there are."""
+    shown = ", ".join(str(name) for name in names[:_NAMED_ROWS])
+    more = len(names) - _NAMED_ROWS
+    return shown + (" and %d more" % more if more > 0 else "")
+
+
 def report_lines(planned: dict) -> list:
     """The report as ``(logging level, line)`` pairs."""
     lines = []
@@ -366,30 +434,50 @@ def report_lines(planned: dict) -> list:
         lines.append((logging.WARNING, "106: standard unit %s was switched off and is switched on again" % code))
     for _id, code, kept in units["switch_off"]:
         lines.append((logging.WARNING, "106: unit %r is the same code as %s and was switched off" % (code, kept)))
-    for code, here, standard, factor in units["conflicts"]:
+    for code, in_use in units["spellings_left"]:
+        lines.append((logging.WARNING, (
+            "106: LEFT unit %s: the row in use is spelled %r, and a row spelled %s exists but is switched off. "
+            "Both are left as they are; conversions use the row in use."
+        ) % (code, in_use, code)))
+    for code, here, wanted, factor in units["conflicts"]:
         lines.append((logging.WARNING, (
             "106: LEFT unit %s: this install has it as a %s unit (factor %s); FilaOps reads %s as a %s unit. "
             "It is left exactly as it is and converts as this install filed it."
-        ) % (code, here or "(no kind)", _plain(factor), code, standard)))
+        ) % (code, here or "(no kind)", _plain(factor), code, wanted)))
+    for code, stored, exact in units["odd_factors"]:
+        lines.append((logging.WARNING, (
+            "106: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
+            "that kind from another base unit, so the row is left as it is."
+        ) % (code, _plain(stored), _plain(exact))))
 
     tidied = {}
-    for key, _id, column, old, new in planned["codes"]:
+    for key, _id, _column, old, new in planned["codes"]:
         tidied[(key, old, new)] = tidied.get((key, old, new), 0) + 1
     for (key, old, new), count in sorted(tidied.items()):
-        lines.append((logging.INFO, "106: %d %s unit code(s) %r rewritten as %s" % (count, _WHAT[key], old, new)))
-    for (key, _column, code), count in sorted(planned["unknown"].items()):
-        lines.append((logging.WARNING, (
-            "106: LEFT %d %s(s) with the unit %r, which is not in the unit table. "
-            "Add it under Units, or change it to a unit that is."
-        ) % (count, _WHAT[key], code)))
+        lines.append((logging.INFO, "106: %d %s unit code(s) %r rewritten as %s" % (count, _TIDIED[key], old, new)))
+    for (key, column, code), entry in sorted(planned["unknown"].items(), key=lambda item: tuple(map(str, item[0]))):
+        why = (
+            "which is switched off in the unit table. Switch that unit back on, or change these to another unit"
+            if entry["off"] else
+            "which is not in the unit table. Add it under Units, or change these to a unit that is"
+        )
+        lines.append((logging.WARNING, "106: LEFT %d %s %r, %s: %s" % (
+            len(entry["rows"]), _WHAT[(key, column)], code, why, _named(entry["rows"]))))
     for _id, sku in planned["no_unit"]:
         lines.append((logging.WARNING, "106: item %s had no unit and is set to EA" % sku))
     if planned["no_purchase_unit"]:
-        lines.append((logging.INFO, "106: %d item(s) had no purchase unit and now have their stock unit" % len(
-            planned["no_purchase_unit"])))
+        lines.append((logging.INFO, "106: %d item(s) had no purchase unit and now have their stock unit: %s" % (
+            len(planned["no_purchase_unit"]), _named([sku for _id, sku, _unit in planned["no_purchase_unit"]]))))
     if not lines:
         lines.append((logging.INFO, "106: the unit table and unit codes needed no change"))
     return lines
+
+
+def changes(planned: dict) -> int:
+    """How many rows the plan writes. Zero means a run would change nothing."""
+    units = planned["units"]
+    written = sum(len(units[name]) for name in ("add", "fix", "reactivate", "rename", "switch_off"))
+    return written + len(planned["codes"]) + len(planned["no_unit"]) + len(planned["no_purchase_unit"])
 
 
 def upgrade() -> None:
@@ -422,6 +510,7 @@ def upgrade() -> None:
                 "COALESCE(stock_units_per_unit, units_per_stock_unit) > 0",
                 name="ck_product_units_size_positive",
             ),
+            sa.CheckConstraint("unit_code = UPPER(BTRIM(unit_code))", name="ck_product_units_code_tidy"),
         )
         op.create_index("ix_product_units_id", "product_units", ["id"])
         op.create_index("ix_product_units_product_id", "product_units", ["product_id"])

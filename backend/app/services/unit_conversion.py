@@ -10,16 +10,18 @@ others:
 - the item's own units (``product_units``), which hold the sizes only that
   item can know: its BOX of 12, its SHEET of 600 CM2.
 
-``STANDARD_UNITS`` below is the only list of unit factors in the application
-code. The unit table is filled from it. Do not write a factor, or a list of
-unit codes, anywhere else.
+``STANDARD_UNITS`` below is the list the unit table is filled from. Do not
+write a factor, or a list of unit codes, anywhere else. The older copies in
+``uom_service``, ``item_service``, ``inventory_helpers`` and
+``purchase_order_service`` are removed as their callers are moved onto this
+module; until then this is not yet the only list.
 
 Nothing here writes stock or changes a cost. A conversion that cannot be done
 raises ``UnitConversionError``. It never hands the number back unchanged, with
 one exception that exists only while the older callers are moved over:
 ``convert_or_keep``.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Any, NamedTuple, Optional
 
@@ -47,8 +49,9 @@ class StandardUnit(NamedTuple):
 
 PACK = "pack"
 
-# The international definitions, exact. A pack has no size of its own: its row
-# stores 1 because the column cannot be empty, and nothing reads it.
+# The international definitions, exact, with one exception: a minute is 1/60
+# of an hour, which has no exact decimal. A pack has no size of its own: its
+# row stores 1 because the column cannot be empty, and nothing reads it.
 STANDARD_UNITS = (
     StandardUnit("KG", "Kilogram", "kg", "weight", None, Decimal("1")),
     StandardUnit("G", "Gram", "g", "weight", "KG", Decimal("0.001")),
@@ -94,22 +97,40 @@ _CACHE_KEY = "unit_conversion.units"
 _MADE_BY_TO_STOCK = object()
 
 
-@dataclass(frozen=True)
 class StockQuantity:
     """A quantity in an item's stock unit, with what was entered and the factor used.
 
     Only ``to_stock`` makes one, so holding one means the conversion was done.
+    It cannot be changed, copied with a different value, or built by hand.
     """
-    quantity: Decimal
-    unit: str
-    factor: Decimal
-    entered_quantity: Decimal
-    entered_unit: str
-    _made_by: Any = field(default=None, repr=False, compare=False)
+    __slots__ = ("quantity", "unit", "factor", "entered_quantity", "entered_unit")
 
-    def __post_init__(self):
-        if self._made_by is not _MADE_BY_TO_STOCK:
+    def __init__(self, quantity, unit, factor, entered_quantity, entered_unit, *, _made_by=None):
+        if _made_by is not _MADE_BY_TO_STOCK:
             raise TypeError("A StockQuantity is made by unit_conversion.to_stock, not built directly")
+        for name, value in zip(self.__slots__, (quantity, unit, factor, entered_quantity, entered_unit)):
+            object.__setattr__(self, name, value)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("A StockQuantity cannot be changed")
+
+    def __delattr__(self, name):
+        raise AttributeError("A StockQuantity cannot be changed")
+
+    def _values(self) -> tuple:
+        return tuple(getattr(self, name) for name in self.__slots__)
+
+    def __eq__(self, other):
+        return isinstance(other, StockQuantity) and self._values() == other._values()
+
+    def __hash__(self):
+        return hash(self._values())
+
+    def __repr__(self):
+        return (
+            f"StockQuantity({self.quantity} {self.unit}, entered {self.entered_quantity} "
+            f"{self.entered_unit} x {self.factor})"
+        )
 
 
 @dataclass(frozen=True)
@@ -137,9 +158,24 @@ class _Unit(NamedTuple):
 def normalize_unit_code(code: Optional[str]) -> str:
     """Trim and upper-case a unit code, and read a known spelling as its code.
 
-    A missing code comes back as an empty string. It is not guessed.
+    A missing code comes back as an empty string. It is not guessed. This is
+    the reading for code that has no database session. With one, the functions
+    below let a unit the table holds under the typed code win over a spelling.
     """
     tidy = (code or "").strip().upper()
+    return UNIT_SPELLINGS.get(tidy, tidy)
+
+
+def _code(db: Session, code: Optional[str]) -> str:
+    """The unit a typed code means on this install.
+
+    A unit the table holds under exactly that code wins: an install that made
+    its own PACK unit keeps it, and ``pack`` means PK only where there is no
+    such row.
+    """
+    tidy = (code or "").strip().upper()
+    if tidy in _units(db):
+        return tidy
     return UNIT_SPELLINGS.get(tidy, tidy)
 
 
@@ -186,15 +222,27 @@ def _forget_units_when_one_changes(session, flush_context):
         session.info.pop(_CACHE_KEY, None)
 
 
+@event.listens_for(Session, "after_commit")
+def _forget_units_after_commit(session):
+    """Read the unit table afresh in the next transaction: another session may have changed it."""
+    session.info.pop(_CACHE_KEY, None)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _forget_units_after_rollback(session, previous_transaction):
+    """A rollback may have undone a unit change this session had already read."""
+    session.info.pop(_CACHE_KEY, None)
+
+
 def unit_kind(db: Session, code: Optional[str]) -> Optional[str]:
     """The kind of a unit (weight, length, pack...), or None when the table does not know it."""
-    unit = _units(db).get(normalize_unit_code(code))
+    unit = _units(db).get(_code(db, code))
     return unit.kind if unit else None
 
 
 def require_known_unit(db: Session, code: Optional[str]) -> str:
     """Return the tidied code of a unit the table knows, or refuse."""
-    tidy = normalize_unit_code(code)
+    tidy = _code(db, code)
     if not tidy:
         raise UnitConversionError("No unit was given.")
     if tidy not in _units(db):
@@ -208,11 +256,13 @@ def physical_factor(db: Session, from_unit: Optional[str], to_unit: Optional[str
     """How many ``to_unit`` are in one ``from_unit``, from the unit table alone.
 
     For code that has two unit names and no item. It never reads an item's own
-    units, and it never converts a pack: a BOX has no size until an item gives
-    it one.
+    units, and it never converts a unit of the ``pack`` kind: a pack has no
+    size until an item gives it one. (An install that filed BOX as a counting
+    unit of 12 has a BOX that is not of the pack kind, and it converts as
+    that install filed it.)
     """
-    source = normalize_unit_code(from_unit)
-    target = normalize_unit_code(to_unit)
+    source = _code(db, from_unit)
+    target = _code(db, to_unit)
     if not source or not target:
         raise UnitConversionError("A unit is missing, so nothing can be converted.")
     if source == target:
@@ -240,8 +290,8 @@ def physical_factor(db: Session, from_unit: Optional[str], to_unit: Optional[str
     return _divide(from_row.factor, to_row.factor)
 
 
-def _stock_unit(product: Any) -> str:
-    stock = normalize_unit_code(getattr(product, "unit", None))
+def _stock_unit(db: Session, product: Any) -> str:
+    stock = _code(db, getattr(product, "unit", None))
     if not stock:
         raise UnitConversionError(f"Item {_label(product)} has no stock unit. Set one on the item.")
     return stock
@@ -262,7 +312,7 @@ def _own_units(db: Session, product: Any) -> dict:
             size = Decimal(str(row.stock_units_per_unit))
         else:
             size = _divide(Decimal("1"), Decimal(str(row.units_per_stock_unit)))
-        sizes[normalize_unit_code(row.unit_code)] = size
+        sizes[_code(db, row.unit_code)] = size
     return sizes
 
 
@@ -280,8 +330,8 @@ def stock_units_per(db: Session, product: Any, unit: Optional[str], *, line_fact
        same kind: that size, through the table where needed.
     5. Otherwise it refuses.
     """
-    stock = _stock_unit(product)
-    entered = normalize_unit_code(unit)
+    stock = _stock_unit(db, product)
+    entered = _code(db, unit)
     if not entered:
         raise UnitConversionError(f"No unit was given for item {_label(product)}.")
     if entered == stock:
@@ -292,8 +342,14 @@ def stock_units_per(db: Session, product: Any, unit: Optional[str], *, line_fact
     if entered_row and stock_row and entered_row.kind == stock_row.kind and entered_row.kind != PACK:
         return physical_factor(db, entered, stock)
 
-    if line_factor is not None and Decimal(str(line_factor)) > 0:
-        return Decimal(str(line_factor))
+    if line_factor is not None:
+        saved = Decimal(str(line_factor))
+        if saved <= 0:
+            raise UnitConversionError(
+                f"The size saved on this line for {entered} of item {_label(product)} is {saved}. "
+                f"It has to be greater than zero."
+            )
+        return saved
 
     own = _own_units(db, product)
     if entered in own:
@@ -324,10 +380,10 @@ def to_stock(db: Session, product: Any, quantity: Any, unit: Optional[str], *, l
     entered = Decimal(str(quantity))
     return StockQuantity(
         quantity=(entered * factor).quantize(_QUANTITY_PLACES, rounding=ROUND_HALF_UP),
-        unit=_stock_unit(product),
+        unit=_stock_unit(db, product),
         factor=factor,
         entered_quantity=entered,
-        entered_unit=normalize_unit_code(unit),
+        entered_unit=_code(db, unit),
         _made_by=_MADE_BY_TO_STOCK,
     )
 
@@ -352,9 +408,9 @@ def unit_cost_from_stock(db: Session, product: Any, cost_per_stock_unit: Any, un
 
 def units_for_item(db: Session, product: Any) -> list:
     """Every unit the item can be entered in, with its size in stock units. The stock unit is first."""
-    stock = _stock_unit(product)
+    stock = _stock_unit(db, product)
     units = _units(db)
-    purchase = normalize_unit_code(getattr(product, "purchase_uom", None))
+    purchase = _code(db, getattr(product, "purchase_uom", None))
     found = {}
 
     def add(code: str, size: Decimal, source: str) -> None:
@@ -435,7 +491,7 @@ def convert_or_keep(db: Session, quantity: Any, from_unit: Optional[str], to_uni
     named place. Each caller is ended in a later stage of the unit conversion
     plan; do not add a new one.
     """
-    if normalize_unit_code(from_unit) == normalize_unit_code(to_unit):
+    if _code(db, from_unit) == _code(db, to_unit):
         return quantity, True
     try:
         factor = physical_factor(db, from_unit, to_unit)

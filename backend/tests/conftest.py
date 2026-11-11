@@ -513,6 +513,9 @@ def db():
     transaction = connection.begin()
     session = SASession(bind=connection, join_transaction_mode="create_savepoint")
     ensure_standard_units(session)
+    # Release the units into the connection's transaction, so a test that
+    # calls db.rollback() keeps them. Nothing is committed to the database.
+    session.commit()
 
     yield session
 

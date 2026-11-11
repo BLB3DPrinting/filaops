@@ -37,6 +37,8 @@ class ProductUnit(Base):
             "COALESCE(stock_units_per_unit, units_per_stock_unit) > 0",
             name="ck_product_units_size_positive",
         ),
+        # One spelling per code, so "box" and "BOX" cannot both exist for an item.
+        CheckConstraint("unit_code = UPPER(BTRIM(unit_code))", name="ck_product_units_code_tidy"),
     )
 
     id = Column(Integer, primary_key=True, index=True)

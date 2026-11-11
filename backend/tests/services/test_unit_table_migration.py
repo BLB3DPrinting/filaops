@@ -13,9 +13,14 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.models.bom import BOMLine
+from app.models.manufacturing import Routing, RoutingOperation, RoutingOperationMaterial
+from app.models.product_unit import ProductUnit
+from app.models.production_order import ProductionOrderOperation, ProductionOrderOperationMaterial
 from app.models.purchase_order import PurchaseOrderLine
+from app.models.purchase_order_document import VendorItem
 from app.models.uom import UnitOfMeasure
 from app.services import unit_conversion as uc
 
@@ -76,7 +81,7 @@ def _report(migration, planned):
 
 
 def _comparable(state):
-    """A state without the ids a projection cannot know."""
+    """A state without the ids a projection cannot know. A unit's base is compared by its code."""
     return {
         key: sorted(
             ({k: v for k, v in row.items() if k not in ("id", "base_unit_id")} for row in rows),
@@ -170,6 +175,46 @@ class TestUnitTable:
         assert _units(db)["LB"].active is True
         assert "standard unit LB was switched off and is switched on again" in _report(migration, planned)
 
+    def test_hours_and_minutes_are_never_changed(self, db, migration):
+        _unit_table(db, _EXAMPLE_DATA_UNITS)
+        db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "HR").update({"active": False})
+        _run(db, migration)
+        assert _units(db)["HR"].active is False
+
+    def test_a_table_measured_from_another_base_is_left_and_listed(self, db, migration):
+        """Grams as the base and a kilogram of 1000: rebasing them would break the install's own units."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
+                         ("KG", "weight", "G", "1000"), ("TONNE", "weight", "G", "1000000")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert D(str(units["G"].to_base_factor)) == D("1")
+        assert D(str(units["KG"].to_base_factor)) == D("1000")
+        assert D(str(units["TONNE"].to_base_factor)) == D("1000000")
+        assert uc.physical_factor(db, "TONNE", "KG") == D("1000")
+        assert "LEFT unit KG: its factor 1000 is not a rounding of the exact 1" in _report(migration, planned)
+
+    def test_the_row_in_use_is_kept_when_the_upper_case_row_is_switched_off(self, db, migration, make_product):
+        ids = _unit_table(db, _EXAMPLE_DATA_UNITS + [("yd", "length", "M", "0.9144")])
+        db.add(UnitOfMeasure(code="YD", name="Old yard", symbol="yd", uom_class="length",
+                             base_unit_id=ids["M"], to_base_factor=D("1"), active=False))
+        cloth = make_product(unit="yd")
+        planned = _run(db, migration)
+        units = _units(db)
+        assert units["yd"].active is True and units["YD"].active is False
+        assert cloth.unit == "YD"
+        assert uc.physical_factor(db, "YD", "M") == D("0.9144")
+        assert "LEFT unit YD: the row in use is spelled 'yd'" in _report(migration, planned)
+
+    def test_an_installs_own_unit_named_like_a_spelling_is_kept(self, db, migration, make_product):
+        """An install with its own PACK unit of 12 keeps it; ``pack`` is not rewritten to PK."""
+        ids = _unit_table(db, _EXAMPLE_DATA_UNITS)
+        db.add(UnitOfMeasure(code="PACK", name="Pack", symbol="pack", uom_class="quantity",
+                             base_unit_id=ids["EA"], to_base_factor=D("12")))
+        washers = make_product(unit="EA", purchase_uom="pack")
+        _run(db, migration)
+        assert washers.purchase_uom == "PACK"
+        assert uc.physical_factor(db, washers.purchase_uom, "EA") == D("12")
+
 
 class TestUnitCodes:
     def test_item_codes_are_tidied(self, db, migration, make_product):
@@ -179,11 +224,32 @@ class TestUnitCodes:
         assert (gram.unit, gram.purchase_uom) == ("G", "KG")
         assert (each.unit, each.purchase_uom) == ("EA", "PK")
 
-    def test_an_unknown_code_is_listed_and_left(self, db, migration, make_product):
+    def test_an_unknown_code_is_listed_with_its_item_and_left(self, db, migration, make_product):
         odd = make_product(unit="widget", purchase_uom="widget")
         planned = _run(db, migration)
         assert (odd.unit, odd.purchase_uom) == ("widget", "widget")
-        assert "with the unit 'widget', which is not in the unit table" in _report(migration, planned)
+        lines = [line for line in _report(migration, planned).splitlines() if "'widget'" in line]
+        assert any("item(s) with the stock unit 'widget', which is not in the unit table" in line
+                   and odd.sku in line for line in lines)
+        assert any("item(s) with the purchase unit 'widget'" in line and odd.sku in line for line in lines)
+
+    def test_a_code_whose_unit_is_switched_off_says_so(self, db, migration, make_product):
+        ids = _unit_table(db, _EXAMPLE_DATA_UNITS)
+        db.add(UnitOfMeasure(code="REEL", name="Reel", symbol="reel", uom_class="length",
+                             base_unit_id=ids["M"], to_base_factor=D("50"), active=False))
+        wire = make_product(unit="reel")
+        planned = _run(db, migration)
+        assert wire.unit == "reel"
+        assert "'reel', which is switched off in the unit table" in _report(migration, planned)
+
+    def test_more_rows_than_fit_are_counted_not_dropped(self, migration):
+        names = [f"SKU-{number}" for number in range(40)]
+        planned = {"units": {name: [] for name in (
+            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left")},
+            "codes": [], "unknown": {("items", "unit", "zz"): {"off": False, "rows": names}},
+            "no_unit": [], "no_purchase_unit": []}
+        line = migration.report_lines(planned)[0][1]
+        assert "LEFT 40 item(s)" in line and "SKU-24" in line and "SKU-25" not in line and "and 15 more" in line
 
     def test_an_item_with_no_unit_gets_each(self, db, migration, make_product):
         blank = make_product()
@@ -225,28 +291,134 @@ class TestUnitCodes:
         _run(db, migration)
         assert (still_open.purchase_unit, closed.purchase_unit) == ("KG", "kg")
 
+    def test_routing_material_codes_are_tidied(self, db, migration, make_product, make_work_center):
+        made, part = make_product(), make_product(item_type="material", unit="G")
+        routing = Routing(product_id=made.id, code=f"RT-{made.id}", name="Routing", is_active=True)
+        db.add(routing)
+        db.flush()
+        step = RoutingOperation(routing_id=routing.id, work_center_id=make_work_center().id, operation_code="PRINT",
+                                operation_name="Print", sequence=10, run_time_minutes=D("30"))
+        db.add(step)
+        db.flush()
+        material = RoutingOperationMaterial(routing_operation_id=step.id, component_id=part.id,
+                                            quantity=D("37"), unit="kg", scrap_factor=D("0"))
+        db.add(material)
+        _run(db, migration)
+        assert (material.unit, material.quantity) == ("KG", D("37"))
+
+    def test_vendor_item_codes_are_tidied(self, db, migration, make_product, make_vendor):
+        item = make_product()
+        listing = VendorItem(vendor_id=make_vendor().id, vendor_sku=f"V-{item.id}", product_id=item.id,
+                             default_purchase_unit="pcs")
+        db.add(listing)
+        _run(db, migration)
+        assert listing.default_purchase_unit == "EA"
+
+    def test_only_material_rows_not_yet_consumed_are_tidied(self, db, migration, make_product,
+                                                            make_production_order, make_work_center):
+        made, part = make_product(), make_product(item_type="material", unit="G")
+        order = make_production_order(product_id=made.id, quantity=1)
+        step = ProductionOrderOperation(
+            production_order_id=order.id, routing_operation_id=None, work_center_id=make_work_center().id,
+            sequence=10, operation_code="PRINT", operation_name="Print",
+            planned_setup_minutes=D("0"), planned_run_minutes=D("10"), status="pending",
+        )
+        db.add(step)
+        db.flush()
+        rows = {}
+        for status in ("pending", "allocated", "error", "consumed", "returned"):
+            rows[status] = ProductionOrderOperationMaterial(
+                production_order_operation_id=step.id, component_id=part.id,
+                quantity_required=D("50"), unit="g", status=status,
+            )
+            db.add(rows[status])
+        _run(db, migration)
+        assert {status: row.unit for status, row in rows.items()} == {
+            "pending": "G", "allocated": "G", "error": "G", "consumed": "g", "returned": "g",
+        }
+
+
+class TestItemUnitTable:
+    """The table the model builds, which the migration creates with the same constraints."""
+
+    def _refused(self, db, product, **values):
+        with pytest.raises(IntegrityError):
+            with db.begin_nested():
+                db.add(ProductUnit(product_id=product.id, **values))
+                db.flush()
+
+    def test_a_size_either_way_round_is_accepted(self, db, make_product):
+        item = make_product()
+        db.add(ProductUnit(product_id=item.id, unit_code="BOX", stock_units_per_unit=D("12")))
+        db.add(ProductUnit(product_id=item.id, unit_code="G", units_per_stock_unit=D("750")))
+        db.flush()
+
+    def test_both_sizes_or_neither_are_refused(self, db, make_product):
+        item = make_product()
+        self._refused(db, item, unit_code="BOX", stock_units_per_unit=D("12"), units_per_stock_unit=D("1"))
+        self._refused(db, item, unit_code="BOX")
+
+    def test_a_size_of_zero_is_refused(self, db, make_product):
+        self._refused(db, make_product(), unit_code="BOX", stock_units_per_unit=D("0"))
+
+    def test_a_code_that_is_not_tidy_is_refused(self, db, make_product):
+        item = make_product()
+        self._refused(db, item, unit_code="box", stock_units_per_unit=D("12"))
+        self._refused(db, item, unit_code=" BOX", stock_units_per_unit=D("12"))
+
+    def test_a_second_row_for_the_same_unit_is_refused(self, db, make_product):
+        item = make_product()
+        db.add(ProductUnit(product_id=item.id, unit_code="BOX", stock_units_per_unit=D("12")))
+        db.flush()
+        self._refused(db, item, unit_code="BOX", stock_units_per_unit=D("10"))
+
+    def test_the_migration_creates_the_same_constraints(self, db, migration):
+        """Names the model declares, checked against the migration's own text."""
+        source = _MIGRATION_PATH.read_text(encoding="utf-8")
+        for constraint in ProductUnit.__table__.constraints:
+            if constraint.name:
+                assert constraint.name in source, constraint.name
+
 
 class TestShape:
     def test_a_second_run_changes_nothing(self, db, migration, make_product):
         _unit_table(db, _EXAMPLE_DATA_UNITS)
         make_product(unit="pcs")
-        _run(db, migration)
+        make_product(unit="widget")
+        first = _run(db, migration)
+        assert migration.changes(first) > 0
         again = _run(db, migration)
-        assert migration.report_lines(again) == [
+        # A code that is left is listed again; nothing is written.
+        assert migration.changes(again) == 0
+
+    def test_nothing_to_do_says_so(self, migration):
+        empty = {"units": {name: [] for name in (
+            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left")},
+            "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
+        assert migration.report_lines(empty) == [
             (logging.INFO, "106: the unit table and unit codes needed no change")
         ]
 
     def test_the_projection_is_what_the_database_holds_afterwards(self, db, migration, make_product, make_bom):
-        ids = _unit_table(db, _EXAMPLE_DATA_UNITS + [("kg", "weight", None, "1")])
+        """Every kind of change the plan can hold goes through the comparison."""
+        rows = [row for row in _EXAMPLE_DATA_UNITS if row[0] != "CM"]
+        ids = _unit_table(db, rows + [("kg", "weight", None, "1"), ("cm", "length", "M", "0.01")])
         db.add(UnitOfMeasure(code="BOX", name="Box", symbol="box", uom_class="quantity",
                              base_unit_id=ids["EA"], to_base_factor=D("12")))
+        db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "LB").update({"active": False})
         made, part = make_product(unit="pcs"), make_product(unit=" g ", purchase_uom="widget")
+        blank, half = make_product(), make_product(unit="G")
+        db.execute(text("UPDATE products SET unit = NULL, purchase_uom = NULL WHERE id = :id"), {"id": blank.id})
+        db.execute(text("UPDATE products SET purchase_uom = '' WHERE id = :id"), {"id": half.id})
         make_bom(product_id=made.id, lines=[{"component_id": part.id, "quantity": D("5"), "unit": "Kg"}])
         db.flush()
 
         bind = db.connection()
         before = migration.read_state(bind)
         planned = migration.plan(before)
+        for name in ("add", "fix", "reactivate", "rename", "switch_off", "conflicts"):
+            assert planned["units"][name], name
+        assert planned["codes"] and planned["unknown"] and planned["no_unit"] and planned["no_purchase_unit"]
         projected = migration.project(before, planned)
         migration.apply(bind, planned)
 

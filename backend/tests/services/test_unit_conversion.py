@@ -4,6 +4,7 @@ unit_conversion: the one module that converts a quantity or a unit cost.
 The worked cases of docs/UOM_CONVERSION_PLAN.md section 5 are tested here as
 conversions. Nothing in this stage moves stock or changes a cost.
 """
+import dataclasses
 from decimal import Decimal as D
 from types import SimpleNamespace
 
@@ -121,13 +122,14 @@ class TestPhysicalFactor:
                 statements.append(statement)
 
         bind = db.get_bind()
+        uc.forget_units(db)
         event.listen(bind, "before_cursor_execute", record)
         try:
             for _ in range(100):
                 uc.physical_factor(db, "LB", "G")
         finally:
             event.remove(bind, "before_cursor_execute", record)
-        assert len(statements) <= 1
+        assert len(statements) == 1
 
     def test_a_unit_added_in_the_session_is_seen(self, db):
         uc.physical_factor(db, "M", "CM")
@@ -136,6 +138,37 @@ class TestPhysicalFactor:
                              base_unit_id=metre.id, to_base_factor=D("0.9144")))
         db.flush()
         assert uc.physical_factor(db, "YD", "M") == D("0.9144")
+
+    def test_a_unit_changed_in_the_session_is_seen(self, db):
+        assert uc.physical_factor(db, "LB", "G") == D("453.59237")
+        pound = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "LB").one()
+        pound.to_base_factor = D("0.5")
+        db.flush()
+        assert uc.physical_factor(db, "LB", "G") == D("500")
+        pound.active = False
+        db.flush()
+        with pytest.raises(uc.UnitConversionError):
+            uc.physical_factor(db, "LB", "G")
+
+    def test_a_rolled_back_change_is_forgotten(self, db):
+        pound = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "LB").one()
+        pound.to_base_factor = D("0.5")
+        db.flush()
+        assert uc.physical_factor(db, "LB", "G") == D("500")
+        db.rollback()
+        assert uc.physical_factor(db, "LB", "G") == D("453.59237")
+
+    def test_an_installs_own_unit_wins_over_a_spelling(self, db, screws):
+        """``pack`` means PK, unless this install has a unit it calls PACK."""
+        assert uc.require_known_unit(db, "pack") == "PK"
+        each = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "EA").one()
+        db.add(UnitOfMeasure(code="PACK", name="Pack of ten", symbol="pack", uom_class="quantity",
+                             base_unit_id=each.id, to_base_factor=D("10")))
+        db.flush()
+        assert uc.require_known_unit(db, "pack") == "PACK"
+        assert uc.physical_factor(db, "pack", "EA") == D("10")
+        assert uc.to_stock(db, screws, D("5"), "Pack").quantity == D("50.000000")
+        assert {unit.unit_code for unit in uc.units_for_item(db, screws)} == {"EA", "PACK"}
 
 
 class TestLookupOrder:
@@ -155,6 +188,11 @@ class TestLookupOrder:
     def test_3_wins_over_the_item_unit(self, db, screws):
         _item_unit(db, screws, "BOX", per_unit=D("12"))
         assert uc.stock_units_per(db, screws, "BOX", line_factor=D("10")) == D("10")
+
+    def test_3_a_line_factor_of_zero_is_refused_not_skipped(self, db, screws):
+        _item_unit(db, screws, "BOX", per_unit=D("12"))
+        with pytest.raises(uc.UnitConversionError):
+            uc.stock_units_per(db, screws, "BOX", line_factor=D("0"))
 
     def test_4_the_item_unit(self, db, screws):
         _item_unit(db, screws, "BOX", per_unit=D("12"))
@@ -242,6 +280,19 @@ class TestStockQuantity:
     def test_only_to_stock_can_make_one(self):
         with pytest.raises(TypeError):
             uc.StockQuantity(D("1"), "EA", D("1"), D("1"), "EA")
+
+    def test_one_cannot_be_copied_with_another_value(self, db, filament_g):
+        made = uc.to_stock(db, filament_g, D("3"), "KG")
+        with pytest.raises(TypeError):
+            dataclasses.replace(made, quantity=D("999"))
+        with pytest.raises(AttributeError):
+            made.quantity = D("999")
+        assert made.quantity == D("3000.000000")
+
+    def test_two_of_the_same_conversion_are_equal(self, db, filament_g):
+        first, second = uc.to_stock(db, filament_g, D("3"), "KG"), uc.to_stock(db, filament_g, D("3"), "kg")
+        assert first == second and hash(first) == hash(second)
+        assert first != uc.to_stock(db, filament_g, D("3000"), "G")
 
 
 class TestUnitsForItem:
