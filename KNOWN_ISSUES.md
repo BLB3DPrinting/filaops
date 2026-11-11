@@ -115,6 +115,47 @@ Change the page and the page size in Table view: Cards view shows the page the t
 
 ---
 
+### ISSUE-012: A second copy of FilaOps on the same computer uses the first copy's database
+
+**Status:** Open
+**Priority:** Medium
+**Reported:** 2026-11-10
+**Affects:** 4.4.0 and earlier (Docker installs)
+
+**Description:**
+`docker-compose.yml` gives the containers, the data volumes and the network fixed names, so a second copy of the `filaops` folder on the same computer is not a separate install. It uses the same containers and the same data volumes.
+
+- A copy in a folder with the same name (for example a fresh clone into another directory, also called `filaops`): `docker compose up -d --build` there replaces the first copy's running containers, with no warning. What happens next depends on the database password in the second folder's `.env`:
+    - The same password (a copied `.env`, or no password set in either folder): the second copy starts, and if it holds newer code its `migrate` service upgrades the database.
+    - A different password (a fresh clone has no `.env`, so it uses the default one): the `migrate` step fails to sign in, the database is left alone, and FilaOps stays down until the first folder is started again.
+- A copy in a folder with a different name: while the first copy's containers exist, it stops with a container-name conflict and the database is left alone. That conflict is the only warning. Once the first copy's containers have been removed (`docker compose down`), the second copy starts on the same database with only a notice that a volume `already exists but was created for project ...`, and upgrades it if it holds newer code.
+
+To Docker, two folders with the same name are one install. They share the built images as well: after a second copy has been built, `docker compose up -d` in the first folder, without `--build`, starts the second copy's version. `docker compose down -v` in the second folder deletes the first copy's database and its `filaops_config` volume.
+
+Uploaded files and settings are not shared. Each copy has its own `uploads` folder and its own `.env` next to its `docker-compose.yml`. While a second copy is running, files uploaded through the first (product pictures, for example) are missing, and anything uploaded through the second stays in the second folder. On 4.3.1 or older, product pictures are kept inside the backend container, and are lost when a second copy replaces it.
+
+**Workaround:**
+Run one copy per computer, and upgrade the folder you already run FilaOps from. To try a release before upgrading, use another computer.
+
+Don't set up a second copy on a computer that holds live data. Giving it its own container, volume and network names is not enough: ports listed in a `docker-compose.override.yml` are added to the ones `docker-compose.yml` publishes rather than put in their place, the web app opened on `localhost` calls the backend on port 8000 whichever copy served the page, and the browser sends the same sign-in cookies to every copy on `localhost`.
+
+**If it has already happened:**
+
+The guides named in these steps are the current ones on the documentation site: [Upgrading FilaOps](https://blb3dprinting.github.io/filaops/UPGRADE/) and [Rollback](https://blb3dprinting.github.io/filaops/ROLLBACK/). Do not go by the copies in a folder that is on an older version: they do not have these commands.
+
+These steps were run with a first copy on 4.3.2 and a second copy on 4.4.0. On 4.3.1 or older there is one more thing to protect: product pictures are kept inside the backend container, and steps 3 and 4 remove or rebuild containers. If either copy is on such a version, pick a time when nobody is adding pictures, and keep it that way until you have finished. Before step 3, copy the pictures out of the running backend with the command in step 2 of the upgrade guide, run in the folder whose copy is running. If the first folder is still on 4.3.1 or older at the end, step 6 below has one more command for it.
+
+1. Take a backup of the database as it is now, before anything else. Use the commands in step 1 of the upgrade guide (`docs/UPGRADE.md`), in the first folder (the one you ran FilaOps from before). If a `filaops_before_upgrade.sql` is already there, rename it first and keep it. Do not delete it: it may be the only backup from before this happened.
+2. In the second folder, run `docker compose logs migrate` and save what it prints. If the database was upgraded, that output lists what the upgrade changed and what it left for you to check (step 6 of the upgrade guide), and it is gone once the container is removed.
+3. Still in the second folder, run `docker compose down`. Never add `-v`.
+4. In the first folder, run `docker compose up -d --build`. `--build` matters: it rebuilds the first folder's own version.
+5. If FilaOps starts, the database was not upgraded and you are back on your own version. If the `migrate` step stops with `DATABASE MIGRATION MISMATCH`, the second copy upgraded the database, and the older code can no longer run on it. Versions before 4.4.0 then tell you to delete the database volume. Don't: that deletes all your data. You then have two ways on:
+    - Move the first folder to the exact code the second copy runs. `git rev-parse HEAD` in the second folder prints its commit. In the first folder, run `git fetch --tags`, then `git checkout` followed by that commit, then `docker compose up -d --build`. Use that commit, not a newer one, and not the number in `backend/VERSION`: a copy that follows `main` can hold migrations its version number does not show. Changes made in the second folder and never committed are not part of the commit. If `git checkout` cannot find the commit, it was never published: in the first folder, run `git fetch "<path to the second folder>" HEAD` with the second folder's path between the quotes, then check it out again.
+    - Or restore a backup taken before it happened (`docs/ROLLBACK.md` section 3), which loses everything entered since.
+6. Copy, don't move, the files in the second folder's `uploads` into the first folder's `uploads`. If the first folder is on 4.3.1 or older, then run the copy-back from step 6 of `docs/ROLLBACK.md` section 3, which puts the pictures into its backend container. Once the pictures show in the app, delete the second folder.
+
+---
+
 ## Low Priority Issues
 
 ### ISSUE-009: The MRP settings cannot be set from `.env` in a Docker install
@@ -185,7 +226,7 @@ Multiple hardcoded `"2.0.1"` fallback strings were never updated when the versio
 **Priority:** Medium
 **Reported:** 2026-11-10
 **Resolved:** 2026-11-10
-**Affects:** 4.4.0 and earlier. Fixed in the first release after 4.4.0.
+**Affects:** 4.3.2 and earlier. Fixed in 4.4.0.
 
 **Description:**
 The item form did not load an item's weight, length, width and height when it opened, and it sent all four empty when it saved. Whatever was stored in them was cleared each time the item was edited on the form. For a packaging item nothing was cleared silently, because the form requires the four values, but they had to be typed in again on every edit. The same form also showed a stocked material's reorder point in grams (1000 times the stored value) and saved that figure back, so every save of a stocked material multiplied its reorder point by 1000.
@@ -196,7 +237,7 @@ The form was built from a row of the Items list. That row has no weight or dimen
 **Fix:**
 The form loads the full item (`GET /api/v1/items/{id}`) each time it opens for an edit, shows "Loading item…" until it arrives, and cannot be saved if the load fails. The weight, dimensions and reorder point come from that response. Values that were already cleared or multiplied are not repaired.
 
-**Workaround (4.4.0 and earlier):**
+**Workaround (4.3.2 and earlier):**
 When you edit an item on the form, enter its weight and dimensions again before saving (the Physical / Shipping section). To change one field and leave the rest alone, use the API: `PATCH /api/v1/items/{id}` with only that field. Do not save a stocked material on the form: change its reorder point with `PATCH /api/v1/items/{id}` and only `reorder_point` (kilograms, the unit it is stored in).
 
 ---

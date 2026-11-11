@@ -76,11 +76,21 @@ docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; ds
 
 It prints how many images are now on the volume. 0 is fine if you never
 uploaded any. If it prints an error instead, don't upgrade until it
-succeeds: the images would be lost. Image links don't change, so products keep their pictures. Skip
+succeeds: the images would be lost. On Windows, run it in PowerShell: it does
+not work in Command Prompt. Image links don't change, so products keep their pictures. Skip
 this step for a manual install, where images were never inside a container.
 Already on 4.3.2 or later? Skip this step too.
 
 ### 3. Get the new code
+
+**Docker: upgrade the folder you run FilaOps from. Don't try the new version
+in a second copy of it on the same computer.** `docker-compose.yml` gives the
+containers and the data volumes fixed names, so a second copy is not a
+separate install: starting it can take the place of your running FilaOps and
+upgrade your live database, in some cases with no warning. To try a release
+first, use another computer.
+[ISSUE-012 in KNOWN_ISSUES.md](https://github.com/BLB3DPrinting/filaops/blob/main/KNOWN_ISSUES.md)
+has the details, and what to do if it has already happened.
 
 From the `filaops` folder, check out the 4.4.0 release:
 
@@ -120,6 +130,9 @@ This should print `"version":"4.4.0"`:
 curl -s http://localhost/api/v1/system/version
 ```
 
+In Windows PowerShell 5.1, `curl` is a different command, and this line stops
+with an error. Type `curl.exe` in place of `curl`.
+
 Both of these should print the same revision, and the first should end in
 `(head)`:
 
@@ -152,14 +165,13 @@ when they are recalculated. Coming from 4.3.2 or older:
    (manual install: they are in the output of `alembic upgrade head`). They
    list each standard cost that was repaired, each material whose purchase unit
    was changed from EA to KG, and each item that was left alone, with the
-   reason. Lines marked `WARNI` are the ones left for you. Read them now:
+   reason. In a repaired line, the number after `x` is what the cost was
+   multiplied by: `x1E+3` means 1000 (a material stocked in G and bought in
+   KG). Lines marked `WARNI` are the ones left for you. Read them now:
    they go when the migrate container is next recreated, for example by the
    next upgrade.
 2. **Correct the items it left alone.** For a bought item, a standard cost is
-   edited on the item form. In 4.4.0, saving that form clears any weight and
-   dimensions stored on the item (ISSUE-011 in `KNOWN_ISSUES.md`, fixed in the
-   release after 4.4.0), so enter them again before saving, or change the cost
-   through the API instead:
+   edited on the item form, or through the API:
    `PATCH /api/v1/items/{id}` with only `standard_cost`. For an item listed
    because it has an active BOM
    or routing, do not edit its standard cost: Recost All replaces it with the

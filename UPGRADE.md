@@ -43,7 +43,13 @@ anyone who arrived from the "Full Documentation" link in the app's update banner
 
   It prints how many images are now on the volume (0 is fine if you never
   uploaded any). If it prints an error instead, don't upgrade until it
-  succeeds: the images would be lost. Image links don't change.
+  succeeds: the images would be lost. On Windows, run it in PowerShell: it
+  does not work in Command Prompt. Image links don't change.
+- **Docker: upgrade the folder you run FilaOps from. Don't try the new version
+  in a second copy of it on the same computer:** the copy uses the same
+  containers and data volumes, so starting it can take the place of your
+  running FilaOps and upgrade your live database, in some cases with no
+  warning ([ISSUE-012 in KNOWN_ISSUES.md](KNOWN_ISSUES.md)).
 - **Don't click "Update Now" in the app, and don't mount the Docker socket into
   the backend** to make it work. Doing that gives the web app control of your
   whole machine. Upgrade with the commands below instead.
@@ -72,6 +78,8 @@ migrations run on their own before the backend starts. Then check the version:
 curl -s http://localhost/api/v1/system/version
 ```
 
+In Windows PowerShell 5.1, type `curl.exe` in place of `curl`.
+
 If `git checkout` says your local changes would be overwritten, you edited a
 tracked file such as `docker-compose.yml`. Keep your changes, then put the file
 back and try again:
@@ -82,6 +90,10 @@ back and try again:
 3. Move other changes, such as extra ports, volumes or services, into a
    `docker-compose.override.yml` next to `docker-compose.yml`. Docker Compose
    reads it automatically, and FilaOps doesn't ship one, so upgrades leave it alone.
+   A `ports:` list in the override is added to the one in `docker-compose.yml`.
+   To change a port that is already published there, write the list as
+   `ports: !override` (Docker Compose 2.24.4 or later), or the original port
+   stays published as well.
 4. Put the original file back: `git checkout -- docker-compose.yml`
 5. Run the upgrade commands again.
 
