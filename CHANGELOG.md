@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A report of what the next upgrade will do to your units, before you run it.** `python scripts/uom_preflight.py`, run from the `backend` folder with the new version's code against a database that has not been upgraded yet, prints what the unit migrations will add, correct and leave for you to look at. It reads the database inside a read-only transaction and changes nothing.
+
+### Changed
+
+- **Every install now has the same table of units, with exact factors.** Until now only the setup wizard's example data filled the unit table, with the pound as 0.453592 KG and the ounce as 0.0283495 KG, and an install set up without that data had an empty table. The upgrade adds the standard units an install lacks: weight, length, area and volume units, the each, hours and minutes, and the pack names BOX, PK, ROLL, SPOOL, SHEET, CASE and BAG. It also makes rounded factors exact: 1 LB is 0.45359237 KG and 1 OZ is 0.028349523125 KG, so conversions between pounds or ounces and other weights change from the seventh digit. Units you added yourself are kept. A unit you filed differently from FilaOps (BOX as a counting unit of 12, for example) is left exactly as it is and listed in the upgrade output. A pack name has no size of its own, so the unit table never converts BOX to PK or to EA. An install whose unit table was empty can now receive a gram-stocked material bought by the LB or OZ, which was refused before. A material stocked by the KG, LB or OZ and bought in another weight unit is no longer refused either, and is still received wrongly in the way ISSUE-007 in `KNOWN_ISSUES.md` describes; that is corrected by the next part of this work, which ships in the same release.
+- **Unit codes are tidied by the upgrade.** `pcs`, `each` and `unit` become EA, `pack` becomes PK, and codes typed in lower case or with spaces (`g`, `kg `) become G and KG. This applies to items, BOM lines, routing material lines, vendor items, open purchase order lines and production order material rows not yet consumed. A code that is not in the unit table is listed in the upgrade output and left alone. An item with no unit is set to EA, which is what receiving already assumed, and an item with no purchase unit gets its stock unit.
+
 ## [4.4.0] - 2026-11-10
 
 ### Added
