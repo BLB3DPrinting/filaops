@@ -226,7 +226,7 @@ Multiple hardcoded `"2.0.1"` fallback strings were never updated when the versio
 **Priority:** Medium
 **Reported:** 2026-11-10
 **Resolved:** 2026-11-10
-**Affects:** 4.4.0 and earlier. Fixed in the first release after 4.4.0.
+**Affects:** 4.3.2 and earlier. Fixed in 4.4.0.
 
 **Description:**
 The item form did not load an item's weight, length, width and height when it opened, and it sent all four empty when it saved. Whatever was stored in them was cleared each time the item was edited on the form. For a packaging item nothing was cleared silently, because the form requires the four values, but they had to be typed in again on every edit. The same form also showed a stocked material's reorder point in grams (1000 times the stored value) and saved that figure back, so every save of a stocked material multiplied its reorder point by 1000.
@@ -237,7 +237,7 @@ The form was built from a row of the Items list. That row has no weight or dimen
 **Fix:**
 The form loads the full item (`GET /api/v1/items/{id}`) each time it opens for an edit, shows "Loading item…" until it arrives, and cannot be saved if the load fails. The weight, dimensions and reorder point come from that response. Values that were already cleared or multiplied are not repaired.
 
-**Workaround (4.4.0 and earlier):**
+**Workaround (4.3.2 and earlier):**
 When you edit an item on the form, enter its weight and dimensions again before saving (the Physical / Shipping section). To change one field and leave the rest alone, use the API: `PATCH /api/v1/items/{id}` with only that field. Do not save a stocked material on the form: change its reorder point with `PATCH /api/v1/items/{id}` and only `reorder_point` (kilograms, the unit it is stored in).
 
 ---

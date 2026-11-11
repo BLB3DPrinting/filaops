@@ -171,10 +171,7 @@ when they are recalculated. Coming from 4.3.2 or older:
    they go when the migrate container is next recreated, for example by the
    next upgrade.
 2. **Correct the items it left alone.** For a bought item, a standard cost is
-   edited on the item form. In 4.4.0, saving that form clears any weight and
-   dimensions stored on the item (ISSUE-011 in `KNOWN_ISSUES.md`, fixed in the
-   release after 4.4.0), so enter them again before saving, or change the cost
-   through the API instead:
+   edited on the item form, or through the API:
    `PATCH /api/v1/items/{id}` with only `standard_cost`. For an item listed
    because it has an active BOM
    or routing, do not edit its standard cost: Recost All replaces it with the
