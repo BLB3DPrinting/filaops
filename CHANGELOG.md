@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A unit of the pack kind has no size of its own, so the unit table never converts one pack to another or to EA. The unit lists on the item form and on BOM lines are longer as a result. A BOM line still accepts only the sixteen units it accepted before; that changes in the next part of this work. On an install whose unit table was empty, a gram-stocked material bought by the LB or OZ can now be received, which was refused before. On such an install a material stocked by the KG, LB or OZ and bought by the G, LB or OZ is no longer refused either, and is still received wrongly in the way ISSUE-007 in `KNOWN_ISSUES.md` describes; that is corrected by the next part of this work, which ships in the same release.
 - **Unit codes are tidied, by the upgrade and wherever a unit is converted.** `pcs`, `each` and `unit` mean EA, `pack` means PK, `grams` and `kilograms` mean G and KG, and codes typed in lower case or with spaces (`g`, `kg `) mean G and KG. A unit you made under one of those names (your own PACK) keeps its meaning. The upgrade rewrites the codes on items, BOM lines, routing material lines, vendor items, open purchase order lines and production order material rows not yet consumed. A code that is not in the unit table is listed in the upgrade output with the rows that carry it, and left alone. An item with no unit is set to EA, which is what receiving already assumed, and an item with no purchase unit gets its stock unit. A line that was written as `pc` or `units` is now an EA line, so its requirement is rounded up to a whole number when a production order's quantity changes, as EA lines already were.
 
-## [4.4.0] - 2026-11-10
+## [4.4.0] - 2026-11-11
 
 ### Added
 
