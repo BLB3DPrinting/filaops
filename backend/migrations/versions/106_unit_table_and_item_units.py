@@ -39,9 +39,17 @@ Data, in this order
          listed. It goes on converting as that install filed it. Where that
          code is a kind's base unit (KG), the standard units measured from it
          are not added, and are listed.
-       - Hours and minutes are added when missing. An existing HR or MIN row
-         is never changed.
+       - An existing HR or MIN row is never changed. The one that is missing
+         is added, unless the one that is there is on another scale (a minute
+         of 1): then it is not added, and is listed.
        - Any other row the install added keeps its kind, factor and state.
+       - Where a weight, length, area, volume or time kind holds only the
+         install's own units (a TONNE and nothing else), no standard unit is
+         added to it: nothing shows their scale, and a kilogram of 1 beside a
+         tonne of 1 would make them equal. The units left out are listed.
+       - EA is always added, because items default to it. If the install has
+         counting units of its own and no EA, they are named so that their
+         factors can be checked.
     2. Unit codes on items, BOM lines, routing material lines, vendor items,
        open purchase order lines and production order material rows not yet
        consumed are tidied: trimmed, upper-cased, and a known spelling read as
@@ -126,6 +134,8 @@ _SPELLINGS = {
 # Kinds whose standard factors are exact by definition and are corrected.
 _EXACT_KINDS = ("weight", "length", "area", "volume")
 _TIME = "time"
+# The kinds whose units convert to one another by the factors in the table.
+_SCALED_KINDS = _EXACT_KINDS + (_TIME,)
 _NAMED_ROWS = 25
 
 # state key -> (table, the columns that hold a unit code)
@@ -245,15 +255,21 @@ def _plan_units(units: list) -> tuple:
     """
     planned = {
         "add": [], "fix": [], "reactivate": [], "rename": [], "switch_off": [],
-        "conflicts": [], "odd_factors": [], "spellings_left": [], "not_added": [],
+        "conflicts": [], "odd_factors": [], "spellings_left": [], "not_added": [], "each_beside": [],
     }
     standard = {row[0]: row for row in _STANDARD_UNITS}
-    by_code = {}
+    by_code, held = {}, {}
     for row in units:
-        by_code.setdefault((row["code"] or "").strip().upper(), []).append(row)
+        code = (row["code"] or "").strip().upper()
+        by_code.setdefault(code, []).append(row)
+        if code:
+            # The codes this install files under each kind, whatever they are.
+            held.setdefault((row["uom_class"] or "").strip().lower(), set()).add(code)
 
-    # First, the row each code keeps, and which kinds this install measures from another base.
-    groups, off_base = {}, set()
+    # First, the row each code keeps, and what each kind's standard rows say about its scale:
+    # a kind is anchored when one of them holds the exact factor or a rounding of it, and off
+    # base when one holds another number.
+    groups, off_base, anchored = {}, set(), set()
     for code, rows in by_code.items():
         if not code:
             continue
@@ -273,10 +289,12 @@ def _plan_units(units: list) -> tuple:
         else:
             state = "plain"
         groups[code] = (active, in_use, keep, here, wanted, state)
-        # The row in use decides, also when the group itself is left alone as two spellings.
-        if state in ("plain", "spellings") and wanted and wanted[3] in _EXACT_KINDS:
+        # The row in use decides, also when the group itself is left alone: two spellings, or a time unit.
+        if state in ("plain", "spellings", "time") and wanted and wanted[3] in _SCALED_KINDS:
             stored, exact_factor = Decimal(str(keep["to_base_factor"])), Decimal(wanted[5])
-            if stored != exact_factor and not _is_rounding_of(stored, exact_factor):
+            if stored == exact_factor or _is_rounding_of(stored, exact_factor):
+                anchored.add(wanted[3])
+            else:
                 off_base.add(wanted[3])
                 planned["odd_factors"].append((code, stored, exact_factor))
 
@@ -305,19 +323,28 @@ def _plan_units(units: list) -> tuple:
                     usable = True
         (known if usable else switched_off).add(code)
 
+    # A standard unit is added to a scaled kind only where its factor is known to fit the rows
+    # already there: the kind is empty, or a standard row anchors it and none contradicts it.
     filed_elsewhere = {conflict[0] for conflict in planned["conflicts"]}
     for row in _STANDARD_UNITS:
-        if row[0] in by_code:
+        code, kind, base = row[0], row[3], row[4]
+        if code in by_code:
             continue
-        if row[3] in off_base:
+        if kind in off_base:
             # A standard factor beside rows on another base would convert wrongly.
-            planned["not_added"].append((row[0], row[3], None))
-        elif row[4] in filed_elsewhere:
+            planned["not_added"].append((code, kind, "another_base", ""))
+        elif base in filed_elsewhere:
             # Its base unit is filed under another kind here: it would have nothing to convert through.
-            planned["not_added"].append((row[0], row[3], row[4]))
+            planned["not_added"].append((code, kind, "base_elsewhere", base))
+        elif kind in _SCALED_KINDS and held.get(kind) and kind not in anchored:
+            # Only the install's own units are filed under this kind, so their scale is not known.
+            planned["not_added"].append((code, kind, "own_units", ", ".join(sorted(held[kind]))))
         else:
             planned["add"].append(row)
-            known.add(row[0])
+            known.add(code)
+            if code == "EA" and held.get(kind):
+                # Items default to EA, so it is always added. The other counting units are named.
+                planned["each_beside"] = sorted(held[kind])
     return planned, known, switched_off
 
 
@@ -480,15 +507,26 @@ def report_lines(planned: dict) -> list:
             "106: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
             "that kind from another base unit, so the row is left as it is."
         ) % (code, _plain(stored), _plain(exact))))
+    if units["each_beside"]:
+        lines.append((logging.WARNING, (
+            "106: ADDED EA beside this install's own counting unit(s) %s: items default to EA, so it has to "
+            "exist. Check that the factor of each of those says how many EA it is."
+        ) % ", ".join(units["each_beside"])))
     left_out = {}
-    for code, kind, base_filed_elsewhere in units["not_added"]:
-        left_out.setdefault((kind, base_filed_elsewhere or ""), []).append(code)
-    for (kind, base), codes in sorted(left_out.items()):
-        if base:
+    for code, kind, why, detail in units["not_added"]:
+        left_out.setdefault((kind, why, detail), []).append(code)
+    for (kind, why, detail), codes in sorted(left_out.items()):
+        if why == "base_elsewhere":
             lines.append((logging.WARNING, (
                 "106: NOT ADDED %s: their base unit %s is filed here under another kind (see the line above), "
                 "so they would have nothing to convert through."
-            ) % (", ".join(codes), base)))
+            ) % (", ".join(codes), detail)))
+        elif why == "own_units":
+            lines.append((logging.WARNING, (
+                "106: NOT ADDED %s: the %s units here are this install's own (%s), and none of them is a "
+                "standard unit that shows their scale, so a standard factor beside them could convert wrongly. "
+                "Add them under Units, with factors on your base."
+            ) % (", ".join(codes), kind, detail)))
         else:
             lines.append((logging.WARNING, (
                 "106: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "

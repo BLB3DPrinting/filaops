@@ -93,6 +93,8 @@ UNIT_SPELLINGS = {
 
 # Kinds whose standard factors are exact by definition.
 _EXACT_KINDS = ("weight", "length", "area", "volume")
+# The kinds whose units convert to one another by the factors in the table.
+_SCALED_KINDS = _EXACT_KINDS + ("time",)
 
 _QUANTITY_PLACES = Decimal("0.000001")
 _COST_PLACES = Decimal("0.00000001")
@@ -483,23 +485,32 @@ def _is_rounding_of(stored: Decimal, exact: Decimal) -> bool:
     )
 
 
-def off_base_kinds(rows) -> set:
-    """The kinds an install measures from another base unit than the standard one.
+def _kind_scales(rows) -> tuple:
+    """What the unit table's rows say about the scale of each kind that converts by factor.
 
-    ``rows`` are ``(code, kind, factor)`` of the unit table. A kind is off base
-    when a standard unit of it holds a factor that is neither the exact one nor
-    a rounding of it: a kilogram of 1000 on a table based on grams.
+    ``rows`` are ``(code, kind, factor)``. Returns three sets of kinds: those
+    that hold any row, those a standard unit anchors (it holds the exact factor
+    or a rounding of it), and those a standard unit contradicts (a kilogram of
+    1000 on a table based on grams, a minute of 1). A kind that holds rows and
+    has no anchor holds only the install's own units: a TONNE of 1 and nothing
+    else under weight says nothing about what a kilogram is there.
     """
-    standard = {unit.code: unit for unit in STANDARD_UNITS if unit.kind in _EXACT_KINDS}
-    kinds = set()
+    standard = {unit.code: unit for unit in STANDARD_UNITS if unit.kind in _SCALED_KINDS}
+    held, anchored, off_base = set(), set(), set()
     for code, kind, factor in rows:
+        kind = (kind or "").strip().lower()
+        if kind not in _SCALED_KINDS:
+            continue
+        held.add(kind)
         unit = standard.get((code or "").strip().upper())
-        if unit is None or (kind or "").strip().lower() != unit.kind:
+        if unit is None or unit.kind != kind:
             continue
         stored = Decimal(str(factor))
-        if stored != unit.factor and not _is_rounding_of(stored, unit.factor):
-            kinds.add(unit.kind)
-    return kinds
+        if stored == unit.factor or _is_rounding_of(stored, unit.factor):
+            anchored.add(kind)
+        else:
+            off_base.add(kind)
+    return held, anchored, off_base
 
 
 def ensure_standard_units(db: Session) -> int:
@@ -509,20 +520,24 @@ def ensure_standard_units(db: Session) -> int:
     upgrade that corrects rounded factors is migration 106.
 
     Nothing is added to a kind the install measures from another base unit
-    (grams as the base, a kilogram of 1000): a standard factor beside those
-    rows would convert wrongly. And no unit is added whose base unit the
-    install has filed under another kind (KG as a counting unit): it would
-    have nothing to convert through.
+    (grams as the base, a kilogram of 1000, or a minute of 1): a standard
+    factor beside those rows would convert wrongly. Nothing is added to a kind
+    that holds only the install's own units (a TONNE and nothing else), whose
+    scale is not known. And no unit is added whose base unit the install has
+    filed under another kind (KG as a counting unit): it would have nothing to
+    convert through. EA and the pack units are always added: items default to
+    EA, and a pack converts through an item, never through this table.
     """
     table = UnitOfMeasure.__table__
     rows = db.execute(select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor)).all()
     existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor in rows}
     kinds = {(code or "").strip().upper(): (kind or "").strip().lower() for code, _id, kind, _factor in rows}
-    off_base = off_base_kinds((code, kind, factor) for code, _id, kind, factor in rows)
+    held, anchored, off_base = _kind_scales([(code, kind, factor) for code, _id, kind, factor in rows])
+    unsafe = off_base | (held - anchored)
     missing = [
         unit for unit in STANDARD_UNITS
         if unit.code not in existing
-        and unit.kind not in off_base
+        and unit.kind not in unsafe
         and (unit.base is None or kinds.get(unit.base, unit.kind) == unit.kind)
     ]
     if not missing:

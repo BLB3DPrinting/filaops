@@ -103,6 +103,30 @@ class TestStandardUnits:
         assert not {"G", "MG", "LB", "OZ"} & codes
         assert {"M", "CM", "L", "EA"} <= codes
 
+    def test_ensure_standard_units_adds_no_hour_beside_a_minute_on_its_own_scale(self, db):
+        """A minute of 1 is that table's base for time: an hour of 1 beside it would equal a minute."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        db.add(UnitOfMeasure(code="MIN", name="Minute", symbol="min", uom_class="time", to_base_factor=D("1")))
+        db.flush()
+        uc.ensure_standard_units(db)
+        codes = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert "HR" not in codes
+        assert {"KG", "M", "EA"} <= codes
+
+    def test_ensure_standard_units_adds_nothing_to_a_kind_of_the_installs_own_units(self, db):
+        """Only a TONNE of 1 under weight: nothing says what it is in KG, so no KG of 1 is put beside it."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        db.add(UnitOfMeasure(code="TONNE", name="Tonne", symbol="t", uom_class="weight", to_base_factor=D("1")))
+        db.add(UnitOfMeasure(code="DOZEN", name="Dozen", symbol="dz", uom_class="quantity", to_base_factor=D("12")))
+        db.flush()
+        uc.ensure_standard_units(db)
+        codes = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert not {"KG", "G", "MG", "LB", "OZ"} & codes
+        # Items default to EA, so it is added whatever else counts things here.
+        assert {"EA", "M", "L", "HR", "BOX"} <= codes
+
     def test_a_reused_test_database_still_starts_exact(self, db):
         """Older rows in a local test database do not decide what the tests see."""
         db.execute(text("UPDATE units_of_measure SET to_base_factor = 0.453592 WHERE code = 'LB'"))

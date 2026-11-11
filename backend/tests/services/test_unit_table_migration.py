@@ -225,6 +225,52 @@ class TestUnitTable:
         assert "LEFT unit KG: this install has it as a quantity unit" in report
         assert "NOT ADDED G, MG, LB, OZ: their base unit KG is filed here under another kind" in report
 
+    def test_an_hour_is_not_added_beside_a_minute_on_its_own_scale(self, db, migration):
+        """A minute of 1 is this install's base for time: an hour of 1 beside it would equal a minute."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("MIN", "time", None, "1")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert "HR" not in units
+        assert D(str(units["MIN"].to_base_factor)) == D("1")
+        report = _report(migration, planned)
+        assert "LEFT unit MIN: its factor 1 is not a rounding of the exact 0.016666666666667" in report
+        assert "NOT ADDED HR: this install measures time from another base unit" in report
+
+    def test_a_missing_minute_is_added_beside_a_standard_hour(self, db, migration):
+        _unit_table(db, [("EA", "quantity", None, "1"), ("HR", "time", None, "1")])
+        _run(db, migration)
+        assert uc.physical_factor(db, "HR", "MIN").quantize(D("0.001")) == D("60.000")
+
+    def test_standard_units_are_not_added_to_a_kind_of_the_installs_own_units(self, db, migration):
+        """Only a TONNE of 1 under weight: nothing says what one TONNE is in KG, so no KG of 1 is put beside it."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("TONNE", "weight", None, "1")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert not {"KG", "G", "MG", "LB", "OZ"} & set(units)
+        assert D(str(units["TONNE"].to_base_factor)) == D("1")
+        assert {"M", "CM", "L", "ML", "HR", "BOX"} <= set(units)
+        assert (
+            "NOT ADDED KG, G, MG, LB, OZ: the weight units here are this install's own (TONNE)"
+            in _report(migration, planned)
+        )
+
+    def test_a_standard_unit_filed_under_another_kind_does_not_stand_in_for_that_kind(self, db, migration):
+        """OZ filed as the only volume unit: its factor says nothing about litres."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("OZ", "volume", None, "1")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert not {"L", "ML"} & set(units)
+        assert "NOT ADDED L, ML: the volume units here are this install's own (OZ)" in _report(migration, planned)
+
+    def test_each_is_added_beside_the_installs_own_counting_units(self, db, migration):
+        """Items default to EA, so it is always there. The install's own counting units are named to be checked."""
+        _unit_table(db, [("DOZEN", "quantity", None, "1")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert units["EA"].active is True
+        assert D(str(units["DOZEN"].to_base_factor)) == D("1")
+        assert "ADDED EA beside this install's own counting unit(s) DOZEN" in _report(migration, planned)
+
     def test_a_rounded_factor_in_a_kind_on_another_base_is_not_corrected(self, db, migration):
         _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
                          ("KG", "weight", "G", "1000"), ("LB", "weight", "G", "0.453592")])
@@ -308,7 +354,7 @@ class TestUnitCodes:
         names = [f"SKU-{number}" for number in range(40)]
         planned = {"units": {name: [] for name in (
             "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
-            "not_added")},
+            "not_added", "each_beside")},
             "codes": [], "unknown": {("items", "unit", "zz"): {"off": False, "rows": names}},
             "no_unit": [], "no_purchase_unit": []}
         line = migration.report_lines(planned)[0][1]
@@ -461,7 +507,7 @@ class TestShape:
     def test_nothing_to_do_says_so(self, migration):
         empty = {"units": {name: [] for name in (
             "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
-            "not_added")},
+            "not_added", "each_beside")},
             "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
         assert migration.report_lines(empty) == [
             (logging.INFO, "106: the unit table and unit codes needed no change")
