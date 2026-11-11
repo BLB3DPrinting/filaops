@@ -1,6 +1,7 @@
 """Database models - FilaOps Open Source Core"""
 from app.models.item_category import ItemCategory
 from app.models.product import Product
+from app.models.product_unit import ProductUnit
 from app.models.production_order import ProductionOrder, ProductionOrderOperation, ProductionOrderOperationMaterial, ScrapRecord, QCInspection, QCInspectionMeasurement, QCInspectionPhoto
 from app.models.print_job import PrintJob
 from app.models.inventory import Inventory, InventoryTransaction, InventoryLocation
@@ -62,6 +63,7 @@ __all__ = [
     # Item management
     "ItemCategory",
     "Product",
+    "ProductUnit",
     # Production
     "ProductionOrder",
     "ProductionOrderOperation",

@@ -64,6 +64,12 @@ def setup_database():
             "ALTER TABLE inventory_transactions "
             "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
         ))
+        # Unit factors widened to 15 places (migration 106). create_all won't
+        # ALTER the pre-existing column; the exact ounce does not fit in 8.
+        conn.execute(text(
+            "ALTER TABLE units_of_measure "
+            "ALTER COLUMN to_base_factor TYPE NUMERIC(30, 15)"
+        ))
         # i18n / multi-tax additions (migration 062, 063)
         # Payment terms columns on users (customer payment terms feature)
         conn.execute(text(
@@ -493,13 +499,20 @@ def db():
       but does NOT commit the connection-level transaction
     - At teardown, the connection transaction is rolled back — all test
       data disappears regardless of how many commits the service made
+
+    Every session starts with the standard units of measure (the rows
+    migration 106 gives every install). They are added inside the test's own
+    transaction and rolled back with it, so a local database shared with
+    other branches is left as it was.
     """
     from app.db.session import engine
+    from app.services.unit_conversion import ensure_standard_units
     from sqlalchemy.orm import Session as SASession
 
     connection = engine.connect()
     transaction = connection.begin()
     session = SASession(bind=connection, join_transaction_mode="create_savepoint")
+    ensure_standard_units(session)
 
     yield session
 
