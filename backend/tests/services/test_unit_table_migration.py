@@ -262,14 +262,23 @@ class TestUnitTable:
         assert not {"L", "ML"} & set(units)
         assert "NOT ADDED L, ML: the volume units here are this install's own (OZ)" in _report(migration, planned)
 
-    def test_each_is_added_beside_the_installs_own_counting_units(self, db, migration):
-        """Items default to EA, so it is always there. The install's own counting units are named to be checked."""
+    def test_each_is_not_assumed_beside_the_installs_own_counting_units(self, db, migration):
+        """Only a DOZEN of 1: an EA of 1 beside it would make a dozen convert to one each."""
         _unit_table(db, [("DOZEN", "quantity", None, "1")])
         planned = _run(db, migration)
         units = _units(db)
-        assert units["EA"].active is True
+        assert "EA" not in units
         assert D(str(units["DOZEN"].to_base_factor)) == D("1")
-        assert "ADDED EA beside this install's own counting unit(s) DOZEN" in _report(migration, planned)
+        with pytest.raises(uc.UnitConversionError):
+            uc.physical_factor(db, "DOZEN", "EA")
+        report = _report(migration, planned)
+        assert "NOT ADDED EA: the counting units here are this install's own (DOZEN)" in report
+        assert "add EA under Units" in report
+
+    def test_each_is_added_to_a_table_with_no_counting_units(self, db, migration):
+        _unit_table(db, [("KG", "weight", None, "1")])
+        _run(db, migration)
+        assert _units(db)["EA"].active is True
 
     def test_a_rounded_factor_in_a_kind_on_another_base_is_not_corrected(self, db, migration):
         _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
@@ -354,7 +363,7 @@ class TestUnitCodes:
         names = [f"SKU-{number}" for number in range(40)]
         planned = {"units": {name: [] for name in (
             "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
-            "not_added", "each_beside")},
+            "not_added")},
             "codes": [], "unknown": {("items", "unit", "zz"): {"off": False, "rows": names}},
             "no_unit": [], "no_purchase_unit": []}
         line = migration.report_lines(planned)[0][1]
@@ -507,7 +516,7 @@ class TestShape:
     def test_nothing_to_do_says_so(self, migration):
         empty = {"units": {name: [] for name in (
             "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
-            "not_added", "each_beside")},
+            "not_added")},
             "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
         assert migration.report_lines(empty) == [
             (logging.INFO, "106: the unit table and unit codes needed no change")

@@ -93,8 +93,8 @@ UNIT_SPELLINGS = {
 
 # Kinds whose standard factors are exact by definition.
 _EXACT_KINDS = ("weight", "length", "area", "volume")
-# The kinds whose units convert to one another by the factors in the table.
-_SCALED_KINDS = _EXACT_KINDS + ("time",)
+# The kinds whose units convert to one another by the factors in the table: all but the packs.
+_SCALED_KINDS = _EXACT_KINDS + ("time", "quantity")
 
 _QUANTITY_PLACES = Decimal("0.000001")
 _COST_PLACES = Decimal("0.00000001")
@@ -488,21 +488,32 @@ def _is_rounding_of(stored: Decimal, exact: Decimal) -> bool:
 def _kind_scales(rows) -> tuple:
     """What the unit table's rows say about the scale of each kind that converts by factor.
 
-    ``rows`` are ``(code, kind, factor)``. Returns three sets of kinds: those
-    that hold any row, those a standard unit anchors (it holds the exact factor
-    or a rounding of it), and those a standard unit contradicts (a kilogram of
-    1000 on a table based on grams, a minute of 1). A kind that holds rows and
-    has no anchor holds only the install's own units: a TONNE of 1 and nothing
-    else under weight says nothing about what a kilogram is there.
+    ``rows`` are ``(code, kind, factor, active)`` in id order. Returns three
+    sets of kinds: those that hold any row, those a standard unit anchors (it
+    holds the exact factor or a rounding of it), and those a standard unit
+    contradicts (a kilogram of 1000 on a table based on grams, a minute of 1).
+    A kind that holds rows and has no anchor holds only the install's own
+    units: a TONNE of 1 and nothing else under weight says nothing about what
+    a kilogram is there, and a DOZEN with no EA says nothing about an each.
+
+    Where a code has several rows, the one that counts is the one conversions
+    use: a row in use over a switched-off one, then the upper-case spelling.
     """
     standard = {unit.code: unit for unit in STANDARD_UNITS if unit.kind in _SCALED_KINDS}
-    held, anchored, off_base = set(), set(), set()
-    for code, kind, factor in rows:
+    held, in_use = set(), {}
+    for code, kind, factor, active in rows:
+        key = (code or "").strip().upper()
         kind = (kind or "").strip().lower()
-        if kind not in _SCALED_KINDS:
+        if not key or kind not in _SCALED_KINDS:
             continue
         held.add(kind)
-        unit = standard.get((code or "").strip().upper())
+        rank = (bool(active), code == key)
+        if key not in in_use or rank > in_use[key][0]:
+            in_use[key] = (rank, kind, factor)
+
+    anchored, off_base = set(), set()
+    for key, (_rank, kind, factor) in in_use.items():
+        unit = standard.get(key)
         if unit is None or unit.kind != kind:
             continue
         stored = Decimal(str(factor))
@@ -522,17 +533,22 @@ def ensure_standard_units(db: Session) -> int:
     Nothing is added to a kind the install measures from another base unit
     (grams as the base, a kilogram of 1000, or a minute of 1): a standard
     factor beside those rows would convert wrongly. Nothing is added to a kind
-    that holds only the install's own units (a TONNE and nothing else), whose
-    scale is not known. And no unit is added whose base unit the install has
-    filed under another kind (KG as a counting unit): it would have nothing to
-    convert through. EA and the pack units are always added: items default to
-    EA, and a pack converts through an item, never through this table.
+    that holds only the install's own units (a TONNE and nothing else under
+    weight, a DOZEN and no EA), whose scale is not known. And no unit is added
+    whose base unit the install has filed under another kind (KG as a counting
+    unit): it would have nothing to convert through. The pack units are
+    always added: a pack converts through an item, never through this table.
     """
     table = UnitOfMeasure.__table__
-    rows = db.execute(select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor)).all()
-    existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor in rows}
-    kinds = {(code or "").strip().upper(): (kind or "").strip().lower() for code, _id, kind, _factor in rows}
-    held, anchored, off_base = _kind_scales([(code, kind, factor) for code, _id, kind, factor in rows])
+    rows = db.execute(
+        select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor, table.c.active)
+        .order_by(table.c.id)
+    ).all()
+    existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor, _active in rows}
+    kinds = {(code or "").strip().upper(): (kind or "").strip().lower() for code, _id, kind, _factor, _active in rows}
+    held, anchored, off_base = _kind_scales(
+        [(code, kind, factor, active) for code, _id, kind, factor, active in rows]
+    )
     unsafe = off_base | (held - anchored)
     missing = [
         unit for unit in STANDARD_UNITS

@@ -43,13 +43,14 @@ Data, in this order
          is added, unless the one that is there is on another scale (a minute
          of 1): then it is not added, and is listed.
        - Any other row the install added keeps its kind, factor and state.
-       - Where a weight, length, area, volume or time kind holds only the
-         install's own units (a TONNE and nothing else), no standard unit is
-         added to it: nothing shows their scale, and a kilogram of 1 beside a
-         tonne of 1 would make them equal. The units left out are listed.
-       - EA is always added, because items default to it. If the install has
-         counting units of its own and no EA, they are named so that their
-         factors can be checked.
+       - Where a kind holds only the install's own units (a TONNE and nothing
+         else under weight), no standard unit is added to it: nothing shows
+         their scale, and a kilogram of 1 beside a tonne of 1 would make them
+         equal. The units left out are listed. This goes for counting too: a
+         DOZEN of 1 and no EA gets no EA of 1 beside it. That install had no
+         EA before either; the report says to add it and to set each of its
+         own units to how many EA it is. The pack names are always added: a
+         pack never converts through this table.
     2. Unit codes on items, BOM lines, routing material lines, vendor items,
        open purchase order lines and production order material rows not yet
        consumed are tidied: trimmed, upper-cased, and a known spelling read as
@@ -134,8 +135,9 @@ _SPELLINGS = {
 # Kinds whose standard factors are exact by definition and are corrected.
 _EXACT_KINDS = ("weight", "length", "area", "volume")
 _TIME = "time"
-# The kinds whose units convert to one another by the factors in the table.
-_SCALED_KINDS = _EXACT_KINDS + (_TIME,)
+_COUNT = "quantity"
+# The kinds whose units convert to one another by the factors in the table: all but the packs.
+_SCALED_KINDS = _EXACT_KINDS + (_TIME, _COUNT)
 _NAMED_ROWS = 25
 
 # state key -> (table, the columns that hold a unit code)
@@ -255,7 +257,7 @@ def _plan_units(units: list) -> tuple:
     """
     planned = {
         "add": [], "fix": [], "reactivate": [], "rename": [], "switch_off": [],
-        "conflicts": [], "odd_factors": [], "spellings_left": [], "not_added": [], "each_beside": [],
+        "conflicts": [], "odd_factors": [], "spellings_left": [], "not_added": [],
     }
     standard = {row[0]: row for row in _STANDARD_UNITS}
     by_code, held = {}, {}
@@ -342,9 +344,6 @@ def _plan_units(units: list) -> tuple:
         else:
             planned["add"].append(row)
             known.add(code)
-            if code == "EA" and held.get(kind):
-                # Items default to EA, so it is always added. The other counting units are named.
-                planned["each_beside"] = sorted(held[kind])
     return planned, known, switched_off
 
 
@@ -507,11 +506,6 @@ def report_lines(planned: dict) -> list:
             "106: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
             "that kind from another base unit, so the row is left as it is."
         ) % (code, _plain(stored), _plain(exact))))
-    if units["each_beside"]:
-        lines.append((logging.WARNING, (
-            "106: ADDED EA beside this install's own counting unit(s) %s: items default to EA, so it has to "
-            "exist. Check that the factor of each of those says how many EA it is."
-        ) % ", ".join(units["each_beside"])))
     left_out = {}
     for code, kind, why, detail in units["not_added"]:
         left_out.setdefault((kind, why, detail), []).append(code)
@@ -520,6 +514,12 @@ def report_lines(planned: dict) -> list:
             lines.append((logging.WARNING, (
                 "106: NOT ADDED %s: their base unit %s is filed here under another kind (see the line above), "
                 "so they would have nothing to convert through."
+            ) % (", ".join(codes), detail)))
+        elif why == "own_units" and kind == _COUNT:
+            lines.append((logging.WARNING, (
+                "106: NOT ADDED %s: the counting units here are this install's own (%s), and nothing shows how "
+                "many EA each of them is. FilaOps counts in EA and new items default to it: add EA under Units, "
+                "and set the factor of each of your own units to how many EA it is."
             ) % (", ".join(codes), detail)))
         elif why == "own_units":
             lines.append((logging.WARNING, (

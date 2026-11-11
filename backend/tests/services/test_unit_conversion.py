@@ -101,7 +101,9 @@ class TestStandardUnits:
         uc.ensure_standard_units(db)
         codes = {code for (code,) in db.query(UnitOfMeasure.code)}
         assert not {"G", "MG", "LB", "OZ"} & codes
-        assert {"M", "CM", "L", "EA"} <= codes
+        assert {"M", "CM", "L"} <= codes
+        # KG is the only counting unit here, so nothing says how many EA it is.
+        assert "EA" not in codes
 
     def test_ensure_standard_units_adds_no_hour_beside_a_minute_on_its_own_scale(self, db):
         """A minute of 1 is that table's base for time: an hour of 1 beside it would equal a minute."""
@@ -124,8 +126,21 @@ class TestStandardUnits:
         uc.ensure_standard_units(db)
         codes = {code for (code,) in db.query(UnitOfMeasure.code)}
         assert not {"KG", "G", "MG", "LB", "OZ"} & codes
-        # Items default to EA, so it is added whatever else counts things here.
-        assert {"EA", "M", "L", "HR", "BOX"} <= codes
+        # The same for counting: a DOZEN and no EA says nothing about how many EA a dozen is.
+        assert "EA" not in codes
+        assert {"M", "L", "HR", "BOX"} <= codes
+
+    def test_ensure_standard_units_reads_the_row_in_use_not_a_switched_off_spelling(self, db):
+        """An active KG of 1 beside a switched-off kg of 1000: the kind is on the standard scale."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        db.add(UnitOfMeasure(code="KG", name="Kilogram", symbol="kg", uom_class="weight", to_base_factor=D("1")))
+        db.add(UnitOfMeasure(code="kg", name="Old kilogram", symbol="kg", uom_class="weight",
+                             to_base_factor=D("1000"), active=False))
+        db.flush()
+        uc.ensure_standard_units(db)
+        assert uc.physical_factor(db, "KG", "G") == D("1000")
+        assert uc.physical_factor(db, "LB", "G") == D("453.59237")
 
     def test_a_reused_test_database_still_starts_exact(self, db):
         """Older rows in a local test database do not decide what the tests see."""
