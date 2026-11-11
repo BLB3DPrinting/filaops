@@ -23,9 +23,19 @@ const DETAIL_FIELDS = ["weight_oz", "length_in", "width_in", "height_in", "reord
 
 const LOADING = { id: null, status: "loading", detail: null };
 
+/** Pick the fields the list row cannot supply out of a GET /api/v1/items/{id} response. */
 const fieldsFromDetail = (detail) =>
   Object.fromEntries(DETAIL_FIELDS.filter((field) => field in detail).map((field) => [field, detail[field]]));
 
+/**
+ * Load the full item behind a list row each time the edit form opens.
+ *
+ * @param {boolean} isOpen Whether the form is open; the item is fetched on each open.
+ * @param {object|null} listRow The Items list row being edited, or null when creating.
+ * @returns {{item: object|null, status: "loading"|"ready"|"error", retry: () => void}}
+ *   `item` is the row with the detail's weight, dimensions and reorder point merged in
+ *   once `status` is "ready"; `retry` fetches again after an "error".
+ */
 export default function useItemEditSource(isOpen, listRow) {
   const itemId = listRow?.id ?? null;
   const [state, setState] = useState(LOADING);

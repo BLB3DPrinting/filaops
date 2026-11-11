@@ -61,6 +61,7 @@ const buildFormState = (item) => ({
   image_url: item?.image_url || "",
 });
 
+/** Create an item, or edit one (`editingItem` is an Items list row; the full item is loaded first). */
 export default function ItemForm({
   isOpen,
   onClose,

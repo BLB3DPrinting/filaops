@@ -89,21 +89,25 @@ const installFetch = ({ item = detail() } = {}) => {
   })
 }
 
+/** Every PATCH the form has sent. */
 const patchCalls = () =>
   globalThis.fetch.mock.calls.filter(([, options]) => options?.method === 'PATCH')
 
+/** The parsed body of the first PATCH; throws if none was sent. */
 const patchBody = () => {
   const calls = patchCalls()
   if (calls.length === 0) throw new Error('No PATCH request was made')
   return JSON.parse(calls[0][1].body)
 }
 
+/** Every GET of /api/v1/items/7 the form has made. */
 const detailRequests = () =>
   globalThis.fetch.mock.calls.filter(
     ([url, options]) =>
       String(url).endsWith('/api/v1/items/7') && (options?.method ?? 'GET') === 'GET'
   )
 
+/** Render the form open for editing the given list row. */
 const renderForm = (row = listRow()) =>
   render(<ItemForm isOpen onClose={vi.fn()} onSuccess={vi.fn()} editingItem={row} />)
 

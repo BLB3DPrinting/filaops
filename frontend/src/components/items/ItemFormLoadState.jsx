@@ -7,6 +7,13 @@
  */
 import Modal from "../Modal";
 
+/**
+ * @param {object} props
+ * @param {boolean} props.isOpen Whether the modal is open.
+ * @param {() => void} props.onClose Closes the modal.
+ * @param {"loading"|"error"} props.status Shows "Loading item…" or the load-failed message.
+ * @param {() => void} props.onRetry Loads the item again; only used when `status` is "error".
+ */
 export default function ItemFormLoadState({ isOpen, onClose, status, onRetry }) {
   return (
     <Modal
