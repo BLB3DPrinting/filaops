@@ -65,7 +65,7 @@ export default function LegacyFulfillmentBanner({ order, orderId, onResolved }) 
             <div className="flex shrink-0 flex-wrap gap-2">
               <button
                 onClick={() => setLegacyResolveAction("close_out")}
-                className="rounded-lg bg-[var(--orange)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--orange-press)]"
+                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-accent-ink hover:bg-[var(--accent-press)]"
               >
                 Close Out as Fulfilled
               </button>
@@ -120,7 +120,7 @@ export default function LegacyFulfillmentBanner({ order, orderId, onResolved }) 
               <button
                 onClick={handleResolveLegacyFulfillment}
                 disabled={resolvingLegacy}
-                className="px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {resolvingLegacy
                   ? "Working..."

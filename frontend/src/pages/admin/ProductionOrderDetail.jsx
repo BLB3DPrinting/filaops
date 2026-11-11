@@ -183,7 +183,7 @@ function WorkflowStepCard({ step, onAction, updating }) {
           type="button"
           onClick={() => onAction(step.action)}
           disabled={updating}
-          className="mt-4 w-full rounded-lg bg-[var(--orange)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
+          className="mt-4 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-accent-ink hover:bg-[var(--accent-press)] disabled:opacity-50"
         >
           {step.actionLabel}
         </button>
@@ -290,7 +290,7 @@ export default function ProductionOrderDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent)]"></div>
       </div>
     );
   }
@@ -381,7 +381,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("release")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-accent-ink hover:bg-[var(--accent-press)] disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
               Release to Floor
@@ -391,7 +391,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("start")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-accent-ink hover:bg-[var(--accent-press)] disabled:opacity-50"
             >
               <PlayCircle className="h-4 w-4" aria-hidden="true" />
               Start Production
@@ -401,7 +401,7 @@ export default function ProductionOrderDetail() {
             <button
               onClick={() => handleStatusUpdate("complete")}
               disabled={updating}
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--orange)] px-4 py-2 text-white hover:bg-[var(--orange-press)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-accent-ink hover:bg-[var(--accent-press)] disabled:opacity-50"
             >
               <PackageCheck className="h-4 w-4" aria-hidden="true" />
               Complete Production

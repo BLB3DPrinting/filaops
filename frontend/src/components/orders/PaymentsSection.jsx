@@ -28,7 +28,7 @@ export default function PaymentsSection({
           )}
           <button
             onClick={onRecordPayment}
-            className="px-3 py-1 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded text-sm flex items-center gap-1"
+            className="px-3 py-1 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded text-sm flex items-center gap-1"
           >
             <svg
               className="w-4 h-4"

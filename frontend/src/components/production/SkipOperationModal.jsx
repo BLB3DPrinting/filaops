@@ -105,7 +105,7 @@ export default function SkipOperationModal({
               onChange={(e) => setReason(e.target.value)}
               rows={3}
               placeholder="e.g., Customer requested rush delivery, Operation not needed for this order..."
-              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] placeholder-[var(--ink-4)] focus:ring-2 focus:ring-[var(--orange)] focus:border-transparent resize-none"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-2.5 text-[var(--ink)] placeholder-[var(--ink-4)] focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent resize-none"
             />
           </div>
 
@@ -136,7 +136,7 @@ export default function SkipOperationModal({
             <button
               type="submit"
               disabled={submitting || !reason.trim()}
-              className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-6 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Skipping...' : 'Skip Operation'}
             </button>

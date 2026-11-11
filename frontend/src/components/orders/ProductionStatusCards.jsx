@@ -106,7 +106,7 @@ export function ProductionOrderStatusCard({ order, onViewInProduction, onAcceptS
         <div className="mt-2 mb-1">
           <button
             onClick={() => onAcceptShort(order)}
-            className="px-3 py-1.5 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white text-xs rounded font-medium transition-colors"
+            className="px-3 py-1.5 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink text-xs rounded font-medium transition-colors"
           >
             Accept Short ({order.quantity_completed}/{order.quantity_ordered})
           </button>

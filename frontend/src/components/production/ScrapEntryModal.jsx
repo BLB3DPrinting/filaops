@@ -340,7 +340,7 @@ export default function ScrapEntryModal({
                 Cascading Material Costs
               </label>
               {loading && (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--orange)]"></div>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--accent)]"></div>
               )}
             </div>
 
@@ -370,7 +370,7 @@ export default function ScrapEntryModal({
                 type="checkbox"
                 checked={createReplacement}
                 onChange={(e) => setCreateReplacement(e.target.checked)}
-                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
+                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--accent)] focus:ring-[var(--accent)] focus:ring-offset-0"
               />
               <div>
                 <span className="text-[var(--ink)] font-medium">

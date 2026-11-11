@@ -244,7 +244,7 @@ export default function ScrapOrderModal({ productionOrder, onClose, onScrap }) {
                 type="checkbox"
                 checked={createRemake}
                 onChange={(e) => setCreateRemake(e.target.checked)}
-                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--orange)] focus:ring-[var(--orange)] focus:ring-offset-0"
+                className="w-5 h-5 rounded bg-[var(--paper)] border-[var(--rule-hair)] text-[var(--accent)] focus:ring-[var(--accent)] focus:ring-offset-0"
               />
               <div>
                 <span className="text-[var(--ink)] font-medium">Create Remake Order</span>

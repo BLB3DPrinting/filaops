@@ -249,7 +249,7 @@ export default function FulfillmentProgress({
           <div className="pt-4 border-t border-[var(--rule-hair)]">
             <button
               onClick={() => onShip('complete')}
-              className="w-full px-4 py-2.5 bg-[var(--orange)] text-white font-medium rounded-lg hover:bg-[var(--orange-press)] transition-colors flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 bg-[var(--accent)] text-accent-ink font-medium rounded-lg hover:bg-[var(--accent-press)] transition-colors flex items-center justify-center gap-2"
             >
               Ship Complete Order
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

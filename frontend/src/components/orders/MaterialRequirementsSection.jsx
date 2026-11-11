@@ -130,14 +130,14 @@ export default function MaterialRequirementsSection({
                           (req.has_bom ? (
                             <button
                               onClick={() => onCreateWorkOrder(req)}
-                              className="text-[var(--ink)] hover:text-[var(--orange)] text-sm"
+                              className="text-[var(--ink)] hover:text-[var(--accent)] text-sm"
                             >
                               Create WO
                             </button>
                           ) : (
                             <button
                               onClick={() => onCreatePurchaseOrder(req)}
-                              className="text-[var(--ink)] hover:text-[var(--orange)] text-sm"
+                              className="text-[var(--ink)] hover:text-[var(--accent)] text-sm"
                             >
                               Create PO
                             </button>

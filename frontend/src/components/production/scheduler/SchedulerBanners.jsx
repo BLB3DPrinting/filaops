@@ -105,7 +105,7 @@ export function UnscheduleConfirm({ onConfirm, onCancel, submitting }) {
           type="button"
           onClick={onConfirm}
           disabled={submitting}
-          className="px-4 py-1.5 bg-[var(--orange)] text-white text-sm rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-1.5 bg-[var(--accent)] text-accent-ink text-sm rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? "Unscheduling..." : "Confirm Unschedule"}
         </button>

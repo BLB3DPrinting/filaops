@@ -413,7 +413,7 @@ export default function ProductionQueueList({
     return (
       <div className="bg-[var(--paper)] border border-[var(--rule-hair)] rounded-xl p-8">
         <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--orange)]"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--accent)]"></div>
           <span className="ml-3 text-[var(--ink-3)]">Loading production orders...</span>
         </div>
       </div>
@@ -521,7 +521,7 @@ export default function ProductionQueueList({
       {loadingOps && (
         <div className="absolute inset-0 bg-[var(--paper)]/80 flex items-center justify-center z-10 rounded-xl">
           <div className="flex items-center gap-3 px-4 py-3 bg-[var(--paper)] rounded-lg border border-[var(--rule-hair)] shadow-[var(--shadow-pop)]">
-            <div className="animate-spin rounded-full h-5 w-5 border-2 border-[var(--orange)] border-t-transparent"></div>
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-[var(--accent)] border-t-transparent"></div>
             <span className="text-[var(--ink-2)] text-sm font-medium">Loading operation details...</span>
           </div>
         </div>

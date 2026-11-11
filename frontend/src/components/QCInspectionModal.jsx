@@ -9,13 +9,13 @@ import QCInspectionPhotos from "./QCInspectionPhotos";
 // defect, attributed to the operator) and Conditional are the full-QMS additions.
 const RESULTS = [
   { value: "passed", label: "Pass", hint: "Quality acceptable",
-    sel: "border-[var(--status-green)] bg-[var(--status-green-tint)]", txt: "text-[var(--status-green)]", fade: "text-[var(--status-green)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
+    sel: "border-[var(--status-green)] bg-[var(--status-green-tint)]", txt: "text-[var(--status-green)]", fade: "text-[var(--status-green)]/70", btn: "bg-[var(--accent)] hover:bg-[var(--accent-press)]" },
   { value: "failed", label: "Fail", hint: "Quality issues found",
-    sel: "border-[var(--status-red)] bg-[var(--status-red-tint)]", txt: "text-[var(--status-red)]", fade: "text-[var(--status-red)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
+    sel: "border-[var(--status-red)] bg-[var(--status-red-tint)]", txt: "text-[var(--status-red)]", fade: "text-[var(--status-red)]/70", btn: "bg-[var(--accent)] hover:bg-[var(--accent-press)]" },
   { value: "waived", label: "Waive", hint: "Accept despite a defect",
-    sel: "border-[var(--status-amber)] bg-[var(--status-amber-tint)]", txt: "text-[var(--status-amber)]", fade: "text-[var(--status-amber)]/70", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
+    sel: "border-[var(--status-amber)] bg-[var(--status-amber-tint)]", txt: "text-[var(--status-amber)]", fade: "text-[var(--status-amber)]/70", btn: "bg-[var(--accent)] hover:bg-[var(--accent-press)]" },
   { value: "conditional", label: "Conditional", hint: "Accept with conditions",
-    sel: "border-[var(--ink-3)] bg-[var(--paper-sunk)]", txt: "text-[var(--ink)]", fade: "text-[var(--ink-3)]", btn: "bg-[var(--orange)] hover:bg-[var(--orange-press)]" },
+    sel: "border-[var(--ink-3)] bg-[var(--paper-sunk)]", txt: "text-[var(--ink)]", fade: "text-[var(--ink-3)]", btn: "bg-[var(--accent)] hover:bg-[var(--accent-press)]" },
 ];
 
 const emptyMeasurement = () => ({
@@ -246,7 +246,7 @@ export default function QCInspectionModal({ productionOrder, onClose, onComplete
         <div className="flex justify-end mt-6">
           <button
             onClick={onComplete}
-            className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg"
+            className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg"
           >
             Done
           </button>

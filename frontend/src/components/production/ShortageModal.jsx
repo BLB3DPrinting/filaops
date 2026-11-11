@@ -148,7 +148,7 @@ export default function ShortageModal({
             <button
               onClick={handleCreateReplacement}
               disabled={creating}
-              className="flex-1 px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               {creating ? 'Creating...' : `Create Replacement (${quantityShort})`}
             </button>
