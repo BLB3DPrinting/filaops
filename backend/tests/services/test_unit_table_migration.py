@@ -191,7 +191,33 @@ class TestUnitTable:
         assert D(str(units["KG"].to_base_factor)) == D("1000")
         assert D(str(units["TONNE"].to_base_factor)) == D("1000000")
         assert uc.physical_factor(db, "TONNE", "KG") == D("1000")
-        assert "LEFT unit KG: its factor 1000 is not a rounding of the exact 1" in _report(migration, planned)
+        report = _report(migration, planned)
+        assert "LEFT unit KG: its factor 1000 is not a rounding of the exact 1" in report
+        # A standard pound beside those rows would make 1 LB convert to 0.45 G.
+        assert not {"LB", "OZ", "MG"} & set(units)
+        assert "NOT ADDED MG, LB, OZ: this install measures weight from another base unit" in report
+        with pytest.raises(uc.UnitConversionError):
+            uc.physical_factor(db, "LB", "G")
+        # The other kinds are filled as usual.
+        assert {"M", "CM2", "ML", "BOX"} <= set(units)
+
+    def test_a_rounded_factor_in_a_kind_on_another_base_is_not_corrected(self, db, migration):
+        _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
+                         ("KG", "weight", "G", "1000"), ("LB", "weight", "G", "0.453592")])
+        _run(db, migration)
+        assert D(str(_units(db)["LB"].to_base_factor)) == D("0.453592")
+
+    def test_a_switched_off_standard_row_in_lower_case_is_renamed_and_switched_on(self, db, migration):
+        """Otherwise the units added after it would find no base, and a second run would rename it."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("kg", "weight", None, "1")])
+        db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "kg").update({"active": False})
+        first = _run(db, migration)
+        units = _units(db)
+        assert "kg" not in units and units["KG"].active is True
+        assert units["G"].base_unit_id == units["KG"].id
+        assert units["LB"].base_unit_id == units["KG"].id
+        assert migration.changes(first) > 0
+        assert migration.changes(_run(db, migration)) == 0
 
     def test_the_row_in_use_is_kept_when_the_upper_case_row_is_switched_off(self, db, migration, make_product):
         ids = _unit_table(db, _EXAMPLE_DATA_UNITS + [("yd", "length", "M", "0.9144")])
@@ -214,6 +240,18 @@ class TestUnitTable:
         _run(db, migration)
         assert washers.purchase_uom == "PACK"
         assert uc.physical_factor(db, washers.purchase_uom, "EA") == D("12")
+
+    def test_an_installs_own_unit_that_is_switched_off_is_listed_not_rewritten(self, db, migration, make_product):
+        """A switched-off PACK is still that install's unit. Items in it are not moved onto PK."""
+        ids = _unit_table(db, _EXAMPLE_DATA_UNITS)
+        db.add(UnitOfMeasure(code="PACK", name="Pack", symbol="pack", uom_class="quantity",
+                             base_unit_id=ids["EA"], to_base_factor=D("12"), active=False))
+        washers = make_product(unit="EA", purchase_uom="pack")
+        planned = _run(db, migration)
+        assert washers.purchase_uom == "pack"
+        report = _report(migration, planned)
+        assert "item(s) with the purchase unit 'pack', which is switched off in the unit table" in report
+        assert washers.sku in report
 
 
 class TestUnitCodes:
@@ -245,7 +283,8 @@ class TestUnitCodes:
     def test_more_rows_than_fit_are_counted_not_dropped(self, migration):
         names = [f"SKU-{number}" for number in range(40)]
         planned = {"units": {name: [] for name in (
-            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left")},
+            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
+            "not_added")},
             "codes": [], "unknown": {("items", "unit", "zz"): {"off": False, "rows": names}},
             "no_unit": [], "no_purchase_unit": []}
         line = migration.report_lines(planned)[0][1]
@@ -275,21 +314,25 @@ class TestUnitCodes:
                                                        make_purchase_order):
         item = make_product(unit="G", purchase_uom="KG")
 
-        def line(status):
+        def line(status, unit="kg", number=1):
             order = make_purchase_order(vendor_id=make_vendor().id, status=status)
             row = PurchaseOrderLine(
-                purchase_order_id=order.id, line_number=1, product_id=item.id,
-                quantity_ordered=D("1"), quantity_received=D("0"), purchase_unit="kg",
+                purchase_order_id=order.id, line_number=number, product_id=item.id,
+                quantity_ordered=D("1"), quantity_received=D("0"), purchase_unit=unit,
                 unit_cost=D("20"), line_total=D("20"),
                 created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
             )
             db.add(row)
             db.flush()
-            return row
+            return order, row
 
-        still_open, closed = line("ordered"), line("received")
-        _run(db, migration)
+        (_, still_open), (_, closed) = line("ordered"), line("received")
+        odd_order, odd = line("ordered", unit="zz", number=7)
+        planned = _run(db, migration)
         assert (still_open.purchase_unit, closed.purchase_unit) == ("KG", "kg")
+        # A line left alone is named by its order and its line number, not its row id.
+        assert odd.purchase_unit == "zz"
+        assert f"{odd_order.po_number} line 7" in _report(migration, planned)
 
     def test_routing_material_codes_are_tidied(self, db, migration, make_product, make_work_center):
         made, part = make_product(), make_product(item_type="material", unit="G")
@@ -393,7 +436,8 @@ class TestShape:
 
     def test_nothing_to_do_says_so(self, migration):
         empty = {"units": {name: [] for name in (
-            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left")},
+            "add", "fix", "reactivate", "rename", "switch_off", "conflicts", "odd_factors", "spellings_left",
+            "not_added")},
             "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
         assert migration.report_lines(empty) == [
             (logging.INFO, "106: the unit table and unit codes needed no change")

@@ -91,6 +91,9 @@ UNIT_SPELLINGS = {
     "MILLIGRAM": "MG", "MILLIGRAMS": "MG",
 }
 
+# Kinds whose standard factors are exact by definition.
+_EXACT_KINDS = ("weight", "length", "area", "volume")
+
 _QUANTITY_PLACES = Decimal("0.000001")
 _COST_PLACES = Decimal("0.00000001")
 _CACHE_KEY = "unit_conversion.units"
@@ -171,10 +174,13 @@ def _code(db: Session, code: Optional[str]) -> str:
 
     A unit the table holds under exactly that code wins: an install that made
     its own PACK unit keeps it, and ``pack`` means PK only where there is no
-    such row.
+    such row. That holds when the install's row is switched off too: the code
+    still means that unit, which then cannot be converted, and is not quietly
+    read as another one.
     """
     tidy = (code or "").strip().upper()
-    if tidy in _units(db):
+    table = _table(db)
+    if tidy in table.units or tidy in table.off:
         return tidy
     return UNIT_SPELLINGS.get(tidy, tidy)
 
@@ -186,25 +192,48 @@ def _divide(numerator: Decimal, denominator: Decimal) -> Decimal:
         return numerator / denominator
 
 
-def _units(db: Session) -> dict:
-    """The active rows of the unit table by code, read once per session."""
+class _UnitTable(NamedTuple):
+    units: dict        # the rows in use, by code
+    off: frozenset     # codes whose only rows are switched off
+
+
+def _table(db: Session) -> _UnitTable:
+    """The unit table, read once per session."""
     cached = db.info.get(_CACHE_KEY)
     if cached is not None:
         return cached
     rows = (
-        db.query(UnitOfMeasure.code, UnitOfMeasure.name, UnitOfMeasure.uom_class, UnitOfMeasure.to_base_factor)
-        .filter(UnitOfMeasure.active.is_(True))
+        db.query(
+            UnitOfMeasure.code, UnitOfMeasure.name, UnitOfMeasure.uom_class,
+            UnitOfMeasure.to_base_factor, UnitOfMeasure.active,
+        )
         .order_by(UnitOfMeasure.id)
         .all()
     )
-    units = {}
-    for code, name, kind, factor in rows:
+    units, seen = {}, set()
+    for code, name, kind, factor, active in rows:
         key = (code or "").strip().upper()
+        if not key:
+            continue
+        seen.add(key)
         # A row typed in upper case wins over the same code in another spelling.
-        if key and (key not in units or code == key):
+        if active and (key not in units or code == key):
             units[key] = _Unit(key, name, (kind or "").lower(), Decimal(str(factor)))
-    db.info[_CACHE_KEY] = units
-    return units
+    table = _UnitTable(units, frozenset(seen - set(units)))
+    db.info[_CACHE_KEY] = table
+    return table
+
+
+def _units(db: Session) -> dict:
+    """The rows of the unit table that are in use, by code."""
+    return _table(db).units
+
+
+def _not_usable(db: Session, code: str) -> str:
+    """Why a code cannot be converted: switched off, or not in the table at all."""
+    if code in _table(db).off:
+        return f"The unit {code} is switched off in the unit table."
+    return f"Unknown unit: {code}"
 
 
 def forget_units(db: Session) -> None:
@@ -245,7 +274,10 @@ def require_known_unit(db: Session, code: Optional[str]) -> str:
     tidy = _code(db, code)
     if not tidy:
         raise UnitConversionError("No unit was given.")
-    if tidy not in _units(db):
+    table = _table(db)
+    if tidy in table.off:
+        raise UnitConversionError(f"The unit '{tidy}' is switched off in the unit table. Switch it back on first.")
+    if tidy not in table.units:
         raise UnitConversionError(
             f"Unknown unit '{tidy}'. Use a unit from the unit table, or add this one under Units first."
         )
@@ -270,9 +302,9 @@ def physical_factor(db: Session, from_unit: Optional[str], to_unit: Optional[str
 
     units = _units(db)
     if source not in units:
-        raise UnitConversionError(f"Unknown unit: {source}")
+        raise UnitConversionError(_not_usable(db, source))
     if target not in units:
-        raise UnitConversionError(f"Unknown unit: {target}")
+        raise UnitConversionError(_not_usable(db, target))
 
     from_row, to_row = units[source], units[target]
     for row in (from_row, to_row):
@@ -443,18 +475,51 @@ def units_for_item(db: Session, product: Any) -> list:
     return list(found.values())
 
 
+def _is_rounding_of(stored: Decimal, exact: Decimal) -> bool:
+    """True when ``stored`` is ``exact`` rounded to some number of decimal places."""
+    return any(
+        exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP) == stored
+        for places in range(16)
+    )
+
+
+def off_base_kinds(rows) -> set:
+    """The kinds an install measures from another base unit than the standard one.
+
+    ``rows`` are ``(code, kind, factor)`` of the unit table. A kind is off base
+    when a standard unit of it holds a factor that is neither the exact one nor
+    a rounding of it: a kilogram of 1000 on a table based on grams.
+    """
+    standard = {unit.code: unit for unit in STANDARD_UNITS if unit.kind in _EXACT_KINDS}
+    kinds = set()
+    for code, kind, factor in rows:
+        unit = standard.get((code or "").strip().upper())
+        if unit is None or (kind or "").strip().lower() != unit.kind:
+            continue
+        stored = Decimal(str(factor))
+        if stored != unit.factor and not _is_rounding_of(stored, unit.factor):
+            kinds.add(unit.kind)
+    return kinds
+
+
 def ensure_standard_units(db: Session) -> int:
     """Add any standard unit the table lacks, and return how many were added.
 
     An existing row is never changed here, whatever its factor or kind. The
     upgrade that corrects rounded factors is migration 106.
+
+    Nothing is added to a kind the install measures from another base unit
+    (grams as the base, a kilogram of 1000): a standard factor beside those
+    rows would convert wrongly.
     """
     table = UnitOfMeasure.__table__
-    existing = {
-        (code or "").strip().upper(): unit_id
-        for code, unit_id in db.execute(select(table.c.code, table.c.id))
-    }
-    missing = [unit for unit in STANDARD_UNITS if unit.code not in existing]
+    rows = db.execute(select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor)).all()
+    existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor in rows}
+    off_base = off_base_kinds((code, kind, factor) for code, _id, kind, factor in rows)
+    missing = [
+        unit for unit in STANDARD_UNITS
+        if unit.code not in existing and unit.kind not in off_base
+    ]
     if not missing:
         return 0
 

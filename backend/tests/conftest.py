@@ -500,19 +500,20 @@ def db():
     - At teardown, the connection transaction is rolled back — all test
       data disappears regardless of how many commits the service made
 
-    Every session starts with the standard units of measure (the rows
-    migration 106 gives every install). They are added inside the test's own
+    Every session starts with the standard units of measure at their exact
+    factors (the rows migration 106 gives every install), whatever unit rows
+    a reused local database already holds. They are set inside the test's own
     transaction and rolled back with it, so a local database shared with
     other branches is left as it was.
     """
     from app.db.session import engine
-    from app.services.unit_conversion import ensure_standard_units
     from sqlalchemy.orm import Session as SASession
+    from tests.unit_baseline import use_standard_units
 
     connection = engine.connect()
     transaction = connection.begin()
     session = SASession(bind=connection, join_transaction_mode="create_savepoint")
-    ensure_standard_units(session)
+    use_standard_units(session)
     # Release the units into the connection's transaction, so a test that
     # calls db.rollback() keeps them. Nothing is committed to the database.
     session.commit()

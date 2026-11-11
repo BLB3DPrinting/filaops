@@ -9,12 +9,13 @@ from decimal import Decimal as D
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 from app.models.product_unit import ProductUnit
 from app.models.uom import UnitOfMeasure
 from app.services import unit_conversion as uc
 from app.services.uom_service import UOMConversionError, convert_quantity_safe
+from tests.unit_baseline import use_standard_units
 
 # Appendix B of the plan, plus the two time units. code -> (kind, factor to the kind's base).
 APPENDIX_B = {
@@ -74,6 +75,32 @@ class TestStandardUnits:
 
     def test_ensure_standard_units_adds_nothing_twice(self, db):
         assert uc.ensure_standard_units(db) == 0
+
+    def test_ensure_standard_units_adds_nothing_to_a_kind_on_another_base(self, db):
+        """Grams as the base and a kilogram of 1000: a standard pound beside them would be wrong."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        gram = UnitOfMeasure(code="G", name="Gram", symbol="g", uom_class="weight", to_base_factor=D("1"))
+        db.add(gram)
+        db.flush()
+        db.add(UnitOfMeasure(code="KG", name="Kilogram", symbol="kg", uom_class="weight",
+                             base_unit_id=gram.id, to_base_factor=D("1000")))
+        db.flush()
+        uc.ensure_standard_units(db)
+        codes = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert not {"LB", "OZ", "MG"} & codes
+        assert {"M", "CM2", "ML", "EA", "BOX"} <= codes
+        assert uc.physical_factor(db, "KG", "G") == D("1000")
+
+    def test_a_reused_test_database_still_starts_exact(self, db):
+        """Older rows in a local test database do not decide what the tests see."""
+        db.execute(text("UPDATE units_of_measure SET to_base_factor = 0.453592 WHERE code = 'LB'"))
+        db.execute(text("UPDATE units_of_measure SET active = false WHERE code = 'OZ'"))
+        db.execute(text("UPDATE units_of_measure SET uom_class = 'quantity' WHERE code = 'BOX'"))
+        use_standard_units(db)
+        assert uc.physical_factor(db, "LB", "G") == D("453.59237")
+        assert uc.physical_factor(db, "OZ", "G") == D("28.349523125")
+        assert uc.unit_kind(db, "BOX") == "pack"
 
 
 class TestNormalizeUnitCode:
@@ -169,6 +196,20 @@ class TestPhysicalFactor:
         assert uc.physical_factor(db, "pack", "EA") == D("10")
         assert uc.to_stock(db, screws, D("5"), "Pack").quantity == D("50.000000")
         assert {unit.unit_code for unit in uc.units_for_item(db, screws)} == {"EA", "PACK"}
+
+    def test_an_installs_own_unit_that_is_switched_off_is_not_read_as_a_spelling(self, db):
+        """A switched-off PACK still means that unit. It is refused, not quietly read as PK."""
+        each = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "EA").one()
+        db.add(UnitOfMeasure(code="PACK", name="Pack of ten", symbol="pack", uom_class="quantity",
+                             base_unit_id=each.id, to_base_factor=D("10"), active=False))
+        db.flush()
+        with pytest.raises(uc.UnitConversionError) as refused:
+            uc.require_known_unit(db, "pack")
+        assert "switched off" in str(refused.value)
+        with pytest.raises(uc.UnitConversionError) as refused:
+            uc.physical_factor(db, "pack", "EA")
+        assert "PACK is switched off" in str(refused.value)
+        assert uc.unit_kind(db, "pack") is None
 
 
 class TestLookupOrder:

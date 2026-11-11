@@ -25,7 +25,10 @@ Data, in this order
        - A standard weight, length, area or volume unit whose factor is a
          rounding of the exact one (0.453592 for the pound) is made exact. A
          factor that is not a rounding of it is left and listed: that install
-         may measure the kind from another base unit.
+         measures the kind from another base unit (grams as the base, a
+         kilogram of 1000). In such a kind nothing is corrected and no
+         standard unit is added, because a standard factor beside those rows
+         would convert wrongly. The units left out are listed.
        - A standard unit that was switched off is switched on and listed.
        - A code typed in lower case or with spaces is rewritten in upper case.
          Where the same code exists in two spellings (``kg`` and ``KG``) the
@@ -170,7 +173,7 @@ def _row_name(key: str, row: dict) -> str:
     if key == "bom_lines":
         return "BOM %s line %s" % (row["bom_id"], row["id"])
     if key == "po_lines":
-        return "%s line %s" % (row["po_number"], row["id"])
+        return "%s line %s" % (row["po_number"], row["line_number"])
     return "%s %s" % (_TIDIED[key], row["id"])
 
 
@@ -215,7 +218,7 @@ def read_state(bind) -> dict:
     if has("purchase_order_lines") and has("purchase_orders"):
         state["po_lines"] = _rows(
             bind,
-            "SELECT l.id, l.product_id, l.purchase_unit, o.po_number "
+            "SELECT l.id, l.product_id, l.line_number, l.purchase_unit, o.po_number "
             "FROM purchase_order_lines l JOIN purchase_orders o ON o.id = l.purchase_order_id "
             "WHERE o.status NOT IN ('received', 'closed', 'cancelled') ORDER BY l.id",
         )
@@ -240,14 +243,15 @@ def _plan_units(units: list) -> tuple:
     """
     planned = {
         "add": [], "fix": [], "reactivate": [], "rename": [], "switch_off": [],
-        "conflicts": [], "odd_factors": [], "spellings_left": [],
+        "conflicts": [], "odd_factors": [], "spellings_left": [], "not_added": [],
     }
     standard = {row[0]: row for row in _STANDARD_UNITS}
     by_code = {}
     for row in units:
         by_code.setdefault((row["code"] or "").strip().upper(), []).append(row)
 
-    known, switched_off = set(), set()
+    # First, the row each code keeps, and which kinds this install measures from another base.
+    groups, off_base = {}, set()
     for code, rows in by_code.items():
         if not code:
             continue
@@ -257,35 +261,54 @@ def _plan_units(units: list) -> tuple:
         in_use = ([row for row in active if row["code"] == code] or active or [None])[0]
         keep = in_use or (exact or rows)[0]
         here = (keep["uom_class"] or "").strip().lower()
-        usable = bool(active)
         wanted = standard.get(code)
-
         if wanted and wanted[3] == _TIME:
-            pass  # hours and minutes are never changed
+            state = "time"  # hours and minutes are never changed
         elif wanted and here != wanted[3]:
-            planned["conflicts"].append((code, here, wanted[3], Decimal(str(keep["to_base_factor"]))))
+            state = "conflict"
         elif exact and not exact[0]["active"] and active:
-            planned["spellings_left"].append((code, in_use["code"]))
+            state = "spellings"
         else:
-            if active and keep["code"] != code:
+            state = "plain"
+        groups[code] = (active, in_use, keep, here, wanted, state)
+        if state == "plain" and wanted and wanted[3] in _EXACT_KINDS:
+            stored, exact_factor = Decimal(str(keep["to_base_factor"])), Decimal(wanted[5])
+            if stored != exact_factor and not _is_rounding_of(stored, exact_factor):
+                off_base.add(wanted[3])
+                planned["odd_factors"].append((code, stored, exact_factor))
+
+    known, switched_off = set(), set()
+    for code, (active, in_use, keep, here, wanted, state) in groups.items():
+        usable = bool(active)
+        if state == "conflict":
+            planned["conflicts"].append((code, here, wanted[3], Decimal(str(keep["to_base_factor"]))))
+        elif state == "spellings":
+            planned["spellings_left"].append((code, in_use["code"]))
+        elif state == "plain":
+            # A standard row that is switched off is switched on below, so it is renamed too:
+            # the units added after it look their base up by its upper-case code.
+            if keep["code"] != code and (active or wanted):
                 planned["rename"].append((keep["id"], keep["code"], code))
             for other in active:
                 if other["id"] != keep["id"]:
                     planned["switch_off"].append((other["id"], other["code"], code))
             if wanted:
                 stored, exact_factor = Decimal(str(keep["to_base_factor"])), Decimal(wanted[5])
-                if wanted[3] in _EXACT_KINDS and stored != exact_factor:
-                    if _is_rounding_of(stored, exact_factor):
-                        planned["fix"].append((keep["id"], code, stored, exact_factor))
-                    else:
-                        planned["odd_factors"].append((code, stored, exact_factor))
+                # In a kind measured from another base nothing is corrected, rounding or not.
+                if wanted[3] in _EXACT_KINDS and wanted[3] not in off_base and stored != exact_factor:
+                    planned["fix"].append((keep["id"], code, stored, exact_factor))
                 if not usable:
                     planned["reactivate"].append((keep["id"], code))
                     usable = True
         (known if usable else switched_off).add(code)
 
     for row in _STANDARD_UNITS:
-        if row[0] not in by_code:
+        if row[0] in by_code:
+            continue
+        if row[3] in off_base:
+            # A standard factor beside rows on another base would convert wrongly.
+            planned["not_added"].append((row[0], row[3]))
+        else:
             planned["add"].append(row)
             known.add(row[0])
     return planned, known, switched_off
@@ -302,8 +325,9 @@ def plan(state: dict) -> dict:
         upper = (raw or "").strip().upper()
         if not upper:
             return ""
-        # A unit the table holds under the typed code wins over a spelling.
-        tidy = upper if upper in known else _SPELLINGS.get(upper, upper)
+        # A unit the table holds under the typed code wins over a spelling, switched off or not:
+        # an install's own PACK that is switched off is listed, not rewritten as PK.
+        tidy = upper if (upper in known or upper in switched_off) else _SPELLINGS.get(upper, upper)
         if tidy not in known:
             entry = result["unknown"].setdefault(
                 (key, column, raw), {"off": tidy in switched_off, "rows": []}
@@ -449,6 +473,14 @@ def report_lines(planned: dict) -> list:
             "106: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
             "that kind from another base unit, so the row is left as it is."
         ) % (code, _plain(stored), _plain(exact))))
+    left_out = {}
+    for code, kind in units["not_added"]:
+        left_out.setdefault(kind, []).append(code)
+    for kind, codes in sorted(left_out.items()):
+        lines.append((logging.WARNING, (
+            "106: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "
+            "standard factor beside those rows would convert wrongly. Add them under Units, with factors on your base."
+        ) % (", ".join(codes), kind)))
 
     tidied = {}
     for key, _id, _column, old, new in planned["codes"]:
