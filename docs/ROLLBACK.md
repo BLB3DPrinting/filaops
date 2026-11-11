@@ -190,19 +190,8 @@ docker compose exec backend sh -c 'set -eu; src=/app/uploads/products; dst=/app/
 ```
 
 It prints how many images are now in the container. Until it has run, product
-pictures are missing.
-
-A picture added while you are on that older version is saved inside the
-container only, and the command above cannot bring it back once the container
-has been replaced. Before every later rebuild or recreate of that container,
-copy its pictures onto the uploads folder first. This is the command from
-[step 2 of the upgrade guide](UPGRADE.md#2-docker-copy-product-images-onto-the-volume):
-
-```bash
-docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
-```
-
-Then rebuild or recreate, and run the copy-back again.
+pictures are missing. Run it in PowerShell or a Linux or macOS shell: it does
+not work in Command Prompt.
 
 Then check that the version you went back to is running on the restored
 data. This must show the migration number you saw in step 3:
@@ -217,6 +206,25 @@ you no longer need the database that was replaced, remove the kept copy:
 ```bash
 docker exec filaops-db psql -U postgres -d postgres -c "DROP DATABASE filaops_after_upgrade;"
 ```
+
+**While you stay on 4.3.1 or older,** a picture added there is saved inside
+the backend container only, and the copy-back in step 6 cannot bring it back
+once that container is gone. The container is thrown away by
+`docker compose down`, by `docker compose up -d --build`, and whenever
+`docker compose up -d` recreates it, for example after a change to `.env`.
+Stopping and starting it, or `docker compose restart`, keeps it. Before
+anything that throws it away, copy its pictures out to the uploads folder.
+This is the command from
+[step 2 of the upgrade guide](UPGRADE.md#2-docker-copy-product-images-onto-the-volume),
+and like the copy-back it needs PowerShell or a Linux or macOS shell:
+
+```bash
+docker compose exec backend sh -c 'set -eu; src=/app/static/uploads/products; dst=/app/uploads/products; mkdir -p "$dst"; if [ -d "$src" ]; then cp -a "$src/." "$dst/"; fi; ls "$dst" | wc -l'
+```
+
+It prints how many pictures are now in the uploads folder. If it prints an
+error instead, do not go on until it works. Afterwards, run the copy-back from
+step 6 again to put them into the new container.
 
 **Never start an older version against a database that a newer version has
 upgraded.** Its migrate step stops with a "DATABASE MIGRATION MISMATCH"
