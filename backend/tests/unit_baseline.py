@@ -11,19 +11,22 @@ reason that has nothing to do with the code under test.
 committed. It writes nothing when the table is already as it should be, so it
 takes no locks then.
 """
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.services.unit_conversion import STANDARD_UNITS
 
-# A code typed in lower case, where no upper-case row holds it, is the same unit.
+# A standard code typed in lower case, where no upper-case row holds it, is the same unit.
+# Only the standard codes: this is committed, and a unit of someone's own is theirs to spell.
 _UPPER_CASE_LONE_CODES = text(
     "UPDATE units_of_measure AS u SET code = UPPER(BTRIM(u.code)) "
     "WHERE u.code <> UPPER(BTRIM(u.code)) "
+    "AND UPPER(BTRIM(u.code)) IN :standard "
     "AND u.id = (SELECT MIN(same.id) FROM units_of_measure AS same "
     "            WHERE UPPER(BTRIM(same.code)) = UPPER(BTRIM(u.code))) "
     "AND NOT EXISTS (SELECT 1 FROM units_of_measure AS upper_case "
     "                WHERE upper_case.code = UPPER(BTRIM(u.code)))"
-)
+).bindparams(bindparam("standard", expanding=True))
+_STANDARD_CODES = [unit.code for unit in STANDARD_UNITS]
 
 _VALUES = ", ".join(
     f"(:code{index}, :kind{index}, CAST(:factor{index} AS NUMERIC))" for index in range(len(STANDARD_UNITS))
@@ -58,9 +61,10 @@ def use_standard_units(connection) -> None:
 
     A lone lower-case standard code is upper-cased, a standard row that holds
     another kind, factor or state is set to the standard one, and the missing
-    rows are added. The caller commits, or rolls back.
+    rows are added. A unit that is not a standard one is not touched. The
+    caller commits, or rolls back.
     """
-    connection.execute(_UPPER_CASE_LONE_CODES)
+    connection.execute(_UPPER_CASE_LONE_CODES, {"standard": _STANDARD_CODES})
     connection.execute(_SET_STANDARD_ROWS, _PARAMETERS)
     for with_base in (False, True):
         for unit in STANDARD_UNITS:

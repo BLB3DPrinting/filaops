@@ -118,6 +118,15 @@ class TestStandardUnits:
         assert uc.physical_factor(db, "OZ", "G") == D("28.349523125")
         assert uc.unit_kind(db, "BOX") == "pack"
 
+    def test_the_baseline_leaves_a_unit_that_is_not_standard_as_typed(self, db):
+        """It is committed to a database other branches share, so it touches the standard codes only."""
+        db.add(UnitOfMeasure(code="widget", name="Widget", symbol="w", uom_class="quantity",
+                             to_base_factor=D("1")))
+        db.flush()
+        use_standard_units(db.connection())
+        rows = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert "widget" in rows and "WIDGET" not in rows
+
     def test_the_baseline_fills_an_empty_test_database(self, db):
         """What a fresh database gets, as in CI: all of them, each derived unit pointing at its base."""
         db.query(UnitOfMeasure).delete()
