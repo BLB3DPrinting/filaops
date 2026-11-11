@@ -413,6 +413,15 @@ def setup_database():
         """))
         conn.commit()
 
+    # Standard units of measure: the rows migration 106 gives every install,
+    # at their exact factors, whatever unit rows a reused local database
+    # holds. Committed once per run like the rest of the required data, so
+    # tests do not insert them one by one and two test runs on one database
+    # do not wait on each other. See tests/unit_baseline.py.
+    from tests.unit_baseline import use_standard_units
+    with engine.begin() as conn:
+        use_standard_units(conn)
+
     # Seed required data
     from sqlalchemy.orm import Session as SASession
     from app.models.inventory import InventoryLocation
@@ -500,23 +509,15 @@ def db():
     - At teardown, the connection transaction is rolled back — all test
       data disappears regardless of how many commits the service made
 
-    Every session starts with the standard units of measure at their exact
-    factors (the rows migration 106 gives every install), whatever unit rows
-    a reused local database already holds. They are set inside the test's own
-    transaction and rolled back with it, so a local database shared with
-    other branches is left as it was.
+    The standard units of measure are already in the database: setup_database
+    seeds them once per run.
     """
     from app.db.session import engine
     from sqlalchemy.orm import Session as SASession
-    from tests.unit_baseline import use_standard_units
 
     connection = engine.connect()
     transaction = connection.begin()
     session = SASession(bind=connection, join_transaction_mode="create_savepoint")
-    use_standard_units(session)
-    # Release the units into the connection's transaction, so a test that
-    # calls db.rollback() keeps them. Nothing is committed to the database.
-    session.commit()
 
     yield session
 

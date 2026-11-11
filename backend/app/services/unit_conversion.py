@@ -218,7 +218,7 @@ def _table(db: Session) -> _UnitTable:
         seen.add(key)
         # A row typed in upper case wins over the same code in another spelling.
         if active and (key not in units or code == key):
-            units[key] = _Unit(key, name, (kind or "").lower(), Decimal(str(factor)))
+            units[key] = _Unit(key, name, (kind or "").strip().lower(), Decimal(str(factor)))
     table = _UnitTable(units, frozenset(seen - set(units)))
     db.info[_CACHE_KEY] = table
     return table
@@ -510,15 +510,20 @@ def ensure_standard_units(db: Session) -> int:
 
     Nothing is added to a kind the install measures from another base unit
     (grams as the base, a kilogram of 1000): a standard factor beside those
-    rows would convert wrongly.
+    rows would convert wrongly. And no unit is added whose base unit the
+    install has filed under another kind (KG as a counting unit): it would
+    have nothing to convert through.
     """
     table = UnitOfMeasure.__table__
     rows = db.execute(select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor)).all()
     existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor in rows}
+    kinds = {(code or "").strip().upper(): (kind or "").strip().lower() for code, _id, kind, _factor in rows}
     off_base = off_base_kinds((code, kind, factor) for code, _id, kind, factor in rows)
     missing = [
         unit for unit in STANDARD_UNITS
-        if unit.code not in existing and unit.kind not in off_base
+        if unit.code not in existing
+        and unit.kind not in off_base
+        and (unit.base is None or kinds.get(unit.base, unit.kind) == unit.kind)
     ]
     if not missing:
         return 0

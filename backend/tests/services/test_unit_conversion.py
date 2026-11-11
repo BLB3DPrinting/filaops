@@ -92,15 +92,49 @@ class TestStandardUnits:
         assert {"M", "CM2", "ML", "EA", "BOX"} <= codes
         assert uc.physical_factor(db, "KG", "G") == D("1000")
 
+    def test_ensure_standard_units_hangs_nothing_on_a_base_filed_under_another_kind(self, db):
+        """KG as a counting unit: a gram added with KG as its base could never convert to it."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        db.add(UnitOfMeasure(code="KG", name="Kilo", symbol="kg", uom_class="quantity", to_base_factor=D("1")))
+        db.flush()
+        uc.ensure_standard_units(db)
+        codes = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert not {"G", "MG", "LB", "OZ"} & codes
+        assert {"M", "CM", "L", "EA"} <= codes
+
     def test_a_reused_test_database_still_starts_exact(self, db):
         """Older rows in a local test database do not decide what the tests see."""
         db.execute(text("UPDATE units_of_measure SET to_base_factor = 0.453592 WHERE code = 'LB'"))
         db.execute(text("UPDATE units_of_measure SET active = false WHERE code = 'OZ'"))
         db.execute(text("UPDATE units_of_measure SET uom_class = 'quantity' WHERE code = 'BOX'"))
-        use_standard_units(db)
+        db.execute(text("UPDATE units_of_measure SET code = 'cm' WHERE code = 'CM'"))
+        db.execute(text("DELETE FROM units_of_measure WHERE code = 'MG'"))
+        use_standard_units(db.connection())
+        uc.forget_units(db)
+        rows = {code for (code,) in db.query(UnitOfMeasure.code)}
+        assert "CM" in rows and "cm" not in rows and "MG" in rows
         assert uc.physical_factor(db, "LB", "G") == D("453.59237")
         assert uc.physical_factor(db, "OZ", "G") == D("28.349523125")
         assert uc.unit_kind(db, "BOX") == "pack"
+
+    def test_the_baseline_fills_an_empty_test_database(self, db):
+        """What a fresh database gets, as in CI: all of them, each derived unit pointing at its base."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        use_standard_units(db.connection())
+        db.expire_all()
+        uc.forget_units(db)
+        rows = {unit.code: unit for unit in db.query(UnitOfMeasure)}
+        assert set(rows) == {unit.code for unit in uc.STANDARD_UNITS}
+        assert rows["KG"].base_unit_id is None
+        assert rows["LB"].base_unit_id == rows["KG"].id
+        assert uc.physical_factor(db, "LB", "G") == D("453.59237")
+
+    def test_a_kind_typed_with_a_space_is_still_that_kind(self, db):
+        db.execute(text("UPDATE units_of_measure SET uom_class = 'weight ' WHERE code = 'KG'"))
+        uc.forget_units(db)
+        assert uc.physical_factor(db, "G", "KG") == D("0.001")
 
 
 class TestNormalizeUnitCode:

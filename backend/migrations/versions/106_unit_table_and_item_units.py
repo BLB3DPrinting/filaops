@@ -36,7 +36,9 @@ Data, in this order
          the upper-case row is the one switched off, both are left and listed.
        - A standard code the install filed under a different kind (BOX as a
          counting unit of 12, OZ as a volume) is left exactly as it is and
-         listed. It goes on converting as that install filed it.
+         listed. It goes on converting as that install filed it. Where that
+         code is a kind's base unit (KG), the standard units measured from it
+         are not added, and are listed.
        - Hours and minutes are added when missing. An existing HR or MIN row
          is never changed.
        - Any other row the install added keeps its kind, factor and state.
@@ -271,7 +273,8 @@ def _plan_units(units: list) -> tuple:
         else:
             state = "plain"
         groups[code] = (active, in_use, keep, here, wanted, state)
-        if state == "plain" and wanted and wanted[3] in _EXACT_KINDS:
+        # The row in use decides, also when the group itself is left alone as two spellings.
+        if state in ("plain", "spellings") and wanted and wanted[3] in _EXACT_KINDS:
             stored, exact_factor = Decimal(str(keep["to_base_factor"])), Decimal(wanted[5])
             if stored != exact_factor and not _is_rounding_of(stored, exact_factor):
                 off_base.add(wanted[3])
@@ -302,12 +305,16 @@ def _plan_units(units: list) -> tuple:
                     usable = True
         (known if usable else switched_off).add(code)
 
+    filed_elsewhere = {conflict[0] for conflict in planned["conflicts"]}
     for row in _STANDARD_UNITS:
         if row[0] in by_code:
             continue
         if row[3] in off_base:
             # A standard factor beside rows on another base would convert wrongly.
-            planned["not_added"].append((row[0], row[3]))
+            planned["not_added"].append((row[0], row[3], None))
+        elif row[4] in filed_elsewhere:
+            # Its base unit is filed under another kind here: it would have nothing to convert through.
+            planned["not_added"].append((row[0], row[3], row[4]))
         else:
             planned["add"].append(row)
             known.add(row[0])
@@ -474,13 +481,20 @@ def report_lines(planned: dict) -> list:
             "that kind from another base unit, so the row is left as it is."
         ) % (code, _plain(stored), _plain(exact))))
     left_out = {}
-    for code, kind in units["not_added"]:
-        left_out.setdefault(kind, []).append(code)
-    for kind, codes in sorted(left_out.items()):
-        lines.append((logging.WARNING, (
-            "106: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "
-            "standard factor beside those rows would convert wrongly. Add them under Units, with factors on your base."
-        ) % (", ".join(codes), kind)))
+    for code, kind, base_filed_elsewhere in units["not_added"]:
+        left_out.setdefault((kind, base_filed_elsewhere or ""), []).append(code)
+    for (kind, base), codes in sorted(left_out.items()):
+        if base:
+            lines.append((logging.WARNING, (
+                "106: NOT ADDED %s: their base unit %s is filed here under another kind (see the line above), "
+                "so they would have nothing to convert through."
+            ) % (", ".join(codes), base)))
+        else:
+            lines.append((logging.WARNING, (
+                "106: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "
+                "standard factor beside those rows would convert wrongly. Add them under Units, with factors on "
+                "your base."
+            ) % (", ".join(codes), kind)))
 
     tidied = {}
     for key, _id, _column, old, new in planned["codes"]:

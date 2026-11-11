@@ -201,6 +201,30 @@ class TestUnitTable:
         # The other kinds are filled as usual.
         assert {"M", "CM2", "ML", "BOX"} <= set(units)
 
+    def test_another_base_is_seen_when_the_row_in_use_is_a_second_spelling(self, db, migration):
+        """An active kg of 1000 beside a switched-off KG of 1: the row in use decides."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("kg", "weight", None, "1000")])
+        db.add(UnitOfMeasure(code="KG", name="Old kilogram", symbol="kg", uom_class="weight",
+                             to_base_factor=D("1"), active=False))
+        planned = _run(db, migration)
+        units = _units(db)
+        assert not {"G", "MG", "LB", "OZ"} & set(units)
+        assert D(str(units["kg"].to_base_factor)) == D("1000") and units["KG"].active is False
+        assert "NOT ADDED G, MG, LB, OZ: this install measures weight from another base unit" in _report(
+            migration, planned)
+
+    def test_nothing_is_hung_on_a_base_unit_filed_under_another_kind(self, db, migration):
+        """KG as a counting unit: a gram added with KG as its base could never convert to it."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("KG", "quantity", "EA", "1")])
+        planned = _run(db, migration)
+        units = _units(db)
+        assert units["KG"].uom_class == "quantity"
+        assert not {"G", "MG", "LB", "OZ"} & set(units)
+        assert {"M", "CM", "L", "ML", "BOX"} <= set(units)
+        report = _report(migration, planned)
+        assert "LEFT unit KG: this install has it as a quantity unit" in report
+        assert "NOT ADDED G, MG, LB, OZ: their base unit KG is filed here under another kind" in report
+
     def test_a_rounded_factor_in_a_kind_on_another_base_is_not_corrected(self, db, migration):
         _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
                          ("KG", "weight", "G", "1000"), ("LB", "weight", "G", "0.453592")])
