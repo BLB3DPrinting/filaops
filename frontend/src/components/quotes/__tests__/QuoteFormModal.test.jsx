@@ -34,6 +34,8 @@ const quote = {
 };
 
 let companySettingsResponse;
+let customersResponse;
+let priceLevelsResponse;
 
 const renderModal = (props = {}) => render(
   <ToastProvider>
@@ -49,13 +51,18 @@ const renderModal = (props = {}) => render(
 describe("QuoteFormModal editing", () => {
   beforeEach(() => {
     companySettingsResponse = { tax_enabled: false };
+    customersResponse = [];
+    priceLevelsResponse = null;
     vi.stubGlobal("fetch", vi.fn((url) => {
       const value = String(url);
       if (value.includes("/api/v1/items")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
       if (value.includes("/api/v1/admin/customers")) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(customersResponse) });
+      }
+      if (value.includes("/api/v1/pro/catalogs/price-levels") && priceLevelsResponse) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(priceLevelsResponse) });
       }
       if (value.includes("/api/v1/settings/company")) {
         return Promise.resolve({
@@ -129,6 +136,85 @@ describe("QuoteFormModal editing", () => {
         ],
       }));
     });
+  });
+
+  const addFeeLine = (description, price, { discount = false } = {}) => {
+    fireEvent.change(screen.getByPlaceholderText("Engineering fee"), {
+      target: { value: description },
+    });
+    fireEvent.change(screen.getByPlaceholderText("75.00"), {
+      target: { value: price },
+    });
+    if (discount) {
+      fireEvent.click(screen.getByLabelText(/This line is a discount/));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  };
+
+  it("submits a discount line as a negative price without a product id", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    addFeeLine("Engineering fee", "75.00");
+    addFeeLine("Multi-buy discount", "5.00", { discount: true });
+
+    expect(screen.getByText("DISCOUNT")).toBeTruthy();
+    expect(screen.getByText("-$5.00")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        lines: [
+          expect.objectContaining({ product_id: null, product_name: "Engineering fee", unit_price: 75 }),
+          expect.objectContaining({ product_id: null, product_name: "Multi-buy discount", unit_price: -5 }),
+        ],
+      }));
+    });
+  });
+
+  it("blocks continuing when a discount is larger than the subtotal", () => {
+    renderModal({ quote: null });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    addFeeLine("Engineering fee", "10.00");
+    addFeeLine("Too generous", "25.00", { discount: true });
+
+    expect(screen.getByRole("alert").textContent).toMatch(/Discounts can't be more than the subtotal/);
+    expect(screen.getByRole("button", { name: "Continue" }).disabled).toBe(true);
+  });
+
+  it("blocks saving on step 2 when a customer price-level discount pushes the subtotal below zero", async () => {
+    customersResponse = [{ id: 7, first_name: "Pat", last_name: "Lee", email: "pat@example.com" }];
+    priceLevelsResponse = [{ discount_percent: 10, customers: [{ customer_id: 7 }] }];
+    const onSave = vi.fn();
+    renderModal({
+      quote: {
+        ...quote,
+        lines: [{ ...quote.lines[0], quantity: 1, unit_price: "100.00", total: "100.00" }],
+      },
+      onSave,
+    });
+
+    // $100 product - $95 discount = $5, which passes the step 1 check.
+    fireEvent.click(screen.getByRole("button", { name: "Edit Items" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Fees" }));
+    addFeeLine("Big discount", "95.00", { discount: true });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Picking a 10% price-level customer makes it $90 - $95 = -$5.
+    const option = await screen.findByText(/Pat Lee/);
+    fireEvent.change(option.closest("select"), { target: { value: "7" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Discounts can't be more than the subtotal/);
+    const submit = screen.getByRole("button", { name: "Update Quote" });
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.submit(submit.closest("form"));
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("includes taxable shipping in the quote tax preview", async () => {
