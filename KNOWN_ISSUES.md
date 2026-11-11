@@ -156,6 +156,8 @@ Don't set up a second copy on a computer that holds live data. Giving it its own
 
 **If it has already happened:**
 
+The guides named in these steps are the current ones on the documentation site: [Upgrading FilaOps](https://blb3dprinting.github.io/filaops/UPGRADE/) and [Rollback](https://blb3dprinting.github.io/filaops/ROLLBACK/). Do not go by the copies in a folder that is on an older version: they do not have these commands.
+
 These steps were run with a first copy on 4.3.2 and a second copy on 4.4.0. On 4.3.1 or older there is one more thing to protect: product pictures are kept inside the backend container, and steps 3 and 4 remove or rebuild containers. If either copy is on such a version, pick a time when nobody is adding pictures, and keep it that way until you have finished. Before step 3, copy the pictures out of the running backend with the command in step 2 of the upgrade guide, run in the folder whose copy is running. If the first folder is still on 4.3.1 or older at the end, step 6 below has one more command for it.
 
 1. Take a backup of the database as it is now, before anything else. Use the commands in step 1 of the upgrade guide (`docs/UPGRADE.md`), in the first folder (the one you ran FilaOps from before). If a `filaops_before_upgrade.sql` is already there, rename it first and keep it. Do not delete it: it may be the only backup from before this happened.
