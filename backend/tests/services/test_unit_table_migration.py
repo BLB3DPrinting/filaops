@@ -280,6 +280,17 @@ class TestUnitTable:
         _run(db, migration)
         assert _units(db)["EA"].active is True
 
+    def test_a_switched_off_spelling_does_not_speak_for_a_code_that_has_a_row_in_use(self, db, migration):
+        """An active KG filed as a pack beside a switched-off kg of weight: conversions use the pack row."""
+        _unit_table(db, [("EA", "quantity", None, "1"), ("KG", "pack", None, "1")])
+        db.add(UnitOfMeasure(code="kg", name="Old kilogram", symbol="kg", uom_class="weight",
+                             to_base_factor=D("1"), active=False))
+        planned = _run(db, migration)
+        units = _units(db)
+        assert not {"G", "MG", "LB", "OZ"} & set(units)
+        assert units["KG"].uom_class == "pack" and units["kg"].active is False
+        assert "LEFT unit KG: this install has it as a pack unit" in _report(migration, planned)
+
     def test_a_rounded_factor_in_a_kind_on_another_base_is_not_corrected(self, db, migration):
         _unit_table(db, [("EA", "quantity", None, "1"), ("G", "weight", None, "1"),
                          ("KG", "weight", "G", "1000"), ("LB", "weight", "G", "0.453592")])

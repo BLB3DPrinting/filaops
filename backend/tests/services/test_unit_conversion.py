@@ -142,6 +142,21 @@ class TestStandardUnits:
         assert uc.physical_factor(db, "KG", "G") == D("1000")
         assert uc.physical_factor(db, "LB", "G") == D("453.59237")
 
+    def test_ensure_standard_units_reads_the_kind_of_the_row_in_use(self, db):
+        """An active KG filed as a pack beside a switched-off kg of weight: conversions use the pack row."""
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        db.add(UnitOfMeasure(code="KG", name="Keg", symbol="kg", uom_class="pack", to_base_factor=D("1")))
+        db.flush()
+        db.add(UnitOfMeasure(code="kg", name="Old kilogram", symbol="kg", uom_class="weight",
+                             to_base_factor=D("1"), active=False))
+        db.flush()
+        uc.ensure_standard_units(db)
+        codes = {code for (code,) in db.query(UnitOfMeasure.code)}
+        # Nothing may hang on KG as a weight: the row in use is a pack.
+        assert not {"G", "MG", "LB", "OZ"} & codes
+        assert {"M", "L", "EA", "BOX"} <= codes
+
     def test_a_reused_test_database_still_starts_exact(self, db):
         """Older rows in a local test database do not decide what the tests see."""
         db.execute(text("UPDATE units_of_measure SET to_base_factor = 0.453592 WHERE code = 'LB'"))

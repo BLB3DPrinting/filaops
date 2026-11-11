@@ -485,34 +485,41 @@ def _is_rounding_of(stored: Decimal, exact: Decimal) -> bool:
     )
 
 
-def _kind_scales(rows) -> tuple:
-    """What the unit table's rows say about the scale of each kind that converts by factor.
+def _rows_in_use(rows) -> dict:
+    """The row conversions use for each code, as ``{code: (id, kind, factor)}``.
 
-    ``rows`` are ``(code, kind, factor, active)`` in id order. Returns three
-    sets of kinds: those that hold any row, those a standard unit anchors (it
-    holds the exact factor or a rounding of it), and those a standard unit
-    contradicts (a kilogram of 1000 on a table based on grams, a minute of 1).
-    A kind that holds rows and has no anchor holds only the install's own
-    units: a TONNE of 1 and nothing else under weight says nothing about what
-    a kilogram is there, and a DOZEN with no EA says nothing about an each.
+    ``rows`` are ``(code, id, kind, factor, active)`` in id order. A row in use
+    wins over a switched-off one, then the upper-case spelling: the order
+    ``_table`` reads them in. The row is chosen before anything looks at its
+    kind, so a switched-off row never speaks for a code that has a row in use.
+    """
+    chosen = {}
+    for code, unit_id, kind, factor, active in rows:
+        key = (code or "").strip().upper()
+        if not key:
+            continue
+        rank = (bool(active), code == key)
+        if key not in chosen or rank > chosen[key][0]:
+            chosen[key] = (rank, unit_id, (kind or "").strip().lower(), factor)
+    return {key: row[1:] for key, row in chosen.items()}
 
-    Where a code has several rows, the one that counts is the one conversions
-    use: a row in use over a switched-off one, then the upper-case spelling.
+
+def _kind_scales(rows, in_use: dict) -> tuple:
+    """What the unit table says about the scale of each kind that converts by factor.
+
+    ``rows`` are ``(code, id, kind, factor, active)`` and ``in_use`` is
+    ``_rows_in_use(rows)``. Returns three sets of kinds: those that hold any
+    row, those a standard unit anchors (the row in use for its code holds the
+    exact factor or a rounding of it), and those a standard unit contradicts
+    (a kilogram of 1000 on a table based on grams, a minute of 1). A kind that
+    holds rows and has no anchor holds only the install's own units: a TONNE
+    of 1 and nothing else under weight says nothing about what a kilogram is
+    there, and a DOZEN with no EA says nothing about an each.
     """
     standard = {unit.code: unit for unit in STANDARD_UNITS if unit.kind in _SCALED_KINDS}
-    held, in_use = set(), {}
-    for code, kind, factor, active in rows:
-        key = (code or "").strip().upper()
-        kind = (kind or "").strip().lower()
-        if not key or kind not in _SCALED_KINDS:
-            continue
-        held.add(kind)
-        rank = (bool(active), code == key)
-        if key not in in_use or rank > in_use[key][0]:
-            in_use[key] = (rank, kind, factor)
-
+    held = {(kind or "").strip().lower() for _code, _id, kind, _factor, _active in rows} & set(_SCALED_KINDS)
     anchored, off_base = set(), set()
-    for key, (_rank, kind, factor) in in_use.items():
+    for key, (_id, kind, factor) in in_use.items():
         unit = standard.get(key)
         if unit is None or unit.kind != kind:
             continue
@@ -544,11 +551,11 @@ def ensure_standard_units(db: Session) -> int:
         select(table.c.code, table.c.id, table.c.uom_class, table.c.to_base_factor, table.c.active)
         .order_by(table.c.id)
     ).all()
-    existing = {(code or "").strip().upper(): unit_id for code, unit_id, _kind, _factor, _active in rows}
-    kinds = {(code or "").strip().upper(): (kind or "").strip().lower() for code, _id, kind, _factor, _active in rows}
-    held, anchored, off_base = _kind_scales(
-        [(code, kind, factor, active) for code, _id, kind, factor, active in rows]
-    )
+    # Every question below is asked of the row conversions use for a code, never of another spelling of it.
+    in_use = _rows_in_use(rows)
+    existing = {code: unit_id for code, (unit_id, _kind, _factor) in in_use.items()}
+    kinds = {code: kind for code, (_id, kind, _factor) in in_use.items()}
+    held, anchored, off_base = _kind_scales(rows, in_use)
     unsafe = off_base | (held - anchored)
     missing = [
         unit for unit in STANDARD_UNITS
