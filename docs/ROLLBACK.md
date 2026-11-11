@@ -226,6 +226,10 @@ It prints how many pictures are now in the uploads folder. If it prints an
 error instead, do not go on until it works. Afterwards, run the copy-back from
 step 6 again to put them into the new container.
 
+Do this at a time when nobody is adding pictures, and keep it that way until
+the new container is running and the copy-back has been run. A picture added
+in between is lost.
+
 **Never start an older version against a database that a newer version has
 upgraded.** Its migrate step stops with a "DATABASE MIGRATION MISMATCH"
 message. In versions before 4.4.0 that message tells you to remove the

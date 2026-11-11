@@ -156,11 +156,14 @@ Don't set up a second copy on a computer that holds live data. Giving it its own
 
 **If it has already happened:**
 
-1. Take a backup of the database as it is now, before anything else: step 1 of the upgrade guide (`docs/UPGRADE.md`).
-2. In the second folder, run `docker compose down`. Never add `-v`.
-3. In the first folder (the one you ran FilaOps from before), run `docker compose up -d --build`. `--build` matters: it rebuilds the first folder's own version.
-4. If FilaOps starts, the database was not upgraded and you are back on your own version. If the `migrate` step stops with `DATABASE MIGRATION MISMATCH`, the second copy upgraded the database, and the older code can no longer run on it. Versions before 4.4.0 then tell you to delete the database volume. Don't: that deletes all your data. Either move the first folder to the second copy's version (`cat backend/VERSION` in the second folder shows it; then follow steps 3 and 4 of the upgrade guide in the first folder), or restore a backup taken before it happened (`docs/ROLLBACK.md` section 3), which loses everything entered since.
-5. Copy, don't move, the files in the second folder's `uploads` into the first folder's `uploads`. Once they show in the app, delete the second folder.
+1. Take a backup of the database as it is now, before anything else. Use the commands in step 1 of the upgrade guide (`docs/UPGRADE.md`), in the first folder (the one you ran FilaOps from before). If a `filaops_before_upgrade.sql` is already there, rename it first and keep it. Do not delete it: it may be the only backup from before this happened.
+2. In the second folder, run `docker compose logs migrate` and save what it prints. If the database was upgraded, that output lists what the upgrade changed and what it left for you to check (step 6 of the upgrade guide), and it is gone once the container is removed. If the second copy is on 4.3.1 or older, also copy its pictures out of the backend container, with the command in step 2 of the upgrade guide.
+3. Still in the second folder, run `docker compose down`. Never add `-v`.
+4. In the first folder, run `docker compose up -d --build`. `--build` matters: it rebuilds the first folder's own version.
+5. If FilaOps starts, the database was not upgraded and you are back on your own version. If the `migrate` step stops with `DATABASE MIGRATION MISMATCH`, the second copy upgraded the database, and the older code can no longer run on it. Versions before 4.4.0 then tell you to delete the database volume. Don't: that deletes all your data. You then have two ways on:
+    - Move the first folder to the second copy's version. `cat backend/VERSION` in the second folder shows it. In the first folder, run `git fetch --tags`, then `git checkout v` followed by that version (`git checkout v4.4.0`, for example), then `docker compose up -d --build`. Use that version, not a newer one.
+    - Or restore a backup taken before it happened (`docs/ROLLBACK.md` section 3), which loses everything entered since.
+6. Copy, don't move, the files in the second folder's `uploads` into the first folder's `uploads`. Once they show in the app, delete the second folder.
 
 ---
 
