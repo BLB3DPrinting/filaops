@@ -217,33 +217,16 @@ def get_conversion_factor(db: Session, from_unit: str, to_unit: str) -> Decimal:
 
     Raises:
         UOMConversionError: If units not found or incompatible
+
+    The lookup itself lives in ``unit_conversion.physical_factor``. This name
+    stays for its callers until they are moved onto that module. Two units of
+    the ``pack`` kind (BOX, PK) are never converted to each other: a pack has
+    no size until an item gives it one.
     """
-    from_uom = get_uom_by_code(db, from_unit)
-    to_uom = get_uom_by_code(db, to_unit)
+    # Imported here: unit_conversion imports UOMConversionError from this module.
+    from app.services.unit_conversion import physical_factor
 
-    if not from_uom:
-        raise UOMConversionError(f"Unknown unit: {from_unit}")
-    if not to_uom:
-        raise UOMConversionError(f"Unknown unit: {to_unit}")
-
-    if from_uom.uom_class != to_uom.uom_class:  # type: ignore[comparison-overlap]
-        raise UOMConversionError(
-            f"Cannot convert between {from_uom.uom_class} ({from_unit}) and {to_uom.uom_class} ({to_unit})"
-        )
-
-    # factor = from.to_base_factor / to.to_base_factor
-    # e.g., G -> KG: 0.001 / 1 = 0.001
-    # e.g., KG -> G: 1 / 0.001 = 1000
-    from_factor = Decimal(str(from_uom.to_base_factor))
-    to_factor = Decimal(str(to_uom.to_base_factor))
-
-    if to_factor.is_zero():
-        raise UOMConversionError(
-            f"Cannot convert to {to_uom.code} (ID: {to_uom.id}, Name: {to_uom.name}): "
-            f"to_base_factor is zero ({to_factor})"
-        )
-
-    return from_factor / to_factor
+    return physical_factor(db, from_unit, to_unit)
 
 
 def convert_quantity(

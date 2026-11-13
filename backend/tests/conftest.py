@@ -64,6 +64,12 @@ def setup_database():
             "ALTER TABLE inventory_transactions "
             "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
         ))
+        # Unit factors widened to 15 places (migration 106). create_all won't
+        # ALTER the pre-existing column; the exact ounce does not fit in 8.
+        conn.execute(text(
+            "ALTER TABLE units_of_measure "
+            "ALTER COLUMN to_base_factor TYPE NUMERIC(30, 15)"
+        ))
         # i18n / multi-tax additions (migration 062, 063)
         # Payment terms columns on users (customer payment terms feature)
         conn.execute(text(
@@ -407,6 +413,15 @@ def setup_database():
         """))
         conn.commit()
 
+    # Standard units of measure: the rows migration 106 gives every install,
+    # at their exact factors, whatever unit rows a reused local database
+    # holds. Committed once per run like the rest of the required data, so
+    # tests do not insert them one by one and two test runs on one database
+    # do not wait on each other. See tests/unit_baseline.py.
+    from tests.unit_baseline import use_standard_units
+    with engine.begin() as conn:
+        use_standard_units(conn)
+
     # Seed required data
     from sqlalchemy.orm import Session as SASession
     from app.models.inventory import InventoryLocation
@@ -493,6 +508,9 @@ def db():
       but does NOT commit the connection-level transaction
     - At teardown, the connection transaction is rolled back — all test
       data disappears regardless of how many commits the service made
+
+    The standard units of measure are already in the database: setup_database
+    seeds them once per run.
     """
     from app.db.session import engine
     from sqlalchemy.orm import Session as SASession
