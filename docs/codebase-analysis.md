@@ -157,8 +157,9 @@ The repo policy says backend Python files over 1,200 lines and frontend componen
 
 1. runtime `window.__FILAOPS_CONFIG__.API_URL`
 2. build-time `VITE_API_URL`
-3. relative URL when served over HTTPS or non-localhost host
-4. `http://localhost:8000` for local dev
+3. relative URL when `window.__FILAOPS_CONFIG__.API_SAME_ORIGIN` is `true` (the page is served by the frontend container, whose nginx proxies `/api`)
+4. relative URL when served over HTTPS or non-localhost host
+5. `http://localhost:8000` for local dev
 
 `frontend/src/lib/apiClient.js` is the newer fetch wrapper. It includes credentials, JSON parsing, retry behavior, typed `ApiError`, API error events, and single-flight silent refresh on 401 through `/api/v1/auth/refresh`.
 

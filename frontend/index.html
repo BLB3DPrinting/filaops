@@ -29,7 +29,15 @@
   </head>
   <body>
     <div id="root"></div>
-    <script src="/config.js" vite-ignore></script>
+    <!--
+      Runtime config, written by docker-entrypoint.sh when the frontend
+      container starts. The "?v=2" is there on purpose: up to 4.4.0 the
+      container served /config.js with a one-year cache, so a browser that has
+      opened an older version still holds that copy and would never ask again.
+      A different URL makes every browser fetch the file once more; from then
+      on nginx.conf tells it to check on each page load.
+    -->
+    <script src="/config.js?v=2" vite-ignore></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
