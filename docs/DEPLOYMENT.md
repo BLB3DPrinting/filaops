@@ -357,8 +357,11 @@ docker compose exec frontend wget -qO- http://backend:8000/health
 docker compose exec backend env | grep ALLOWED
 ```
 
-The frontend nginx proxies `/api` to the backend. Check `VITE_API_URL` build arg
-and `frontend/nginx.conf` if API calls fail.
+The frontend nginx proxies `/api` to the backend, and the web app calls the
+address the page was opened on, whatever the host name or port. Leave
+`VITE_API_URL` unset unless the API is deliberately at another address: when it
+is set (on the frontend container, or as a build arg) the app calls that
+address instead. Check it and `frontend/nginx.conf` if API calls fail.
 
 ### Migrations: "relation already exists"
 
