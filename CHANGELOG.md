@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Docker install on a port other than 80 no longer sends its lists to port 80.** The frontend container passed the backend the host name without the port, and the backend builds its redirects from that. A list whose address is called without its trailing slash (Team Members, Customers, Purchase Orders, Quotes and others) is answered with a redirect, and the redirect pointed at `http://localhost/...`. On an install published on port 8080, say, the list failed to load, or the browser asked whatever else answers on port 80 and sent it the sign-in cookie. The redirect now keeps the host name and port the browser used. Installs on port 80, and installs behind a proxy on the standard HTTPS port, behave as before.
+- **The Docker web app calls its own address on `localhost` too.** Opened on `localhost` or `127.0.0.1`, the app ignored the `/api` proxy in its own container and called `http://localhost:8000` directly. That worked only while the backend was published on port 8000, and with two copies on one computer the page from one copy talked to whichever backend held port 8000. The frontend container now tells the app it sits behind the proxy, and the app calls the address the page was opened on, whatever the host name or port. `VITE_API_URL`, set on the frontend container or at build time, still takes precedence, and `npm run dev` still calls `http://localhost:8000`. `docker-compose.yml` publishes the same ports as before.
+- **A changed `VITE_API_URL` takes effect on the next page load.** The frontend container rewrites `config.js` each time it starts, but served it with a one-year cache, so a browser that had opened the app once kept the old address until a hard refresh. The browser now checks `config.js` with the server on every page load. A browser that still holds a copy from 4.4.0 or earlier picks up the new one on a normal reload, because the page now asks for it as `/config.js?v=2`. Files under `/assets/` keep their one-year cache: their names change whenever their contents do.
+- **The sign-in page's "Connection Issue" message names the address it tried.** When the app calls its own address the message read "Cannot connect to API at ." and, on any host other than `localhost`, told the reader to set `VITE_API_URL` and rebuild the frontend, which a Docker install never needs. It now names the address, and gives the `VITE_API_URL` advice only for a build that is not served by the frontend container.
+
 ## [4.4.0] - 2026-11-11
 
 ### Added

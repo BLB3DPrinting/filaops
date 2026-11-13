@@ -192,8 +192,9 @@ cd frontend && npm test
 
 ### Frontend can't connect to backend
 
-- Ensure `VITE_API_URL` matches the backend URL (default: `http://localhost:8000`)
-- If accessing remotely, set `VITE_API_URL=http://<server-ip>:8000` and rebuild
+- Docker: the web app calls the address the page was opened on, and the frontend container passes `/api` on to the backend. Check that the backend is up with `docker compose ps`. `VITE_API_URL` is not needed.
+- Manual install: ensure `VITE_API_URL` matches the backend URL (default: `http://localhost:8000`)
+- Manual install, accessing remotely: set `VITE_API_URL=http://<server-ip>:8000` and restart the dev server (or rebuild)
 - Check CORS: set `ALLOWED_ORIGINS` in `backend/.env`
 
 ### Database connection errors

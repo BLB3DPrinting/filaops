@@ -137,7 +137,13 @@ Uploaded files and settings are not shared. Each copy has its own `uploads` fold
 **Workaround:**
 Run one copy per computer, and upgrade the folder you already run FilaOps from. To try a release before upgrading, use another computer.
 
-Don't set up a second copy on a computer that holds live data. Giving it its own container, volume and network names is not enough: ports listed in a `docker-compose.override.yml` are added to the ones `docker-compose.yml` publishes rather than put in their place, the web app opened on `localhost` calls the backend on port 8000 whichever copy served the page, and the browser sends the same sign-in cookies to every copy on `localhost`.
+Don't set up a second copy on a computer that holds live data. Giving it its own container, volume and network names is not enough: ports listed in a `docker-compose.override.yml` are added to the ones `docker-compose.yml` publishes rather than put in their place, and the browser sends the same sign-in cookies to every copy on `localhost`, whatever its port.
+
+On 4.4.0 and earlier, a copy on a port other than 80 also reaches the copy on the standard ports in three more ways. These three are fixed in versions after 4.4.0:
+
+- The web app opened on `localhost` or `127.0.0.1` calls the backend on port 8000, whichever copy served the page. Fixed: it calls the address the page was opened on.
+- Lists such as Team Members and Customers are redirected to port 80, because the redirect drops the port the page was opened on. The browser then asks the copy on port 80 for them and sends it the sign-in cookie, or the list fails to load if nothing answers there. Fixed: the redirect keeps the port.
+- The browser keeps the web app's address setting (`config.js`) for a year. After `VITE_API_URL` is changed on the frontend container, the page goes on using the old address until a hard refresh (Ctrl+Shift+R). Fixed: the browser checks the file on every page load.
 
 **If it has already happened:**
 

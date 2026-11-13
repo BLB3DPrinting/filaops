@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { API_URL } from "../../config/api";
+import { API_URL, getApiConnectionHelp } from "../../config/api";
 import logoFull from "../../assets/logo_full.png";
 
 /**
@@ -35,14 +35,8 @@ export default function AdminLogin() {
           return;
         }
       } catch {
-        // Show connection error - this helps users diagnose VITE_API_URL issues
-        setApiError(
-          `Cannot connect to API at ${API_URL}. ` +
-            (window.location.hostname !== "localhost" &&
-            window.location.hostname !== "127.0.0.1"
-              ? `If accessing remotely, ensure VITE_API_URL is set to the server's address (e.g., http://${window.location.hostname}:8000) and rebuild the frontend.`
-              : "Please ensure the backend is running.")
-        );
+        // Show connection error, naming the address the app tried
+        setApiError(getApiConnectionHelp());
       } finally {
         setCheckingSetup(false);
       }
