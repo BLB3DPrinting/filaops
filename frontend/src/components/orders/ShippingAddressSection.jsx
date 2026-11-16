@@ -68,7 +68,7 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
         {!editingAddress && (
           <button
             onClick={handleEditAddress}
-            className="text-[var(--orange)] hover:text-[var(--orange-press)] text-sm"
+            className="text-[var(--accent)] hover:text-[var(--accent-press)] text-sm"
           >
             Edit
           </button>
@@ -203,7 +203,7 @@ export default function ShippingAddressSection({ order, onOrderUpdated }) {
             <button
               onClick={handleSaveAddress}
               disabled={savingAddress}
-              className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] text-white rounded-lg disabled:opacity-50"
+              className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] text-accent-ink rounded-lg disabled:opacity-50"
             >
               {savingAddress ? "Saving..." : "Save Address"}
             </button>

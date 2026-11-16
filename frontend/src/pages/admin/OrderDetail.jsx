@@ -941,7 +941,7 @@ export default function OrderDetail() {
           <button
             onClick={handleCheckAvailability}
             disabled={checkingAvailability || productionOrders.length === 0}
-            className="px-4 py-3 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            className="px-4 py-3 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1089,7 +1089,7 @@ export default function OrderDetail() {
               <div className="text-sm text-[var(--ink-3)]">Email</div>
               <div className="text-[var(--ink)] font-medium">
                 {order.customer_email ? (
-                  <a href={`mailto:${order.customer_email}`} className="text-[var(--orange)] hover:underline">
+                  <a href={`mailto:${order.customer_email}`} className="text-[var(--accent)] hover:underline">
                     {order.customer_email}
                   </a>
                 ) : "\u2014"}
@@ -1107,7 +1107,7 @@ export default function OrderDetail() {
                 <div className="text-[var(--ink)] font-medium">
                   <button
                     onClick={() => navigate(`/admin/customers/${order.customer_id}`)}
-                    className="text-[var(--orange)] hover:underline"
+                    className="text-[var(--accent)] hover:underline"
                   >
                     #{order.customer_id}
                   </button>
@@ -1120,7 +1120,7 @@ export default function OrderDetail() {
             Customer info available in linked quote.
             <button
               onClick={() => navigate(`/admin/quotes`)}
-              className="text-[var(--orange)] hover:underline ml-2"
+              className="text-[var(--accent)] hover:underline ml-2"
             >
               View Quote
             </button>
@@ -1346,7 +1346,7 @@ export default function OrderDetail() {
               value={closeShortReason}
               onChange={(e) => setCloseShortReason(e.target.value)}
               placeholder="Reason for closing short (required)..."
-              className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3 text-[var(--ink)] placeholder-[var(--ink-4)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] mb-4"
+              className="w-full bg-[var(--paper-sunk)] border border-[var(--rule-hair)] rounded-lg p-3 text-[var(--ink)] placeholder-[var(--ink-4)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] mb-4"
               rows={2}
             />
             <div className="flex justify-end gap-3">
@@ -1359,7 +1359,7 @@ export default function OrderDetail() {
               <button
                 onClick={handleCloseShort}
                 disabled={!closeShortReason.trim() || closingShort || (closeShortPreview && !closeShortPreview.all_pos_resolved)}
-                className="px-4 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {closingShort ? "Closing..." : "Close Order Short"}
               </button>

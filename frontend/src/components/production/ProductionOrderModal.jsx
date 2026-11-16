@@ -817,7 +817,7 @@ export default function ProductionOrderModal({
             <h3 className="text-[var(--ink-3)] text-sm font-medium mb-3">OPERATIONS</h3>
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--orange)]"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--accent)]"></div>
               </div>
             ) : operations.length === 0 ? (
               <div className="text-center py-8">
@@ -826,7 +826,7 @@ export default function ProductionOrderModal({
                   <button
                     onClick={handleRefreshRouting}
                     disabled={refreshRoutingLoading}
-                    className="px-4 py-2 bg-[var(--orange)] hover:bg-[var(--orange-press)] disabled:opacity-50 text-white rounded-lg transition-colors text-sm"
+                    className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-press)] disabled:opacity-50 text-accent-ink rounded-lg transition-colors text-sm"
                   >
                     {refreshRoutingLoading ? 'Refreshing…' : 'Apply Routing Now'}
                   </button>
@@ -989,7 +989,7 @@ export default function ProductionOrderModal({
                 onChange={(e) => setVariantSwapReason(e.target.value)}
                 maxLength={500}
                 placeholder="Reason (optional, logged for audit)"
-                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink)] placeholder-[var(--ink-4)] focus:outline-none focus:border-[var(--orange)]"
+                className="w-full mb-3 px-3 py-1.5 text-sm rounded bg-[var(--paper-sunk)] border border-[var(--rule-hair)] text-[var(--ink)] placeholder-[var(--ink-4)] focus:outline-none focus:border-[var(--accent)]"
               />
               {variantLoading ? (
                 <div className="text-[var(--ink-3)] text-sm">Loading variants…</div>
@@ -1049,7 +1049,7 @@ export default function ProductionOrderModal({
               onBlur={saveNotes}
               rows={3}
               placeholder="Add production notes..."
-              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] resize-none focus:border-[var(--orange)] focus:outline-none"
+              className="w-full bg-[var(--paper)] border border-[var(--rule-hair)] rounded-lg px-4 py-3 text-[var(--ink)] placeholder-[var(--ink-4)] resize-none focus:border-[var(--accent)] focus:outline-none"
             />
             {notesSaving && (
               <div className="text-[var(--ink-4)] text-xs mt-1">Saving...</div>
@@ -1215,7 +1215,7 @@ export default function ProductionOrderModal({
               <button
                 onClick={submitSchedule}
                 disabled={actionLoading || !selectedResource}
-                className="px-6 py-2 bg-[var(--orange)] text-white rounded-lg hover:bg-[var(--orange-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-6 py-2 bg-[var(--accent)] text-accent-ink rounded-lg hover:bg-[var(--accent-press)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {actionLoading ? "Scheduling..." : "Schedule"}
               </button>
