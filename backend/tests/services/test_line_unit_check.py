@@ -187,6 +187,64 @@ class TestBomWriters:
         assert (line.unit, line.quantity) == ("G", D("5"))
 
 
+class TestAddingToALineThatExists:
+    """create_bom adds to the item's active BOM. A component already on it gets the new quantity added to its line.
+
+    The line keeps its unit. Adding the bare numbers saved 500 G plus 1 KG as 501 KG.
+    """
+
+    def _existing(self, make_product, make_bom, component, quantity, unit):
+        made = make_product()
+        bom = make_bom(product_id=made.id,
+                       lines=[{"component_id": component.id, "quantity": D(quantity), "unit": unit}])
+        return made, bom
+
+    def _add(self, db, made, component, quantity, unit=None):
+        return boms.create_bom(db, BOMCreate(product_id=made.id, lines=[
+            BOMLineCreate(component_id=component.id, quantity=D(quantity), unit=unit)]))
+
+    def _line(self, db, bom):
+        db.expire_all()
+        line = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).one()
+        return line.quantity, line.unit
+
+    def test_a_quantity_in_another_unit_is_brought_into_the_lines_unit(self, db, make_product, make_bom, filament):
+        made, bom = self._existing(make_product, make_bom, filament, "500", "G")
+        self._add(db, made, filament, "1", "kg")
+        assert self._line(db, bom) == (D("1500"), "G")
+
+    def test_a_unit_of_the_installs_own_converts_by_its_factor(self, db, make_product, make_bom):
+        each = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "EA").one()
+        db.add(UnitOfMeasure(code="PAIR", name="Pair", symbol="pair", uom_class="quantity",
+                             base_unit_id=each.id, to_base_factor=D("2")))
+        db.flush()
+        part = make_product(item_type="component", unit="EA")
+        made, bom = self._existing(make_product, make_bom, part, "10", "EA")
+        self._add(db, made, part, "3", "pair")
+        assert self._line(db, bom) == (D("16"), "EA")
+
+    def test_the_same_unit_or_no_unit_adds_the_number(self, db, make_product, make_bom, filament):
+        made, bom = self._existing(make_product, make_bom, filament, "500", "G")
+        self._add(db, made, filament, "25", "g")
+        self._add(db, made, filament, "25")
+        assert self._line(db, bom) == (D("550"), "G")
+
+    def test_a_unit_the_table_cannot_convert_is_refused_and_the_line_is_untouched(self, db, make_product, make_bom):
+        part = make_product(item_type="component", unit="EA")
+        made, bom = self._existing(make_product, make_bom, part, "10", "EA")
+        said = _refused(lambda: self._add(db, made, part, "1", "box"),
+                        "already on the BOM in EA", "Give the quantity in EA")
+        assert "BOX" in said
+        assert self._line(db, bom) == (D("10"), "EA")
+
+    def test_a_line_holding_a_unit_the_table_lost_takes_a_quantity_in_that_unit(self, db, make_product, make_bom,
+                                                                               filament):
+        made, bom = self._existing(make_product, make_bom, filament, "5", "SCOOP")
+        self._add(db, made, filament, "2", "scoop")
+        assert self._line(db, bom) == (D("7"), "SCOOP")
+        _refused(lambda: self._add(db, made, filament, "1", "kg"), "already on the BOM in SCOOP")
+
+
 class TestRoutingWriters:
     def test_add_operation_material_refuses_an_unknown_unit(self, db, operation, filament):
         data = {"component_id": filament.id, "quantity": D("37"), "unit": "SCOOP"}
@@ -231,6 +289,22 @@ class TestRoutingWriters:
             db, operation.id, data={"component_id": filament.id, "quantity": D("37"), "unit": "G"})
         tube = make_product(item_type="component", unit="M")
         assert routings.update_operation_material(db, saved.id, data={"component_id": tube.id}).unit == "M"
+
+    def test_moving_a_line_to_another_component_costs_the_routing_with_the_new_one(self, db, operation,
+                                                                                   make_product):
+        """The stored routing total has to come from the component the line was moved to."""
+        cheap = make_product(item_type="component", unit="EA", standard_cost=D("2"))
+        dear = make_product(item_type="component", unit="EA", standard_cost=D("5"))
+        saved = routings.add_operation_material(
+            db, operation.id, data={"component_id": cheap.id, "quantity": D("3"), "unit": "EA"})
+        routing = db.get(Routing, operation.routing_id)
+        before = routing.total_cost
+        for data in ({"component_id": dear.id}, {"component_id": cheap.id, "unit": "EA"}):
+            moved = routings.update_operation_material(db, saved.id, data=dict(data))
+            db.refresh(routing)
+            assert moved.component.id == data["component_id"]
+            expected = D("9") if data["component_id"] == dear.id else D("0")
+            assert routing.total_cost - before == expected
 
     def test_a_line_holding_a_unit_the_table_lost_can_still_be_edited(self, db, operation, filament):
         material = RoutingOperationMaterial(routing_operation_id=operation.id, component_id=filament.id,

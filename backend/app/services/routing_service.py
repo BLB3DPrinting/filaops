@@ -709,6 +709,10 @@ def update_operation_material(
         if field == "quantity_per" and value and hasattr(value, "value"):
             value = value.value
         setattr(material, field, value)
+    if component_changes:
+        # The line's component was read above, so the loaded one is the old one. Point it at
+        # the new one, or the routing total below is worked out from the old component's cost.
+        material.component = component
 
     material.updated_at = datetime.now(timezone.utc)
     try:

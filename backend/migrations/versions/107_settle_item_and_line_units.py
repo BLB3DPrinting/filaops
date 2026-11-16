@@ -186,7 +186,8 @@ def read_state(bind) -> dict:
         # Rows not yet consumed: pending, allocated, and ones whose consumption failed.
         state["order_lines"] = _rows(
             bind,
-            "SELECT m.id, m.component_id, m.quantity_required, m.unit, m.status, p.code AS order_code "
+            "SELECT m.id, m.component_id, m.quantity_required, m.unit, m.status, p.code AS order_code, "
+            "p.status AS order_status "
             "FROM production_order_operation_materials m "
             "LEFT JOIN production_order_operations o ON o.id = m.production_order_operation_id "
             "LEFT JOIN production_orders p ON p.id = o.production_order_id "
@@ -495,6 +496,10 @@ def plan(state: dict) -> dict:
             if table.factor(unit, stock) is not None:
                 continue
             own_size, through = _through_own_units(table, own.get(row["component_id"], {}), unit)
+            if own_size is None and unit == item["purchase"] and item["size"] not in (None, Decimal("1")):
+                # Bought by this unit at a size that got no row of its own (too large to record).
+                # The size still gives the unit a meaning: cost reads the line by it.
+                own_size, through = item["size"], None
             # A requirement in EA is rounded up for a production order; one in ROLL or SPOOL is not.
             rounding_would_stop = table.kind(stock) == _PACK and stock not in _COUNTED_UNITS
             note = ""
@@ -511,7 +516,9 @@ def plan(state: dict) -> dict:
                             (key, item["sku"], _plain(own_size), stock), []
                         ).append(_line_name(key, row))
                     if key == "order_lines" and row.get("status") == "error":
-                        result["failed_rows"].append((_line_name(key, row), item["sku"], stock))
+                        result["failed_rows"].append(
+                            (_line_name(key, row), item["sku"], stock, row.get("order_status") or "unknown")
+                        )
                     continue
                 if own_size is None:
                     note = "rounding"
@@ -685,20 +692,27 @@ def report_lines(planned: dict) -> list:
         ) % planned["lines_on_changed_materials"]))
     for (key, sku, own_size, stock), names in sorted(planned["lines_despite_own_size"].items()):
         lines.append((logging.WARNING, (
-            "107: CHECK %d of those %s, on %s, which has EA as a unit of its own (1 EA = %s %s). They were "
-            "taken as %s, which is how cost and planning already took them. If a line meant that many of the "
-            "item, change its quantity: %s"
+            "107: CHECK %d of those %s, on %s, for which the item says 1 EA = %s %s. They were taken as %s, "
+            "which is how cost and planning already took them. If a line meant that many of the item, change "
+            "its quantity: %s"
         ) % (len(names), _LINE_WORDS[key], sku, own_size, stock, stock, _named(names))))
-    for name, sku, stock in planned["failed_rows"]:
+    for name, sku, stock, order_status in planned["failed_rows"]:
         lines.append((logging.WARNING, (
-            "107: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s, so it "
-            "goes through the next time its order is completed or shipped. If its stock was already corrected "
-            "by hand, undo that correction first, or the item is deducted twice."
-        ) % (name, sku, stock)))
+            "107: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s. Its order "
+            "is %s. Completing its operation again is not possible, and this upgrade consumes nothing. FilaOps "
+            "takes a failed row up again when the production order is completed, or when the order ships for a "
+            "packing or shipping material, and then it goes through: if its stock was already corrected by "
+            "hand, undo that correction first, or the item is deducted twice. If that step is already done "
+            "for this order, nothing takes the row up again: the stock it used was never deducted, so correct "
+            "the item's stock by hand."
+        ) % (name, sku, stock, order_status)))
 
     for (key, sku, unit, stock), group in sorted(planned["left"].items(), key=lambda entry: _as_text(entry[0])):
         if group["own_size"] is not None:
-            if group["through"] == unit:
+            if group["through"] is None:
+                has = "%s is bought by the %s, and its purchase size says 1 %s = %s %s." % (
+                    sku, unit, unit, _plain(group["own_size"]), stock)
+            elif group["through"] == unit:
                 has = "%s has %s as a unit of its own: 1 %s = %s %s." % (
                     sku, unit, unit, _plain(group["own_size"]), stock)
             else:

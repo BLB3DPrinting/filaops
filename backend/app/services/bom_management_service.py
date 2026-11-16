@@ -28,7 +28,7 @@ from app.schemas.bom import (
     BOMCopyRequest,
 )
 from app.services.bom_component_cost import component_cost_for_bom, convert_line_quantity
-from app.services.line_units import unit_for_line
+from app.services.line_units import quantity_in_line_unit, unit_for_line
 from app.services.uom_service import convert_quantity_safe
 
 logger = get_logger(__name__)
@@ -742,15 +742,14 @@ def create_bom(
                 ).first()
 
                 if existing_line:
-                    # The unit is checked before anything on the line is changed.
-                    new_unit = (
-                        unit_for_line(db, line_data.unit, component, current=existing_line.unit)
-                        if line_data.unit else None
-                    )
+                    # The line keeps its unit. A quantity given in another unit is checked and
+                    # brought into the line's unit before anything on the line is changed.
+                    added = line_data.quantity
+                    if line_data.unit:
+                        given = unit_for_line(db, line_data.unit, component, current=existing_line.unit)
+                        added = quantity_in_line_unit(db, line_data.quantity, given, existing_line.unit)
                     # Update existing line quantity (add to it)
-                    existing_line.quantity = (existing_line.quantity or 0) + line_data.quantity
-                    if new_unit:
-                        existing_line.unit = new_unit
+                    existing_line.quantity = (existing_line.quantity or 0) + added
                     if line_data.scrap_factor is not None:
                         existing_line.scrap_factor = line_data.scrap_factor
                     if line_data.notes:

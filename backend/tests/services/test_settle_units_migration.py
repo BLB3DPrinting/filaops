@@ -442,9 +442,13 @@ class TestLinesRewritten:
             "pending": "G", "allocated": "G", "error": "G", "consumed": "EA", "returned": "EA",
         }
         assert {row.quantity_required for row in rows.values()} == {D("50")}
-        # The row whose consumption had failed is named: it will go through at the next pass.
+        # The row whose consumption had failed is named, with its order's status and both things
+        # that can happen next: it is taken up at order completion or shipment, or never.
         (failed,) = _lines_about(migration, planned, "had failed to be consumed", order.code)
-        assert item.sku in failed and "deducted twice" in failed
+        assert item.sku in failed and "Its order is draft." in failed
+        assert "takes a failed row up again when the production order is completed" in failed
+        assert "deducted twice" in failed
+        assert "nothing takes the row up again" in failed and "correct the item's stock by hand" in failed
 
     def test_a_routing_line_and_an_order_row_on_a_spool_with_an_each_size_become_g_and_are_named(
             self, db, migration, filament, routing_material, order_rows):
@@ -464,7 +468,7 @@ class TestLinesRewritten:
         assert _item_units(db, spool) == {"EA": (D("750"), None)}
         # Each is named, in case a line did mean that many spools.
         (routing_check,) = _lines_about(migration, planned, "CHECK", "routing material line(s)", spool.sku)
-        assert "has EA as a unit of its own (1 EA = 750 G)" in routing_check
+        assert "for which the item says 1 EA = 750 G" in routing_check
         assert f"routing {routing.code} material {material.id}" in routing_check
         assert "If a line meant that many of the item, change its quantity" in routing_check
         (order_check,) = _lines_about(migration, planned, "CHECK", "production order material row(s)", spool.sku)
@@ -552,6 +556,19 @@ class TestLinesLeft:
         assert f"cost takes 1 EA as 10 M (1 M in the cost roll-up, if {tube.sku} has a BOM of its own)" in listed
         assert "planning takes 1 EA as 1 M" in listed
         assert f"{tube.sku} has EA as a unit of its own: 1 EA = 10 M." in listed
+
+    def test_an_ea_line_is_left_when_the_purchase_size_gives_ea_a_meaning_but_got_no_row(
+            self, db, migration, make_product, bom_line):
+        """A size too large to record makes no unit of the item's own, and cost still reads the line by it."""
+        tube = make_product(item_type="component", unit="M", purchase_uom="EA", purchase_factor=D("10000000000"))
+        _, line = bom_line(tube, quantity="2")
+        planned = _run(db, migration)
+        assert (line.unit, line.quantity) == ("EA", D("2"))
+        assert _item_units(db, tube) == {}
+        (listed,) = _lines_about(migration, planned, "LEFT", "BOM line(s)", tube.sku)
+        assert "cost takes 1 EA as 10000000000 M" in listed
+        assert f"{tube.sku} is bought by the EA, and its purchase size says 1 EA = 10000000000 M." in listed
+        assert _lines_about(migration, planned, "NO SIZE", "too large to record", tube.sku)
 
     def test_an_ea_line_on_a_part_with_a_hand_made_each_size_is_left(self, db, migration, make_product, bom_line):
         tube = make_product(item_type="component", unit="M", purchase_uom="M")
