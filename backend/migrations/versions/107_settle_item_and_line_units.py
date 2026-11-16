@@ -40,9 +40,14 @@ Data, in this order
        - the component is a material stocked in G, or is not a material;
        - the component is not stocked by the each, and EA does not convert to
          its stock unit;
-       - the component has no size for EA among its own units. Where it has
-         one (a spool of 750 G bought by the each), "1 EA" may mean a spool,
-         and the BOM page already reads it that way;
+       - no reader takes the line by a size of the component's own. A
+         component that is not a material and has a size for EA among its own
+         units is left on every kind of line. A gram-stocked material that has
+         one (a spool of 750 G bought by the each) is left on a BOM line only,
+         because the BOM page's needed and shortage figures read that line as
+         750 G. On a routing material line or a production order row nothing
+         does, so the line is rewritten there, and the report names it in case
+         it meant spools;
        - its stock unit is not a pack that requirements are not rounded for
          (ROLL, SPOOL): see the last point below.
 
@@ -403,7 +408,8 @@ def plan(state: dict) -> dict:
     result = {
         "purchase_units": [], "purchase_units_left": [], "po_lines_left": [],
         "item_units": [], "kept": [], "no_item_unit": [], "sizes_differ": [],
-        "lines": [], "lines_on_changed_materials": 0, "failed_rows": [], "left": {}, "no_unit_lines": {},
+        "lines": [], "lines_on_changed_materials": 0, "lines_despite_own_size": {}, "failed_rows": [],
+        "left": {}, "no_unit_lines": {},
     }
 
     bought = {}
@@ -493,10 +499,17 @@ def plan(state: dict) -> dict:
             rounding_would_stop = table.kind(stock) == _PACK and stock not in _COUNTED_UNITS
             note = ""
             if unit == "EA" and (not item["material"] or stock == "G"):
-                if own_size is None and not rounding_would_stop:
+                # A size of the item's own for EA stands in the way where a reader uses it: every
+                # line of a non-material, and a material's BOM line (the BOM page's figures).
+                read_by_own_size = own_size is not None and (key == "bom_lines" or not item["material"])
+                if not read_by_own_size and not rounding_would_stop:
                     result["lines"].append((key, row["id"], unit, stock))
                     if key == "bom_lines" and row["component_id"] in changed_materials:
                         result["lines_on_changed_materials"] += 1
+                    if own_size is not None:
+                        result["lines_despite_own_size"].setdefault(
+                            (key, item["sku"], _plain(own_size), stock), []
+                        ).append(_line_name(key, row))
                     if key == "order_lines" and row.get("status") == "error":
                         result["failed_rows"].append((_line_name(key, row), item["sku"], stock))
                     continue
@@ -670,6 +683,12 @@ def report_lines(planned: dict) -> list:
             "107: %d of those BOM line(s) are on the materials whose purchase unit became KG. The BOM page showed "
             "each EA on them as 1000 G needed; it now shows the number as grams, as cost and planning took it."
         ) % planned["lines_on_changed_materials"]))
+    for (key, sku, own_size, stock), names in sorted(planned["lines_despite_own_size"].items()):
+        lines.append((logging.WARNING, (
+            "107: CHECK %d of those %s, on %s, which has EA as a unit of its own (1 EA = %s %s). They were "
+            "taken as %s, which is how cost and planning already took them. If a line meant that many of the "
+            "item, change its quantity: %s"
+        ) % (len(names), _LINE_WORDS[key], sku, own_size, stock, stock, _named(names))))
     for name, sku, stock in planned["failed_rows"]:
         lines.append((logging.WARNING, (
             "107: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s, so it "

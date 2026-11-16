@@ -446,6 +446,42 @@ class TestLinesRewritten:
         (failed,) = _lines_about(migration, planned, "had failed to be consumed", order.code)
         assert item.sku in failed and "deducted twice" in failed
 
+    def test_a_routing_line_and_an_order_row_on_a_spool_with_an_each_size_become_g_and_are_named(
+            self, db, migration, filament, routing_material, order_rows):
+        """No reader takes these by the spool's size: cost and planning both take the number as grams.
+
+        A BOM line on the same item is left, because the BOM page reads it as 750 G.
+        """
+        spool = filament(purchase_factor=D("750"))
+        routing, material = routing_material(spool, quantity="37")
+        order, rows = order_rows(spool, ("pending", "error"), quantity="37")
+        planned = _run(db, migration)
+
+        assert (material.unit, material.quantity) == ("G", D("37"))
+        assert {status: (row.unit, row.quantity_required) for status, row in rows.items()} == {
+            "pending": ("G", D("37")), "error": ("G", D("37")),
+        }
+        assert _item_units(db, spool) == {"EA": (D("750"), None)}
+        # Each is named, in case a line did mean that many spools.
+        (routing_check,) = _lines_about(migration, planned, "CHECK", "routing material line(s)", spool.sku)
+        assert "has EA as a unit of its own (1 EA = 750 G)" in routing_check
+        assert f"routing {routing.code} material {material.id}" in routing_check
+        assert "If a line meant that many of the item, change its quantity" in routing_check
+        (order_check,) = _lines_about(migration, planned, "CHECK", "production order material row(s)", spool.sku)
+        assert "CHECK 2 of those" in order_check and order.code in order_check
+        assert _lines_about(migration, planned, "had failed to be consumed", order.code, spool.sku)
+        assert not _lines_about(migration, planned, "LEFT", spool.sku)
+
+    def test_a_routing_line_in_ea_on_a_part_with_an_each_size_of_its_own_is_still_left(
+            self, db, migration, make_product, routing_material):
+        """The plan rewrites a material's line whatever its own units; a part with EA of its own is left."""
+        tube = make_product(item_type="component", unit="M", purchase_uom="EA", purchase_factor=D("10"))
+        _, material = routing_material(tube, quantity="2")
+        planned = _run(db, migration)
+        assert (material.unit, material.quantity) == ("EA", D("2"))
+        assert _lines_about(migration, planned, "LEFT", "routing material line(s)", tube.sku, "1 EA = 10 M")
+        assert not _lines_about(migration, planned, "CHECK", tube.sku)
+
     def test_an_ea_line_on_a_part_stocked_by_the_metre_becomes_m(self, db, migration, make_product, bom_line):
         tube = make_product(item_type="component", unit="M", purchase_uom="M")
         _, line = bom_line(tube, quantity="2")
@@ -465,16 +501,15 @@ class TestLinesRewritten:
 
 
 class TestLinesLeft:
-    def test_an_ea_line_on_a_spool_with_an_each_size_of_its_own_is_left(self, db, migration, bom_line, filament,
-                                                                        order_rows):
-        """1 EA may mean a spool of 750 G, and the BOM page already reads it that way."""
+    def test_a_bom_line_in_ea_on_a_spool_with_an_each_size_of_its_own_is_left(self, db, migration, bom_line,
+                                                                              filament):
+        """The BOM page's needed and shortage figures already read 1 EA on it as the spool's 750 G."""
         spool = filament(purchase_factor=D("750"))
         _, line = bom_line(spool, quantity="1")
-        _, rows = order_rows(spool, ("error",), quantity="1")
         planned = _run(db, migration)
         assert (line.unit, line.quantity) == ("EA", D("1"))
-        assert rows["error"].unit == "EA"
         assert _item_units(db, spool) == {"EA": (D("750"), None)}
+        assert not [entry for entry in planned["lines"] if entry[:2] == ("bom_lines", line.id)]
         (listed,) = _lines_about(migration, planned, "LEFT", "BOM line(s)", spool.sku)
         assert "cost takes 1 EA as 1 G" in listed
         assert "the BOM page's needed and shortage figures take 1 EA as 750 G" in listed
@@ -482,7 +517,6 @@ class TestLinesLeft:
         assert f"{spool.sku} has EA as a unit of its own: 1 EA = 750 G." in listed
         assert "If the line means that, leave it." in listed
         assert "change the line's unit to G" in listed
-        assert not _lines_about(migration, planned, "had failed to be consumed", spool.sku)
 
     def test_an_ea_line_on_filament_with_a_hand_made_each_size_is_left(self, db, migration, bom_line, filament):
         item = filament(purchase_uom="KG")
