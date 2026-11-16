@@ -23,7 +23,11 @@ class UnitOfMeasure(Base):
     Example:
         - KG is the base unit for weight (to_base_factor = 1)
         - G has to_base_factor = 0.001 (1g = 0.001kg)
-        - LB has to_base_factor = 0.453592 (1lb = 0.453592kg)
+        - LB has to_base_factor = 0.45359237 (1lb = 0.45359237kg, exact)
+
+    The standard rows and their exact factors are listed once, in
+    ``app.services.unit_conversion.STANDARD_UNITS``. Convert through that
+    module, not from these rows directly.
     """
     __tablename__ = "units_of_measure"
     __table_args__ = (
@@ -41,7 +45,8 @@ class UnitOfMeasure(Base):
 
     # Multiply quantity by this factor to get base unit quantity
     # e.g., 500 G * 0.001 = 0.5 KG
-    to_base_factor = Column(Numeric(18, 8), default=1, nullable=False)
+    # 15 places: the exact ounce is 0.028349523125 KG, which does not fit in 8.
+    to_base_factor = Column(Numeric(30, 15), default=1, nullable=False)
 
     active = Column(Boolean, default=True, nullable=False)
 

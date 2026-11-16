@@ -154,10 +154,15 @@ class TestLineInThePurchaseUnit:
     def test_a_unit_table_row_for_the_pack_does_not_override_the_pack_size(
         self, db, make_product, make_bom
     ):
-        """BOX set up in the unit table as 1 EA must not turn 1 BOX of 12 into 1 EA."""
-        for code, name in (("EA", "Each"), ("BOX", "Box")):
-            if not db.query(UnitOfMeasure).filter(UnitOfMeasure.code == code).first():
-                db.add(UnitOfMeasure(code=code, name=name, uom_class="quantity", to_base_factor=D("1")))
+        """BOX set up in the unit table as 1 EA must not turn 1 BOX of 12 into 1 EA.
+
+        The test database starts with BOX as a pack, which the table never
+        converts. An install can still have filed it as a counting unit, so
+        the test files it that way itself.
+        """
+        each = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "EA").one()
+        box = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "BOX").one()
+        box.uom_class, box.base_unit_id, box.to_base_factor = "quantity", each.id, D("1")
         db.flush()
         bom, _ = _bom_with_one_line(db, make_product, make_bom, {**BOXED, "standard_cost": D("24")}, "1", "BOX")
 

@@ -106,8 +106,20 @@ class TestConvertQuantitySafe:
         assert ok is True
         assert qty == Decimal("100")
 
+    def test_the_unit_table_converts_g_to_kg(self, db):
+        # The test database starts with the standard units, so this goes through the table.
+        qty, ok = convert_quantity_safe(db, Decimal("3856"), "G", "KG")
+        assert ok is True
+        assert qty == Decimal("3.856")
+
     def test_inline_fallback_g_to_kg(self, db):
-        # No UOM records in test DB → falls back to inline conversion
+        # With no unit rows at all, the inline table still converts, until it is removed.
+        from app.models.uom import UnitOfMeasure
+        from app.services.unit_conversion import forget_units
+
+        db.query(UnitOfMeasure).delete()
+        db.flush()
+        forget_units(db)
         qty, ok = convert_quantity_safe(db, Decimal("3856"), "G", "KG")
         assert ok is True
         assert qty == Decimal("3.856")
