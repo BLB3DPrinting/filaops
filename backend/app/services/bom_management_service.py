@@ -28,6 +28,7 @@ from app.schemas.bom import (
     BOMCopyRequest,
 )
 from app.services.bom_component_cost import component_cost_for_bom, convert_line_quantity
+from app.services.line_units import quantity_in_line_unit, unit_for_line
 from app.services.uom_service import convert_quantity_safe
 
 logger = get_logger(__name__)
@@ -741,10 +742,13 @@ def create_bom(
                 ).first()
 
                 if existing_line:
+                    # The line keeps its unit. What is added means the same as on a new line: a
+                    # quantity with no unit is in the component's stock unit. It is checked and
+                    # brought into the line's unit before anything on the line is changed.
+                    given = unit_for_line(db, line_data.unit, component, current=existing_line.unit)
+                    added = quantity_in_line_unit(db, line_data.quantity, given, existing_line.unit)
                     # Update existing line quantity (add to it)
-                    existing_line.quantity = (existing_line.quantity or 0) + line_data.quantity
-                    if line_data.unit:
-                        existing_line.unit = line_data.unit
+                    existing_line.quantity = (existing_line.quantity or 0) + added
                     if line_data.scrap_factor is not None:
                         existing_line.scrap_factor = line_data.scrap_factor
                     if line_data.notes:
@@ -755,7 +759,7 @@ def create_bom(
                         bom_id=existing_bom.id,
                         component_id=line_data.component_id,
                         quantity=line_data.quantity,
-                        unit=line_data.unit or component.unit or "EA",
+                        unit=unit_for_line(db, line_data.unit, component),
                         sequence=line_data.sequence or seq,
                         consume_stage=line_data.consume_stage or "production",
                         is_cost_only=line_data.is_cost_only or False,
@@ -824,7 +828,7 @@ def create_bom(
                 bom_id=bom.id,
                 component_id=line_data.component_id,
                 quantity=line_data.quantity,
-                unit=line_data.unit or component.unit or "EA",
+                unit=unit_for_line(db, line_data.unit, component),
                 sequence=line_data.sequence or seq,
                 consume_stage=line_data.consume_stage or "production",
                 is_cost_only=line_data.is_cost_only or False,
@@ -930,7 +934,7 @@ def add_bom_line(db: Session, bom_id: int, line_data: BOMLineCreate) -> dict:
         bom_id=bom_id,
         component_id=line_data.component_id,
         quantity=line_data.quantity,
-        unit=line_data.unit or component.unit or "EA",
+        unit=unit_for_line(db, line_data.unit, component),
         sequence=sequence,
         consume_stage=line_data.consume_stage or "production",
         is_cost_only=line_data.is_cost_only or False,
@@ -987,8 +991,17 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
     # Update provided fields
     update_data = line_data.model_dump(exclude_unset=True)
 
+    component_changes = new_component is not None and new_component.id != line.component_id
+
+    # A unit that came with the request is checked against the unit table. The unit the line
+    # already holds may be sent back unchecked, but only while the line stays on its component.
+    if "unit" in update_data:
+        update_data["unit"] = unit_for_line(
+            db, update_data["unit"], new_component or line.component,
+            current=None if component_changes else line.unit,
+        )
     # Inherit new component's unit when component actually changes without explicit unit
-    if new_component and "unit" not in update_data and line_data.component_id != line.component_id:
+    elif component_changes:
         update_data["unit"] = new_component.unit or "EA"
 
     for field, value in update_data.items():

@@ -1241,7 +1241,8 @@ class TestCreateOperationMaterial:
         )
         assert response.status_code == 400
 
-    def test_create_material_invalid_unit_returns_422(self, client, make_product):
+    def test_create_material_unknown_unit_returns_400(self, client, make_product):
+        """The schema no longer holds a list of units. The service asks the unit table."""
         product = make_product(item_type="finished_good", procurement_type="make")
         component = make_product(item_type="supply", unit="EA")
         routing = _create_routing(client, product_id=product.id)
@@ -1255,7 +1256,8 @@ class TestCreateOperationMaterial:
                 "unit": "INVALID_UNIT",
             },
         )
-        assert response.status_code == 422
+        assert response.status_code == 400
+        assert "INVALID_UNIT" in response.json()["detail"]
 
     def test_create_material_missing_quantity_returns_422(self, client, make_product):
         product = make_product(item_type="finished_good", procurement_type="make")

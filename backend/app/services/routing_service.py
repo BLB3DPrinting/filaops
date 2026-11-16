@@ -21,6 +21,7 @@ from app.models.manufacturing import (
 from app.models.work_center import WorkCenter
 from app.models.product import Product
 from app.core.utils import get_or_404
+from app.services.line_units import unit_for_line
 from app.services.operation_material_mapping import alias_operation_type_for_code
 
 logger = get_logger(__name__)
@@ -647,6 +648,9 @@ def add_operation_material(
     if "quantity_per" in data and hasattr(data["quantity_per"], "value"):
         data["quantity_per"] = data["quantity_per"].value
 
+    # The unit asked for, checked against the unit table; with none given, the component's stock unit.
+    data["unit"] = unit_for_line(db, data.get("unit"), component)
+
     material = RoutingOperationMaterial(routing_operation_id=operation_id, **data)
     db.add(material)
     try:
@@ -684,14 +688,31 @@ def update_operation_material(
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
 
+    component, component_changes = material.component, False
     if "component_id" in data:
-        if not db.query(Product).filter(Product.id == data["component_id"]).first():
+        component = db.query(Product).filter(Product.id == data["component_id"]).first()
+        if not component:
             raise HTTPException(status_code=400, detail="Component product not found")
+        component_changes = component.id != material.component_id
+
+    # A unit that came with the request is checked against the unit table. The unit the line
+    # already holds may be sent back unchecked, but only while the line stays on its component.
+    if "unit" in data:
+        data["unit"] = unit_for_line(
+            db, data["unit"], component, current=None if component_changes else material.unit
+        )
+    # As a BOM line does: moved to another component with no unit given, it takes that component's stock unit.
+    elif component_changes:
+        data["unit"] = unit_for_line(db, None, component)
 
     for field, value in data.items():
         if field == "quantity_per" and value and hasattr(value, "value"):
             value = value.value
         setattr(material, field, value)
+    if component_changes:
+        # The line's component was read above, so the loaded one is the old one. Point it at
+        # the new one, or the routing total below is worked out from the old component's cost.
+        material.component = component
 
     material.updated_at = datetime.now(timezone.utc)
     try:

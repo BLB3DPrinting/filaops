@@ -9,24 +9,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
 
-
-# Valid UOM codes - should match uom_service.INLINE_UOM_CONVERSIONS
-VALID_UOM_CODES = ['EA', 'G', 'KG', 'LB', 'OZ', 'M', 'MM', 'CM', 'IN', 'FT', 'L', 'ML', 'PK', 'BOX', 'ROLL', 'HR']
-
-
-def validate_uom_code(value: Optional[str]) -> Optional[str]:
-    """
-    Validate and normalize a UOM code.
-    Returns None if input is None/empty, otherwise normalizes to uppercase.
-    Raises ValueError if the unit is not in the allowed list.
-    """
-    if value is None or value.strip() == '':
-        return None
-
-    normalized = value.upper().strip()
-    if normalized not in VALID_UOM_CODES:
-        raise ValueError(f"Invalid unit '{value}'. Must be one of: {', '.join(VALID_UOM_CODES)}")
-    return normalized
+from app.schemas.bom import tidy_unit_code
 
 
 # ============================================================================
@@ -409,28 +392,33 @@ class QuantityPer(str, Enum):
 
 
 class RoutingOperationMaterialBase(BaseModel):
-    """Base fields for routing operation material"""
+    """Base fields for routing operation material.
+
+    The unit is not checked here, so a response can carry whatever a line
+    holds. The request schemas below tidy it.
+    """
     component_id: int
     quantity: Decimal = Field(..., gt=0)
     quantity_per: QuantityPer = QuantityPer.UNIT
-    unit: str = Field("EA", max_length=20)
+    unit: Optional[str] = Field(None, max_length=20)
     scrap_factor: Optional[Decimal] = Field(Decimal("0"), ge=0, le=100)
     is_cost_only: bool = False
     is_optional: bool = False
     is_variable: bool = False
     notes: Optional[str] = None
 
-    @field_validator('unit')
-    @classmethod
-    def validate_unit(cls, v: str) -> str:
-        """Validate and normalize the unit of measure."""
-        result = validate_uom_code(v)
-        return result if result else "EA"  # Default to EA if empty
-
 
 class RoutingOperationMaterialCreate(RoutingOperationMaterialBase):
-    """Create a new routing operation material"""
-    pass
+    """Create a new routing operation material.
+
+    The unit may be left out: the line then gets the component's stock unit.
+    """
+
+    @field_validator('unit')
+    @classmethod
+    def tidy_unit(cls, v: Optional[str]) -> Optional[str]:
+        """Tidy the unit code. The service checks it against the unit table."""
+        return tidy_unit_code(v)
 
 
 class RoutingOperationMaterialUpdate(BaseModel):
@@ -447,15 +435,16 @@ class RoutingOperationMaterialUpdate(BaseModel):
 
     @field_validator('unit')
     @classmethod
-    def validate_unit(cls, v: Optional[str]) -> Optional[str]:
-        """Validate and normalize the unit of measure."""
-        return validate_uom_code(v)
+    def tidy_unit(cls, v: Optional[str]) -> Optional[str]:
+        """Tidy the unit code. The service checks it against the unit table."""
+        return tidy_unit_code(v)
 
 
 class RoutingOperationMaterialResponse(RoutingOperationMaterialBase):
     """Routing operation material response"""
     id: int
     routing_operation_id: int
+    unit: str = Field("EA", max_length=20)  # a saved line always has one
     component_sku: Optional[str] = None
     component_name: Optional[str] = None
     unit_cost: Decimal = Decimal("0")
