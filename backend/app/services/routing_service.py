@@ -688,15 +688,22 @@ def update_operation_material(
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
 
-    component = material.component
+    component, component_changes = material.component, False
     if "component_id" in data:
         component = db.query(Product).filter(Product.id == data["component_id"]).first()
         if not component:
             raise HTTPException(status_code=400, detail="Component product not found")
+        component_changes = component.id != material.component_id
 
-    # A unit that came with the request is checked against the unit table.
+    # A unit that came with the request is checked against the unit table. The unit the line
+    # already holds may be sent back unchecked, but only while the line stays on its component.
     if "unit" in data:
-        data["unit"] = unit_for_line(db, data["unit"], component, current=material.unit)
+        data["unit"] = unit_for_line(
+            db, data["unit"], component, current=None if component_changes else material.unit
+        )
+    # As a BOM line does: moved to another component with no unit given, it takes that component's stock unit.
+    elif component_changes:
+        data["unit"] = unit_for_line(db, None, component)
 
     for field, value in data.items():
         if field == "quantity_per" and value and hasattr(value, "value"):

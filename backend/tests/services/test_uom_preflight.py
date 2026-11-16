@@ -12,6 +12,8 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 
+from app.models.bom import BOMLine
+from app.models.product_unit import ProductUnit
 from app.models.uom import UnitOfMeasure
 
 _BACKEND = Path(__file__).resolve().parents[2]
@@ -141,7 +143,7 @@ class TestReport:
         spool = make_product(item_type="material", unit="g", purchase_uom="pcs", purchase_factor=D("750"))
         screws = make_product(item_type="component", unit="pcs", purchase_uom="box", purchase_factor=D("12"))
         pellets = make_product(item_type="material", unit="kg", purchase_uom="kg")
-        make_bom(product_id=made.id, lines=[
+        bom = make_bom(product_id=made.id, lines=[
             {"component_id": filament.id, "quantity": D("50"), "unit": "ea"},
             {"component_id": spool.id, "quantity": D("20"), "unit": "each"},
             {"component_id": pellets.id, "quantity": D("2"), "unit": "pcs"},
@@ -164,9 +166,19 @@ class TestReport:
         assert any("purchase unit EA -> KG" in line and filament.sku in line for line in ours)
         assert any("1 EA = 750 G" in line and spool.sku in line for line in ours)
         assert any("1 BOX = 12 EA" in line and screws.sku in line for line in ours)
-        assert any("LEFT" in line and pellets.sku in line for line in ours)
+        for left in (spool, pellets, screws):
+            assert any("LEFT" in line and left.sku in line for line in ours), left.sku
+
+        # The same plan could be wrong on both sides, so the rows are looked at too.
         db.expire_all()
         assert (filament.unit, filament.purchase_uom, screws.unit) == ("G", "KG", "EA")
+        units = {line.component_id: line.unit for line in db.query(BOMLine).filter(BOMLine.bom_id == bom.id)}
+        assert units == {filament.id: "G", spool.id: "EA", pellets.id: "EA", screws.id: "BOX"}
+        sizes = {
+            (row.product_id, row.unit_code): row.stock_units_per_unit
+            for row in db.query(ProductUnit).filter(ProductUnit.product_id.in_([spool.id, screws.id, filament.id]))
+        }
+        assert sizes == {(spool.id, "EA"): D("750"), (screws.id, "BOX"): D("12")}
 
 
 class TestRun:

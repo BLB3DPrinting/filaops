@@ -24,7 +24,13 @@ def unit_for_line(
       switched off there, is refused with a 400 that names it.
     - ``current`` is the unit the line already holds. Sending it back is not a
       change, so a line saved before its unit left the table can still have its
-      quantity edited.
+      quantity edited. A caller passes it only while the line stays on the same
+      component: a line moved to another component has its unit checked.
+
+    The component's own stock unit is handed back as it is stored. Whether an
+    item's units are in the unit table is the business of the item writers.
+    Only the unit's existence is checked here, not whether it can be converted
+    to the component's stock unit.
     """
     if requested is None or not str(requested).strip():
         return getattr(component, "unit", None) or "EA"

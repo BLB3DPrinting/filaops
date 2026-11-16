@@ -131,6 +131,20 @@ class TestBomWriters:
         saved = boms.update_bom_line(db, bom.id, line.id, BOMLineUpdate(quantity=D("75"), unit="SCOOP"))
         assert (saved["unit"], D(str(saved["quantity"]))) == ("SCOOP", D("75"))
 
+    def test_a_unit_the_table_lost_does_not_follow_the_line_to_another_component(self, db, make_product, make_bom,
+                                                                                filament):
+        """Sending the held unit back is allowed only while the line stays on its component."""
+        bom = self._bom(make_product, make_bom, filament, unit="SCOOP")
+        line = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).one()
+        tube = make_product(item_type="component", unit="M")
+        move = BOMLineUpdate(component_id=tube.id, unit="SCOOP")
+        _refused(lambda: boms.update_bom_line(db, bom.id, line.id, move), "SCOOP")
+        db.expire_all()
+        assert line.component_id == filament.id
+        # Naming the component it is already on is not a move.
+        stay = BOMLineUpdate(component_id=filament.id, unit="SCOOP", quantity=D("60"))
+        assert boms.update_bom_line(db, bom.id, line.id, stay)["unit"] == "SCOOP"
+
     def test_changing_the_component_without_a_unit_takes_the_new_components_unit(self, db, make_product, make_bom,
                                                                                  filament):
         bom = self._bom(make_product, make_bom, filament)
@@ -168,8 +182,9 @@ class TestBomWriters:
         request = BOMCreate(product_id=made.id, lines=[
             BOMLineCreate(component_id=filament.id, quantity=D("5"), unit="scoop")])
         _refused(lambda: boms.create_bom(db, request), "SCOOP")
-        db.expire_all()
-        assert db.query(BOMLine).filter(BOMLine.bom_id == bom.id).one().unit == "G"
+        # Refused before anything on the line was changed: the quantity was not added either.
+        line = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).one()
+        assert (line.unit, line.quantity) == ("G", D("5"))
 
 
 class TestRoutingWriters:
@@ -208,6 +223,32 @@ class TestRoutingWriters:
         saved = routings.add_operation_material(
             db, operation.id, data={"component_id": filament.id, "quantity": D("37"), "unit": "KG"})
         assert routings.update_operation_material(db, saved.id, data={"unit": None}).unit == "G"
+
+    def test_changing_the_component_without_a_unit_takes_the_new_components_unit(self, db, operation, make_product,
+                                                                                 filament):
+        """As a BOM line does. It used to keep the old unit: grams on a part stocked by the metre."""
+        saved = routings.add_operation_material(
+            db, operation.id, data={"component_id": filament.id, "quantity": D("37"), "unit": "G"})
+        tube = make_product(item_type="component", unit="M")
+        assert routings.update_operation_material(db, saved.id, data={"component_id": tube.id}).unit == "M"
+
+    def test_a_line_holding_a_unit_the_table_lost_can_still_be_edited(self, db, operation, filament):
+        material = RoutingOperationMaterial(routing_operation_id=operation.id, component_id=filament.id,
+                                            quantity=D("37"), unit="SCOOP", scrap_factor=D("0"))
+        db.add(material)
+        db.flush()
+        saved = routings.update_operation_material(db, material.id, data={"quantity": D("40"), "unit": "SCOOP"})
+        assert (saved.unit, saved.quantity) == ("SCOOP", D("40"))
+
+    def test_a_unit_the_table_lost_does_not_follow_the_line_to_another_component(self, db, operation, make_product,
+                                                                                filament):
+        material = RoutingOperationMaterial(routing_operation_id=operation.id, component_id=filament.id,
+                                            quantity=D("37"), unit="SCOOP", scrap_factor=D("0"))
+        db.add(material)
+        db.flush()
+        tube = make_product(item_type="component", unit="M")
+        move = {"component_id": tube.id, "unit": "SCOOP"}
+        _refused(lambda: routings.update_operation_material(db, material.id, data=move), "SCOOP")
 
 
 class TestThroughTheApi:
@@ -249,3 +290,24 @@ class TestThroughTheApi:
                                json={"component_id": filament.id, "quantity": "37"})
         assert response.status_code == 201
         assert response.json()["unit"] == "G"
+
+    def test_a_routing_material_holding_a_unit_the_table_does_not_know_can_be_read_back(self, client, db, operation,
+                                                                                       filament):
+        """The response schema used to inherit the list and failed on such a line."""
+        db.add(RoutingOperationMaterial(routing_operation_id=operation.id, component_id=filament.id,
+                                        quantity=D("37"), unit="Scoop", scrap_factor=D("0")))
+        db.flush()
+        read = client.get(f"/api/v1/routings/operations/{operation.id}/materials")
+        assert read.status_code == 200
+        assert [line["unit"] for line in read.json()] == ["Scoop"]
+
+    def test_choosing_default_as_a_bom_lines_unit_gives_the_stock_unit(self, client, db, make_product, make_bom,
+                                                                       filament):
+        """The BOM page's "Default" option sends no unit. That used to end in a server error."""
+        bom = make_bom(product_id=make_product().id,
+                       lines=[{"component_id": filament.id, "quantity": D("5"), "unit": "KG"}])
+        line = db.query(BOMLine).filter(BOMLine.bom_id == bom.id).one()
+        response = client.patch(f"/api/v1/admin/bom/{bom.id}/lines/{line.id}", json={"unit": None})
+        assert response.status_code == 200
+        # The quantity is not converted: the line now says 5 G.
+        assert (response.json()["unit"], D(str(response.json()["quantity"]))) == ("G", D("5"))

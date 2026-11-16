@@ -742,12 +742,15 @@ def create_bom(
                 ).first()
 
                 if existing_line:
+                    # The unit is checked before anything on the line is changed.
+                    new_unit = (
+                        unit_for_line(db, line_data.unit, component, current=existing_line.unit)
+                        if line_data.unit else None
+                    )
                     # Update existing line quantity (add to it)
                     existing_line.quantity = (existing_line.quantity or 0) + line_data.quantity
-                    if line_data.unit:
-                        existing_line.unit = unit_for_line(
-                            db, line_data.unit, component, current=existing_line.unit
-                        )
+                    if new_unit:
+                        existing_line.unit = new_unit
                     if line_data.scrap_factor is not None:
                         existing_line.scrap_factor = line_data.scrap_factor
                     if line_data.notes:
@@ -990,13 +993,17 @@ def update_bom_line(db: Session, bom_id: int, line_id: int, line_data: BOMLineUp
     # Update provided fields
     update_data = line_data.model_dump(exclude_unset=True)
 
-    # A unit that came with the request is checked against the unit table.
+    component_changes = new_component is not None and new_component.id != line.component_id
+
+    # A unit that came with the request is checked against the unit table. The unit the line
+    # already holds may be sent back unchecked, but only while the line stays on its component.
     if "unit" in update_data:
         update_data["unit"] = unit_for_line(
-            db, update_data["unit"], new_component or line.component, current=line.unit
+            db, update_data["unit"], new_component or line.component,
+            current=None if component_changes else line.unit,
         )
     # Inherit new component's unit when component actually changes without explicit unit
-    elif new_component and line_data.component_id != line.component_id:
+    elif component_changes:
         update_data["unit"] = new_component.unit or "EA"
 
     for field, value in update_data.items():

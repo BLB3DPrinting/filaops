@@ -16,37 +16,59 @@ Data, in this order
        material as stock unit G, purchase unit EA, size 1000, which is a
        kilogram under another name: an EA line cannot be received for it. Its
        purchase unit becomes KG. The size stays 1000, so every cost keeps its
-       meaning. Migration 105 made this change only where the item's purchase
-       orders were in KG and none in EA; the report marks the ones it left.
-       An open purchase order line in EA on such an item is not changed, and
-       is listed: receiving refused it before and still does.
+       meaning. Migration 105 (4.4.0) made this change only where the item had
+       purchase order lines in KG and none in EA. The report marks the ones
+       105's rule leaves, so someone who was told to set them by hand knows it
+       is done. An open purchase order line in EA on a gram-stocked material is
+       not changed, and is listed: receiving refused it before and still does.
     2. Item units worked out. An item bought in a unit the unit table cannot
        convert to its stock unit (a BOX of 12 on an item stocked by the each,
        an EA of 750 G on gram filament) gets that unit as one of its own, with
        the size the item already holds. No size, a size of 1, or a unit the
        table does not know gets no row and is listed. An item that already has
-       a row for the unit keeps it; it is listed when the sizes differ.
+       a row for the unit keeps it; it is listed when the sizes differ. Where
+       the unit table does convert the purchase unit but the item holds a
+       different size (BOX filed as a counting unit of 12, and an item that
+       says 10), nothing is changed and the item is listed: receiving uses the
+       table and cost uses the item's size.
     3. Line units, on BOM lines, routing material lines, and production order
-       material rows not yet consumed (pending, allocated, or failed). A line
-       is rewritten to the component's stock unit, with the same quantity, in
-       one case only: the line is in EA, the component is not stocked by the
-       each, and the readers that give a number already take it as the stock
-       unit. That is a material stocked in G, or an item that is not a
-       material and cannot be entered by the each. EA is what a line gets when
-       nobody picks a unit.
+       material rows not yet consumed (pending, allocated, or failed).
+
+       A line is rewritten to the component's stock unit, with the same
+       quantity, in one case only. All of these hold:
+       - the line is in EA, which is what a line gets when nobody picks a unit;
+       - the component is a material stocked in G, or is not a material;
+       - the component is not stocked by the each, and EA does not convert to
+         its stock unit;
+       - the component has no size for EA among its own units. Where it has
+         one (a spool of 750 G bought by the each), "1 EA" may mean a spool,
+         and the BOM page already reads it that way;
+       - its stock unit is not a pack that requirements are not rounded for
+         (ROLL, SPOOL): see the last point below.
 
        For such a line cost and planning already took the number as the stock
-       unit, while reserving or consuming stock for it failed, because EA does
-       not convert to G. After the rewrite stock is reserved and consumed for
-       the same number the cost was worked out from. One more thing changes
-       with it: a requirement in EA is rounded up to a whole number when a
-       production order is sized, and a requirement in grams or metres is
-       not.
+       unit, and so did the fulfilment queue when it reserved and consumed. On
+       a production order no stock was reserved for it, and completing or
+       shipping the order failed, because EA does not convert to G. After the
+       rewrite those work, for the number the cost was worked out from. Two
+       figures change with it:
+       - a routing material's requirement in EA is rounded up to a whole
+         number when a production order is sized. One in grams or metres is
+         not;
+       - on a material that step 1 moved from EA to KG, the BOM page showed
+         each EA of such a line as 1000 G needed. It now shows the number as
+         grams.
 
        Every other line the unit table cannot convert is left as written and
        listed with what each reader makes of it, because rewriting it would
-       change a cost or lose what the line meant. A line in a code the unit
-       table does not know is not looked at: migration 106 lists those.
+       change a number or lose what the line meant. A line in a code the unit
+       table does not know is not looked at: migration 106 lists those. A line
+       with no unit at all is listed.
+
+       The readers named in the report are the ones at this revision. Planning
+       converts with its own short table of weights, lengths and volumes, not
+       the unit table, so on an install that filed a standard code under
+       another kind it can read a line differently from what is printed here.
     4. The item units from step 2 are written.
 
 Safe to run twice: the second run changes nothing, and lists again what it
@@ -78,19 +100,32 @@ depends_on = None
 log = logging.getLogger("alembic.runtime.migration")
 
 # Frozen copies: a migration must not import app code that can change later.
-# A test fails if these differ from app.services.unit_conversion.
-_SPELLINGS = {
+# A test fails if these differ from the application's.
+_SPELLINGS = {  # app.services.unit_conversion.UNIT_SPELLINGS
     "PCS": "EA", "PC": "EA", "EACH": "EA", "UNIT": "EA", "UNITS": "EA",
     "PACK": "PK", "PACKS": "PK",
     "GRAM": "G", "GRAMS": "G",
     "KILOGRAM": "KG", "KILOGRAMS": "KG",
     "MILLIGRAM": "MG", "MILLIGRAMS": "MG",
 }
-_PACK = "pack"
+_PACK = "pack"  # app.services.unit_conversion.PACK
+# A requirement in one of these is rounded up to a whole number when a production order is sized.
+_COUNTED_UNITS = ("EA", "EACH", "PCS", "UNIT", "BOX", "BOXES")  # production_order_quantity_change.COUNTED_UNITS
+# The units cost converts between by itself; for any other pair it uses the item's own size.
+_COST_CLASSES = (  # the measurement classes of app.services.uom_service.INLINE_UOM_CONVERSIONS
+    frozenset({"G", "KG", "LB", "OZ"}),
+    frozenset({"MM", "CM", "M", "IN", "FT"}),
+    frozenset({"ML", "L"}),
+)
+# What migration 105 read as EA on a purchase order line, besides EA itself and a blank.
+_COUNT_SYNONYMS_105 = frozenset({"PCS", "PC", "EACH", "UNIT", "UNITS"})
 
 _NAMED_ROWS = 25
-# product_units holds a size to ten decimal places.
+# product_units holds a size to ten decimal places, in NUMERIC(20, 10).
 _SIZE_PLACES = Decimal("0.0000000001")
+_SIZE_LIMIT = Decimal("10000000000")
+# products.purchase_factor holds six.
+_FACTOR_PLACES = Decimal("0.000001")
 
 # state key -> the table its lines live in
 _LINES = {
@@ -102,12 +137,6 @@ _LINE_WORDS = {
     "bom_lines": "BOM line(s)",
     "routing_lines": "routing material line(s)",
     "order_lines": "production order material row(s)",
-}
-# What happens to stock for a line the unit table cannot convert.
-_STOCK_READING = {
-    "bom_lines": "reserving or consuming stock for it fails",
-    "routing_lines": "a production order made from it keeps the unit, and consuming stock for that row fails",
-    "order_lines": "consuming stock for it fails",
 }
 _STATE_KEYS = (
     "units", "items", "bom_lines", "routing_lines", "order_lines", "po_lines", "item_units", "po_line_units",
@@ -166,10 +195,11 @@ def read_state(bind) -> dict:
             "WHERE o.status NOT IN ('received', 'closed', 'cancelled') ORDER BY l.id",
         )
         # Every unit an item was ever ordered in, open or not: what migration 105 decided from.
+        # A blank unit is kept, because 105 read it as EA.
         state["po_line_units"] = _rows(
             bind,
             "SELECT product_id, UPPER(BTRIM(purchase_unit)) AS unit FROM purchase_order_lines "
-            "WHERE purchase_unit IS NOT NULL AND BTRIM(purchase_unit) <> '' "
+            "WHERE purchase_unit IS NOT NULL "
             "GROUP BY product_id, UPPER(BTRIM(purchase_unit)) ORDER BY 1, 2",
         )
     if has("product_units"):
@@ -194,6 +224,21 @@ def _positive(value):
         return None
     number = Decimal(str(value))
     return number if number > 0 else None
+
+
+def _rounded(number: Decimal, places: Decimal) -> Decimal:
+    """Round to ``places``. A ratio of two 15-place factors can be longer than the default 28 digits."""
+    with localcontext() as context:
+        context.prec = 80
+        return number.quantize(places)
+
+
+def _same_size(one: Decimal, other: Decimal) -> bool:
+    """Whether two sizes agree to the six places an item's purchase size holds.
+
+    A size typed the other way round (1 EA = 0.0833333333 BOX) is the same BOX of 12.
+    """
+    return _rounded(one, _FACTOR_PLACES) == _rounded(other, _FACTOR_PLACES)
 
 
 class _UnitTable:
@@ -240,8 +285,21 @@ class _UnitTable:
 
 
 def _is_material(item: dict) -> bool:
-    """A material as the code at this revision tests for one."""
-    return str(item["item_type"] or "").strip().lower() == "material" or item["material_type_id"] is not None
+    """A material as the application tests for one: the item type in any case, or a material type."""
+    return str(item["item_type"] or "").lower() == "material" or item["material_type_id"] is not None
+
+
+def _left_by_105(row: dict, ordered_in: set):
+    """Why migration 105's rule leaves this gram / EA / 1000 material at EA, or None when it changes it.
+
+    105 looked at items typed exactly ``material`` or linked to a material type, and changed
+    one only when it had purchase order lines in KG and none in EA.
+    """
+    if not (row["item_type"] == "material" or row["material_type_id"] is not None):
+        return None
+    if "EA" in ordered_in:
+        return "ea_lines"
+    return None if "KG" in ordered_in else "no_kg_lines"
 
 
 def _own_size(row: dict):
@@ -254,18 +312,24 @@ def _own_size(row: dict):
 
 
 def _through_own_units(table: _UnitTable, own: dict, unit: str):
-    """Stock units in one ``unit`` by the item's own units, or None.
+    """Stock units in one ``unit`` by the item's own units: ``(size, the own unit it came through)``.
 
     The item has the unit itself, or one of the same kind that the unit table
     converts it to. This is the application's reading of an item's own units.
+    ``(None, None)`` when it has neither.
     """
     if unit in own:
-        return own[unit]
+        return own[unit], unit
     for code, size in own.items():
         through = table.factor(unit, code)
-        if through is not None and code != unit:
-            return through * size
-    return None
+        if through is not None:
+            return through * size, code
+    return None, None
+
+
+def _cost_uses_item_size(purchase: str, stock: str) -> bool:
+    """Whether cost takes the item's own size for this pair, not a conversion of its own."""
+    return not any(purchase in units and stock in units for units in _COST_CLASSES)
 
 
 def _line_name(key: str, row: dict) -> str:
@@ -277,21 +341,60 @@ def _line_name(key: str, row: dict) -> str:
     return "order %s material row %s" % (row.get("order_code") or "(no code)", row["id"])
 
 
-def _cost_reading(key: str, table: _UnitTable, item: dict, unit: str) -> tuple:
-    """What cost makes of one ``unit`` on a line of this kind: (how many, of which unit).
+def _plain(number) -> str:
+    """A number without exponent notation or trailing zeros, to at most ten decimal places."""
+    text = format(_rounded(Decimal(str(number)), _SIZE_PLACES), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
-    A BOM line on a material is turned into grams: KG is 1000, any other unit
-    goes through the unit table, and one it cannot convert is taken as grams.
-    A BOM line on anything else in the item's purchase unit is multiplied by
-    the item's size; any other is taken as the stock unit. A routing material's
-    cost never looks at its unit.
+
+def _readings(key: str, table: _UnitTable, item: dict, unit: str) -> str:
+    """What each reader at this revision makes of one ``unit`` on a line of this kind.
+
+    BOM line, cost: on a material the line is turned into grams (KG is 1000,
+    another unit goes through the unit table, one it cannot convert is taken as
+    grams). On anything else a line in the item's purchase unit is multiplied
+    by the item's size and any other is taken as the stock unit; the cost
+    roll-up of a component with a BOM of its own ignores the unit. The BOM
+    page's needed and shortage figures use the purchase-unit rule for every
+    item. Planning takes the bare number. A production order refuses to
+    convert; the fulfilment queue does not look at the unit.
+
+    Routing material line and production order row: cost is the quantity times
+    the cost per stock unit, whatever the line says.
     """
-    if key == "bom_lines" and item["material"]:
+    stock = item["stock"]
+    if key == "order_lines":
+        return "cost takes 1 %s as 1 %s, no stock is reserved for it and consuming it fails" % (unit, stock)
+    if key == "routing_lines":
+        return (
+            "cost takes 1 %s as 1 %s, planning takes 1 %s as 1 %s, and a production order made from it keeps "
+            "the unit: no stock is reserved for that row and consuming it fails"
+        ) % (unit, stock, unit, stock)
+
+    by_purchase_size = item["size"] if (unit == item["purchase"] and item["size"] is not None) else Decimal("1")
+    parts = []
+    if item["material"]:
         grams = Decimal("1000") if unit == "KG" else (table.factor(unit, "G") or Decimal("1"))
-        return grams, "G"
-    if key == "bom_lines" and unit == item["purchase"] and item["size"] is not None:
-        return item["size"], item["stock"]
-    return Decimal("1"), item["stock"]
+        if table.kind(stock) == "weight":
+            parts.append("cost takes 1 %s as %s G" % (unit, _plain(grams)))
+        else:
+            parts.append(
+                "cost turns 1 %s into %s G and prices it per KG, which is not a real figure for an item "
+                "stocked by the %s" % (unit, _plain(grams), stock)
+            )
+        parts.append("the BOM page's needed and shortage figures take 1 %s as %s %s" % (
+            unit, _plain(by_purchase_size), stock))
+    else:
+        cost = "cost takes 1 %s as %s %s" % (unit, _plain(by_purchase_size), stock)
+        if by_purchase_size != 1:
+            cost += " (1 %s in the cost roll-up, if %s has a BOM of its own)" % (stock, item["sku"])
+        parts.append(cost)
+    parts.append("planning takes 1 %s as 1 %s" % (unit, stock))
+    parts.append(
+        "on a production order no stock is reserved for it and completing or shipping the order fails, while the "
+        "fulfilment queue reserves and consumes 1 %s as 1 %s" % (unit, stock)
+    )
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
 
 
 def plan(state: dict) -> dict:
@@ -299,20 +402,22 @@ def plan(state: dict) -> dict:
     table = _UnitTable(state["units"])
     result = {
         "purchase_units": [], "purchase_units_left": [], "po_lines_left": [],
-        "item_units": [], "kept": [], "no_item_unit": [],
-        "lines": [], "failed_rows": [], "left": {},
+        "item_units": [], "kept": [], "no_item_unit": [], "sizes_differ": [],
+        "lines": [], "lines_on_changed_materials": 0, "failed_rows": [], "left": {}, "no_unit_lines": {},
     }
 
     bought = {}
     for row in state["po_line_units"]:
-        bought.setdefault(row["product_id"], set()).add(table.code(row["unit"]))
+        # As migration 105 read a purchase order line's unit: blank and the count spellings are EA.
+        unit = (row["unit"] or "").strip().upper() or "EA"
+        bought.setdefault(row["product_id"], set()).add("EA" if unit in _COUNT_SYNONYMS_105 else unit)
     own = {}
     for row in state["item_units"]:
         size = _own_size(row)
         if size is not None:
             own.setdefault(row["product_id"], {})[table.code(row["unit_code"])] = size
 
-    items = {}
+    items, changed_materials = {}, set()
     for row in state["items"]:
         item = {
             "sku": row["sku"], "stock": table.code(row["unit"]), "purchase": table.code(row["purchase_uom"]),
@@ -323,34 +428,44 @@ def plan(state: dict) -> dict:
         # 1. Gram filament bought by the each of 1000 is bought by the KG.
         if item["material"] and item["stock"] == "G" and item["purchase"] == "EA" and item["size"] == 1000:
             if table.factor("KG", "G") == 1000:
-                ordered_in = bought.get(row["id"], set())
-                why_105_left_it = "ea_lines" if "EA" in ordered_in else (
-                    None if "KG" in ordered_in else "no_kg_lines")
-                result["purchase_units"].append((row["id"], row["sku"], why_105_left_it))
+                result["purchase_units"].append(
+                    (row["id"], row["sku"], _left_by_105(row, bought.get(row["id"], set())))
+                )
                 item["purchase"] = "KG"
+                changed_materials.add(row["id"])
             else:
                 result["purchase_units_left"].append(row["sku"])
 
         # 2. A purchase unit the unit table cannot convert becomes one of the item's own units.
-        stock, purchase = item["stock"], item["purchase"]
-        if not stock or not purchase or purchase == stock or table.factor(purchase, stock) is not None:
+        stock, purchase, size = item["stock"], item["purchase"], item["size"]
+        if not stock or not purchase or purchase == stock:
+            continue
+        by_the_table = table.factor(purchase, stock)
+        if by_the_table is not None:
+            # The table converts it. Where cost takes the item's own size for this pair, the two have to agree.
+            if _cost_uses_item_size(purchase, stock) and (size is None or not _same_size(size, by_the_table)):
+                result["sizes_differ"].append((row["sku"], purchase, stock, by_the_table, size))
             continue
         unknown = next((code for code in (purchase, stock) if code not in table.units), None)
         if unknown:
-            result["no_item_unit"].append((row["sku"], purchase, stock, "unknown", unknown))
-        elif item["size"] is None:
+            which = "purchase" if unknown == purchase else "stock"
+            why = "%s_%s" % (which, "off" if unknown in table.off else "unknown")
+            result["no_item_unit"].append((row["sku"], purchase, stock, why, unknown))
+        elif size is None:
             result["no_item_unit"].append((row["sku"], purchase, stock, "no_size", ""))
-        elif item["size"] == 1:
+        elif size == 1:
             result["no_item_unit"].append((row["sku"], purchase, stock, "size_one", ""))
+        elif size >= _SIZE_LIMIT:
+            result["no_item_unit"].append((row["sku"], purchase, stock, "too_large", _plain(size)))
         else:
             existing = own.get(row["id"], {}).get(purchase)
             if existing is None:
-                result["item_units"].append((row["id"], row["sku"], purchase, item["size"], stock))
-                own.setdefault(row["id"], {})[purchase] = item["size"]
-            elif existing.quantize(_SIZE_PLACES) != item["size"].quantize(_SIZE_PLACES):
-                result["kept"].append((row["sku"], purchase, existing, item["size"], stock))
+                result["item_units"].append((row["id"], row["sku"], purchase, size, stock))
+                own.setdefault(row["id"], {})[purchase] = size
+            elif not _same_size(existing, size):
+                result["kept"].append((row["sku"], purchase, existing, size, stock))
 
-    # An open purchase order line in EA on filament that is now bought by the KG.
+    # An open purchase order line in EA on a gram-stocked material, whatever the item is bought by now.
     for row in state["po_lines"]:
         item = items.get(row["product_id"])
         if item and item["material"] and item["stock"] == "G" and table.code(row["purchase_unit"]) == "EA":
@@ -363,23 +478,33 @@ def plan(state: dict) -> dict:
             if not item:
                 continue
             stock, unit = item["stock"], table.code(row["unit"])
-            if not unit or not stock or unit == stock:
+            if not unit:
+                result["no_unit_lines"].setdefault(key, []).append(_line_name(key, row))
+                continue
+            if not stock or unit == stock:
                 continue
             # A code the unit table does not know says nothing about what the line means.
             if unit not in table.units or stock not in table.units:
                 continue
             if table.factor(unit, stock) is not None:
                 continue
-            own_size = _through_own_units(table, own.get(row["component_id"], {}), unit)
-            gram_material = item["material"] and stock == "G"
-            by_the_each_is_meaningless = not item["material"] and own_size is None
-            if unit == "EA" and (gram_material or by_the_each_is_meaningless):
-                result["lines"].append((key, row["id"], row["unit"], stock))
-                if key == "order_lines" and row.get("status") == "error":
-                    result["failed_rows"].append((_line_name(key, row), item["sku"], stock))
-                continue
+            own_size, through = _through_own_units(table, own.get(row["component_id"], {}), unit)
+            # A requirement in EA is rounded up for a production order; one in ROLL or SPOOL is not.
+            rounding_would_stop = table.kind(stock) == _PACK and stock not in _COUNTED_UNITS
+            note = ""
+            if unit == "EA" and (not item["material"] or stock == "G"):
+                if own_size is None and not rounding_would_stop:
+                    result["lines"].append((key, row["id"], unit, stock))
+                    if key == "bom_lines" and row["component_id"] in changed_materials:
+                        result["lines_on_changed_materials"] += 1
+                    if key == "order_lines" and row.get("status") == "error":
+                        result["failed_rows"].append((_line_name(key, row), item["sku"], stock))
+                    continue
+                if own_size is None:
+                    note = "rounding"
             group = result["left"].setdefault((key, item["sku"], unit, stock), {
-                "names": [], "cost": _cost_reading(key, table, item, unit), "own_size": own_size,
+                "names": [], "readings": _readings(key, table, item, unit),
+                "own_size": own_size, "through": through, "note": note,
             })
             group["names"].append(_line_name(key, row))
     return result
@@ -402,9 +527,9 @@ def project(state: dict, planned: dict) -> dict:
     return after
 
 
-def _in_batches(ids: list):
-    for start in range(0, len(ids), 1000):
-        yield ids[start:start + 1000]
+def _in_batches(rows: list):
+    for start in range(0, len(rows), 1000):
+        yield rows[start:start + 1000]
 
 
 def apply(bind, planned: dict) -> None:
@@ -426,14 +551,12 @@ def apply(bind, planned: dict) -> None:
         "INSERT INTO product_units (product_id, unit_code, stock_units_per_unit, created_at, updated_at) "
         "VALUES (:product_id, :unit_code, :size, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
-    for item_id, _sku, unit, size, _stock in planned["item_units"]:
-        bind.execute(insert, {"product_id": item_id, "unit_code": unit, "size": size.quantize(_SIZE_PLACES)})
-
-
-def _plain(number) -> str:
-    """A number without exponent notation or trailing zeros."""
-    text = format(Decimal(str(number)), "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
+    new_rows = [
+        {"product_id": item_id, "unit_code": unit, "size": size.quantize(_SIZE_PLACES)}
+        for item_id, _sku, unit, size, _stock in planned["item_units"]
+    ]
+    for batch in _in_batches(new_rows):
+        bind.execute(insert, batch)
 
 
 def _named(names: list) -> str:
@@ -441,6 +564,11 @@ def _named(names: list) -> str:
     shown = ", ".join(str(name) for name in names[:_NAMED_ROWS])
     more = len(names) - _NAMED_ROWS
     return shown + (" and %d more" % more if more > 0 else "")
+
+
+def _as_text(key) -> tuple:
+    """A sort key for a tuple that may hold numbers and None beside strings."""
+    return tuple(map(str, key))
 
 
 def report_lines(planned: dict) -> list:
@@ -454,13 +582,14 @@ def report_lines(planned: dict) -> list:
             "1000, so no cost changes. A purchase order made from planning for them is now written in KG: %s"
         ) % (len(changed), _named([sku for _id, sku, _why in changed]))))
         for why, said in (
-            ("ea_lines", "they have purchase order lines in EA"),
-            ("no_kg_lines", "they have no purchase order lines in KG"),
+            ("ea_lines", "has purchase order lines in EA"),
+            ("no_kg_lines", "has no purchase order lines in KG"),
         ):
             left_by_105 = [sku for _id, sku, reason in changed if reason == why]
             if left_by_105:
                 lines.append((logging.WARNING, (
-                    "107: of those, migration 105 left %d for a person to set, because %s. They are KG now: %s"
+                    "107: %d of those: the 4.4.0 upgrade (migration 105) leaves a material at purchase unit EA "
+                    "when it %s. If its output listed any of these for you to set by hand, that is done now: %s"
                 ) % (len(left_by_105), said, _named(left_by_105))))
     if planned["purchase_units_left"]:
         lines.append((logging.WARNING, (
@@ -470,7 +599,8 @@ def report_lines(planned: dict) -> list:
     if planned["po_lines_left"]:
         lines.append((logging.WARNING, (
             "107: LEFT %d open purchase order line(s) in EA on gram-stocked material: receiving refuses them, as "
-            "before. Change each line to KG, with the quantity and the price per KG, before receiving it: %s"
+            "before. Change each line to a unit of weight (KG or G), with the quantity and the price in that "
+            "unit, before receiving it: %s"
         ) % (len(planned["po_lines_left"]), _named(
             ["%s (%s)" % (name, sku) for name, sku in planned["po_lines_left"]]))))
 
@@ -485,17 +615,38 @@ def report_lines(planned: dict) -> list:
     for sku, unit, existing, size, stock in planned["kept"]:
         lines.append((logging.WARNING, (
             "107: KEPT item %s's own unit as it is, 1 %s = %s %s, although its purchase size says %s. "
-            "Check which is right."
+            "One of the two is wrong."
         ) % (sku, unit, _plain(existing), stock, _plain(size))))
+
+    differ = {}
+    for sku, purchase, stock, by_the_table, size in planned["sizes_differ"]:
+        differ.setdefault((purchase, stock, _plain(by_the_table), _plain(size) if size is not None else ""), []
+                          ).append(sku)
+    for (purchase, stock, by_the_table, size), skus in sorted(differ.items()):
+        theirs = "these items say %s" % size if size else "these items hold no size"
+        lines.append((logging.WARNING, (
+            "107: DIFFERENT SIZES for %d item(s) stocked by the %s and bought by the %s: the unit table says "
+            "1 %s = %s %s, and %s. Receiving uses the unit table; cost uses the item's size. Nothing was "
+            "changed. One of the two is wrong: %s"
+        ) % (len(skus), stock, purchase, purchase, by_the_table, stock, theirs, _named(skus))))
+
     no_size = {}
-    for sku, purchase, stock, why, unknown in planned["no_item_unit"]:
-        no_size.setdefault((why, purchase, stock, unknown), []).append(sku)
-    for (why, purchase, stock, unknown), skus in sorted(no_size.items()):
+    for sku, purchase, stock, why, detail in planned["no_item_unit"]:
+        no_size.setdefault((why, purchase, stock, detail), []).append(sku)
+    for (why, purchase, stock, detail), skus in sorted(no_size.items()):
         because = {
-            "unknown": "the unit %s is not in the unit table. Add it under Units, or change the item's unit" % unknown,
-            "no_size": "they hold no size. Set how many %s are in one %s on each item" % (stock, purchase),
-            "size_one": "they hold a size of 1, which was filled in when nobody typed one. "
-                        "Set how many %s are in one %s on each item" % (stock, purchase),
+            "purchase_unknown": "their purchase unit %s is not in the unit table. Add %s under Units" % (
+                detail, detail),
+            "purchase_off": "their purchase unit %s is switched off in the unit table. Switch it back on under "
+                            "Units" % detail,
+            "stock_unknown": "their stock unit %s is not in the unit table. Add %s under Units" % (detail, detail),
+            "stock_off": "their stock unit %s is switched off in the unit table. Switch it back on under "
+                         "Units" % detail,
+            "no_size": "they hold no size. Each needs how many %s are in one %s" % (stock, purchase),
+            "size_one": "they hold a size of 1, which is often a default nobody typed, so no unit of their own "
+                        "was made. Each needs how many %s are in one %s, also where it really is 1" % (
+                            stock, purchase),
+            "too_large": "their size, %s, is too large to record. Check it" % detail,
         }[why]
         lines.append((logging.WARNING, (
             "107: NO SIZE for %d item(s) stocked by the %s and bought by the %s, so %s cannot be converted for "
@@ -503,38 +654,62 @@ def report_lines(planned: dict) -> list:
         ) % (len(skus), stock, purchase, purchase, because, _named(skus))))
 
     rewritten = {}
-    for key, _id, old, new in planned["lines"]:
-        rewritten[(key, old, new)] = rewritten.get((key, old, new), 0) + 1
-    for (key, old, new), count in sorted(rewritten.items()):
+    for key, _id, _old, new in planned["lines"]:
+        rewritten[(key, new)] = rewritten.get((key, new), 0) + 1
+    for (key, new), count in sorted(rewritten.items()):
+        line = (
+            "107: %d %s in EA on a component stocked by the %s now say %s, with the same quantity. Cost, "
+            "planning and the fulfilment queue already took the number as %s. On a production order no stock "
+            "was reserved for these lines and completing or shipping the order failed; both work now."
+        ) % (count, _LINE_WORDS[key], new, new, new)
+        if key != "bom_lines" and new not in _COUNTED_UNITS:
+            line += " Their requirement is no longer rounded up to a whole number when an order is sized."
+        lines.append((logging.INFO, line))
+    if planned["lines_on_changed_materials"]:
         lines.append((logging.INFO, (
-            "107: %d %s in %s on a component stocked by the %s now say %s, with the same quantity. Cost and "
-            "planning already took the number as %s. Stock could not be reserved or consumed for these lines "
-            "before, and now is. Their requirement on a production order is no longer rounded up to a whole "
-            "number."
-        ) % (count, _LINE_WORDS[key], old, new, new, new)))
+            "107: %d of those BOM line(s) are on the materials whose purchase unit became KG. The BOM page showed "
+            "each EA on them as 1000 G needed; it now shows the number as grams, as cost and planning took it."
+        ) % planned["lines_on_changed_materials"]))
     for name, sku, stock in planned["failed_rows"]:
         lines.append((logging.WARNING, (
-            "107: %s (%s) had failed to be consumed. Its unit is now %s like the rest; the row is still marked "
-            "as failed."
+            "107: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s, so it "
+            "goes through the next time its order is completed or shipped. If its stock was already corrected "
+            "by hand, undo that correction first, or the item is deducted twice."
         ) % (name, sku, stock)))
 
-    for (key, sku, unit, stock), group in sorted(planned["left"].items()):
-        cost_quantity, cost_unit = group["cost"]
+    for (key, sku, unit, stock), group in sorted(planned["left"].items(), key=lambda entry: _as_text(entry[0])):
         if group["own_size"] is not None:
-            fix = "%s has %s as a unit of its own (1 %s = %s %s), which these readers do not use yet." % (
-                sku, unit, unit, _plain(group["own_size"]), stock)
+            if group["through"] == unit:
+                has = "%s has %s as a unit of its own: 1 %s = %s %s." % (
+                    sku, unit, unit, _plain(group["own_size"]), stock)
+            else:
+                has = "%s has %s as a unit of its own, which makes 1 %s = %s %s." % (
+                    sku, group["through"], unit, _plain(group["own_size"]), stock)
+            fix = (
+                "%s Lines do not read an item's own units yet. If the line means that, leave it. If its number "
+                "was meant in %s, change the line's unit to %s."
+            ) % (has, stock, stock)
         else:
-            fix = "It converts once %s has %s as a unit of its own with its size, or the line is changed to %s." % (
-                sku, unit, stock)
+            fix = "To settle it, change the line's unit to %s and enter its quantity in %s." % (stock, stock)
+            if group["note"] == "rounding":
+                fix += (
+                    " It was not rewritten for you because a requirement in EA is rounded up to a whole number "
+                    "on a production order, and one in %s is not." % stock
+                )
         lines.append((logging.WARNING, (
             "107: LEFT %d %s in %s on %s, which is stocked by the %s. The unit table cannot convert %s to %s. "
-            "As FilaOps reads such a line: cost takes 1 %s as %s %s, planning takes 1 %s as 1 %s, and %s. %s "
-            "Lines: %s"
+            "As FilaOps reads such a line: %s. %s Lines: %s"
         ) % (
             len(group["names"]), _LINE_WORDS[key], unit, sku, stock, unit, stock,
-            unit, _plain(cost_quantity), cost_unit, unit, stock, _STOCK_READING[key], fix,
-            _named(group["names"]),
+            group["readings"], fix, _named(group["names"]),
         )))
+
+    for key, names in sorted(planned["no_unit_lines"].items()):
+        advice = "" if key == "order_lines" else " Open each line and pick its unit."
+        lines.append((logging.WARNING, (
+            "107: LEFT %d %s with no unit at all. Some parts of FilaOps read a missing unit as EA and others as "
+            "the component's stock unit.%s Lines: %s"
+        ) % (len(names), _LINE_WORDS[key], advice, _named(names))))
 
     if not lines:
         lines.append((logging.INFO, "107: purchase units, item units and line units needed no change"))
