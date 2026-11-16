@@ -34,6 +34,11 @@ def migration_106():
     return _load("migration_106", _BACKEND / "migrations" / "versions" / "106_unit_table_and_item_units.py")
 
 
+@pytest.fixture(scope="module")
+def migration_107():
+    return _load("migration_107", _BACKEND / "migrations" / "versions" / "107_settle_item_and_line_units.py")
+
+
 def _older_unit_table(db):
     """Leave only a rounded pound in the unit table, as an older install might have."""
     db.query(UnitOfMeasure).delete()
@@ -64,6 +69,10 @@ class TestPendingSteps:
 
     def test_an_upgraded_database_no_longer_has_106_pending(self, preflight):
         assert "106" not in [step.revision for step in preflight.pending_steps("106")]
+
+    def test_107_follows_106_and_is_reportable(self, preflight):
+        steps = [(step.revision, step.reportable) for step in preflight.pending_steps("105")]
+        assert steps[:2] == [("106", True), ("107", True)]
 
 
 class TestReport:
@@ -123,6 +132,42 @@ class TestReport:
         assert seen["pound"] == D("0.45359237")
         assert lines[-1] == "later: saw the projected rows"
 
+    def test_a_database_shaped_like_105_is_told_what_both_migrations_will_do(
+            self, db, preflight, migration_106, migration_107, make_product, make_bom):
+        """Lower-case codes and an empty unit table. The report equals what the two upgrades then log."""
+        db.query(UnitOfMeasure).delete()
+        made = make_product(unit="ea")
+        filament = make_product(item_type="material", unit="g", purchase_uom="ea", purchase_factor=D("1000"))
+        spool = make_product(item_type="material", unit="g", purchase_uom="pcs", purchase_factor=D("750"))
+        screws = make_product(item_type="component", unit="pcs", purchase_uom="box", purchase_factor=D("12"))
+        pellets = make_product(item_type="material", unit="kg", purchase_uom="kg")
+        make_bom(product_id=made.id, lines=[
+            {"component_id": filament.id, "quantity": D("50"), "unit": "ea"},
+            {"component_id": spool.id, "quantity": D("20"), "unit": "each"},
+            {"component_id": pellets.id, "quantity": D("2"), "unit": "pcs"},
+            {"component_id": screws.id, "quantity": D("1"), "unit": "box"},
+        ])
+        db.flush()
+        bind = db.connection()
+
+        told = preflight.report(bind, [migration_106, migration_107])
+
+        logged = []
+        for migration in (migration_106, migration_107):
+            planned = migration.plan(migration.read_state(bind))
+            migration.apply(bind, planned)
+            logged.extend(line for _level, line in migration.report_lines(planned))
+        assert told == logged
+
+        # 107 planned from codes 106 had not yet tidied in the database.
+        ours = [line for line in told if line.startswith("107:")]
+        assert any("purchase unit EA -> KG" in line and filament.sku in line for line in ours)
+        assert any("1 EA = 750 G" in line and spool.sku in line for line in ours)
+        assert any("1 BOX = 12 EA" in line and screws.sku in line for line in ours)
+        assert any("LEFT" in line and pellets.sku in line for line in ours)
+        db.expire_all()
+        assert (filament.unit, filament.purchase_uom, screws.unit) == ("G", "KG", "EA")
+
 
 class TestRun:
     def test_a_database_at_105_gets_the_report(self, db, preflight, monkeypatch, make_product):
@@ -131,9 +176,18 @@ class TestRun:
         db.flush()
         code, lines = _run(preflight, db, monkeypatch, ["105"])
         assert code == 0
-        assert "Reporting on: 106" in lines
+        assert "Reporting on: 106, 107" in lines
         assert any("LB factor made exact" in line for line in lines)
         assert lines[-1] == "Nothing was changed."
+
+    def test_a_database_at_106_gets_the_report_of_107_alone(self, db, preflight, monkeypatch, make_product):
+        item = make_product(item_type="material", unit="G", purchase_uom="EA", purchase_factor=D("1000"))
+        db.flush()
+        code, lines = _run(preflight, db, monkeypatch, ["106"])
+        assert code == 0
+        assert "Reporting on: 107" in lines
+        assert not any(line.startswith("106:") for line in lines)
+        assert any("purchase unit EA -> KG" in line and item.sku in line for line in lines)
 
     def test_an_older_database_is_told_to_upgrade_first(self, db, preflight, monkeypatch):
         code, lines = _run(preflight, db, monkeypatch, ["102"])
@@ -142,7 +196,7 @@ class TestRun:
         assert not any(line.startswith("106:") for line in lines)
 
     def test_an_upgraded_database_has_nothing_to_report(self, db, preflight, monkeypatch):
-        code, lines = _run(preflight, db, monkeypatch, ["106"])
+        code, lines = _run(preflight, db, monkeypatch, ["107"])
         assert code == 0
         assert "No pending migration has a unit report. Nothing to do." in lines
 
