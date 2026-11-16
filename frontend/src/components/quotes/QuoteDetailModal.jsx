@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import { formatSignedMoney } from "./quoteLineDiscount";
 
 const QUOTE_FILE_EXTENSIONS = [".3mf", ".stl", ".obj", ".step", ".stp"];
 const QUOTE_FILE_ACCEPT = QUOTE_FILE_EXTENSIONS.join(",");
@@ -342,8 +343,8 @@ export default function QuoteDetailModal({
                       </div>
                       <div className="flex items-center gap-4 text-right">
                         <span className="text-gray-400">x{line.quantity}</span>
-                        <span className="text-gray-400">@ ${parseFloat(line.unit_price).toFixed(2)}</span>
-                        <span className="text-white font-medium w-20">${parseFloat(line.total).toFixed(2)}</span>
+                        <span className="text-gray-400">@ {formatSignedMoney(parseFloat(line.unit_price))}</span>
+                        <span className="text-white font-medium w-20">{formatSignedMoney(parseFloat(line.total))}</span>
                       </div>
                     </div>
                   ))}

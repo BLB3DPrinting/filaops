@@ -129,6 +129,14 @@ graph LR
 
 3. Click **Save**.
 
+### Adding a Discount to a Quote
+
+A discount is a line item with a negative price. In the quote form, open the **Fees** tab, enter a description (for example "Multi-buy discount"), type the amount to take off as a positive number, tick **This line is a discount**, and click **Add**. The line is stored as a negative amount and shows a **DISCOUNT** badge.
+
+- The discount reduces the quote subtotal, so tax is calculated on the discounted amount.
+- It carries through to the sales order and the invoice as a line item.
+- A discount can't be larger than the rest of the quote (the subtotal can't go below zero), and product lines can't have a negative price.
+
 ### Quote Expiry
 
 FilaOps tracks quote expiration and displays visual indicators in the quote table:
