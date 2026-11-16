@@ -715,32 +715,28 @@ class TestManufacturingSchemas:
 
     # -- Helper function -----------------------------------------------------
 
-    def test_validate_uom_code_valid(self):
-        from app.schemas.manufacturing import validate_uom_code
+    def test_tidy_unit_code_trims_and_upper_cases(self):
+        from app.schemas.manufacturing import tidy_unit_code
 
-        assert validate_uom_code("kg") == "KG"
-        assert validate_uom_code("ea") == "EA"
-        assert validate_uom_code(" G ") == "G"
+        assert tidy_unit_code("kg") == "KG"
+        assert tidy_unit_code("ea") == "EA"
+        assert tidy_unit_code(" G ") == "G"
 
-    def test_validate_uom_code_none_and_empty(self):
-        from app.schemas.manufacturing import validate_uom_code
+    def test_tidy_unit_code_none_and_empty(self):
+        from app.schemas.manufacturing import tidy_unit_code
 
-        assert validate_uom_code(None) is None
-        assert validate_uom_code("") is None
-        assert validate_uom_code("  ") is None
+        assert tidy_unit_code(None) is None
+        assert tidy_unit_code("") is None
+        assert tidy_unit_code("  ") is None
 
-    def test_validate_uom_code_invalid(self):
-        from app.schemas.manufacturing import validate_uom_code
+    def test_tidy_unit_code_checks_nothing(self):
+        """The schema holds no list of units. The service asks the unit table."""
+        from app.schemas import bom, manufacturing
 
-        with pytest.raises(ValueError, match="Invalid unit"):
-            validate_uom_code("FOOBAR")
-
-    def test_valid_uom_codes_list(self):
-        from app.schemas.manufacturing import VALID_UOM_CODES
-
-        assert "EA" in VALID_UOM_CODES
-        assert "KG" in VALID_UOM_CODES
-        assert "HR" in VALID_UOM_CODES
+        assert manufacturing.tidy_unit_code("foobar") == "FOOBAR"
+        for module in (bom, manufacturing):
+            assert not hasattr(module, "VALID_UOM_CODES")
+            assert not hasattr(module, "validate_uom_code")
 
     # -- Enums ---------------------------------------------------------------
 
@@ -1064,27 +1060,40 @@ class TestManufacturingSchemas:
             component_id=1, quantity=Decimal("100"),
         )
         assert m.quantity_per.value == "unit"
-        assert m.unit == "EA"
+        # Left out means "the component's stock unit", which the service fills in.
+        assert m.unit is None
         assert m.scrap_factor == Decimal("0")
         assert m.is_cost_only is False
         assert m.is_optional is False
         assert m.notes is None
 
-    def test_routing_operation_material_base_unit_validator(self):
-        from app.schemas.manufacturing import RoutingOperationMaterialBase
+    def test_routing_operation_material_create_tidies_the_unit(self):
+        from app.schemas.manufacturing import RoutingOperationMaterialCreate
 
-        m = RoutingOperationMaterialBase(
-            component_id=1, quantity=Decimal("100"), unit="kg",
+        m = RoutingOperationMaterialCreate(
+            component_id=1, quantity=Decimal("100"), unit=" kg ",
         )
         assert m.unit == "KG"
 
-    def test_routing_operation_material_base_invalid_unit(self):
-        from app.schemas.manufacturing import RoutingOperationMaterialBase
+    def test_routing_operation_material_create_does_not_check_the_unit(self):
+        """The schema tidies; the service refuses a unit the unit table does not know."""
+        from app.schemas.manufacturing import RoutingOperationMaterialCreate
 
-        with pytest.raises(ValidationError, match="Invalid unit"):
-            RoutingOperationMaterialBase(
-                component_id=1, quantity=Decimal("100"), unit="INVALID",
-            )
+        m = RoutingOperationMaterialCreate(
+            component_id=1, quantity=Decimal("100"), unit="invalid",
+        )
+        assert m.unit == "INVALID"
+
+    def test_routing_operation_material_response_carries_any_unit(self):
+        """A line holding a unit outside the old sixteen can be read back."""
+        from app.schemas.manufacturing import RoutingOperationMaterialResponse
+
+        now = datetime.now(timezone.utc)
+        resp = RoutingOperationMaterialResponse(
+            id=1, routing_operation_id=1, component_id=1, quantity=Decimal("1"), unit="Sheet",
+            created_at=now, updated_at=now,
+        )
+        assert resp.unit == "Sheet"
 
     def test_routing_operation_material_create(self):
         from app.schemas.manufacturing import RoutingOperationMaterialCreate
@@ -1108,11 +1117,10 @@ class TestManufacturingSchemas:
         upd = RoutingOperationMaterialUpdate(unit="kg")
         assert upd.unit == "KG"
 
-    def test_routing_operation_material_update_invalid_unit(self):
+    def test_routing_operation_material_update_does_not_check_the_unit(self):
         from app.schemas.manufacturing import RoutingOperationMaterialUpdate
 
-        with pytest.raises(ValidationError, match="Invalid unit"):
-            RoutingOperationMaterialUpdate(unit="NOPE")
+        assert RoutingOperationMaterialUpdate(unit="nope").unit == "NOPE"
 
     def test_routing_operation_material_response(self):
         from app.schemas.manufacturing import RoutingOperationMaterialResponse

@@ -7,23 +7,16 @@ from datetime import datetime, date
 from decimal import Decimal
 
 
-# Valid UOM codes - should match uom_service.INLINE_UOM_CONVERSIONS
-VALID_UOM_CODES = ['EA', 'G', 'KG', 'LB', 'OZ', 'M', 'MM', 'CM', 'IN', 'FT', 'L', 'ML', 'PK', 'BOX', 'ROLL', 'HR']
+def tidy_unit_code(value: Optional[str]) -> Optional[str]:
+    """Trim and upper-case a unit code that came with a request. Empty means "not given".
 
-
-def validate_uom_code(value: Optional[str]) -> Optional[str]:
-    """
-    Validate and normalize a UOM code.
-    Returns None if input is None/empty, otherwise normalizes to uppercase.
-    Raises ValueError if the unit is not in the allowed list.
+    Nothing is checked here. Whether the unit exists is decided where the line
+    is saved, against the unit table (``app.services.line_units``): a list of
+    codes written into a schema cannot know the units an install has added.
     """
     if value is None or value.strip() == '':
         return None
-
-    normalized = value.upper().strip()
-    if normalized not in VALID_UOM_CODES:
-        raise ValueError(f"Invalid unit '{value}'. Must be one of: {', '.join(VALID_UOM_CODES)}")
-    return normalized
+    return value.strip().upper()
 
 
 # ============================================================================
@@ -31,7 +24,11 @@ def validate_uom_code(value: Optional[str]) -> Optional[str]:
 # ============================================================================
 
 class BOMLineBase(BaseModel):
-    """Base BOM line fields"""
+    """Base BOM line fields.
+
+    The unit is not checked here, so a response can carry whatever a line
+    holds. The request schemas below tidy it.
+    """
     component_id: int = Field(..., description="Component product ID")
     quantity: Decimal = Field(..., gt=0, description="Required quantity")
     unit: Optional[str] = Field(None, max_length=20, description="Unit of measure (defaults to component's unit)")
@@ -41,16 +38,15 @@ class BOMLineBase(BaseModel):
     scrap_factor: Optional[Decimal] = Field(0, ge=0, le=100, description="Scrap percentage")
     notes: Optional[str] = Field(None, max_length=1000)
 
-    @field_validator('unit')
-    @classmethod
-    def validate_unit(cls, v: Optional[str]) -> Optional[str]:
-        """Validate and normalize the unit of measure."""
-        return validate_uom_code(v)
-
 
 class BOMLineCreate(BOMLineBase):
     """Create a new BOM line"""
-    pass
+
+    @field_validator('unit')
+    @classmethod
+    def tidy_unit(cls, v: Optional[str]) -> Optional[str]:
+        """Tidy the unit code. The service checks it against the unit table."""
+        return tidy_unit_code(v)
 
 
 class BOMLineUpdate(BaseModel):
@@ -66,9 +62,9 @@ class BOMLineUpdate(BaseModel):
 
     @field_validator('unit')
     @classmethod
-    def validate_unit(cls, v: Optional[str]) -> Optional[str]:
-        """Validate and normalize the unit of measure."""
-        return validate_uom_code(v)
+    def tidy_unit(cls, v: Optional[str]) -> Optional[str]:
+        """Tidy the unit code. The service checks it against the unit table."""
+        return tidy_unit_code(v)
 
 
 class BOMLineResponse(BOMLineBase):
