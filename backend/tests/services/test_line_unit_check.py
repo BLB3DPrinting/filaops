@@ -229,6 +229,24 @@ class TestAddingToALineThatExists:
         self._add(db, made, filament, "25")
         assert self._line(db, bom) == (D("550"), "G")
 
+    def test_a_quantity_with_no_unit_is_in_the_stock_unit_as_on_a_new_line(self, db, make_product, make_bom,
+                                                                           filament):
+        """200 with no unit is 200 G of a gram-stocked filament, whatever unit its line is written in."""
+        made, bom = self._existing(make_product, make_bom, filament, "2", "KG")
+        self._add(db, made, filament, "200")
+        assert self._line(db, bom) == (D("2.2"), "KG")
+
+    def test_a_quantity_with_no_unit_is_refused_when_the_stock_unit_does_not_convert_to_the_lines(
+            self, db, make_product, make_bom):
+        """A line in BOX on a part stocked by the each. Adding the bare number would add boxes."""
+        part = make_product(item_type="component", unit="EA")
+        made, bom = self._existing(make_product, make_bom, part, "2", "BOX")
+        _refused(lambda: self._add(db, made, part, "5"), "already on the BOM in BOX", "Give the quantity in BOX")
+        assert self._line(db, bom) == (D("2"), "BOX")
+        # Said in the line's own unit, it is added.
+        self._add(db, made, part, "1", "box")
+        assert self._line(db, bom) == (D("3"), "BOX")
+
     def test_a_unit_the_table_cannot_convert_is_refused_and_the_line_is_untouched(self, db, make_product, make_bom):
         part = make_product(item_type="component", unit="EA")
         made, bom = self._existing(make_product, make_bom, part, "10", "EA")
@@ -243,6 +261,9 @@ class TestAddingToALineThatExists:
         self._add(db, made, filament, "2", "scoop")
         assert self._line(db, bom) == (D("7"), "SCOOP")
         _refused(lambda: self._add(db, made, filament, "1", "kg"), "already on the BOM in SCOOP")
+        # With no unit it is grams, which cannot be brought into SCOOP either.
+        _refused(lambda: self._add(db, made, filament, "1"), "already on the BOM in SCOOP")
+        assert self._line(db, bom) == (D("7"), "SCOOP")
 
 
 class TestRoutingWriters:

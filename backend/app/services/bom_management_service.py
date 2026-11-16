@@ -742,12 +742,11 @@ def create_bom(
                 ).first()
 
                 if existing_line:
-                    # The line keeps its unit. A quantity given in another unit is checked and
+                    # The line keeps its unit. What is added means the same as on a new line: a
+                    # quantity with no unit is in the component's stock unit. It is checked and
                     # brought into the line's unit before anything on the line is changed.
-                    added = line_data.quantity
-                    if line_data.unit:
-                        given = unit_for_line(db, line_data.unit, component, current=existing_line.unit)
-                        added = quantity_in_line_unit(db, line_data.quantity, given, existing_line.unit)
+                    given = unit_for_line(db, line_data.unit, component, current=existing_line.unit)
+                    added = quantity_in_line_unit(db, line_data.quantity, given, existing_line.unit)
                     # Update existing line quantity (add to it)
                     existing_line.quantity = (existing_line.quantity or 0) + added
                     if line_data.scrap_factor is not None:
