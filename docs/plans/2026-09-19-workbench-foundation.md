@@ -1,6 +1,10 @@
 # Workbench Foundation — Design System Phase 1
 
-Status: proposed
+> **Superseded 2026-11-18 by [`2026-11-18-liquid-glass.md`](2026-11-18-liquid-glass.md).**
+> Kept as the decision record (accent, type, themes, measured failures). Do not
+> plan or track work from this document; every open item moved to the new plan.
+
+Status: superseded
 Owner decision date: 2026-09-19
 Branch: `claude/workbench-foundation`
 Supersedes the stalled preview approach recorded in Aeonyx memory #111
