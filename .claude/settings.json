@@ -127,7 +127,11 @@
       "Edit(~/.claude/hooks/**)",
       "Edit(~/.claude/prod-read-window)",
       "Edit(//**/.claude/settings.json)",
-      "Edit(//**/.claude/settings.local.json)"
+      "Edit(//**/.claude/settings.local.json)",
+      "mcp__*__merge_pull_request",
+      "mcp__*__enable_pr_auto_merge",
+      "mcp__*__pull_request_review_write",
+      "mcp__*__create_repository"
     ],
     "ask": [
       "Bash(git commit *)",
@@ -169,7 +173,17 @@
       "mcp__*__start_process",
       "mcp__*__interact_with_process",
       "mcp__*__execute_command",
-      "mcp__*__run_command"
+      "mcp__*__run_command",
+      "mcp__*__push_files",
+      "mcp__*__create_or_update_file",
+      "mcp__*__delete_file",
+      "mcp__*__create_branch",
+      "mcp__*__create_pull_request",
+      "mcp__*__update_pull_request",
+      "mcp__*__update_pull_request_branch",
+      "mcp__*__disable_pr_auto_merge",
+      "mcp__*__actions_run_trigger",
+      "mcp__*__fork_repository"
     ],
     "allow": [
       "Bash(git status *)",
