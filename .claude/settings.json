@@ -131,7 +131,10 @@
       "mcp__*__merge_pull_request",
       "mcp__*__enable_pr_auto_merge",
       "mcp__*__pull_request_review_write",
-      "mcp__*__create_repository"
+      "mcp__*__create_repository",
+      "mcp__*__set_auto_merge",
+      "mcp__*__set_session_permission_mode",
+      "mcp__*__set_setting"
     ],
     "ask": [
       "Bash(git commit *)",
@@ -183,7 +186,18 @@
       "mcp__*__update_pull_request_branch",
       "mcp__*__disable_pr_auto_merge",
       "mcp__*__actions_run_trigger",
-      "mcp__*__fork_repository"
+      "mcp__*__fork_repository",
+      "mcp__*__start_session",
+      "mcp__*__hand_off_to_session",
+      "mcp__*__send_message",
+      "mcp__*__move_to_cloud",
+      "mcp__*__set_remote_control",
+      "mcp__*__set_session_connector_enabled",
+      "mcp__*__reconnect_session_connector",
+      "mcp__*__clean_up_worktrees",
+      "mcp__*__discard_kept_worktree",
+      "mcp__*__delete_session",
+      "mcp__*__clear_session"
     ],
     "allow": [
       "Bash(git status *)",
