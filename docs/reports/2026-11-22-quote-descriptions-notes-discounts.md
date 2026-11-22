@@ -152,5 +152,29 @@ in any screen or PDF.
 
 ## Status checks
 
-No checks had run when this report was committed. The PR comment and the
-follow-up update to this report list every check by name and result.
+Head `331cb9d`, PR #1089 (draft).
+
+CircleCI:
+
+- ci/circleci: core-guardrails: success
+- ci/circleci: core-pro-guard: success
+- ci/circleci: core-version-parity: success
+- ci/circleci: core-backend-static: success
+- ci/circleci: core-diff: success
+- ci/circleci: core-dependency-audit: success
+- ci/circleci: core-frontend-build: success
+- ci/circleci: core-frontend-unit: success
+- ci/circleci: core-backend-tests: success
+
+GitHub Actions: failure, all ending in about 2 seconds without a runner
+(`runner_id` 0, no log). `main` fails the same way.
+
+- core-ci: core-guardrails, core-pro-guard, core-version-parity,
+  core-backend-static, core-diff, core-dependency-audit
+- core-ci: core-backend-tests, core-frontend-unit and core-frontend-build were
+  skipped
+- CodeQL: Analyze (python), Analyze (javascript-typescript)
+- check-pro-code
+- auto-merge: skipped
+
+CodeRabbit: did not run, because the PR is a draft.
