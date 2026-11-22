@@ -193,6 +193,11 @@ class SalesOrderBase(BaseModel):
     grand_total: Decimal
     payment_status: str
     rush_level: str
+    # Order-level discount (from the quote). total_price is already net of it.
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    discount_label: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
 
 
 class SalesOrderListResponse(SalesOrderBase):
@@ -241,6 +246,11 @@ class SalesOrderLineResponse(BaseModel):
     original_quantity: Optional[Decimal] = None
     fulfillment_status: Optional[str] = None
     notes: Optional[str] = None
+    long_description: Optional[str] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    discount_label: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
 
     class Config:
         from_attributes = True

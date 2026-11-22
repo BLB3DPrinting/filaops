@@ -5,6 +5,9 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { API_URL } from "../../config/api";
+import DiscountSummaryRows from "../discounts/DiscountSummaryRows";
+import LineDescription from "../discounts/LineDescription";
+import { savedLineGross, savedSummaryRows } from "../../lib/discounts";
 import { useToast } from "../Toast";
 
 const QUOTE_FILE_EXTENSIONS = [".3mf", ".stl", ".obj", ".step", ".stp"];
@@ -339,11 +342,12 @@ export default function QuoteDetailModal({
                             {[line.material_type, line.color].filter(Boolean).join(" / ")}
                           </span>
                         )}
+                        <LineDescription text={line.description} line={line} />
                       </div>
                       <div className="flex items-center gap-4 text-right">
                         <span className="text-gray-400">x{line.quantity}</span>
                         <span className="text-gray-400">@ ${parseFloat(line.unit_price).toFixed(2)}</span>
-                        <span className="text-white font-medium w-20">${parseFloat(line.total).toFixed(2)}</span>
+                        <span className="text-white font-medium w-20">${savedLineGross(line).toFixed(2)}</span>
                       </div>
                     </div>
                   ))}
@@ -377,6 +381,7 @@ export default function QuoteDetailModal({
 
               {/* Price Breakdown */}
               <div className="border-t border-gray-700 pt-3 space-y-2">
+                <DiscountSummaryRows rows={savedSummaryRows(q.lines, q)} labelSuffix=":" />
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-400">Subtotal:</span>
                   <span className="text-white">
@@ -567,13 +572,13 @@ export default function QuoteDetailModal({
                 <h4 className="text-sm font-medium text-gray-300 mb-2">Notes</h4>
                 {q.customer_notes && (
                   <p className="text-sm text-white mb-2">
-                    <span className="text-gray-400">Customer: </span>
+                    <span className="text-gray-400">On quote PDF: </span>
                     {q.customer_notes}
                   </p>
                 )}
                 {q.admin_notes && (
                   <p className="text-sm text-white">
-                    <span className="text-gray-400">Internal: </span>
+                    <span className="text-gray-400">Internal (not printed): </span>
                     {q.admin_notes}
                   </p>
                 )}

@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
+import { savedDiscountFields } from "../../lib/discounts";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../../components/Toast";
 import EmptyState from "../../components/EmptyState";
@@ -189,6 +190,7 @@ export default function AdminQuotes() {
         admin_notes: `Duplicated from ${quote.quote_number}`,
         apply_tax: quote.tax_rate ? true : false,
         valid_days: 30,
+        ...savedDiscountFields(quote),
       };
 
       // Duplicate with lines if multi-line, otherwise use header fields
@@ -200,6 +202,9 @@ export default function AdminQuotes() {
           unit_price: parseFloat(l.unit_price || 0),
           material_type: l.material_type || null,
           color: l.color || null,
+          // Copy the line as quoted, not the item's current description
+          description: l.description ?? null,
+          ...savedDiscountFields(l),
         }));
       } else {
         newQuoteData.product_id = quote.product_id || null;

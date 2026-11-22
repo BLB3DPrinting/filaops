@@ -7,6 +7,8 @@
 import { useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useToast } from "../Toast";
+import LineDescription from "../discounts/LineDescription";
+import { money, negativeMoney, savedLineGross, savedSummaryRows } from "../../lib/discounts";
 
 export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) {
   const api = useApi();
@@ -89,6 +91,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                   <tr key={line.id || idx}>
                     <td className="py-2 px-3 text-[var(--ink)]">
                       {lineLabel}
+                      <LineDescription text={line.long_description} line={line} />
                     </td>
                     <td className="py-2 px-3 text-[var(--ink-3)] font-mono text-xs">
                       {lineCode}
@@ -131,7 +134,7 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                       )}
                     </td>
                     <td className="py-2 px-3 text-right text-[var(--status-green)] font-medium">
-                      ${parseFloat(line.total || 0).toFixed(2)}
+                      ${savedLineGross(line).toFixed(2)}
                     </td>
                     {canEditLines() && (
                       <td className="py-2 px-3 text-center">
@@ -204,6 +207,19 @@ export default function OrderLineItemsTable({ order, orderId, onOrderUpdated }) 
                   sum. The label spans cols 1-5 and the amount sits in the
                   Total column (6); the trailing cell fills the Actions column
                   when the table is editable so nothing lands under it. */}
+              {/* Discounts sit between the item amounts and the subtotal,
+                  as on the quote and invoice PDFs. */}
+              {savedSummaryRows(order.lines, order).map((row) => (
+                <tr key={row.key} className={row.key === "items" ? "border-t border-[var(--rule-hair)]" : ""}>
+                  <td colSpan={5} className="py-1 px-3 text-right text-[var(--ink-3)]">
+                    {row.label}
+                  </td>
+                  <td className={`py-1 px-3 text-right ${row.discount ? "text-[var(--status-green)]" : "text-[var(--ink-2)]"}`}>
+                    {row.discount ? negativeMoney(row.amount) : money(row.amount)}
+                  </td>
+                  {canEditLines() && <td />}
+                </tr>
+              ))}
               <tr className="border-t border-[var(--rule-hair)]">
                 <td colSpan={5} className="py-2 px-3 text-right text-[var(--ink-3)]">
                   Subtotal

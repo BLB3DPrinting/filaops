@@ -124,6 +124,11 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
                 shipped_quantity=line.shipped_quantity or Decimal("0"),
                 original_quantity=line.original_quantity,
                 notes=line.notes,
+                long_description=line.long_description,
+                discount_type=line.discount_type,
+                discount_value=line.discount_value,
+                discount_label=line.discount_label,
+                discount_amount=line.discount_amount,
             ))
 
     order_data = {
@@ -144,6 +149,10 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
         "tax_amount": order.tax_amount if order.tax_amount is not None else Decimal("0"),
         "shipping_cost": order.shipping_cost if order.shipping_cost is not None else Decimal("0"),
         "grand_total": order.grand_total,
+        "discount_type": order.discount_type,
+        "discount_value": order.discount_value,
+        "discount_label": order.discount_label,
+        "discount_amount": order.discount_amount,
         "status": order.status,
         "fulfillment_status": getattr(order, "fulfillment_status", "pending"),
         "payment_status": order.payment_status,
