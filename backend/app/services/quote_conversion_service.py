@@ -20,6 +20,8 @@ from sqlalchemy import desc
 from app.models import Quote, Product, BOM, SalesOrder, ProductionOrder
 from app.services.bom_service import auto_create_product_and_bom, validate_quote_for_bom
 from app.services.sales_order_service import generate_order_number
+from app.services.quote_order_money import order_money_from_quote
+from app.services.quote_totals import order_discount_fields
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -167,11 +169,16 @@ def convert_portal_quote_to_order(
         shipping_state = ship.shipping_state or quote.shipping_state
         shipping_zip = ship.shipping_zip or quote.shipping_zip
         shipping_country = ship.shipping_country or quote.shipping_country or "USA"
-        shipping_cost = ship.shipping_cost or quote.shipping_cost or Decimal('0.00')
-        
-        # Calculate grand total
-        grand_total = quote.total_price + (shipping_cost or Decimal('0.00'))
-        
+
+        # Subtotal, discount, tax, shipping and total as the quote stored them,
+        # so the order (and its invoice) charges what the customer accepted.
+        money = order_money_from_quote(
+            db,
+            quote,
+            shipping_cost=ship.shipping_cost,
+            ship_to_state=ship.shipping_state,
+        )
+
         sales_order = SalesOrder(
             user_id=quote.user_id,
             quote_id=quote.id,
@@ -180,11 +187,7 @@ def convert_portal_quote_to_order(
             quantity=quote.quantity,
             material_type=quote.material_type,
             finish=quote.finish or "standard",
-            unit_price=quote.unit_price or (quote.total_price / quote.quantity),
-            total_price=quote.total_price,
-            tax_amount=Decimal('0.00'),  # Tax calculated separately if needed
-            shipping_cost=shipping_cost,
-            grand_total=grand_total,
+            **money.order_columns(),
             status="confirmed" if auto_confirm else "pending",
             payment_status=payment_status,
             rush_level=quote.rush_level or "standard",
@@ -201,10 +204,7 @@ def convert_portal_quote_to_order(
             artifact_snapshot=quote.artifact_snapshot,
             slicer_diagnostics=quote.slicer_diagnostics,
             customer_notes=quote.customer_notes,
-            discount_type=quote.discount_type,
-            discount_value=quote.discount_value,
-            discount_label=quote.discount_label,
-            discount_amount=quote.discount_amount,
+            **order_discount_fields(quote),
             # Hybrid architecture fields
             order_type="quote_based",
             source="portal",
