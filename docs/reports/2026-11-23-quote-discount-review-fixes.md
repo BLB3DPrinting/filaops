@@ -105,7 +105,10 @@ commit, with tests that fail without the fix.
    or at 100%, the price is left blank for the user to enter; the form will
    not save a blank price. A first attempt used the catalog price as a tie
    break; CodeRabbit pointed out that a matching catalog price does not prove
-   it was the quote's price, so that was dropped.
+   it was the quote's price, so that was dropped. CodeRabbit then noted that
+   quotes saved before this PR used half-even rounding ($10.05 at 10% saved
+   as $9.04), so a price now counts as fitting if either rounding mode gives
+   the saved net price.
 3. The totals preview kept the saved customer when the form sent an explicit
    null customer (`quote_totals.py`), while saving removed it. The preview now
    keeps the saved customer only when the field is left out, like

@@ -64,6 +64,13 @@ describe("reopened quote lines and the customer price level", () => {
     expect(li.price_level_percent_applied).toBeNull();
   });
 
+  it("asks for the price when a quote saved with half-even rounding is ambiguous", () => {
+    // $10.04 at 10% is $9.036 -> $9.04; $10.05 is $9.045, which half-even
+    // rounding (used before this fix) also saved as $9.04.
+    const saved = lineFromQuoteLine({ ...savedLine, unit_price: "9.04" });
+    expect(withoutSavedPriceLevel(saved).unit_price).toBe("");
+  });
+
   it("never treats a 100% price level's $0 as the list price", () => {
     const saved = lineFromQuoteLine({ ...savedLine, unit_price: "0.00", discount_percent: "100" });
     const li = withoutSavedPriceLevel(saved);

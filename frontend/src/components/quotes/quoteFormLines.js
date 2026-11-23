@@ -101,17 +101,25 @@ export const withLineField = (li, field, value) =>
     : { ...li, [field]: value };
 
 /**
- * List prices (in cents) that give ``netCents`` after ``pct`` percent off,
- * rounded half up like the server (quote_totals.apply_price_level). Integer
- * arithmetic, so the check is exact.
+ * List prices (in cents) that give ``netCents`` after ``pct`` percent off.
+ * Quotes saved before half-up rounding used Decimal's half-even, so a price
+ * counts if either mode gives the saved net price. Integer arithmetic, so the
+ * check is exact.
  */
 const listCentsFor = (netCents, pct) => {
   const keep = 10000 - Math.round(pct * 100); // parts of 10000 kept
-  const net = (listCents) => Math.floor((listCents * keep + 5000) / 10000);
+  const fits = (listCents) => {
+    const x = listCents * keep;
+    const down = Math.floor(x / 10000);
+    const rest = x - down * 10000;
+    const halfUp = rest >= 5000 ? down + 1 : down;
+    const halfEven = rest > 5000 || (rest === 5000 && down % 2 === 1) ? down + 1 : down;
+    return halfUp === netCents || halfEven === netCents;
+  };
   const found = [];
   const lo = Math.floor(((netCents - 1) * 10000) / keep);
   const hi = Math.ceil(((netCents + 1) * 10000) / keep);
-  for (let c = Math.max(lo, 0); c <= hi; c += 1) if (net(c) === netCents) found.push(c);
+  for (let c = Math.max(lo, 0); c <= hi; c += 1) if (fits(c)) found.push(c);
   return found;
 };
 
@@ -122,7 +130,8 @@ const listCentsFor = (netCents, pct) => {
  *
  * The list price is not stored, so it is worked back from the saved net price.
  * When rounding means more than one list price fits ($2.01 and $2.02 at 50%
- * both save as $1.01), or at 100% where nothing can be worked back, the price
+ * both save as $1.01; $10.04 and, under the old half-even rounding, $10.05 at
+ * 10% both save as $9.04), or at 100% where nothing can be worked back, the price
  * is left blank for the user to enter: the form will not save a blank price.
  */
 export const withoutSavedPriceLevel = (li) => {
