@@ -213,6 +213,12 @@ def _resolve_checked(host: str, port: int) -> list:
     Blocked answers are dropped, so they are never tried, not even after the
     allowed ones fail. Refuses the request if every answer is blocked.
     """
+    # Judge a literal before resolving it. On a host without IPv6 (Docker's
+    # default network), allowed_gai_family() is AF_INET and getaddrinfo fails
+    # on an IPv6 literal, which would hide the refusal behind a resolver error.
+    literal = parse_ip_literal(host)
+    if literal is not None and is_blocked_destination(literal):
+        raise _BlockedAtConnect(f"{host} is a blocked address")
     infos = socket.getaddrinfo(host, port, allowed_gai_family(), socket.SOCK_STREAM)
     allowed, blocked = [], []
     for info in infos:

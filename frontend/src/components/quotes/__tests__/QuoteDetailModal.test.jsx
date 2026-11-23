@@ -283,4 +283,47 @@ describe("QuoteDetailModal attachments", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
+
+  it("shows line descriptions, discount rows and which notes print", async () => {
+    quoteFiles = [];
+    detailQuote = {
+      ...quote,
+      subtotal: "76.61",
+      tax_rate: "0.0700",
+      tax_amount: "5.36",
+      total_price: "81.97",
+      discount_type: "percent",
+      discount_value: "10.00",
+      discount_label: "10% discount",
+      discount_amount: "8.51",
+      customer_notes: "Thanks for the order!",
+      admin_notes: "Rush it",
+      lines: [{
+        id: 1,
+        product_name: "Custom Trophy",
+        quantity: 2,
+        unit_price: "42.56",
+        total: "85.12",
+        description: "Black Base (PLA Matte Charcoal)\nGold Top (PLA Silk Gold)",
+      }],
+    };
+
+    renderModal();
+
+    expect(await screen.findByText(/Black Base \(PLA Matte Charcoal\)/)).toBeInTheDocument();
+    expect(screen.getByText("Items total:")).toBeInTheDocument();
+    expect(screen.getByText("10% discount:")).toBeInTheDocument();
+    expect(screen.getByText("-$8.51")).toBeInTheDocument();
+    expect(screen.getByText("$76.61")).toBeInTheDocument();
+    expect(screen.getByText("$81.97")).toBeInTheDocument();
+    expect(screen.getByText("On quote PDF:")).toBeInTheDocument();
+    expect(screen.getByText("Internal (not printed):")).toBeInTheDocument();
+  });
+
+  it("shows no discount rows for an undiscounted quote", async () => {
+    quoteFiles = [];
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Subtotal:")).toBeInTheDocument());
+    expect(screen.queryByText("Items total:")).not.toBeInTheDocument();
+  });
 });

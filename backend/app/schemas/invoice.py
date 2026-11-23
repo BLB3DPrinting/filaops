@@ -15,6 +15,9 @@ class InvoiceLineResponse(BaseModel):
     base_price: Optional[Decimal] = None
     discount_percent: Optional[Decimal] = None
     line_total: Decimal
+    long_description: Optional[str] = None
+    discount_label: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
@@ -52,6 +55,8 @@ class InvoiceResponse(BaseModel):
     due_date: date
     subtotal: Decimal
     discount_amount: Decimal = Decimal("0")
+    discount_label: Optional[str] = None
+    notes: Optional[str] = None
     tax_rate: Decimal = Decimal("0")
     tax_amount: Decimal = Decimal("0")
     shipping_amount: Decimal = Decimal("0")
