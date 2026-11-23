@@ -6,14 +6,17 @@
  * still holds the old names, so the first screen it opens afterwards asks for
  * a file that is gone and fails with "Failed to fetch dynamically imported
  * module". Reloading the page fetches the new build and fixes it, so we do
- * that once, automatically. The timestamp in sessionStorage stops a reload
- * loop if the file is missing for some other reason (a broken deploy, the
- * server being down): a second failure within the window shows the normal
- * error screen instead.
+ * that once, automatically.
+ *
+ * At most one automatic reload per build: before reloading, the build the tab
+ * is running is written to sessionStorage. If the page that comes back is the
+ * same build and fails again (a deploy that is missing a file, the server
+ * down), no second reload happens and the normal error screen shows, however
+ * long the reload took. A later update is a different build, so it gets its
+ * own one reload.
  */
 
 const STORAGE_KEY = "filaops:stale-build-reload";
-const RELOAD_WINDOW_MS = 30_000;
 
 // Messages for a failed dynamic import or CSS preload: Chrome/Edge, Firefox,
 // Safari, then Vite's own preload helper.
@@ -26,21 +29,34 @@ export function isStaleBuildError(error) {
 }
 
 /**
- * Reload the page unless it was already reloaded for this reason in the last
- * 30 seconds. Returns true when a reload was started.
+ * The build this tab is running: the address of the page's entry script
+ * (e.g. /assets/index-CZ1E9Z0O.js). Its name changes whenever any file it
+ * loads changes, so it identifies the build.
+ */
+export function currentBuildId(doc = globalThis.document) {
+  const script = doc?.querySelector?.('script[type="module"][src]');
+  return script?.getAttribute("src") || "unknown";
+}
+
+/**
+ * Reload the page unless this build was already reloaded once for this
+ * reason. Returns true when a reload was started.
  */
 export function reloadForNewBuild({
-  storage = globalThis.sessionStorage,
-  now = Date.now(),
+  getStorage = () => globalThis.sessionStorage,
+  buildId = currentBuildId(),
   reload = () => globalThis.location.reload(),
 } = {}) {
   try {
-    const last = Number(storage?.getItem(STORAGE_KEY) || 0);
-    if (now - last < RELOAD_WINDOW_MS) return false;
-    storage?.setItem(STORAGE_KEY, String(now));
+    // Reading sessionStorage itself can throw (SecurityError when the browser
+    // blocks site data), so it is read inside the try.
+    const storage = getStorage();
+    if (!storage) return false;
+    if (storage.getItem(STORAGE_KEY) === buildId) return false;
+    storage.setItem(STORAGE_KEY, buildId);
   } catch {
-    // Storage blocked (private mode, site data off): without a way to
-    // remember the attempt, a reload could loop, so leave it to the user.
+    // Without a way to remember the attempt a reload could loop, so leave it
+    // to the user.
     return false;
   }
   reload();

@@ -25,6 +25,6 @@ update has the same problem even with a fresh `index.html`.
   redirect to `/index.html`, so every route is covered. `/assets/` keeps its
   one-year immutable cache.
 - Frontend: `lib/staleBuild.js` recognises a failed dynamic import and reloads
-  the page once, guarded by a 30-second sessionStorage timestamp so it cannot
-  loop. Hooked into `ErrorBoundary` and Vite's `vite:preloadError` event.
+  the page at most once per build (the entry script's address is kept in
+  sessionStorage), so it cannot loop. Hooked into `ErrorBoundary` and Vite's `vite:preloadError` event.
 - Tests for the helper and the boundary; CHANGELOG entry under Unreleased.

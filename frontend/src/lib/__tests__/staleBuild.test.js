@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { isStaleBuildError, reloadForNewBuild } from "../staleBuild";
+import { currentBuildId, isStaleBuildError, reloadForNewBuild } from "../staleBuild";
+
+const KEY = "filaops:stale-build-reload";
 
 function memoryStorage(initial = {}) {
   const data = { ...initial };
@@ -27,36 +29,65 @@ describe("isStaleBuildError", () => {
   });
 });
 
+describe("currentBuildId", () => {
+  it("is the entry script's address", () => {
+    document.head.innerHTML =
+      '<script type="module" crossorigin src="/assets/index-CZ1E9Z0O.js"></script><script src="/config.js?v=2"></script>';
+    expect(currentBuildId()).toBe("/assets/index-CZ1E9Z0O.js");
+    document.head.innerHTML = "";
+  });
+});
+
 describe("reloadForNewBuild", () => {
-  it("reloads once and records the time", () => {
+  it("reloads once and records the build", () => {
     const storage = memoryStorage();
     const reload = vi.fn();
-    expect(reloadForNewBuild({ storage, now: 100_000, reload })).toBe(true);
+    expect(reloadForNewBuild({ getStorage: () => storage, buildId: "/assets/index-A.js", reload })).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(storage.getItem("filaops:stale-build-reload")).toBe("100000");
+    expect(storage.getItem(KEY)).toBe("/assets/index-A.js");
   });
 
-  it("does not reload again within 30 seconds", () => {
-    const storage = memoryStorage({ "filaops:stale-build-reload": "100000" });
+  it("never reloads the same build twice, however long ago the first was", () => {
+    const storage = memoryStorage({ [KEY]: "/assets/index-A.js" });
     const reload = vi.fn();
-    expect(reloadForNewBuild({ storage, now: 120_000, reload })).toBe(false);
+    expect(reloadForNewBuild({ getStorage: () => storage, buildId: "/assets/index-A.js", reload })).toBe(false);
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("reloads again after the window", () => {
-    const storage = memoryStorage({ "filaops:stale-build-reload": "100000" });
+  it("allows one reload for a later build", () => {
+    const storage = memoryStorage({ [KEY]: "/assets/index-A.js" });
     const reload = vi.fn();
-    expect(reloadForNewBuild({ storage, now: 131_000, reload })).toBe(true);
+    expect(reloadForNewBuild({ getStorage: () => storage, buildId: "/assets/index-B.js", reload })).toBe(true);
+    expect(storage.getItem(KEY)).toBe("/assets/index-B.js");
   });
 
-  it("does not reload when storage is blocked", () => {
+  it("does not reload when reading storage throws", () => {
     const storage = {
       getItem: () => {
         throw new Error("SecurityError");
       },
     };
     const reload = vi.fn();
-    expect(reloadForNewBuild({ storage, now: 1, reload })).toBe(false);
+    expect(reloadForNewBuild({ getStorage: () => storage, buildId: "x", reload })).toBe(false);
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload when the sessionStorage getter itself throws", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    const reload = vi.fn();
+    try {
+      expect(() => reloadForNewBuild({ buildId: "x", reload })).not.toThrow();
+      expect(reloadForNewBuild({ buildId: "x", reload })).toBe(false);
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(globalThis, "sessionStorage", original);
+      else delete globalThis.sessionStorage;
+    }
   });
 });
