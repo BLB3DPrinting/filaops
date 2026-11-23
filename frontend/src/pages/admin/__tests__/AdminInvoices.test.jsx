@@ -210,3 +210,55 @@ describe('AdminInvoices — RecordPaymentModal integration (PR-7)', () => {
     })
   })
 })
+
+describe('AdminInvoices — quote descriptions, discounts and notes', () => {
+  const DISCOUNTED_DETAIL = {
+    ...INVOICE_DETAIL,
+    total: 81.97,
+    subtotal: '85.12',
+    discount_amount: '8.51',
+    discount_label: '10% discount',
+    tax_amount: '5.36',
+    notes: 'Thanks for the order!',
+    lines: [{
+      id: 1,
+      sku: 'TROPHY',
+      description: 'Custom Trophy',
+      long_description: 'Black Base (PLA Matte Charcoal)\nGold Top (PLA Silk Gold)',
+      quantity: 2,
+      unit_price: '42.56',
+      line_total: '85.12',
+    }],
+  }
+
+  const openInvoice = async (detail) => {
+    mocks.get.mockImplementation((path) => {
+      if (path.includes('/summary')) return Promise.resolve({ total_ar: 0, overdue_count: 0, open_count: 1, paid_last_30_days: 0 })
+      if (path.includes('/invoices/42')) return Promise.resolve(detail)
+      if (path.includes('/invoices')) return Promise.resolve(INVOICE_LIST)
+      return Promise.resolve([])
+    })
+    renderInvoices()
+    await waitFor(() => screen.getByText('INV-2026-001'))
+    fireEvent.click(screen.getByText('INV-2026-001'))
+    await waitFor(() => screen.getByText('Custom Trophy'))
+  }
+
+  it('shows the description, discount rows, discounted subtotal and notes', async () => {
+    await openInvoice(DISCOUNTED_DETAIL)
+    expect(screen.getByText(/Gold Top \(PLA Silk Gold\)/)).toBeInTheDocument()
+    expect(screen.getByText('Items total')).toBeInTheDocument()
+    expect(screen.getByText('10% discount')).toBeInTheDocument()
+    expect(screen.getByText('-$8.51')).toBeInTheDocument()
+    expect(screen.getByText('$76.61')).toBeInTheDocument()
+    expect(screen.getByText('$81.97')).toBeInTheDocument()
+    expect(screen.getByText('Thanks for the order!')).toBeInTheDocument()
+  })
+
+  it('keeps the old totals layout for an invoice without a discount label', async () => {
+    await openInvoice({ ...DISCOUNTED_DETAIL, discount_label: null, notes: null })
+    expect(screen.queryByText('Items total')).not.toBeInTheDocument()
+    expect(screen.getByText('Discount')).toBeInTheDocument()
+    expect(screen.getAllByText('$85.12').length).toBe(2) // line + subtotal
+  })
+})

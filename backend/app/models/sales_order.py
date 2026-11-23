@@ -67,6 +67,13 @@ class SalesOrder(Base):
     shipping_cost = Column(Numeric(10, 2), nullable=True, default=0.00)
     grand_total = Column(Numeric(10, 2), nullable=False)  # total + tax + shipping
 
+    # Order-level discount carried from the quote (see discount_math).
+    # total_price is already net of it; discount_amount is the money value.
+    discount_type = Column(String(10), nullable=True)  # "percent" | "amount"
+    discount_value = Column(Numeric(10, 2), nullable=True)
+    discount_label = Column(String(100), nullable=True)
+    discount_amount = Column(Numeric(10, 2), nullable=True)
+
     # Order Status. The authoritative vocabulary + allowed transitions live in
     # app/core/status_config.py (SalesOrderStatus / SALES_ORDER_TRANSITIONS);
     # keep this comment in sync with that enum.
@@ -238,6 +245,15 @@ class SalesOrderLine(Base):
     tax_rate = Column(Numeric(5, 2), nullable=True, default=0)
     tax_name = Column(String(100), nullable=True)  # human-readable snapshot
     total = Column(Numeric(10, 2), nullable=False)  # quantity * unit_price - discount + tax
+
+    # Customer-facing item description (``description`` holds a service line's name).
+    long_description = Column(Text, nullable=True)
+    # Per-line discount (see discount_math). ``total`` is net of discount_amount.
+    # The legacy ``discount`` column above is left as it is.
+    discount_type = Column(String(10), nullable=True)  # "percent" | "amount"
+    discount_value = Column(Numeric(10, 2), nullable=True)
+    discount_label = Column(String(100), nullable=True)
+    discount_amount = Column(Numeric(10, 2), nullable=True)
     allocated_quantity = Column(Numeric(10, 2), nullable=True, default=0)
     shipped_quantity = Column(Numeric(10, 2), nullable=True, default=0)
     original_quantity = Column(Numeric(10, 2), nullable=True)  # Pre-edit quantity (NULL = never edited)

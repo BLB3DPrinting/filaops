@@ -389,6 +389,28 @@ def setup_database():
         conn.execute(text(
             "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS void_reason VARCHAR(255)"
         ))
+        # Migration 106: line descriptions and discounts on quotes, orders
+        # and invoices. create_all won't ALTER the pre-existing tables.
+        _discount_cols = (
+            "discount_type VARCHAR(10)",
+            "discount_value NUMERIC(10,2)",
+            "discount_label VARCHAR(100)",
+            "discount_amount NUMERIC(10,2)",
+        )
+        for _table, _cols in (
+            ("quotes", _discount_cols),
+            ("quote_lines", ("description TEXT",) + _discount_cols),
+            ("sales_orders", _discount_cols),
+            ("sales_order_lines", ("long_description TEXT",) + _discount_cols),
+            ("invoices", ("discount_label VARCHAR(100)", "notes TEXT")),
+            ("invoice_lines", (
+                "long_description TEXT",
+                "discount_label VARCHAR(100)",
+                "discount_amount NUMERIC(12,2)",
+            )),
+        ):
+            for _col in _cols:
+                conn.execute(text(f"ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS {_col}"))
         # FK backfill so the accumulated test DB matches a fresh migration-102
         # DB (same pg_constraint-guarded pattern as the other FK patches here).
         conn.execute(text("""

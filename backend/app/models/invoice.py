@@ -1,6 +1,6 @@
 """Invoice models for tracking billing and payments."""
 from sqlalchemy import (
-    Column, Integer, String, Numeric, Date, DateTime, ForeignKey,
+    Column, Integer, String, Numeric, Date, DateTime, ForeignKey, Text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -30,11 +30,15 @@ class Invoice(Base):
 
     # Amounts
     subtotal = Column(Numeric(12, 2), nullable=False)
-    discount_amount = Column(Numeric(12, 2), server_default="0")
+    discount_amount = Column(Numeric(12, 2), server_default="0")  # order-level discount
+    discount_label = Column(String(100), nullable=True)
     tax_rate = Column(Numeric(5, 4), server_default="0")
     tax_amount = Column(Numeric(12, 2), server_default="0")
     shipping_amount = Column(Numeric(12, 2), server_default="0")
-    total = Column(Numeric(12, 2), nullable=False)
+    total = Column(Numeric(12, 2), nullable=False)  # subtotal - discount + tax + shipping
+
+    # Customer-facing notes carried from the order (printed on the PDF)
+    notes = Column(Text, nullable=True)
 
     # Status: draft, sent, paid, overdue, cancelled
     status = Column(String(20), nullable=False, server_default="draft", index=True)
@@ -83,7 +87,10 @@ class InvoiceLine(Base):
     unit_price = Column(Numeric(12, 2), nullable=False)
     base_price = Column(Numeric(12, 2), nullable=True)
     discount_percent = Column(Numeric(5, 2), nullable=True)
-    line_total = Column(Numeric(12, 2), nullable=False)
+    line_total = Column(Numeric(12, 2), nullable=False)  # net of discount_amount
+    long_description = Column(Text, nullable=True)
+    discount_label = Column(String(100), nullable=True)
+    discount_amount = Column(Numeric(12, 2), nullable=True)
 
     # Relationships
     invoice = relationship("Invoice", back_populates="lines")

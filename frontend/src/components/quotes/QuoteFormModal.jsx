@@ -10,6 +10,20 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api";
 import { useToast } from "../Toast";
+import DiscountFields from "../discounts/DiscountFields";
+import QuoteLineExtras from "./QuoteLineExtras";
+import QuoteTotalsPanel from "./QuoteTotalsPanel";
+import useQuoteTotalsPreview from "./useQuoteTotalsPreview";
+import { discountPayload, estimateQuoteTotals, totalsFromPreview, defaultDiscountLabel } from "../../lib/discounts";
+import {
+  firstDiscountError,
+  lineFromFee,
+  lineFromProduct,
+  lineFromQuoteLine,
+  lineFromSingleItemQuote,
+  linePayload,
+  linesArePriceable,
+} from "./quoteFormLines";
 
 const STATE_ALIASES = {
   INDIANA: "IN",
@@ -48,30 +62,10 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   // Multi-line items state
   const [lineItems, setLineItems] = useState(() => {
     if (quote?.lines?.length > 0) {
-      return quote.lines.map((l) => ({
-        line_type: l.product_id ? "product" : "service",
-        product_id: l.product_id,
-        product_name: l.product_name,
-        product_sku: "",
-        quantity: l.quantity,
-        unit_price: l.unit_price,
-        material_type: l.material_type || "",
-        color: l.color || "",
-        notes: l.notes || "",
-      }));
+      return quote.lines.map(lineFromQuoteLine);
     }
     if (quote?.product_name) {
-      return [{
-        line_type: "product",
-        product_id: quote.product_id,
-        product_name: quote.product_name,
-        product_sku: "",
-        quantity: quote.quantity || 1,
-        unit_price: quote.unit_price || "",
-        material_type: quote.material_type || "",
-        color: quote.color || "",
-        notes: "",
-      }];
+      return [lineFromSingleItemQuote(quote)];
     }
     return [];
   });
@@ -89,6 +83,10 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     tax_rate_id: null,
     shipping_cost: quote?.shipping_cost || "",
     valid_days: 30,
+    // Quote-level discount, applied after line discounts
+    discount_type: quote?.discount_type || "",
+    discount_value: quote?.discount_value ?? "",
+    discount_label: quote?.discount_label || "",
   });
 
   useEffect(() => {
@@ -207,20 +205,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
             : li
         );
       }
-      return [
-        ...prev,
-        {
-          product_id: product.id,
-          line_type: "product",
-          product_name: product.name,
-          product_sku: product.sku,
-          quantity: 1,
-          unit_price: product.selling_price ?? "",
-          material_type: "",
-          color: "",
-          notes: "",
-        },
-      ];
+      return [...prev, lineFromProduct(product)];
     });
   };
 
@@ -231,17 +216,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
     setLineItems((prev) => [
       ...prev,
-      {
-        line_type: "service",
-        product_id: null,
-        product_name: description,
-        product_sku: "",
-        quantity: Math.max(1, parseInt(feeQuantity, 10) || 1),
-        unit_price: unitPrice.toFixed(2),
-        material_type: "",
-        color: "",
-        notes: "",
-      },
+      lineFromFee(description, Math.max(1, parseInt(feeQuantity, 10) || 1), unitPrice.toFixed(2)),
     ]);
     setFeeDescription("");
     setFeeQuantity(1);
@@ -301,6 +276,12 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
       }
     }
 
+    const discountProblem = firstDiscountError(lineItems, form);
+    if (discountProblem) {
+      toast.error(discountProblem);
+      return;
+    }
+
     if (saveAsCustomer && !form.customer_email) {
       toast.error("Customer email is required to save as new customer");
       return;
@@ -344,15 +325,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
     // Build payload with lines array
     const payload = {
-      lines: lineItems.map((li) => ({
-        product_id: li.line_type === "service" ? null : li.product_id || null,
-        product_name: li.product_name,
-        quantity: li.quantity,
-        unit_price: parseFloat(li.unit_price),
-        material_type: li.material_type || null,
-        color: li.color || null,
-        notes: li.notes || null,
-      })),
+      lines: lineItems.map(linePayload),
       customer_id: customerId || null,
       customer_name: form.customer_name || null,
       customer_email: form.customer_email || null,
@@ -361,6 +334,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
       apply_tax: form.apply_tax,
       tax_rate_id: form.tax_rate_id || null,
       shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
+      ...discountPayload(form.discount_type, form.discount_value, form.discount_label),
     };
 
     if (!quote) {
@@ -374,20 +348,35 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
     }
   };
 
-  // Calculate totals
-  const discountPercent = parseFloat(customerDiscount) || 0;
-  const subtotal = lineItems.reduce((sum, li) => {
-    let linePrice = parseFloat(li.unit_price) || 0;
-    if (li.line_type === "product" && discountPercent > 0) {
-      linePrice *= 1 - discountPercent / 100;
-    }
-    return sum + linePrice * (li.quantity || 1);
-  }, 0);
-  const taxRate = form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0;
-  const shippingCost = parseFloat(form.shipping_cost) || 0;
-  const taxableBase = subtotal + (isShippingTaxable(companySettings?.company_state) ? shippingCost : 0);
-  const taxAmount = taxRate > 0 ? taxableBase * taxRate : 0;
-  const grandTotal = subtotal + taxAmount + shippingCost;
+  // Totals: the server preview (what a save stores and the PDF prints),
+  // with a local estimate until it arrives or if it is unavailable.
+  const quoteDiscount = discountPayload(form.discount_type, form.discount_value, form.discount_label);
+  const preview = useQuoteTotalsPreview(
+    linesArePriceable(lineItems) && !firstDiscountError(lineItems, form)
+      ? {
+          quote_id: quote?.id || null,
+          lines: lineItems.map(linePayload),
+          customer_id: form.customer_id || null,
+          apply_tax: form.apply_tax,
+          tax_rate_id: form.tax_rate_id || null,
+          shipping_cost: form.shipping_cost ? parseFloat(form.shipping_cost) : null,
+          ...quoteDiscount,
+        }
+      : null,
+  );
+  const totals = preview
+    ? totalsFromPreview(preview)
+    : estimateQuoteTotals({
+        lines: lineItems,
+        priceLevelPercent: parseFloat(customerDiscount) || 0,
+        discountType: quoteDiscount.discount_type,
+        discountValue: quoteDiscount.discount_value,
+        taxRate: form.apply_tax && companySettings?.tax_rate_percent ? companySettings.tax_rate_percent / 100 : 0,
+        shippingCost: form.shipping_cost,
+        shippingTaxable: isShippingTaxable(companySettings?.company_state),
+      });
+  const quoteDiscountLabel =
+    quoteDiscount.discount_label || defaultDiscountLabel(quoteDiscount.discount_type, quoteDiscount.discount_value);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -611,71 +600,79 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                   </h4>
                   <div className="bg-gray-800/50 rounded-lg border border-gray-700 divide-y divide-gray-700">
                     {lineItems.map((li, idx) => (
-                      <div key={idx} className="p-3 flex items-center gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            {li.line_type === "service" && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
-                                FEE
-                              </span>
-                            )}
-                            {li.line_type === "service" ? (
-                              <input
-                                type="text"
-                                value={li.product_name}
-                                onChange={(e) => handleUpdateLine(idx, "product_name", e.target.value)}
-                                className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm"
-                              />
-                            ) : (
-                              <div className="text-white font-medium truncate">{li.product_name}</div>
+                      <div key={idx} className="p-3">
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              {li.line_type === "service" && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded">
+                                  FEE
+                                </span>
+                              )}
+                              {li.line_type === "service" ? (
+                                <input
+                                  type="text"
+                                  value={li.product_name}
+                                  onChange={(e) => handleUpdateLine(idx, "product_name", e.target.value)}
+                                  className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm"
+                                />
+                              ) : (
+                                <div className="text-white font-medium truncate">{li.product_name}</div>
+                              )}
+                            </div>
+                            {li.line_type !== "service" && li.product_sku && (
+                              <div className="text-gray-500 text-xs">{li.product_sku}</div>
                             )}
                           </div>
-                          {li.line_type !== "service" && li.product_sku && (
-                            <div className="text-gray-500 text-xs">{li.product_sku}</div>
-                          )}
+                          <div className="flex items-center gap-2">
+                            <label className="text-gray-400 text-sm">Qty:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={li.quantity}
+                              onChange={(e) =>
+                                handleUpdateLine(idx, "quantity", parseInt(e.target.value) || 1)
+                              }
+                              className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-center"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-gray-400 text-sm">$</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={li.unit_price}
+                              onChange={(e) =>
+                                handleUpdateLine(idx, "unit_price", e.target.value)
+                              }
+                              className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-right"
+                            />
+                          </div>
+                          <div className="text-green-400 font-medium w-24 text-right">
+                            ${((parseFloat(li.unit_price) || 0) * (li.quantity || 1)).toFixed(2)}
+                          </div>
+                          <button
+                            onClick={() => handleRemoveLine(idx)}
+                            className="text-red-400 hover:text-red-300 p-1"
+                            title="Remove"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-gray-400 text-sm">Qty:</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={li.quantity}
-                            onChange={(e) =>
-                              handleUpdateLine(idx, "quantity", parseInt(e.target.value) || 1)
-                            }
-                            className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-center"
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-gray-400 text-sm">$</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={li.unit_price}
-                            onChange={(e) =>
-                              handleUpdateLine(idx, "unit_price", e.target.value)
-                            }
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm text-right"
-                          />
-                        </div>
-                        <div className="text-green-400 font-medium w-24 text-right">
-                          ${((parseFloat(li.unit_price) || 0) * (li.quantity || 1)).toFixed(2)}
-                        </div>
-                        <button
-                          onClick={() => handleRemoveLine(idx)}
-                          className="text-red-400 hover:text-red-300 p-1"
-                          title="Remove"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                        <QuoteLineExtras
+                          line={li}
+                          index={idx}
+                          totals={totals.lines[idx]}
+                          onChange={(field, value) => handleUpdateLine(idx, field, value)}
+                        />
                       </div>
                     ))}
                     <div className="p-3 flex justify-between bg-gray-800/80">
-                      <span className="text-white font-medium">Subtotal</span>
-                      <span className="text-green-400 font-bold">${subtotal.toFixed(2)}</span>
+                      <span className="text-white font-medium">Items total</span>
+                      <span className="text-green-400 font-bold">${totals.itemsTotal.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -730,7 +727,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                           <span>{li.product_name} x{li.quantity}</span>
                         </span>
                         <span className="text-gray-400">
-                          ${((parseFloat(li.unit_price) || 0) * li.quantity).toFixed(2)}
+                          ${(totals.lines[idx]?.net ?? 0).toFixed(2)}
                         </span>
                       </div>
                     ))}
@@ -807,6 +804,18 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
                 )}
               </div>
 
+              {/* Quote discount (after line discounts, before tax) */}
+              <div className="border-t border-gray-700 pt-4">
+                <DiscountFields
+                  idPrefix="quote-discount"
+                  title="Quote discount"
+                  type={form.discount_type}
+                  value={form.discount_value}
+                  label={form.discount_label}
+                  onChange={(field, value) => setForm((f) => ({ ...f, [field]: value }))}
+                />
+              </div>
+
               {/* Tax & Shipping */}
               <div className="border-t border-gray-700 pt-4 space-y-4">
                 {taxRates.length >= 2 ? (
@@ -864,17 +873,17 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
               <div className="border-t border-gray-700 pt-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Customer Notes</label>
+                    <label className="block text-sm text-gray-400 mb-1">Notes (printed on the quote)</label>
                     <textarea
                       value={form.customer_notes}
                       onChange={(e) => setForm((f) => ({ ...f, customer_notes: e.target.value }))}
                       className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white"
                       rows={2}
-                      placeholder="Special requests..."
+                      placeholder="Shown to the customer in the Notes section of the PDF"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Internal Notes</label>
+                    <label className="block text-sm text-gray-400 mb-1">Internal Notes (never printed)</label>
                     <textarea
                       value={form.admin_notes}
                       onChange={(e) => setForm((f) => ({ ...f, admin_notes: e.target.value }))}
@@ -902,30 +911,12 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
               )}
 
               {/* Total Preview */}
-              <div className="bg-gray-800 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-400">Subtotal ({lineItems.length} item{lineItems.length !== 1 ? "s" : ""}):</span>
-                  <span className="text-white">${subtotal.toFixed(2)}</span>
-                </div>
-                {form.apply_tax && taxAmount > 0 && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400">
-                      {companySettings?.tax_name || "Tax"} ({companySettings?.tax_rate_percent?.toFixed(2)}%):
-                    </span>
-                    <span className="text-white">${taxAmount.toFixed(2)}</span>
-                  </div>
-                )}
-                {shippingCost > 0 && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400">Shipping:</span>
-                    <span className="text-white">${shippingCost.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center pt-2 border-t border-gray-700">
-                  <span className="text-gray-400 font-medium">Total:</span>
-                  <span className="text-2xl font-bold text-green-400">${grandTotal.toFixed(2)}</span>
-                </div>
-              </div>
+              <QuoteTotalsPanel
+                totals={totals}
+                itemCount={lineItems.length}
+                discountLabel={quoteDiscountLabel}
+                taxName={companySettings?.tax_name}
+              />
 
               {/* Actions */}
               <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">

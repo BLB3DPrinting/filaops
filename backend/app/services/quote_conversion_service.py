@@ -201,6 +201,10 @@ def convert_portal_quote_to_order(
             artifact_snapshot=quote.artifact_snapshot,
             slicer_diagnostics=quote.slicer_diagnostics,
             customer_notes=quote.customer_notes,
+            discount_type=quote.discount_type,
+            discount_value=quote.discount_value,
+            discount_label=quote.discount_label,
+            discount_amount=quote.discount_amount,
             # Hybrid architecture fields
             order_type="quote_based",
             source="portal",

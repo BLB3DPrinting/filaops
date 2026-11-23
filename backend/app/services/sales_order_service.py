@@ -34,6 +34,7 @@ from app.models.company_settings import CompanySettings
 from app.models.order_event import OrderEvent
 from app.core.status_config import StatusTransitionError, validate_sales_order_transition
 from app.services.customer_service import get_customer_discount_percent as _get_customer_discount_percent
+from app.services import order_discounts
 from app.services.tax_calculation_service import calculate_sales_tax
 
 # ---------------------------------------------------------------------------
@@ -456,6 +457,8 @@ def create_sales_order(
                 "line_total": line_total,
                 "discountable": True,
                 "notes": line.get("notes"),
+                # The item's own Description travels with the line to the invoice.
+                "long_description": product.description or None,
             })
             line_names.append(product.name)
 
@@ -629,6 +632,7 @@ def create_sales_order(
             discount=line_data.get("discount_percent", Decimal("0")),
             tax_rate=Decimal("0"),
             notes=line_data["notes"],
+            long_description=line_data.get("long_description"),
             created_by=created_by_user_id,
         )
         db.add(order_line)
@@ -738,6 +742,12 @@ def convert_quote_to_sales_order(
         is_taxable=quote.tax_rate is not None,
         shipping_cost=shipping_cost,
         grand_total=grand_total,
+        # Quote discount is already inside quote.subtotal; carried so later
+        # recalculations re-apply it instead of dropping it.
+        discount_type=quote.discount_type,
+        discount_value=quote.discount_value,
+        discount_label=quote.discount_label,
+        discount_amount=quote.discount_amount,
         status="pending",
         payment_status="pending",
         rush_level=quote.rush_level or "standard",
@@ -1198,9 +1208,11 @@ def _recalculate_order_totals(db: Session, order: SalesOrder) -> None:
     ).all()
 
     if lines:
-        line_total = sum((_decimal_or_zero(ln.total) for ln in lines), Decimal("0"))
+        items_total = sum((_decimal_or_zero(ln.total) for ln in lines), Decimal("0"))
         line_qty = sum((_decimal_or_zero(ln.quantity) for ln in lines), Decimal("0"))
 
+        # Re-apply the order discount carried from the quote (no-op without one).
+        line_total = order_discounts.apply_order_discount(order, items_total)
         order.total_price = line_total
         order.quantity = int(line_qty)
     else:
@@ -1310,7 +1322,7 @@ def edit_sales_order_lines(
 
         line.quantity = new_qty
         line.unit_price = new_unit_price
-        line.total = (new_qty * new_unit_price).quantize(Decimal("0.01"))
+        order_discounts.reprice_line(line, new_qty, new_unit_price)
 
         # Resolve product name for the event
         product_name = "Line"
@@ -1722,7 +1734,7 @@ def close_short_sales_order(
                 line.original_quantity = old_qty
             line.quantity = achievable
             # unit_price already has customer discount baked in (applied at order creation)
-            line.total = (achievable * line.unit_price).quantize(Decimal("0.01"))
+            order_discounts.reprice_line(line, achievable, line.unit_price)
             line.fulfillment_status = "short_closed"
             adjustments.append(f"{old_qty} → {achievable}")
         else:

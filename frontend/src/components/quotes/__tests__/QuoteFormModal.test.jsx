@@ -160,3 +160,161 @@ describe("QuoteFormModal editing", () => {
     });
   });
 });
+
+describe("QuoteFormModal descriptions and discounts", () => {
+  let previewResponse;
+
+  beforeEach(() => {
+    previewResponse = null;
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      const value = String(url);
+      if (value.includes("/api/v1/quotes/preview-totals")) {
+        return Promise.resolve(previewResponse
+          ? { ok: true, json: () => Promise.resolve(previewResponse) }
+          : { ok: false, json: () => Promise.resolve({}) });
+      }
+      if (value.includes("/api/v1/items")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{
+            id: 7,
+            name: "Custom Trophy",
+            sku: "TROPHY",
+            selling_price: "42.56",
+            description: "Custom trophy\nGold Top (PLA Silk Gold)",
+          }]),
+        });
+      }
+      if (value.includes("/api/v1/settings/company")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ tax_enabled: true, tax_rate_percent: 7, tax_name: "Sales Tax" }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const addTrophy = async () => {
+    fireEvent.click(await screen.findByText("Custom Trophy"));
+    fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "2" } });
+  };
+
+  it("prefills the line description from the item and sends it", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+    await addTrophy();
+
+    const description = screen.getByLabelText("Description for Custom Trophy");
+    expect(description.value).toBe("Custom trophy\nGold Top (PLA Silk Gold)");
+    fireEvent.change(description, { target: { value: "Custom trophy\nBlack Base" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        lines: [expect.objectContaining({ description: "Custom trophy\nBlack Base", discount_type: null })],
+        discount_type: null,
+      }));
+    });
+  });
+
+  it("shows the golden totals for a 10% quote discount and sends it", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+    await addTrophy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    fireEvent.change(screen.getByLabelText("Quote discount"), { target: { value: "percent" } });
+    fireEvent.change(screen.getByLabelText("Quote discount percent"), { target: { value: "10" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("$85.12")).toBeTruthy();
+      expect(screen.getByText("-$8.51")).toBeTruthy();
+      expect(screen.getByText("$76.61")).toBeTruthy();
+      expect(screen.getByText("$5.36")).toBeTruthy();
+      expect(screen.getByText("$81.97")).toBeTruthy();
+    });
+    expect(screen.getByText("10% discount:")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        discount_type: "percent",
+        discount_value: 10,
+        discount_label: null,
+      }));
+    });
+  });
+
+  it("uses the server preview when it is available", async () => {
+    previewResponse = {
+      lines: [{ unit_price: "42.56", gross: "85.12", discount_amount: "0.00", total: "85.12" }],
+      items_gross: "85.12",
+      line_discounts: "0.00",
+      items_total: "85.12",
+      discount_amount: "0.00",
+      subtotal: "85.12",
+      tax_rate: "0.0600",
+      tax_amount: "5.11",
+      shipping_cost: "0.00",
+      total: "90.23",
+    };
+    renderModal({ quote: null });
+    await addTrophy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("$90.23")).toBeTruthy();
+    expect(screen.getByText("Sales Tax (6.00%):")).toBeTruthy();
+  });
+
+  it("blocks saving an incomplete line discount", async () => {
+    const onSave = vi.fn();
+    renderModal({ quote: null, onSave });
+    await addTrophy();
+    fireEvent.change(screen.getByLabelText("Line discount"), { target: { value: "amount" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Quote" }));
+
+    expect(await screen.findByText(/Custom Trophy: Enter a discount value/)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("keeps saved descriptions and discounts when editing", async () => {
+    const onSave = vi.fn();
+    renderModal({
+      onSave,
+      quote: {
+        ...quote,
+        discount_type: "amount",
+        discount_value: "5.00",
+        discount_label: "Spring sale",
+        lines: [{
+          ...quote.lines[0],
+          description: "Saved description",
+          discount_type: "percent",
+          discount_value: "10.00",
+          discount_label: null,
+        }],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update Quote" }));
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        discount_type: "amount",
+        discount_value: 5,
+        discount_label: "Spring sale",
+        lines: [expect.objectContaining({
+          description: "Saved description",
+          discount_type: "percent",
+          discount_value: 10,
+        })],
+      }));
+    });
+  });
+});
