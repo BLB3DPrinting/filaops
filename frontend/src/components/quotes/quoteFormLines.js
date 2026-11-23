@@ -101,30 +101,38 @@ export const withLineField = (li, field, value) =>
     : { ...li, [field]: value };
 
 /**
+ * List prices (in cents) that give ``netCents`` after ``pct`` percent off,
+ * rounded half up like the server (quote_totals.apply_price_level). Integer
+ * arithmetic, so the check is exact.
+ */
+const listCentsFor = (netCents, pct) => {
+  const keep = 10000 - Math.round(pct * 100); // parts of 10000 kept
+  const net = (listCents) => Math.floor((listCents * keep + 5000) / 10000);
+  const found = [];
+  const lo = Math.floor(((netCents - 1) * 10000) / keep);
+  const hi = Math.ceil(((netCents + 1) * 10000) / keep);
+  for (let c = Math.max(lo, 0); c <= hi; c += 1) if (net(c) === netCents) found.push(c);
+  return found;
+};
+
+/**
  * Line when the quote's customer changes: a saved price that includes the old
  * customer's price level goes back to its list price, so the new customer's
  * level (if any) is the one applied.
  *
  * The list price is not stored, so it is worked back from the saved net price.
- * Rounding can make that ambiguous by a cent ($2.01 and $2.02 at 50% both save
- * as $1.01), so the catalog price wins when it gives the same net price. At
- * 100% nothing can be worked back: the catalog price is used, or the price is
- * left blank for the user to enter rather than treating $0 as the list price.
+ * When rounding means more than one list price fits ($2.01 and $2.02 at 50%
+ * both save as $1.01), or at 100% where nothing can be worked back, the price
+ * is left blank for the user to enter: the form will not save a blank price.
  */
-export const withoutSavedPriceLevel = (li, catalogPrice) => {
+export const withoutSavedPriceLevel = (li) => {
   if (!hasPriceLevelApplied(li)) return li;
   const pct = Number(li.price_level_percent_applied);
   const unit = parseFloat(li.unit_price);
-  const catalog = parseFloat(catalogPrice);
-  const hasCatalog = Number.isFinite(catalog) && catalog > 0;
   const cleared = { ...li, price_level_percent_applied: null };
   if (Number.isNaN(unit) || !(pct > 0)) return cleared;
-  if (pct >= 100) return { ...cleared, unit_price: hasCatalog ? catalog : "" };
-  const keep = 1 - pct / 100;
-  if (hasCatalog && roundHalfUp(catalog * keep, 2) === roundHalfUp(unit, 2)) {
-    return { ...cleared, unit_price: catalog };
-  }
-  return { ...cleared, unit_price: roundHalfUp(unit / keep, 2) };
+  const candidates = pct < 100 ? listCentsFor(Math.round(roundHalfUp(unit, 2) * 100), pct) : [];
+  return { ...cleared, unit_price: candidates.length === 1 ? candidates[0] / 100 : "" };
 };
 
 /** First discount problem across the quote and its lines, or null. */

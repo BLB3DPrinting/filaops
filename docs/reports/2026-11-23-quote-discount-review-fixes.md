@@ -99,10 +99,13 @@ commit, with tests that fail without the fix.
    rounds the price to cents first, as the line path does.
 2. Changing the customer worked the list price back from the rounded net
    price (`quoteFormLines.js`). $2.01 at 50% saves as $1.01, which worked back
-   to $2.02; at 100% the $0 net price became the list price. The catalog price
-   now wins when it gives the same net price, and at 100% the catalog price is
-   used or the price is left blank for the user to enter (the form will not
-   save a blank price).
+   to $2.02; at 100% the $0 net price became the list price. The form now
+   restores the list price only when exactly one price in cents gives the
+   saved net price (checked with integer arithmetic). When more than one fits,
+   or at 100%, the price is left blank for the user to enter; the form will
+   not save a blank price. A first attempt used the catalog price as a tie
+   break; CodeRabbit pointed out that a matching catalog price does not prove
+   it was the quote's price, so that was dropped.
 3. The totals preview kept the saved customer when the form sent an explicit
    null customer (`quote_totals.py`), while saving removed it. The preview now
    keeps the saved customer only when the field is left out, like

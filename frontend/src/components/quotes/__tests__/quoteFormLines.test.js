@@ -50,23 +50,24 @@ describe("reopened quote lines and the customer price level", () => {
     expect(li.price_level_percent_applied).toBeNull();
   });
 
-  it("uses the catalog price when rounding makes the list price ambiguous", () => {
-    // $2.01 and $2.02 at 50% both save as $1.01.
-    const saved = lineFromQuoteLine({ ...savedLine, unit_price: "1.01", discount_percent: "50" });
-    expect(withoutSavedPriceLevel(saved, "2.01").unit_price).toBe(2.01);
-    expect(withoutSavedPriceLevel(saved).unit_price).toBe(2.02);
+  it("restores an unambiguous list price exactly", () => {
+    // $10.01 at 10% is $9.009, saved as $9.01; only $10.01 gives $9.01.
+    const saved = lineFromQuoteLine({ ...savedLine, unit_price: "9.01" });
+    expect(withoutSavedPriceLevel(saved).unit_price).toBe(10.01);
   });
 
-  it("ignores a catalog price that does not match the saved price", () => {
-    // The quote used a custom list price, not the catalog's.
-    expect(withoutSavedPriceLevel(lineFromQuoteLine(savedLine), "120.00").unit_price).toBe(100);
+  it("asks for the price when rounding makes the list price ambiguous", () => {
+    // $2.01 and $2.02 at 50% both save as $1.01.
+    const saved = lineFromQuoteLine({ ...savedLine, unit_price: "1.01", discount_percent: "50" });
+    const li = withoutSavedPriceLevel(saved);
+    expect(li.unit_price).toBe("");
+    expect(li.price_level_percent_applied).toBeNull();
   });
 
   it("never treats a 100% price level's $0 as the list price", () => {
     const saved = lineFromQuoteLine({ ...savedLine, unit_price: "0.00", discount_percent: "100" });
-    expect(withoutSavedPriceLevel(saved, "100.00").unit_price).toBe(100);
-    const blank = withoutSavedPriceLevel(saved);
-    expect(blank.unit_price).toBe("");
-    expect(blank.price_level_percent_applied).toBeNull();
+    const li = withoutSavedPriceLevel(saved);
+    expect(li.unit_price).toBe("");
+    expect(li.price_level_percent_applied).toBeNull();
   });
 });
