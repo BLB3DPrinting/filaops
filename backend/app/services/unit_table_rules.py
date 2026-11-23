@@ -13,8 +13,9 @@ conversion through it:
   item. A new kind is refused, and so is a code the table already holds in any
   spelling, switched on or off.
 - **A unit in use** (an item's stock or purchase unit, an item's own unit, or
-  a BOM, routing or open purchase order line) cannot be switched off. A unit
-  that is switched off can always be switched back on.
+  a BOM, routing or open purchase order line) cannot be switched off, and its
+  factor cannot change: every quantity stored in it would quietly mean a
+  different amount. A unit that is switched off can always be switched back on.
 
 Errors are ``ItemUnitError``: a 400 whose detail is the sentence to show.
 """
@@ -167,7 +168,13 @@ def check_unit_update(db: Session, row: UnitOfMeasure, *, factor: Any = None, ac
                 )
         elif _kind(row) == PACK:
             raise ItemUnitError(f"{code} is a pack. A pack has no factor; each item gives it a size.")
-        else:
+        elif value != Decimal(str(row.to_base_factor)):
+            uses = unit_uses(db, code)
+            if uses:
+                raise ItemUnitError(
+                    f"The factor of {code} cannot change while it is used by " + ", ".join(uses)
+                    + ". Every amount stored in it would mean something else. Add a new unit instead."
+                )
             new_factor = value
     if active is False and row.active:
         if is_standard(row):

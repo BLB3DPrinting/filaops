@@ -11,7 +11,6 @@ Covers:
 """
 import io
 import uuid
-import pytest
 from decimal import Decimal
 
 
@@ -924,6 +923,18 @@ class TestUOMUpdate:
         body = resp.json()
         assert body["symbol"] == "ns"
         assert Decimal(str(body["to_base_factor"])) == Decimal("0.25")
+
+    def test_the_factor_of_a_unit_in_use_is_fixed(self, client, make_product):
+        code = f"S{_uid()[:4]}"
+        client.post(f"{UOM}/", json={"code": code, "name": f"Span {code}", "symbol": "s",
+                                     "uom_class": "length", "to_base_factor": "0.2"})
+        make_product(item_type="supply", unit=code, purchase_uom=code)
+        resp = client.patch(f"{UOM}/{code}", json={"to_base_factor": "0.25"})
+        assert resp.status_code == 400
+        assert "stocked in it" in resp.json()["detail"]
+        assert Decimal(str(client.get(f"{UOM}/{code}").json()["to_base_factor"])) == Decimal("0.2")
+        # Sending the factor it already has is not a change.
+        assert client.patch(f"{UOM}/{code}", json={"to_base_factor": "0.2"}).status_code == 200
 
     def test_a_unit_in_use_cannot_be_switched_off(self, client, make_product):
         code = self._pack(client)

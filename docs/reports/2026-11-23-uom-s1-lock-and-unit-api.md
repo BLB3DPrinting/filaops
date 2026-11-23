@@ -42,10 +42,44 @@ Permission mode: auto (cloud session, Claude Code). Kickoff:
 - `tests/schemas/test_schema_coverage.py`: `purchase_uom` defaults to None.
 - Full backend suite, locally on PostgreSQL 16 with a test database built the
   way CI builds it: 8424 passed, 7 skipped.
-- `ruff check --select F,E9` on the changed and new files: clean. The repo's
-  full ruff rule set reports findings across `app/` on the base branch too.
+- `ruff check --select F,E9` on the changed and new files: clean in `app/`.
+  `tests/services/test_item_service_extra.py` keeps three findings it already
+  had on the base branch (two unused `datetime` imports, one unused local).
+  The repo's full ruff rule set reports findings across `app/` on the base
+  branch too.
 - Variants are covered through `duplicate_item`, which `create_variant` calls;
   there is no separate variant test.
+
+## Review in place of CodeRabbit
+
+CodeRabbit was triggered on #1092 once it was ready for review and did not
+run (its free review limit was reached). The diff was then read in full for
+correctness, security, data integrity and missing tests. Two changes came out
+of it:
+
+- **The factor of a unit in use is now fixed.** `check_unit_update` allowed
+  an install's own weight, length, area, volume or time unit to take a new
+  factor while items were stocked or bought in it, or lines used it. Every
+  amount stored in that unit would have quietly meant something else, and
+  `purchase_factor` on those items would have gone stale. It is now refused
+  with the list of uses, the same list that stops a unit being switched off.
+  Sending the factor a unit already has is still accepted. Test:
+  `TestUOMUpdate.test_the_factor_of_a_unit_in_use_is_fixed`.
+- `tests/endpoints/test_admin_endpoints.py`: the `pytest` import this PR left
+  unused is removed.
+
+Looked at and left as they are:
+
+- The lock is checked, then the change is written, with no row lock between.
+  A stock movement that lands in that gap is not seen. Stock movements are
+  written by many services that do not lock the product row, so a row lock
+  here would not close the gap on its own.
+- A standard unit's name and symbol can still be edited; its factor and its
+  switch cannot. The plan's "a standard row cannot be edited" is read as its
+  factor and kind.
+- Two requests adding the same unit to one item at the same moment: the
+  second fails on `uq_product_units_product_unit` with a 500 instead of a
+  400.
 
 ## Status checks
 
