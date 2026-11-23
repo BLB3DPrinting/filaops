@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     inventory,
     products,
     items,
+    units,
     materials,
     vendors,
     purchase_orders,
@@ -70,6 +71,11 @@ router.include_router(
     prefix="/products",
     tags=["products"]
 )
+
+# Units any staff account can read, and an item's own units. Registered before
+# items so /items/{id}/units is matched by these routes.
+router.include_router(units.router, prefix="/units", tags=["units"])
+router.include_router(units.item_router, prefix="/items", tags=["items"])
 
 # Items (unified item management)
 router.include_router(

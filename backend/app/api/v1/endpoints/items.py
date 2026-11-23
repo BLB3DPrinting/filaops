@@ -90,6 +90,7 @@ def _build_item_response(item, db: Session) -> ItemResponse:
         name=data["name"],
         description=data["description"],
         unit=data["unit"],
+        purchase_uom=data["purchase_uom"],
         item_type=ItemType(data["item_type"]) if data["item_type"] else ItemType.FINISHED_GOOD,
         procurement_type=ProcurementType(data["procurement_type"]) if data["procurement_type"] else ProcurementType.BUY,
         category_id=data["category_id"],

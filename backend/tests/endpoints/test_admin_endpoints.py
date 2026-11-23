@@ -773,193 +773,196 @@ class TestUOMClasses:
 
 
 class TestUOMCreateAndGet:
-    """Tests for POST and GET /api/v1/admin/uom/"""
+    """Tests for POST and GET /api/v1/admin/uom/ (plan 4.6: a pack, or a scaled unit with its factor)."""
 
-    def test_create_uom_returns_201(self, client):
+    def test_create_pack_returns_201(self, client):
         uid = _uid()
         resp = client.post(f"{UOM}/", json={
-            "code": f"T{uid[:4]}",
-            "name": f"Test Unit {uid}",
-            "symbol": "tu",
-            "uom_class": "quantity",
-            "to_base_factor": 1,
+            "code": f"t{uid[:4]}", "name": f"Test Pack {uid}", "symbol": "tp", "uom_class": "pack",
         })
         assert resp.status_code == 201
         body = resp.json()
-        assert body["code"] == f"T{uid[:4]}".upper()
+        assert body["code"] == f"T{uid[:4]}"
+        assert body["uom_class"] == "pack"
+        assert body["base_unit_code"] is None
         assert body["active"] is True
+
+    def test_create_weight_unit_takes_its_factor_to_kg(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={
+            "code": f"W{uid[:4]}", "name": f"Weight {uid}", "symbol": "w", "uom_class": "weight",
+            "to_base_factor": "0.45359237",
+        })
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["base_unit_code"] == "KG"
+        assert Decimal(str(body["to_base_factor"])) == Decimal("0.45359237")
 
     def test_create_uom_duplicate_code_returns_400(self, client):
         uid = _uid()
-        code = f"D{uid[:4]}"
-        payload = {
-            "code": code, "name": f"Dup {uid}",
-            "symbol": "dp", "uom_class": "quantity", "to_base_factor": 1,
-        }
-        client.post(f"{UOM}/", json=payload)
-        resp = client.post(f"{UOM}/", json=payload)
+        payload = {"code": f"D{uid[:4]}", "name": f"Dup {uid}", "symbol": "dp", "uom_class": "pack"}
+        assert client.post(f"{UOM}/", json=payload).status_code == 201
+        resp = client.post(f"{UOM}/", json={**payload, "code": payload["code"].lower()})
+        assert resp.status_code == 400
+
+    def test_a_standard_code_in_another_spelling_is_refused(self, client):
+        resp = client.post(f"{UOM}/", json={"code": "kilograms", "name": "Kilos", "symbol": "kg", "uom_class": "weight",
+                                            "to_base_factor": 1})
+        assert resp.status_code == 400
+        assert "KG" in resp.json()["detail"]
+
+    def test_a_counting_unit_is_refused(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"Q{uid[:4]}", "name": f"Dozen {uid}", "symbol": "dz",
+                                            "uom_class": "quantity", "to_base_factor": 12})
+        assert resp.status_code == 400
+        assert "pack" in resp.json()["detail"]
+
+    def test_a_new_kind_is_refused(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"N{uid[:4]}", "name": f"Odd {uid}", "symbol": "o",
+                                            "uom_class": "energy", "to_base_factor": 1})
+        assert resp.status_code == 400
+
+    def test_a_scaled_unit_needs_its_factor(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"F{uid[:4]}", "name": f"No factor {uid}", "symbol": "f",
+                                            "uom_class": "length"})
+        assert resp.status_code == 400
+
+    def test_a_factor_with_16_places_is_refused(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"P{uid[:4]}", "name": f"Precise {uid}", "symbol": "p",
+                                            "uom_class": "length", "to_base_factor": "0.1234567890123456"})
+        assert resp.status_code == 400
+        assert "15" in resp.json()["detail"]
+
+    def test_a_factor_with_15_places_is_kept(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"P{uid[:4]}", "name": f"Precise {uid}", "symbol": "p",
+                                            "uom_class": "length", "to_base_factor": "0.123456789012345"})
+        assert resp.status_code == 201
+
+    def test_a_base_other_than_the_kinds_base_is_refused(self, client):
+        uid = _uid()
+        resp = client.post(f"{UOM}/", json={"code": f"B{uid[:4]}", "name": f"Base {uid}", "symbol": "b",
+                                            "uom_class": "weight", "to_base_factor": "0.001",
+                                            "base_unit_code": "G"})
         assert resp.status_code == 400
 
     def test_get_uom_by_code(self, client):
-        uid = _uid()
-        code = f"G{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Get {uid}",
-            "symbol": "gt", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        resp = client.get(f"{UOM}/{code.upper()}")
+        resp = client.get(f"{UOM}/kg")
         assert resp.status_code == 200
-        body = resp.json()
-        assert body["code"] == code.upper()
+        assert resp.json()["code"] == "KG"
 
     def test_get_uom_not_found_returns_404(self, client):
         resp = client.get(f"{UOM}/ZZZZNOTREAL")
         assert resp.status_code == 404
 
-    def test_create_uom_with_base_unit(self, client):
-        uid = _uid()
-        # Create base unit first
-        base_code = f"B{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": base_code, "name": f"Base {uid}",
-            "symbol": "b", "uom_class": "weight", "to_base_factor": 1,
-        })
-        # Create derived unit
-        derived_code = f"V{uid[:4]}"
-        resp = client.post(f"{UOM}/", json={
-            "code": derived_code, "name": f"Derived {uid}",
-            "symbol": "v", "uom_class": "weight",
-            "to_base_factor": "0.001",
-            "base_unit_code": base_code.upper(),
-        })
-        assert resp.status_code == 201
-        body = resp.json()
-        assert body["base_unit_code"] == base_code.upper()
-
-    def test_create_uom_invalid_base_unit_returns_400(self, client):
-        uid = _uid()
-        resp = client.post(f"{UOM}/", json={
-            "code": f"I{uid[:4]}", "name": f"Invalid {uid}",
-            "symbol": "x", "uom_class": "weight",
-            "to_base_factor": "0.5",
-            "base_unit_code": "NONEXISTENT_UNIT",
-        })
-        assert resp.status_code == 400
-
-    def test_create_uom_mismatched_class_returns_400(self, client):
-        """Creating a unit with a base_unit from a different class should fail."""
-        uid = _uid()
-        # Create a quantity-class base unit
-        base_code = f"Q{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": base_code, "name": f"QBase {uid}",
-            "symbol": "q", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        # Try to create a weight-class unit referencing the quantity-class base
-        resp = client.post(f"{UOM}/", json={
-            "code": f"W{uid[:4]}", "name": f"WDerived {uid}",
-            "symbol": "w", "uom_class": "weight",
-            "to_base_factor": "0.001",
-            "base_unit_code": base_code.upper(),
-        })
-        assert resp.status_code == 400
-
 
 class TestUOMUpdate:
     """Tests for PATCH /api/v1/admin/uom/{code}"""
 
-    def test_update_uom_name(self, client):
-        uid = _uid()
-        code = f"U{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Original {uid}",
-            "symbol": "o", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        resp = client.patch(f"{UOM}/{code.upper()}", json={"name": f"Updated {uid}"})
-        assert resp.status_code == 200
-        assert resp.json()["name"] == f"Updated {uid}"
+    def _pack(self, client):
+        code = f"U{_uid()[:4]}"
+        assert client.post(f"{UOM}/", json={"code": code, "name": f"Pack {code}", "symbol": "u",
+                                            "uom_class": "pack"}).status_code == 201
+        return code
 
-    def test_update_uom_deactivate(self, client):
-        uid = _uid()
-        code = f"X{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Deactivate {uid}",
-            "symbol": "x", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        resp = client.patch(f"{UOM}/{code.upper()}", json={"active": False})
+    def test_update_uom_name(self, client):
+        code = self._pack(client)
+        resp = client.patch(f"{UOM}/{code}", json={"name": f"Updated {code}"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == f"Updated {code}"
+
+    def test_switch_off_and_on_again(self, client):
+        code = self._pack(client)
+        resp = client.patch(f"{UOM}/{code}", json={"active": False})
         assert resp.status_code == 200
         assert resp.json()["active"] is False
+        # A switched-off unit can still be found and switched back on.
+        assert client.get(f"{UOM}/{code}").json()["active"] is False
+        resp = client.patch(f"{UOM}/{code}", json={"active": True})
+        assert resp.status_code == 200
+        assert resp.json()["active"] is True
 
     def test_update_uom_not_found_returns_404(self, client):
         resp = client.patch(f"{UOM}/NONEXISTENT", json={"name": "Nope"})
         assert resp.status_code == 404
 
-    def test_update_uom_symbol_and_factor(self, client):
-        uid = _uid()
-        code = f"S{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Symbol {uid}",
-            "symbol": "s", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        resp = client.patch(f"{UOM}/{code.upper()}", json={
-            "symbol": "ns", "to_base_factor": "2.5",
-        })
+    def test_a_standard_units_name_and_symbol_can_change(self, client):
+        before = client.get(f"{UOM}/BOX").json()
+        resp = client.patch(f"{UOM}/BOX", json={"symbol": "bx"})
+        assert resp.status_code == 200
+        assert resp.json()["symbol"] == "bx"
+        client.patch(f"{UOM}/BOX", json={"symbol": before["symbol"]})
+
+    def test_a_standard_units_factor_is_fixed(self, client):
+        resp = client.patch(f"{UOM}/G", json={"to_base_factor": "0.002"})
+        assert resp.status_code == 400
+        assert "standard" in resp.json()["detail"]
+
+    def test_a_standard_unit_may_be_sent_its_own_factor(self, client):
+        assert client.patch(f"{UOM}/G", json={"to_base_factor": "0.001"}).status_code == 200
+
+    def test_a_standard_unit_cannot_be_switched_off(self, client):
+        resp = client.patch(f"{UOM}/KG", json={"active": False})
+        assert resp.status_code == 400
+        assert client.get(f"{UOM}/KG").json()["active"] is True
+
+    def test_a_pack_has_no_factor(self, client):
+        code = self._pack(client)
+        resp = client.patch(f"{UOM}/{code}", json={"to_base_factor": "2.5"})
+        assert resp.status_code == 400
+
+    def test_an_install_scaled_units_factor_can_change(self, client):
+        code = f"S{_uid()[:4]}"
+        client.post(f"{UOM}/", json={"code": code, "name": f"Span {code}", "symbol": "s",
+                                     "uom_class": "length", "to_base_factor": "0.2"})
+        resp = client.patch(f"{UOM}/{code}", json={"symbol": "ns", "to_base_factor": "0.25"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["symbol"] == "ns"
+        assert Decimal(str(body["to_base_factor"])) == Decimal("0.25")
+
+    def test_a_unit_in_use_cannot_be_switched_off(self, client, make_product):
+        code = self._pack(client)
+        make_product(item_type="supply", unit="EA", purchase_uom=code)
+        resp = client.patch(f"{UOM}/{code}", json={"active": False})
+        assert resp.status_code == 400
+        assert "bought in it" in resp.json()["detail"]
 
 
 class TestUOMConvert:
     """Tests for POST /api/v1/admin/uom/convert"""
 
     def test_convert_same_unit_returns_same_quantity(self, client):
-        uid = _uid()
-        code = f"C{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Convert {uid}",
-            "symbol": "c", "uom_class": "weight", "to_base_factor": 1,
-        })
-        resp = client.post(f"{UOM}/convert", json={
-            "quantity": "100",
-            "from_unit": code.upper(),
-            "to_unit": code.upper(),
-        })
+        resp = client.post(f"{UOM}/convert", json={"quantity": "100", "from_unit": "KG", "to_unit": "KG"})
         assert resp.status_code == 200
         body = resp.json()
-        assert float(body["converted_quantity"]) == 100.0
-        assert float(body["conversion_factor"]) == 1.0
+        assert Decimal(str(body["converted_quantity"])) == Decimal("100")
+        assert Decimal(str(body["conversion_factor"])) == Decimal("1")
 
-    def test_convert_between_units(self, client):
-        uid = _uid()
-        base_code = f"K{uid[:3]}"
-        derived_code = f"L{uid[:3]}"
-        # Create base unit (1:1 factor)
-        client.post(f"{UOM}/", json={
-            "code": base_code, "name": f"Kilo {uid}",
-            "symbol": "k", "uom_class": "weight", "to_base_factor": 1,
-        })
-        # Create derived unit (factor 0.001 to base)
-        client.post(f"{UOM}/", json={
-            "code": derived_code, "name": f"Small {uid}",
-            "symbol": "s", "uom_class": "weight",
-            "to_base_factor": "0.001",
-            "base_unit_code": base_code.upper(),
-        })
-        resp = client.post(f"{UOM}/convert", json={
-            "quantity": "1000",
-            "from_unit": derived_code.upper(),
-            "to_unit": base_code.upper(),
-        })
+    def test_convert_between_units_is_exact(self, client):
+        resp = client.post(f"{UOM}/convert", json={"quantity": "1000", "from_unit": "G", "to_unit": "KG"})
         assert resp.status_code == 200
-        body = resp.json()
-        # 1000 * 0.001 / 1 = 1.0
-        assert float(body["converted_quantity"]) == pytest.approx(1.0)
+        assert Decimal(str(resp.json()["converted_quantity"])) == Decimal("1")
+
+    def test_convert_to_an_install_unit(self, client):
+        code = f"K{_uid()[:3]}"
+        client.post(f"{UOM}/", json={"code": code, "name": f"Pound {code}", "symbol": "lb",
+                                     "uom_class": "weight", "to_base_factor": "0.45359237"})
+        resp = client.post(f"{UOM}/convert", json={"quantity": "0.45359237", "from_unit": "KG", "to_unit": code})
+        assert resp.status_code == 200
+        assert Decimal(str(resp.json()["converted_quantity"])) == Decimal("1")
+
+    def test_convert_across_kinds_returns_400(self, client):
+        resp = client.post(f"{UOM}/convert", json={"quantity": "1", "from_unit": "KG", "to_unit": "M"})
+        assert resp.status_code == 400
 
     def test_convert_unknown_unit_returns_400(self, client):
         resp = client.post(f"{UOM}/convert", json={
-            "quantity": "10",
-            "from_unit": "FAKE_UNIT_A",
-            "to_unit": "FAKE_UNIT_B",
+            "quantity": "10", "from_unit": "FAKE_UNIT_A", "to_unit": "FAKE_UNIT_B",
         })
         assert resp.status_code == 400
 
@@ -974,34 +977,21 @@ class TestUOMFilterByClass:
     """Tests for filtering UOMs by class."""
 
     def test_list_uoms_filter_by_class(self, client):
-        uid = _uid()
-        code = f"F{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Filtered {uid}",
-            "symbol": "f", "uom_class": "length", "to_base_factor": 1,
-        })
         resp = client.get(f"{UOM}/", params={"uom_class": "length"})
         assert resp.status_code == 200
         body = resp.json()
+        assert body
         for uom in body:
             assert uom["uom_class"] == "length"
 
     def test_list_uoms_active_only_default(self, client):
-        uid = _uid()
-        code = f"A{uid[:4]}"
-        client.post(f"{UOM}/", json={
-            "code": code, "name": f"Active Test {uid}",
-            "symbol": "a", "uom_class": "quantity", "to_base_factor": 1,
-        })
-        # Deactivate it
-        client.patch(f"{UOM}/{code.upper()}", json={"active": False})
+        code = f"A{_uid()[:4]}"
+        client.post(f"{UOM}/", json={"code": code, "name": f"Active Test {code}", "symbol": "a",
+                                     "uom_class": "pack"})
+        assert client.patch(f"{UOM}/{code}", json={"active": False}).status_code == 200
 
-        # Default list (active_only=True) should not include deactivated
-        body = client.get(f"{UOM}/").json()
-        codes = [u["code"] for u in body]
-        assert code.upper() not in codes
+        codes = [u["code"] for u in client.get(f"{UOM}/").json()]
+        assert code not in codes
 
-        # With active_only=False it should show up
-        body_all = client.get(f"{UOM}/", params={"active_only": False}).json()
-        codes_all = [u["code"] for u in body_all]
-        assert code.upper() in codes_all
+        codes_all = [u["code"] for u in client.get(f"{UOM}/", params={"active_only": False}).json()]
+        assert code in codes_all

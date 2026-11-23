@@ -2085,7 +2085,7 @@ class TestItemSchemas:
         assert item.sku is None
         assert item.description is None
         assert item.unit == "EA"
-        assert item.purchase_uom == "EA"
+        assert item.purchase_uom is None  # defaults from the stock unit when the item is created
         assert item.item_type == ItemType.FINISHED_GOOD
         assert item.procurement_type == ProcurementType.BUY
         assert item.category_id is None

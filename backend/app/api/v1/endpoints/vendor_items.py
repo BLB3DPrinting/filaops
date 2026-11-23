@@ -18,6 +18,7 @@ from app.logging_config import get_logger
 from app.models.vendor import Vendor
 from app.models.product import Product
 from app.models.purchase_order_document import VendorItem
+from app.services.item_unit_service import require_item_unit
 from app.api.v1.deps import get_current_staff_user
 from app.models.user import User
 from app.schemas.purchasing import (
@@ -131,13 +132,17 @@ async def create_vendor_item(
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
+    purchase_unit = None
+    if request.default_purchase_unit and request.default_purchase_unit.strip():
+        purchase_unit = require_item_unit(db, request.default_purchase_unit, field="default purchase unit")
+
     item = VendorItem(
         vendor_id=vendor_id,
         vendor_sku=request.vendor_sku,
         vendor_description=request.vendor_description,
         product_id=request.product_id,
         default_unit_cost=str(request.default_unit_cost) if request.default_unit_cost else None,
-        default_purchase_unit=request.default_purchase_unit,
+        default_purchase_unit=purchase_unit,
         notes=request.notes,
         last_seen_at=datetime.now(timezone.utc),
         times_ordered=0,
@@ -206,6 +211,11 @@ async def update_vendor_item(
 
     # Update fields
     update_data = request.model_dump(exclude_unset=True)
+    if (update_data.get("default_purchase_unit") or "").strip():
+        update_data["default_purchase_unit"] = require_item_unit(
+            db, update_data["default_purchase_unit"], field="default purchase unit",
+            current=item.default_purchase_unit,
+        )
     for field, value in update_data.items():
         if field == 'default_unit_cost' and value is not None:
             setattr(item, field, str(value))

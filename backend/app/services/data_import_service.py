@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory, InventoryLocation
 from app.models.product import Product
+from app.services import item_unit_service as item_units
 
 
 # ============================================================================
@@ -63,12 +64,19 @@ def import_products(db: Session, csv_text: str) -> Dict[str, Any]:
 
             product = db.query(Product).filter(Product.sku == sku).first()
 
+            # A blank Unit cell means "not given". A unit that is given has to be
+            # in the unit table, and an item's stock unit is locked once it has history.
+            unit_cell = (row.get("Unit") or "").strip()
+
             if product:
+                new_unit = item_units.check_stock_unit_change(db, product, unit_cell) if unit_cell else None
                 product.name = row.get("Name", product.name)
                 product.description = row.get("Description", product.description)
                 product.item_type = row.get("Item Type", product.item_type)
                 product.procurement_type = row.get("Procurement Type", product.procurement_type)
-                product.unit = row.get("Unit", product.unit)
+                if new_unit is not None and new_unit != product.unit:
+                    product.unit = new_unit
+                    item_units.sync_purchase_factor(db, product)
                 if row.get("Standard Cost"):
                     product.standard_cost = float(row.get("Standard Cost"))
                 if row.get("Selling Price"):
@@ -79,13 +87,19 @@ def import_products(db: Session, csv_text: str) -> Dict[str, Any]:
                 updated += 1
             else:
                 now = datetime.now(timezone.utc)
+                item_type = row.get("Item Type") or "finished_good"
+                unit = item_units.require_item_unit(db, unit_cell or "EA")
+                purchase_uom = item_units.require_item_unit(
+                    db, item_units.default_purchase_unit(unit, item_type), field="purchase unit"
+                )
                 product = Product(
                     sku=sku,
                     name=row.get("Name", ""),
                     description=row.get("Description"),
-                    item_type=row.get("Item Type", "finished_good"),
+                    item_type=item_type,
                     procurement_type=row.get("Procurement Type", "buy"),
-                    unit=row.get("Unit", "EA"),
+                    unit=unit,
+                    purchase_uom=purchase_uom,
                     standard_cost=float(row.get("Standard Cost", 0)) if row.get("Standard Cost") else None,
                     selling_price=float(row.get("Selling Price", 0)) if row.get("Selling Price") else None,
                     reorder_point=float(row.get("Reorder Point", 0)) if row.get("Reorder Point") else None,
@@ -94,8 +108,11 @@ def import_products(db: Session, csv_text: str) -> Dict[str, Any]:
                     updated_at=now,
                 )
                 db.add(product)
+                item_units.sync_purchase_factor(db, product)
                 created += 1
 
+        except item_units.ItemUnitError as e:
+            errors.append(f"Row {row_num}: {e.message}")
         except Exception as e:
             errors.append(f"Row {row_num}: {str(e)}")
 

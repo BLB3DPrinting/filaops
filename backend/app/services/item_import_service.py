@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import get_logger
 from app.models import Product, ItemCategory
+from app.services import item_unit_service as item_units
 
 logger = get_logger(__name__)
 
@@ -223,6 +224,23 @@ def import_items_from_csv(
                     result["skipped"] += 1
                     continue
 
+                # Units first, so a refused unit leaves the item untouched.
+                # The stock unit is locked once the item has history; both
+                # units must be in the unit table unless sent back unchanged.
+                unit_value = _get_csv_column_value(row, _UNIT_COLUMNS)
+                purchase_uom_value = _get_csv_column_value(row, _PURCHASE_UOM_COLUMNS)
+                new_unit = new_purchase_uom = None
+                if unit_value:
+                    new_unit = item_units.check_stock_unit_change(db, existing, unit_value)
+                    if new_unit == existing.unit:
+                        new_unit = None
+                if purchase_uom_value:
+                    new_purchase_uom = item_units.require_item_unit(
+                        db, purchase_uom_value, field="purchase unit", current=existing.purchase_uom
+                    )
+                    if new_purchase_uom == existing.purchase_uom:
+                        new_purchase_uom = None
+
                 # Update existing
                 existing.name = name
 
@@ -231,17 +249,13 @@ def import_items_from_csv(
                 if desc:
                     existing.description = _strip_html(desc)
 
-                # Update unit
-                unit_value = _get_csv_column_value(row, _UNIT_COLUMNS).upper()
-                if unit_value:
-                    existing.unit = unit_value
-
-                # Update purchase_uom
-                purchase_uom_value = _get_csv_column_value(
-                    row, _PURCHASE_UOM_COLUMNS
-                ).upper()
-                if purchase_uom_value:
-                    existing.purchase_uom = purchase_uom_value
+                # Units, settled above before anything was changed.
+                if new_unit is not None:
+                    existing.unit = new_unit
+                if new_purchase_uom is not None:
+                    existing.purchase_uom = new_purchase_uom
+                if new_unit is not None or new_purchase_uom is not None:
+                    item_units.sync_purchase_factor(db, existing)
 
                 # Update item type
                 item_type_raw = (
@@ -326,7 +340,6 @@ def import_items_from_csv(
                 purchase_uom_value = _get_csv_column_value(
                     row, _PURCHASE_UOM_COLUMNS
                 ).upper()
-                purchase_factor = None
                 is_raw_material = False
 
                 # Auto-detect UOMs based on item type, SKU, and category if not provided.
@@ -335,7 +348,7 @@ def import_items_from_csv(
                         recommended_purchase,
                         recommended_unit,
                         is_raw_material,
-                        purchase_factor,
+                        _recommended_factor,
                     ) = get_recommended_uoms(
                         db,
                         sku=sku,
@@ -347,10 +360,12 @@ def import_items_from_csv(
                     if not unit_value and is_raw_material:
                         unit_value = recommended_unit
 
-                final_unit = unit_value or "EA"
-                final_purchase_uom = purchase_uom_value or final_unit
-                if purchase_factor is None:
-                    purchase_factor = 1
+                final_unit = item_units.require_item_unit(db, unit_value or "EA")
+                final_purchase_uom = item_units.require_item_unit(
+                    db,
+                    purchase_uom_value or item_units.default_purchase_unit(final_unit, item_type_str),
+                    field="purchase unit",
+                )
 
                 # Get reorder point
                 reorder_point = None
@@ -373,7 +388,6 @@ def import_items_from_csv(
                     category_id=final_category_id,
                     standard_cost=standard_cost,
                     selling_price=selling_price,
-                    purchase_factor=purchase_factor,
                     is_raw_material=is_raw_material,
                     reorder_point=reorder_point,
                     upc=upc,
@@ -381,6 +395,7 @@ def import_items_from_csv(
                 )
                 db.add(item)
                 db.flush()
+                item_units.sync_purchase_factor(db, item)
 
                 # Validate UOM configuration
                 is_valid, warning_msg = validate_product_uoms(db, item)
@@ -393,6 +408,13 @@ def import_items_from_csv(
 
                 result["created"] += 1
 
+        except item_units.ItemUnitError as e:
+            result["errors"].append({
+                "row": row_num,
+                "error": e.message,
+                "sku": _get_csv_column_value(row, _SKU_COLUMNS).upper(),
+            })
+            result["skipped"] += 1
         except Exception as e:
             result["errors"].append({
                 "row": row_num,

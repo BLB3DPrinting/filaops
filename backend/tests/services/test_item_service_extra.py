@@ -590,70 +590,58 @@ class TestCategoryFromCsvRow:
 # =============================================================================
 
 class TestUpdateItemUnitChange:
-    """Test update_item when changing unit with existing inventory."""
+    """The stock unit is locked once the item has history (R9); nothing is rescaled."""
 
-    def test_unit_change_converts_inventory(self, db, make_product):
-        """Changing unit from G to KG converts inventory quantities."""
-        product = make_product(
-            sku=f"UNITCONV-{_uid()}", unit="G",
-        )
+    def test_stock_on_hand_locks_the_unit(self, db, make_product):
+        product = make_product(sku=f"UNITLOCK-{_uid()}", unit="G")
         _make_inventory(db, product.id, on_hand=1000, allocated=200)
         db.commit()
 
-        updated = item_service.update_item(
-            db, product.id, data={"unit": "KG"},
-        )
+        with pytest.raises(HTTPException) as exc_info:
+            item_service.update_item(db, product.id, data={"unit": "KG"})
+        assert exc_info.value.status_code == 400
+        assert "cannot change from G to KG" in str(exc_info.value.detail)
+
+        db.refresh(product)
+        assert product.unit == "G"
+        inv = db.query(Inventory).filter(Inventory.product_id == product.id).first()
+        assert float(inv.on_hand_quantity) == 1000.0
+        assert float(inv.allocated_quantity) == 200.0
+
+    def test_unit_change_no_history_succeeds(self, db, make_product):
+        product = make_product(sku=f"NOINV-{_uid()}", unit="G")
+        db.commit()
+
+        updated = item_service.update_item(db, product.id, data={"unit": "KG"})
 
         assert updated.unit == "KG"
-        inv = db.query(Inventory).filter(Inventory.product_id == product.id).first()
-        # 1000 G -> 1 KG
-        assert float(inv.on_hand_quantity) == pytest.approx(1.0, rel=1e-2)
-        # 200 G -> 0.2 KG
-        assert float(inv.allocated_quantity) == pytest.approx(0.2, rel=1e-2)
 
-    def test_unit_change_incompatible_raises_400(self, db, make_product):
-        """Changing to incompatible unit (e.g., G to EA) raises 400."""
-        product = make_product(
-            sku=f"INCOMPAT-{_uid()}", unit="G",
-        )
-        _make_inventory(db, product.id, on_hand=500)
+    def test_an_unknown_unit_is_refused(self, db, make_product):
+        product = make_product(sku=f"UNKNOWN-{_uid()}", unit="G")
         db.commit()
 
         with pytest.raises(HTTPException) as exc_info:
-            item_service.update_item(
-                db, product.id, data={"unit": "EA"},
-            )
+            item_service.update_item(db, product.id, data={"unit": "FURLONG"})
         assert exc_info.value.status_code == 400
-        assert "incompatible" in str(exc_info.value.detail).lower()
 
-    def test_unit_change_no_inventory_succeeds(self, db, make_product):
-        """Changing unit without inventory records succeeds freely."""
-        product = make_product(
-            sku=f"NOINV-{_uid()}", unit="G",
-        )
-        db.commit()
-
-        updated = item_service.update_item(
-            db, product.id, data={"unit": "KG"},
-        )
-
-        assert updated.unit == "KG"
-
-    def test_unit_change_same_unit_noop(self, db, make_product):
-        """Changing to the same unit (case-insensitive) is a no-op."""
-        product = make_product(
-            sku=f"SAMEUNIT-{_uid()}", unit="EA",
-        )
+    def test_a_spelling_change_is_not_a_change(self, db, make_product):
+        product = make_product(sku=f"SAMEUNIT-{_uid()}", unit="EA")
         _make_inventory(db, product.id, on_hand=100)
         db.commit()
 
-        updated = item_service.update_item(
-            db, product.id, data={"unit": "ea"},
-        )
+        updated = item_service.update_item(db, product.id, data={"unit": "ea"})
 
-        assert updated.unit == "ea"  # The value is set, but no conversion needed
+        assert updated.unit == "EA"
         inv = db.query(Inventory).filter(Inventory.product_id == product.id).first()
         assert float(inv.on_hand_quantity) == 100.0
+
+    def test_a_blank_unit_leaves_it_alone(self, db, make_product):
+        product = make_product(sku=f"BLANK-{_uid()}", unit="G")
+        db.commit()
+
+        updated = item_service.update_item(db, product.id, data={"unit": "  "})
+
+        assert updated.unit == "G"
 
 
 # =============================================================================
