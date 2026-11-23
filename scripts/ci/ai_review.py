@@ -342,10 +342,8 @@ def summary_body(
     if general:
         lines += ["", "### Findings not tied to a diff line", ""]
         for f in sort_findings(general):
-            lines.append(
-                f"- **[{f['severity'].upper()}] {f['title']}** (`{f['path']}`): "
-                f"{_one_line(f['body'], 800)} **Fix:** {_one_line(f['suggested_fix'], 400)}"
-            )
+            fix = f" **Fix:** {_one_line(f['suggested_fix'], 400)}" if f["suggested_fix"] else ""
+            lines.append(f"- **[{f['severity'].upper()}] {f['title']}** (`{f['path']}`): {_one_line(f['body'], 800)}{fix}")
     if over_cap or excluded:
         lines += [""]
         if over_cap:
