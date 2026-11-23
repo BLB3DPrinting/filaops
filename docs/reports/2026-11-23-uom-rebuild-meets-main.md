@@ -38,8 +38,33 @@ is untouched.
   routing test files: 746 passed, on a test database built the way CI builds
   it. New preflight tests: a database at 105 and one at 106 get the same unit
   report; one at 104 is still told to upgrade to 105 first.
-- Full backend suite: see the pull request; CI is the authority.
+- Full backend suite, locally on PostgreSQL 16: 8335 passed, 7 skipped.
 
 ## Status checks
 
-Filled in from the pull request once its checks have run.
+On head `bf692ad`:
+
+CircleCI:
+
+- ci/circleci: core-guardrails: success
+- ci/circleci: core-pro-guard: success
+- ci/circleci: core-version-parity: success
+- ci/circleci: core-backend-static: success
+- ci/circleci: core-diff: success
+- ci/circleci: core-dependency-audit: success
+- ci/circleci: core-frontend-build: success
+- ci/circleci: core-frontend-unit: success
+- ci/circleci: core-backend-tests: success
+
+GitHub Actions, none of which started ("The job was not started because your
+account is locked due to a billing issue"), the same as on main:
+
+- core-guardrails, core-backend-static, core-version-parity,
+  core-dependency-audit, core-diff, core-pro-guard, check-pro-code:
+  failure (not started)
+- Analyze (python), Analyze (javascript-typescript) (CodeQL): failure (not
+  started)
+- core-backend-tests, core-frontend-unit, core-frontend-build, auto-merge:
+  skipped
+
+CodeRabbit: did not run (draft pull request).
