@@ -52,4 +52,26 @@ price-level step half-even. It is not part of the quote path or the findings.
 
 ## Status checks
 
-Pending: recorded after the PR's checks finish.
+Head `bda0b73`, PR #1093 (draft).
+
+CircleCI:
+
+- ci/circleci: core-guardrails: success
+- ci/circleci: core-pro-guard: success
+- ci/circleci: core-version-parity: success
+- ci/circleci: core-backend-static: success
+- ci/circleci: core-diff: success
+- ci/circleci: core-dependency-audit: success
+- ci/circleci: core-frontend-build: success
+- ci/circleci: core-frontend-unit: success
+- ci/circleci: core-backend-tests: success
+
+GitHub Actions: failure. Every job ended in about 2 seconds with no runner.
+The same jobs fail the same way on #1090 and on `main`.
+
+- core-ci: core-guardrails, core-pro-guard, core-version-parity,
+  core-backend-static, core-diff, core-dependency-audit
+- CodeQL: Analyze (python), Analyze (javascript-typescript)
+- check-pro-code
+
+CodeRabbit: did not run, because the PR is a draft.
