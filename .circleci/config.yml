@@ -257,6 +257,29 @@ jobs:
       - store_artifacts:
           path: test-results/core-frontend-unit
 
+  # AI pull-request review (replaces CodeRabbit). Sends the PR diff to the
+  # Claude API, posts findings on the PR, and fails on major or critical
+  # findings. Needs ANTHROPIC_API_KEY and AI_REVIEW_GITHUB_TOKEN as project
+  # environment variables; see docs/operations/circleci.md.
+  ai-review:
+    executor: python-312
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Test review script
+          command: python -m unittest scripts.ci.test_ai_review
+      - run:
+          name: Install pinned review dependencies
+          command: |
+            python -m venv /tmp/ai-review-venv
+            /tmp/ai-review-venv/bin/python -m pip install --disable-pip-version-check --quiet \
+              --require-hashes --only-binary=:all: -r scripts/ci/ai_review_requirements.txt
+      - run:
+          name: Review pull request with Claude
+          no_output_timeout: 15m
+          command: /tmp/ai-review-venv/bin/python scripts/ci/ai_review.py
+
 workflows:
   core-ci:
     jobs:
@@ -279,3 +302,7 @@ workflows:
           requires:
             - core-diff
             - core-pro-guard
+      - ai-review:
+          filters:
+            branches:
+              ignore: main
