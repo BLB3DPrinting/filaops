@@ -49,4 +49,28 @@ Permission mode: auto (cloud session, Claude Code). Kickoff:
 
 ## Status checks
 
-Filled in from the pull request once its checks have run.
+On head `52f0215` (#1092):
+
+CircleCI:
+
+- ci/circleci: core-guardrails: success
+- ci/circleci: core-pro-guard: success
+- ci/circleci: core-version-parity: success
+- ci/circleci: core-backend-static: success
+- ci/circleci: core-diff: success
+- ci/circleci: core-dependency-audit: success
+- ci/circleci: core-frontend-build: success
+- ci/circleci: core-frontend-unit: success
+- ci/circleci: core-backend-tests: success
+
+GitHub Actions, none of which started ("The job was not started because your
+account is locked due to a billing issue"), the same as on main and #1091:
+
+- core-guardrails, core-backend-static, core-version-parity,
+  core-dependency-audit, core-diff, core-pro-guard, check-pro-code:
+  failure (not started)
+- Analyze (python), Analyze (javascript-typescript) (CodeQL): failure (not
+  started)
+
+CodeRabbit: did not run (draft pull request, and its base is not the default
+branch).
