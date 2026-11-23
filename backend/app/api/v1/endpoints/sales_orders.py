@@ -85,7 +85,8 @@ def build_sales_order_response(order: SalesOrder, db: Session) -> SalesOrderResp
         ).order_by(SalesOrderLine.id).all()
 
         for line in order_lines:
-            line_total = line.total if line.total else (line.unit_price * line.quantity)
+            # A 100%-discounted line stores total 0; only a missing total falls back.
+            line_total = line.total if line.total is not None else (line.unit_price * line.quantity)
 
             # Resolve product or material info
             product_sku = None

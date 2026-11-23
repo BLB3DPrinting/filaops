@@ -80,6 +80,17 @@ class AuditSeverityTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("pip audit: 0 finding(s); blocking=[]; informational=[]; unknown=0\n", output)
 
+    def test_npm_clean_report_passes(self) -> None:
+        self.assertEqual(0, self.run_report("npm", {"vulnerabilities": {}}))
+
+    def test_npm_error_body_without_vulnerabilities_fails(self) -> None:
+        # npm prints an error body like this when the registry request fails.
+        report = {"error": {"code": "ENOAUDIT", "summary": "audit endpoint returned an error"}}
+        self.assertEqual(2, self.run_report("npm", report))
+
+    def test_npm_vulnerabilities_not_an_object_fails(self) -> None:
+        self.assertEqual(2, self.run_report("npm", {"vulnerabilities": []}))
+
 
 if __name__ == "__main__":
     unittest.main()

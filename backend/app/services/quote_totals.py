@@ -39,10 +39,14 @@ def normalize_discount_type(discount_type: Optional[str], discount_value) -> tup
 
 
 def apply_price_level(unit_price, product_id, price_level_percent) -> Decimal:
-    """Unit price after the customer's price-level discount (unchanged behaviour)."""
-    price = Decimal(str(unit_price)).quantize(discount_math.CENT)
+    """Unit price after the customer's price-level discount, rounded half up.
+
+    Half up like every other money step in ``discount_math`` (and the quote
+    form's offline estimate): a $2.01 item at 50% is $1.01, not $1.00.
+    """
+    price = discount_math.to_money(unit_price)
     if product_id and price_level_percent and price_level_percent > 0:
-        price = (price * (Decimal("1") - price_level_percent / Decimal("100"))).quantize(discount_math.CENT)
+        price = discount_math.to_money(price * (Decimal("1") - Decimal(str(price_level_percent)) / Decimal("100")))
     return price
 
 
@@ -69,7 +73,16 @@ def build_line_values(
     Description", while an empty one sent on purpose stays empty.
     """
     product_id = line.get("product_id")
-    unit_price = apply_price_level(line["unit_price"], product_id, price_level_percent)
+    already_applied = line.get("price_level_percent_applied")
+    if already_applied is not None:
+        # A reopened line's price already includes the price-level discount it
+        # was saved with. Applying the customer's level again would compound
+        # it on every save, so keep the price and the percent it was saved with.
+        unit_price = discount_math.to_money(line["unit_price"])
+        line_price_level = Decimal(str(already_applied)) if product_id else None
+    else:
+        unit_price = apply_price_level(line["unit_price"], product_id, price_level_percent)
+        line_price_level = price_level_percent if product_id else None
     discount_type, discount_value = normalize_discount_type(
         line.get("discount_type"), line.get("discount_value")
     )
@@ -93,9 +106,7 @@ def build_line_values(
         "quantity": line.get("quantity", 1),
         "unit_price": unit_price,
         "discount_percent": (
-            price_level_percent
-            if product_id and price_level_percent and price_level_percent > 0
-            else None
+            line_price_level if line_price_level and line_price_level > 0 else None
         ),
         "total": result.net,
         "description": description,
@@ -229,7 +240,12 @@ def preview_for_request(db: Session, request) -> dict[str, Any]:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
 
     company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-    customer_id = request.customer_id if request.customer_id is not None else (quote.customer_id if quote else None)
+    # update_quote clears the customer on an explicit null and keeps it only
+    # when the field is left out; preview the same way.
+    if quote is not None and "customer_id" not in getattr(request, "model_fields_set", {"customer_id"}):
+        customer_id = quote.customer_id
+    else:
+        customer_id = request.customer_id
     price_level = _get_customer_discount(db, customer_id) if customer_id else None
 
     if quote is None:
@@ -247,6 +263,18 @@ def preview_for_request(db: Session, request) -> dict[str, Any]:
         shipping_cost = quote.shipping_cost
     ship_to_state = request.shipping_state or (quote.shipping_state if quote else None)
 
+    # update_quote keeps the stored quote discount when the request leaves the
+    # discount fields out, so the preview must too. An explicit null still
+    # previews removing it.
+    sent = request.model_fields_set
+    discount_type = request.discount_type
+    discount_value = request.discount_value
+    if quote is not None:
+        if "discount_type" not in sent:
+            discount_type = quote.discount_type
+        if "discount_value" not in sent:
+            discount_value = quote.discount_value
+
     return preview_quote_totals(
         db,
         lines=[line.model_dump(exclude_unset=True) | {
@@ -255,8 +283,8 @@ def preview_for_request(db: Session, request) -> dict[str, Any]:
             "quantity": line.quantity,
             "unit_price": line.unit_price,
         } for line in request.lines],
-        discount_type=request.discount_type,
-        discount_value=request.discount_value,
+        discount_type=discount_type,
+        discount_value=discount_value,
         price_level_percent=price_level,
         tax_rate=tax_rate,
         shipping_cost=shipping_cost,

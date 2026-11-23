@@ -317,4 +317,32 @@ describe("QuoteFormModal descriptions and discounts", () => {
       }));
     });
   });
+
+  it("tells the server a reopened line already includes its price level", async () => {
+    const onSave = vi.fn();
+    renderModal({
+      onSave,
+      quote: { ...quote, lines: [{ ...quote.lines[0], product_id: 7, unit_price: "90.00", discount_percent: "10.00" }] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update Quote" }));
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        lines: [expect.objectContaining({ unit_price: 90, price_level_percent_applied: 10 })],
+      }));
+    });
+  });
+
+  it("treats a retyped unit price as a list price", async () => {
+    const onSave = vi.fn();
+    renderModal({
+      onSave,
+      quote: { ...quote, lines: [{ ...quote.lines[0], product_id: 7, unit_price: "90.00", discount_percent: "10.00" }] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Items" }));
+    fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "95" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update Quote" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0].lines[0]).not.toHaveProperty("price_level_percent_applied");
+  });
 });
