@@ -121,7 +121,7 @@ discount or invoice: 599 pass; frontend quotes and lib unit tests: 159 pass;
 
 ## Status checks
 
-Head `bda0b73`, PR #1093 (draft at the time). Re-recorded below for the latest head.
+Head `d0f9066` (last code change), PR #1093, draft.
 
 CircleCI:
 
@@ -135,12 +135,17 @@ CircleCI:
 - ci/circleci: core-frontend-unit: success
 - ci/circleci: core-backend-tests: success
 
-GitHub Actions: failure. Every job ended in about 2 seconds with no runner.
-The same jobs fail the same way on #1090 and on `main`.
+GitHub Actions: failure. Every job ended in about 2 seconds with no runner,
+the same as on #1090 and on `main`.
 
 - core-ci: core-guardrails, core-pro-guard, core-version-parity,
   core-backend-static, core-diff, core-dependency-audit
 - CodeQL: Analyze (python), Analyze (javascript-typescript)
 - check-pro-code
 
-CodeRabbit: did not run, because the PR is a draft.
+CodeRabbit: ran on `bac5de8`, 3 findings, all fixed (see above); CodeRabbit
+marked both inline threads as addressed. Its reviews of the later commits did
+not run (free-tier review limit reached).
+
+The earlier head `bda0b73` had the same results: all 9 CircleCI checks
+succeeded, GitHub Actions failed with no runner, and CodeRabbit did not run.
