@@ -69,6 +69,13 @@ def main(argv: list[str]) -> int:
     report_path = Path(argv[2])
     try:
         document = json.loads(report_path.read_text(encoding="utf-8"))
+        # A real npm audit report always carries a vulnerabilities object, even
+        # an empty one. When the registry request fails npm prints an error
+        # body instead; reading that as "no findings" would pass the gate
+        # without an audit, so fail closed.
+        if kind == "npm" and not isinstance(document.get("vulnerabilities"), dict):
+            print("npm audit report has no vulnerabilities object; the audit did not complete", file=sys.stderr)
+            return 2
         severities = pip_severities(document) if kind == "pip" else npm_severities(document)
         findings = pip_findings(document) if kind == "pip" else npm_findings(document)
     except (OSError, json.JSONDecodeError, AttributeError, TypeError) as error:

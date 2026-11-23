@@ -83,7 +83,7 @@ Looked at and left as they are:
 
 ## Status checks
 
-On head `52f0215` (#1092):
+On head `7fd7667` (#1092, the merged head; `52f0215` had the same results):
 
 CircleCI:
 
@@ -106,5 +106,7 @@ account is locked due to a billing issue"), the same as on main and #1091:
 - Analyze (python), Analyze (javascript-typescript) (CodeQL): failure (not
   started)
 
-CodeRabbit: did not run (draft pull request, and its base is not the default
-branch).
+CodeRabbit: started on `7fd7667` after a manual trigger, and the pull request
+merged at 15:41Z while that review was still in progress. When this report was
+updated it had posted no findings, so it is recorded as did not finish. The
+review in place of CodeRabbit above is this PR's review.

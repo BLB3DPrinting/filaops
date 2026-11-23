@@ -69,8 +69,20 @@ class QuoteLineCreate(BaseModel):
         "Omit to use the item's own Description; send an empty string for none.",
     )
     discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
-    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_value: Optional[Decimal] = Field(
+        None, ge=0, max_digits=10, decimal_places=2, description="Percent (0-100) or money amount"
+    )
     discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
+    price_level_percent_applied: Optional[Decimal] = Field(
+        None,
+        ge=0,
+        le=100,
+        max_digits=5,
+        decimal_places=2,
+        description="Set when unit_price already includes the customer's price-level "
+        "discount (a line reopened from a saved quote): the percent it includes. "
+        "The discount is then not applied a second time. Omit for a list price.",
+    )
 
     @model_validator(mode="after")
     def validate_discount_pair(self):
@@ -128,7 +140,9 @@ class ManualQuoteCreate(BaseModel):
 
     # Quote-level discount, applied after line discounts
     discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
-    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_value: Optional[Decimal] = Field(
+        None, ge=0, max_digits=10, decimal_places=2, description="Percent (0-100) or money amount"
+    )
     discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
 
     # Notes (customer_notes is printed on the quote PDF; admin_notes never is)
@@ -153,7 +167,7 @@ class QuoteTotalsPreview(BaseModel):
     shipping_cost: Optional[Decimal] = Field(None, ge=0)
     shipping_state: Optional[str] = Field(None, max_length=50)
     discount_type: Optional[DiscountType] = None
-    discount_value: Optional[Decimal] = Field(None, ge=0)
+    discount_value: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     discount_label: Optional[str] = Field(None, max_length=100)
 
     @model_validator(mode="after")
@@ -208,7 +222,9 @@ class ManualQuoteUpdate(BaseModel):
 
     # Quote-level discount, applied after line discounts
     discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
-    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_value: Optional[Decimal] = Field(
+        None, ge=0, max_digits=10, decimal_places=2, description="Percent (0-100) or money amount"
+    )
     discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
 
     customer_notes: Optional[str] = Field(None, max_length=1000)

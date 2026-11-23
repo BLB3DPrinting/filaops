@@ -117,6 +117,35 @@ def _latest_completed_payment(db: Session, sales_order_id: int) -> Payment | Non
 # Create Invoice
 # ============================================================================
 
+def _order_discount(order) -> Decimal:
+    """Order-level discount amount carried from the quote, or 0."""
+    return order.discount_amount if order.discount_type and order.discount_amount else Decimal("0")
+
+
+def _header_only_line_total(order, quantity: Decimal, unit_price: Decimal) -> Decimal:
+    """Invoice line amount (before the order discount) for an order with no lines.
+
+    The order stores the accepted subtotal (after the order discount) in
+    ``total_price``. ``quantity * unit_price`` can be a few cents off it when
+    ``unit_price`` was derived by dividing that subtotal (multi-line portal
+    quotes), so the stored subtotal plus the discount is used and the invoice
+    total equals the order total.
+
+    The stored subtotal is trusted only when it is within that rounding
+    residue (half a cent per unit) of ``quantity * unit_price``, or when there
+    is no unit price. Portal orders made before PR #1090 stored the whole quote
+    total (tax and shipping included) as their subtotal; those keep invoicing
+    ``quantity * unit_price`` as before.
+    """
+    computed = quantity * unit_price
+    if order.total_price is None:
+        return computed
+    stored = order.total_price + _order_discount(order)
+    if not unit_price or abs(stored - computed) <= quantity * Decimal("0.005"):
+        return stored
+    return computed
+
+
 def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     """Generate an invoice from a confirmed sales order.
 
@@ -211,7 +240,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
         description = order.product_name or (product.name if product else "Item")
         unit_price = order.unit_price or Decimal("0")
         quantity = Decimal(str(order.quantity or 1))
-        line_total = quantity * unit_price
+        line_total = _header_only_line_total(order, quantity, unit_price)
 
         invoice_lines.append(InvoiceLine(
             product_id=order.product_id,
@@ -226,11 +255,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     # Order-level discount carried from the quote. GL posting already books
     # revenue as subtotal - discount_amount, so the invoice total, the order
     # grand total and the quote total all agree.
-    discount = (
-        order.discount_amount
-        if order.discount_type and order.discount_amount
-        else Decimal("0")
-    )
+    discount = _order_discount(order)
     tax_rate = order.tax_rate or Decimal("0")
     tax_amount = order.tax_amount or Decimal("0")
     shipping = order.shipping_cost or Decimal("0")

@@ -22,6 +22,8 @@ import {
   lineFromQuoteLine,
   lineFromSingleItemQuote,
   linePayload,
+  withLineField,
+  withoutSavedPriceLevel,
   linesArePriceable,
 } from "./quoteFormLines";
 
@@ -229,7 +231,7 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
   const handleUpdateLine = (index, field, value) => {
     setLineItems((prev) =>
-      prev.map((li, i) => (i === index ? { ...li, [field]: value } : li))
+      prev.map((li, i) => (i === index ? withLineField(li, field, value) : li))
     );
   };
 
@@ -242,6 +244,9 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
 
   const handleCustomerSelect = (e) => {
     const customerId = e.target.value ? parseInt(e.target.value) : null;
+    if (customerId !== form.customer_id) {
+      setLineItems((prev) => prev.map(withoutSavedPriceLevel));
+    }
     if (customerId) {
       const customer = customers.find((c) => c.id === customerId);
       if (customer) {
