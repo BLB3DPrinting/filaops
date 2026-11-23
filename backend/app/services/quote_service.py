@@ -343,7 +343,10 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         unit_price = request.unit_price
         quantity = request.quantity or 1
         if discount_percent and discount_percent > 0:
-            unit_price = discount_math.to_money(unit_price * (Decimal("1") - discount_percent / Decimal("100")))
+            # Round the price first, as the line path does (apply_price_level).
+            unit_price = discount_math.to_money(
+                discount_math.to_money(unit_price) * (Decimal("1") - discount_percent / Decimal("100"))
+            )
         if quote_discount_type:
             subtotal, quote_discount_amount = quote_totals.single_item_subtotal(
                 unit_price, quantity, quote_discount_type, quote_discount_value

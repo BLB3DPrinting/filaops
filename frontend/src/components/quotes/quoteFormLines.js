@@ -104,17 +104,27 @@ export const withLineField = (li, field, value) =>
  * Line when the quote's customer changes: a saved price that includes the old
  * customer's price level goes back to its list price, so the new customer's
  * level (if any) is the one applied.
+ *
+ * The list price is not stored, so it is worked back from the saved net price.
+ * Rounding can make that ambiguous by a cent ($2.01 and $2.02 at 50% both save
+ * as $1.01), so the catalog price wins when it gives the same net price. At
+ * 100% nothing can be worked back: the catalog price is used, or the price is
+ * left blank for the user to enter rather than treating $0 as the list price.
  */
-export const withoutSavedPriceLevel = (li) => {
+export const withoutSavedPriceLevel = (li, catalogPrice) => {
   if (!hasPriceLevelApplied(li)) return li;
   const pct = Number(li.price_level_percent_applied);
   const unit = parseFloat(li.unit_price);
-  if (!(pct > 0 && pct < 100) || Number.isNaN(unit)) return { ...li, price_level_percent_applied: null };
-  return {
-    ...li,
-    unit_price: roundHalfUp(unit / (1 - pct / 100), 2),
-    price_level_percent_applied: null,
-  };
+  const catalog = parseFloat(catalogPrice);
+  const hasCatalog = Number.isFinite(catalog) && catalog > 0;
+  const cleared = { ...li, price_level_percent_applied: null };
+  if (Number.isNaN(unit) || !(pct > 0)) return cleared;
+  if (pct >= 100) return { ...cleared, unit_price: hasCatalog ? catalog : "" };
+  const keep = 1 - pct / 100;
+  if (hasCatalog && roundHalfUp(catalog * keep, 2) === roundHalfUp(unit, 2)) {
+    return { ...cleared, unit_price: catalog };
+  }
+  return { ...cleared, unit_price: roundHalfUp(unit / keep, 2) };
 };
 
 /** First discount problem across the quote and its lines, or null. */

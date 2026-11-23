@@ -240,7 +240,12 @@ def preview_for_request(db: Session, request) -> dict[str, Any]:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
 
     company_settings = db.query(CompanySettings).filter(CompanySettings.id == 1).first()
-    customer_id = request.customer_id if request.customer_id is not None else (quote.customer_id if quote else None)
+    # update_quote clears the customer on an explicit null and keeps it only
+    # when the field is left out; preview the same way.
+    if quote is not None and "customer_id" not in getattr(request, "model_fields_set", {"customer_id"}):
+        customer_id = quote.customer_id
+    else:
+        customer_id = request.customer_id
     price_level = _get_customer_discount(db, customer_id) if customer_id else None
 
     if quote is None:

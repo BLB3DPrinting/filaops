@@ -153,6 +153,25 @@ class TestPriceLevelAppliedOnce:
         assert q.lines[0].unit_price == D("45.00")
 
 
+    def test_preview_after_removing_the_customer_matches_saved(self, db, item, customer, price_level_10):
+        q = quote_service.create_quote(
+            db, ManualQuoteCreate(lines=[_line(item)], customer_id=customer.id, apply_tax=False), user_id=1
+        )
+        # The form restores the list price and sends an explicit null customer.
+        request = QuoteTotalsPreview(quote_id=q.id, customer_id=None, lines=[_line(item)])
+        preview = quote_totals.preview_for_request(db, request)
+        saved = quote_service.update_quote(db, q.id, ManualQuoteUpdate(customer_id=None, lines=[_line(item)]))
+        assert saved.customer_id is None
+        assert preview["subtotal"] == saved.subtotal == D("100.00")
+
+    def test_preview_without_customer_field_keeps_the_saved_customer(self, db, item, customer, price_level_10):
+        q = quote_service.create_quote(
+            db, ManualQuoteCreate(lines=[_line(item)], customer_id=customer.id, apply_tax=False), user_id=1
+        )
+        preview = quote_totals.preview_for_request(db, QuoteTotalsPreview(quote_id=q.id, lines=[_line(item)]))
+        assert preview["subtotal"] == D("90.00")
+
+
 class TestPreviewKeepsStoredDiscount:
     def test_omitted_discount_fields_use_the_saved_discount(self, db, item):
         q = quote_service.create_quote(
@@ -205,6 +224,23 @@ class TestHalfCentRounding:
     def test_price_level_rounds_half_up(self):
         # $2.01 at 50% is $1.005: half up gives $1.01 (half even gave $1.00).
         assert quote_totals.apply_price_level(D("2.01"), 1, D("50")) == D("1.01")
+
+    @pytest.mark.parametrize("price, expected", [(D("1.005"), D("0.91")), (D("2.01"), D("1.81"))])
+    # 10% level: $1.005 rounds to $1.01 first, so $0.91 (the single-item path
+    # used to give $0.90, the line path $0.91).
+    def test_single_item_and_line_quotes_round_alike(self, db, item, customer, price_level_10, price, expected):
+        single = quote_service.create_quote(
+            db,
+            ManualQuoteCreate(product_id=item.id, product_name=item.name, quantity=1, unit_price=price,
+                              customer_id=customer.id, apply_tax=False),
+            user_id=1,
+        )
+        lines = quote_service.create_quote(
+            db,
+            ManualQuoteCreate(lines=[_line(item, unit_price=price)], customer_id=customer.id, apply_tax=False),
+            user_id=1,
+        )
+        assert single.unit_price == lines.lines[0].unit_price == expected
 
 
 class TestHeaderOnlyInvoice:

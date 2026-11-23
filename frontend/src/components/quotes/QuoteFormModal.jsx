@@ -245,7 +245,11 @@ export default function QuoteFormModal({ quote, onSave, onClose }) {
   const handleCustomerSelect = (e) => {
     const customerId = e.target.value ? parseInt(e.target.value) : null;
     if (customerId !== form.customer_id) {
-      setLineItems((prev) => prev.map(withoutSavedPriceLevel));
+      setLineItems((prev) =>
+        prev.map((li) =>
+          withoutSavedPriceLevel(li, products.find((p) => p.id === li.product_id)?.selling_price)
+        )
+      );
     }
     if (customerId) {
       const customer = customers.find((c) => c.id === customerId);

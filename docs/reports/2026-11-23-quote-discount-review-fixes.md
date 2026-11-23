@@ -83,13 +83,39 @@ lines marked `price_level_percent_applied` keeps the old customer's pricing.
 The quote form restores list prices on a customer change, so it does not do
 this.
 
-Re-run after these fixes: quote, discount, quote-to-cash and invoice test
-files (207 tests) pass; frontend unit tests for lib, quotes, orders,
+Re-run after these fixes: the quote, discount and quote-to-cash test files
+(56 tests) and the invoice test files (151 tests) pass; frontend unit tests for lib, quotes, orders,
 discounts and admin pages: 413 pass; `npm run lint:ci` 0 errors.
+
+## CodeRabbit review
+
+CodeRabbit ran on `bac5de8` with 3 findings (2 inline, 1 outside the diff).
+Each was checked against the code; all 3 were real and are fixed in the next
+commit, with tests that fail without the fix.
+
+1. Single-item quotes rounded the price level differently from line quotes
+   (`quote_service.py`). A $1.005 price at a 10% level saved $0.90 on a
+   single-item quote and $0.91 on a line quote. The single-item path now
+   rounds the price to cents first, as the line path does.
+2. Changing the customer worked the list price back from the rounded net
+   price (`quoteFormLines.js`). $2.01 at 50% saves as $1.01, which worked back
+   to $2.02; at 100% the $0 net price became the list price. The catalog price
+   now wins when it gives the same net price, and at 100% the catalog price is
+   used or the price is left blank for the user to enter (the form will not
+   save a blank price).
+3. The totals preview kept the saved customer when the form sent an explicit
+   null customer (`quote_totals.py`), while saving removed it. The preview now
+   keeps the saved customer only when the field is left out, like
+   `update_quote`.
+
+Re-run after these fixes: `test_quote_discount_review_fixes.py` 21 pass
+(the 2 new backend tests fail without the fix); backend tests matching quote,
+discount or invoice: 599 pass; frontend quotes and lib unit tests: 159 pass;
+`npm run lint:ci` 0 errors.
 
 ## Status checks
 
-Head `bda0b73`, PR #1093 (draft at the time). Re-recorded below after the review fixes.
+Head `bda0b73`, PR #1093 (draft at the time). Re-recorded below for the latest head.
 
 CircleCI:
 
