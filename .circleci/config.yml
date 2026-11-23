@@ -1,9 +1,26 @@
 version: 2.1
 
+# Core CI on CircleCI. Mirrors .github/workflows/core-ci.yml job for job.
+# GitHub Actions is blocked for the org by a billing lock, so this runs the
+# same checks until Actions is back. Note: the main ruleset pins its required
+# checks to the GitHub Actions app, so these results are informational until
+# that ruleset says otherwise.
+
 executors:
   python-311:
     docker:
       - image: cimg/python:3.11
+    working_directory: ~/project
+
+  python-312:
+    docker:
+      - image: cimg/python:3.12
+    working_directory: ~/project
+
+  # The dependency audit needs Python (pip-audit, severity check) and npm.
+  python-312-node:
+    docker:
+      - image: cimg/python:3.12-node
     working_directory: ~/project
 
   python-311-postgres:
@@ -29,7 +46,7 @@ executors:
 
   node:
     docker:
-      - image: cimg/node:lts
+      - image: cimg/node:24
     working_directory: ~/project
 
 commands:
@@ -71,6 +88,57 @@ commands:
             - ~/.npm
 
 jobs:
+  # Repository guardrails: immutable Actions, no local bypass guidance, and
+  # security workflows remain attached to pull requests. Same tests as
+  # Actions' core-guardrails; they inspect .github/workflows only.
+  core-guardrails:
+    executor: python-312
+    steps:
+      - checkout
+      - run:
+          name: Test repository hardening
+          command: python -m unittest scripts.ci.test_guardrail_policy scripts.ci.test_workflow_hardening scripts.ci.test_audit_severity -v
+
+  # Dependency audit gate: high/critical findings block; unclassified findings
+  # fail closed rather than being silently ignored.
+  core-dependency-audit:
+    executor: python-312-node
+    steps:
+      - checkout
+      - run:
+          name: Audit Python dependencies
+          command: |
+            cd backend
+            python -m pip install --disable-pip-version-check pip-audit
+            set +e
+            python -m pip_audit --strict --requirement requirements.txt --format cyclonedx-json --output pip-audit.json
+            audit_exit=$?
+            set -e
+            if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+            python ../scripts/ci/check_audit_severity.py pip pip-audit.json
+      - run:
+          name: Audit JavaScript dependencies
+          command: |
+            cd frontend
+            set +e
+            npm audit --json > npm-audit.json
+            audit_exit=$?
+            set -e
+            if [ "$audit_exit" -gt 1 ]; then exit "$audit_exit"; fi
+            python ../scripts/ci/check_audit_severity.py npm npm-audit.json
+
+  # Release metadata guard: every runtime and lockfile must report one version.
+  core-version-parity:
+    executor: python-311
+    steps:
+      - checkout
+      - run:
+          name: Test version parity guard
+          command: python -m unittest scripts.ci.test_check_version_parity
+      - run:
+          name: Check repository version parity
+          command: python scripts/ci/check_version_parity.py
+
   core-diff:
     executor: python-311
     steps:
@@ -165,6 +233,9 @@ jobs:
       - checkout
       - install_frontend_dependencies
       - run:
+          name: Lint frontend
+          command: cd frontend && npm run lint:ci
+      - run:
           name: Build frontend
           command: cd frontend && npm run build
           environment:
@@ -189,6 +260,9 @@ jobs:
 workflows:
   core-ci:
     jobs:
+      - core-guardrails
+      - core-dependency-audit
+      - core-version-parity
       - core-diff
       - core-pro-guard
       - core-backend-static

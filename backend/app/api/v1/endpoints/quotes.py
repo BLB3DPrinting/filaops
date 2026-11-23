@@ -7,7 +7,7 @@ Supports creating quotes, updating status, and converting to sales orders.
 import json
 from datetime import datetime, timezone, timedelta
 from inspect import isawaitable
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form, HTTPException, Request
@@ -25,7 +25,7 @@ from app.api.v1.deps import get_current_staff_user
 from app.services import quote_service
 from app.services import bom_service
 from app.services.file_storage import file_storage
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = get_logger(__name__)
 
@@ -43,6 +43,16 @@ PORTAL_SNAPSHOT_MAX_BYTES = 32 * 1024
 # SCHEMAS (Community Edition - Manual Quotes)
 # ============================================================================
 
+DiscountType = Literal["percent", "amount"]
+
+
+def _check_discount_pair(model):
+    """422 when a discount type/value pair is incomplete or out of range."""
+    from app.services.discount_math import validate_discount
+    validate_discount(model.discount_type, model.discount_value)
+    return model
+
+
 class QuoteLineCreate(BaseModel):
     """Schema for a line item when creating/updating a multi-line quote"""
     product_id: Optional[int] = Field(None, description="Link to product")
@@ -52,6 +62,19 @@ class QuoteLineCreate(BaseModel):
     material_type: Optional[str] = Field(None, max_length=50)
     color: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = Field(None, max_length=1000)
+    description: Optional[str] = Field(
+        None,
+        max_length=4000,
+        description="Customer-facing item description, printed under the item name. "
+        "Omit to use the item's own Description; send an empty string for none.",
+    )
+    discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
+    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
+
+    @model_validator(mode="after")
+    def validate_discount_pair(self):
+        return _check_discount_pair(self)
 
 
 class QuoteLineResponse(BaseModel):
@@ -67,6 +90,11 @@ class QuoteLineResponse(BaseModel):
     material_type: Optional[str] = None
     color: Optional[str] = None
     notes: Optional[str] = None
+    description: Optional[str] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    discount_label: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
 
@@ -98,12 +126,60 @@ class ManualQuoteCreate(BaseModel):
     # Shipping
     shipping_cost: Optional[Decimal] = Field(None, ge=0, description="Shipping cost")
 
-    # Notes
+    # Quote-level discount, applied after line discounts
+    discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
+    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
+
+    # Notes (customer_notes is printed on the quote PDF; admin_notes never is)
     customer_notes: Optional[str] = Field(None, max_length=1000)
     admin_notes: Optional[str] = Field(None, max_length=1000)
 
     # Validity
     valid_days: int = Field(30, ge=1, le=365, description="Days until quote expires")
+
+    @model_validator(mode="after")
+    def validate_discount_pair(self):
+        return _check_discount_pair(self)
+
+
+class QuoteTotalsPreview(BaseModel):
+    """Unsaved quote contents; returns the totals a save would store."""
+    quote_id: Optional[int] = Field(None, description="Quote being edited, if any")
+    lines: List[QuoteLineCreate] = Field(..., min_length=1)
+    customer_id: Optional[int] = None
+    apply_tax: Optional[bool] = None
+    tax_rate_id: Optional[int] = None
+    shipping_cost: Optional[Decimal] = Field(None, ge=0)
+    shipping_state: Optional[str] = Field(None, max_length=50)
+    discount_type: Optional[DiscountType] = None
+    discount_value: Optional[Decimal] = Field(None, ge=0)
+    discount_label: Optional[str] = Field(None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_discount_pair(self):
+        return _check_discount_pair(self)
+
+
+class QuoteTotalsPreviewLine(BaseModel):
+    unit_price: Decimal
+    gross: Decimal
+    discount_amount: Decimal
+    total: Decimal
+    description: Optional[str] = None
+
+
+class QuoteTotalsPreviewResponse(BaseModel):
+    lines: List[QuoteTotalsPreviewLine]
+    items_gross: Decimal
+    line_discounts: Decimal
+    items_total: Decimal
+    discount_amount: Decimal
+    subtotal: Decimal
+    tax_rate: Optional[Decimal] = None
+    tax_amount: Decimal
+    shipping_cost: Decimal
+    total: Decimal
 
 
 class ManualQuoteUpdate(BaseModel):
@@ -129,6 +205,11 @@ class ManualQuoteUpdate(BaseModel):
 
     # Shipping cost
     shipping_cost: Optional[Decimal] = Field(None, ge=0, description="Shipping cost")
+
+    # Quote-level discount, applied after line discounts
+    discount_type: Optional[DiscountType] = Field(None, description="'percent' or 'amount'")
+    discount_value: Optional[Decimal] = Field(None, ge=0, description="Percent (0-100) or money amount")
+    discount_label: Optional[str] = Field(None, max_length=100, description="e.g. '10% discount'")
 
     customer_notes: Optional[str] = Field(None, max_length=1000)
     admin_notes: Optional[str] = Field(None, max_length=1000)
@@ -166,6 +247,10 @@ class QuoteListItem(BaseModel):
     shipping_cost: Optional[Decimal] = None
     total_price: Decimal
     discount_percent: Optional[Decimal] = None
+    discount_type: Optional[str] = None
+    discount_value: Optional[Decimal] = None
+    discount_label: Optional[str] = None
+    discount_amount: Optional[Decimal] = None
     status: str
     customer_id: Optional[int]
     customer_name: Optional[str]
@@ -1223,6 +1308,21 @@ async def get_quote(
 ):
     """Get quote details"""
     return quote_service.get_quote_detail(db, quote_id)
+
+
+@router.post("/preview-totals", response_model=QuoteTotalsPreviewResponse)
+async def preview_quote_totals(
+    request: QuoteTotalsPreview,
+    current_user: User = Depends(get_current_staff_user),
+    db: Session = Depends(get_db),
+):
+    """Totals for unsaved quote contents, computed exactly as a save would.
+
+    The quote form shows these numbers so the screen, the stored quote and the
+    PDF always agree. Saves nothing.
+    """
+    from app.services import quote_totals
+    return quote_totals.preview_for_request(db, request)
 
 
 @router.post("/", response_model=QuoteDetail, status_code=status.HTTP_201_CREATED)

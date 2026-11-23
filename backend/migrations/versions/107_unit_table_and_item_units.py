@@ -1,7 +1,7 @@
 """Unit table: the standard units with exact factors on every install, and a table for an item's own units
 
-Revision ID: 106
-Revises: 105
+Revision ID: 107
+Revises: 106
 Create Date: 2026-11-11
 
 Until now no upgrade filled ``units_of_measure``. Only the setup wizard's
@@ -84,8 +84,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "106"
-down_revision = "105"
+revision = "107"
+down_revision = "106"
 branch_labels = None
 depends_on = None
 
@@ -481,29 +481,29 @@ def report_lines(planned: dict) -> list:
     lines = []
     units = planned["units"]
     if units["add"]:
-        lines.append((logging.INFO, "106: added %d standard unit(s): %s" % (
+        lines.append((logging.INFO, "107: added %d standard unit(s): %s" % (
             len(units["add"]), ", ".join(row[0] for row in units["add"]))))
     for _id, code, old, new in units["fix"]:
-        lines.append((logging.INFO, "106: %s factor made exact: %s -> %s" % (code, _plain(old), _plain(new))))
+        lines.append((logging.INFO, "107: %s factor made exact: %s -> %s" % (code, _plain(old), _plain(new))))
     for _id, old, new in units["rename"]:
-        lines.append((logging.INFO, "106: unit code %r rewritten as %s" % (old, new)))
+        lines.append((logging.INFO, "107: unit code %r rewritten as %s" % (old, new)))
     for _id, code in units["reactivate"]:
-        lines.append((logging.WARNING, "106: standard unit %s was switched off and is switched on again" % code))
+        lines.append((logging.WARNING, "107: standard unit %s was switched off and is switched on again" % code))
     for _id, code, kept in units["switch_off"]:
-        lines.append((logging.WARNING, "106: unit %r is the same code as %s and was switched off" % (code, kept)))
+        lines.append((logging.WARNING, "107: unit %r is the same code as %s and was switched off" % (code, kept)))
     for code, in_use in units["spellings_left"]:
         lines.append((logging.WARNING, (
-            "106: LEFT unit %s: the row in use is spelled %r, and a row spelled %s exists but is switched off. "
+            "107: LEFT unit %s: the row in use is spelled %r, and a row spelled %s exists but is switched off. "
             "Both are left as they are; conversions use the row in use."
         ) % (code, in_use, code)))
     for code, here, wanted, factor in units["conflicts"]:
         lines.append((logging.WARNING, (
-            "106: LEFT unit %s: this install has it as a %s unit (factor %s); FilaOps reads %s as a %s unit. "
+            "107: LEFT unit %s: this install has it as a %s unit (factor %s); FilaOps reads %s as a %s unit. "
             "It is left exactly as it is and converts as this install filed it."
         ) % (code, here or "(no kind)", _plain(factor), code, wanted)))
     for code, stored, exact in units["odd_factors"]:
         lines.append((logging.WARNING, (
-            "106: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
+            "107: LEFT unit %s: its factor %s is not a rounding of the exact %s. This install may measure "
             "that kind from another base unit, so the row is left as it is."
         ) % (code, _plain(stored), _plain(exact))))
     left_out = {}
@@ -512,24 +512,24 @@ def report_lines(planned: dict) -> list:
     for (kind, why, detail), codes in sorted(left_out.items()):
         if why == "base_elsewhere":
             lines.append((logging.WARNING, (
-                "106: NOT ADDED %s: their base unit %s is filed here under another kind (see the line above), "
+                "107: NOT ADDED %s: their base unit %s is filed here under another kind (see the line above), "
                 "so they would have nothing to convert through."
             ) % (", ".join(codes), detail)))
         elif why == "own_units" and kind == _COUNT:
             lines.append((logging.WARNING, (
-                "106: NOT ADDED %s: the counting units here are this install's own (%s), and nothing shows how "
+                "107: NOT ADDED %s: the counting units here are this install's own (%s), and nothing shows how "
                 "many EA each of them is. FilaOps counts in EA and new items default to it: add EA under Units, "
                 "and set the factor of each of your own units to how many EA it is."
             ) % (", ".join(codes), detail)))
         elif why == "own_units":
             lines.append((logging.WARNING, (
-                "106: NOT ADDED %s: the %s units here are this install's own (%s), and none of them is a "
+                "107: NOT ADDED %s: the %s units here are this install's own (%s), and none of them is a "
                 "standard unit that shows their scale, so a standard factor beside them could convert wrongly. "
                 "Add them under Units, with factors on your base."
             ) % (", ".join(codes), kind, detail)))
         else:
             lines.append((logging.WARNING, (
-                "106: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "
+                "107: NOT ADDED %s: this install measures %s from another base unit (see the lines above), and a "
                 "standard factor beside those rows would convert wrongly. Add them under Units, with factors on "
                 "your base."
             ) % (", ".join(codes), kind)))
@@ -538,22 +538,22 @@ def report_lines(planned: dict) -> list:
     for key, _id, _column, old, new in planned["codes"]:
         tidied[(key, old, new)] = tidied.get((key, old, new), 0) + 1
     for (key, old, new), count in sorted(tidied.items()):
-        lines.append((logging.INFO, "106: %d %s unit code(s) %r rewritten as %s" % (count, _TIDIED[key], old, new)))
+        lines.append((logging.INFO, "107: %d %s unit code(s) %r rewritten as %s" % (count, _TIDIED[key], old, new)))
     for (key, column, code), entry in sorted(planned["unknown"].items(), key=lambda item: tuple(map(str, item[0]))):
         why = (
             "which is switched off in the unit table. Switch that unit back on, or change these to another unit"
             if entry["off"] else
             "which is not in the unit table. Add it under Units, or change these to a unit that is"
         )
-        lines.append((logging.WARNING, "106: LEFT %d %s %r, %s: %s" % (
+        lines.append((logging.WARNING, "107: LEFT %d %s %r, %s: %s" % (
             len(entry["rows"]), _WHAT[(key, column)], code, why, _named(entry["rows"]))))
     for _id, sku in planned["no_unit"]:
-        lines.append((logging.WARNING, "106: item %s had no unit and is set to EA" % sku))
+        lines.append((logging.WARNING, "107: item %s had no unit and is set to EA" % sku))
     if planned["no_purchase_unit"]:
-        lines.append((logging.INFO, "106: %d item(s) had no purchase unit and now have their stock unit: %s" % (
+        lines.append((logging.INFO, "107: %d item(s) had no purchase unit and now have their stock unit: %s" % (
             len(planned["no_purchase_unit"]), _named([sku for _id, sku, _unit in planned["no_purchase_unit"]]))))
     if not lines:
-        lines.append((logging.INFO, "106: the unit table and unit codes needed no change"))
+        lines.append((logging.INFO, "107: the unit table and unit codes needed no change"))
     return lines
 
 

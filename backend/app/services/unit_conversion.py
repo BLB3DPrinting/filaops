@@ -535,7 +535,7 @@ def ensure_standard_units(db: Session) -> int:
     """Add any standard unit the table lacks, and return how many were added.
 
     An existing row is never changed here, whatever its factor or kind. The
-    upgrade that corrects rounded factors is migration 106.
+    upgrade that corrects rounded factors is migration 107.
 
     Nothing is added to a kind the install measures from another base unit
     (grams as the base, a kilogram of 1000, or a minute of 1): a standard

@@ -32,13 +32,13 @@ def preflight():
 
 
 @pytest.fixture(scope="module")
-def migration_106():
-    return _load("migration_106", _BACKEND / "migrations" / "versions" / "106_unit_table_and_item_units.py")
+def migration_107():
+    return _load("migration_107", _BACKEND / "migrations" / "versions" / "107_unit_table_and_item_units.py")
 
 
 @pytest.fixture(scope="module")
-def migration_107():
-    return _load("migration_107", _BACKEND / "migrations" / "versions" / "107_settle_item_and_line_units.py")
+def migration_108():
+    return _load("migration_108", _BACKEND / "migrations" / "versions" / "108_settle_item_and_line_units.py")
 
 
 def _older_unit_table(db):
@@ -61,47 +61,51 @@ def _run(preflight, db, monkeypatch, revisions):
 
 
 class TestPendingSteps:
-    def test_106_is_the_first_step_for_a_database_at_105(self, preflight):
+    def test_107_is_the_first_reportable_step_for_a_database_at_105(self, preflight):
+        first = [step for step in preflight.pending_steps("105") if step.reportable][0]
+        assert first.revision == "107"
+
+    def test_the_quote_columns_migration_comes_first_and_has_no_report(self, preflight):
         first = preflight.pending_steps("105")[0]
-        assert (first.revision, first.reportable) == ("106", True)
+        assert (first.revision, first.reportable) == ("106", False)
 
     def test_older_migrations_are_pending_but_not_reportable(self, preflight):
         steps = {step.revision: step.reportable for step in preflight.pending_steps("102")}
-        assert steps["105"] is False and steps["106"] is True
+        assert steps["105"] is False and steps["107"] is True
 
-    def test_an_upgraded_database_no_longer_has_106_pending(self, preflight):
-        assert "106" not in [step.revision for step in preflight.pending_steps("106")]
+    def test_an_upgraded_database_no_longer_has_107_pending(self, preflight):
+        assert "107" not in [step.revision for step in preflight.pending_steps("107")]
 
-    def test_107_follows_106_and_is_reportable(self, preflight):
+    def test_108_follows_107_and_is_reportable(self, preflight):
         steps = [(step.revision, step.reportable) for step in preflight.pending_steps("105")]
-        assert steps[:2] == [("106", True), ("107", True)]
+        assert steps[:3] == [("106", False), ("107", True), ("108", True)]
 
 
 class TestReport:
-    def test_it_prints_what_the_migration_would_report(self, db, preflight, migration_106, make_product):
+    def test_it_prints_what_the_migration_would_report(self, db, preflight, migration_107, make_product):
         _older_unit_table(db)
         make_product(unit="pcs")
         db.flush()
         bind = db.connection()
 
-        lines = preflight.report(bind, [migration_106])
+        lines = preflight.report(bind, [migration_107])
 
-        planned = migration_106.plan(migration_106.read_state(bind))
-        assert lines == [line for _level, line in migration_106.report_lines(planned)]
+        planned = migration_107.plan(migration_107.read_state(bind))
+        assert lines == [line for _level, line in migration_107.report_lines(planned)]
         assert any("LB factor made exact: 0.453592 -> 0.45359237" in line for line in lines)
         assert any("item unit code(s) 'pcs' rewritten as EA" in line for line in lines)
 
-    def test_it_changes_nothing(self, db, preflight, migration_106, make_product):
+    def test_it_changes_nothing(self, db, preflight, migration_107, make_product):
         _older_unit_table(db)
         item = make_product(unit="pcs")
         db.flush()
-        preflight.report(db.connection(), [migration_106])
+        preflight.report(db.connection(), [migration_107])
         db.expire_all()
         assert item.unit == "pcs"
         pound = db.query(UnitOfMeasure).filter(UnitOfMeasure.code == "LB").one()
         assert D(str(pound.to_base_factor)) == D("0.453592")
 
-    def test_a_later_migration_plans_from_what_the_earlier_one_leaves(self, db, preflight, migration_106,
+    def test_a_later_migration_plans_from_what_the_earlier_one_leaves(self, db, preflight, migration_107,
                                                                      make_product):
         """The later migration reads a column and a row the earlier one does not."""
         _older_unit_table(db)
@@ -125,7 +129,7 @@ class TestReport:
             project=lambda state, planned: state,
             report_lines=lambda planned: [(20, "later: saw the projected rows")],
         )
-        lines = preflight.report(db.connection(), [migration_106, later])
+        lines = preflight.report(db.connection(), [migration_107, later])
 
         assert seen["items"][tidied.id]["unit"] == "EA"
         assert seen["items"][tidied.id]["standard_cost"] == D("2")
@@ -135,7 +139,7 @@ class TestReport:
         assert lines[-1] == "later: saw the projected rows"
 
     def test_a_database_shaped_like_105_is_told_what_both_migrations_will_do(
-            self, db, preflight, migration_106, migration_107, make_product, make_bom):
+            self, db, preflight, migration_107, migration_108, make_product, make_bom):
         """Lower-case codes and an empty unit table. The report equals what the two upgrades then log."""
         db.query(UnitOfMeasure).delete()
         made = make_product(unit="ea")
@@ -152,17 +156,17 @@ class TestReport:
         db.flush()
         bind = db.connection()
 
-        told = preflight.report(bind, [migration_106, migration_107])
+        told = preflight.report(bind, [migration_107, migration_108])
 
         logged = []
-        for migration in (migration_106, migration_107):
+        for migration in (migration_107, migration_108):
             planned = migration.plan(migration.read_state(bind))
             migration.apply(bind, planned)
             logged.extend(line for _level, line in migration.report_lines(planned))
         assert told == logged
 
-        # 107 planned from codes 106 had not yet tidied in the database.
-        ours = [line for line in told if line.startswith("107:")]
+        # 108 planned from codes 107 had not yet tidied in the database.
+        ours = [line for line in told if line.startswith("108:")]
         assert any("purchase unit EA -> KG" in line and filament.sku in line for line in ours)
         assert any("1 EA = 750 G" in line and spool.sku in line for line in ours)
         assert any("1 BOX = 12 EA" in line and screws.sku in line for line in ours)
@@ -188,27 +192,48 @@ class TestRun:
         db.flush()
         code, lines = _run(preflight, db, monkeypatch, ["105"])
         assert code == 0
-        assert "Reporting on: 106, 107" in lines
+        assert "Reporting on: 107, 108" in lines
+        assert "Also pending, with nothing to report: 106" in lines
         assert any("LB factor made exact" in line for line in lines)
         assert lines[-1] == "Nothing was changed."
 
-    def test_a_database_at_106_gets_the_report_of_107_alone(self, db, preflight, monkeypatch, make_product):
+    def test_a_database_at_106_gets_the_same_report(self, db, preflight, monkeypatch, make_product):
+        _older_unit_table(db)
+        make_product(unit="pcs")
+        db.flush()
+        _, at_105 = _run(preflight, db, monkeypatch, ["105"])
+        code, at_106 = _run(preflight, db, monkeypatch, ["106"])
+        assert code == 0
+        assert "Reporting on: 107, 108" in at_106
+        assert [line for line in at_105 if line[:4] in ("107:", "108:")] == [
+            line for line in at_106 if line[:4] in ("107:", "108:")
+        ]
+
+    def test_a_pending_migration_not_known_to_be_harmless_stops_the_report(
+        self, db, preflight, monkeypatch
+    ):
+        """105 rewrites item costs and purchase units, so it has to run before the report."""
+        code, lines = _run(preflight, db, monkeypatch, ["104"])
+        assert code == 1
+        assert any("Upgrade it to revision 105 first" in line for line in lines)
+
+    def test_a_database_at_107_gets_the_report_of_108_alone(self, db, preflight, monkeypatch, make_product):
         item = make_product(item_type="material", unit="G", purchase_uom="EA", purchase_factor=D("1000"))
         db.flush()
-        code, lines = _run(preflight, db, monkeypatch, ["106"])
+        code, lines = _run(preflight, db, monkeypatch, ["107"])
         assert code == 0
-        assert "Reporting on: 107" in lines
-        assert not any(line.startswith("106:") for line in lines)
+        assert "Reporting on: 108" in lines
+        assert not any(line.startswith("107:") for line in lines)
         assert any("purchase unit EA -> KG" in line and item.sku in line for line in lines)
 
     def test_an_older_database_is_told_to_upgrade_first(self, db, preflight, monkeypatch):
         code, lines = _run(preflight, db, monkeypatch, ["102"])
         assert code == 1
         assert any("Upgrade it to revision 105 first" in line for line in lines)
-        assert not any(line.startswith("106:") for line in lines)
+        assert not any(line.startswith("107:") for line in lines)
 
     def test_an_upgraded_database_has_nothing_to_report(self, db, preflight, monkeypatch):
-        code, lines = _run(preflight, db, monkeypatch, ["107"])
+        code, lines = _run(preflight, db, monkeypatch, ["108"])
         assert code == 0
         assert "No pending migration has a unit report. Nothing to do." in lines
 

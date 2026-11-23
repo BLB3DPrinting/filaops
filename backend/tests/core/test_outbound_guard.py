@@ -262,6 +262,22 @@ def test_blocked_literal_refused(dns, connects, host):
     assert connects == []
 
 
+@pytest.mark.parametrize("host", [
+    "[fe80::1]", "[::ffff:169.254.169.254]", "[64:ff9b::a9fe:a9fe]",
+    "[64:ff9b:1::a9fe:a9fe]", "[fd00:ec2::254]", "[ff02::1]",
+])
+def test_blocked_ipv6_literal_refused_on_ipv4_only_host(dns, connects, monkeypatch, host):
+    """Without IPv6, urllib3 resolves with AF_INET, which cannot resolve an IPv6
+    literal. The refusal must not depend on that: no lookup happens at all."""
+    import app.core.outbound_guard as guard
+    monkeypatch.setattr(guard, "allowed_gai_family", lambda: socket.AF_INET)
+    _, lookups = dns
+    with pytest.raises(BlockedDestinationError):
+        _get(f"http://{host}:11434/api/tags")
+    assert lookups == []
+    assert connects == []
+
+
 @pytest.mark.parametrize("answers", [
     ["169.254.169.254"],
     ["169.254.169.254", "fe80::1"],  # every answer blocked

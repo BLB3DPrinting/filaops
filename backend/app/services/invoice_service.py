@@ -15,6 +15,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
+from app.services import document_discount_rows
 from app.services.payment_service import (
     _money,
     post_invoice_receivable,
@@ -185,6 +186,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
             base_price = product.selling_price if product else ol.unit_price
             line_total = ol.total if ol.total is not None else ol.quantity * ol.unit_price
 
+            line_has_discount = bool(ol.discount_type) and (ol.discount_amount or 0) > 0
             invoice_lines.append(InvoiceLine(
                 product_id=ol.product_id,
                 sku=sku,
@@ -192,7 +194,12 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
                 quantity=ol.quantity,
                 unit_price=ol.unit_price,
                 base_price=base_price if base_price != ol.unit_price else None,
-                line_total=line_total,
+                line_total=line_total,  # net of the line discount
+                long_description=ol.long_description,
+                discount_label=(
+                    document_discount_rows.line_discount_text(ol) if line_has_discount else None
+                ),
+                discount_amount=ol.discount_amount if line_has_discount else None,
             ))
             subtotal += line_total
     else:
@@ -216,10 +223,18 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
         ))
         subtotal = line_total
 
+    # Order-level discount carried from the quote. GL posting already books
+    # revenue as subtotal - discount_amount, so the invoice total, the order
+    # grand total and the quote total all agree.
+    discount = (
+        order.discount_amount
+        if order.discount_type and order.discount_amount
+        else Decimal("0")
+    )
     tax_rate = order.tax_rate or Decimal("0")
     tax_amount = order.tax_amount or Decimal("0")
     shipping = order.shipping_cost or Decimal("0")
-    total = subtotal + tax_amount + shipping
+    total = subtotal - discount + tax_amount + shipping
     existing_paid = _completed_payment_total(db, order.id)
     latest_payment = None
 
@@ -255,10 +270,13 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
         payment_terms=payment_terms,
         due_date=due_date,
         subtotal=subtotal,
+        discount_amount=discount,
+        discount_label=document_discount_rows.document_discount_label(order) if discount else None,
         tax_rate=tax_rate,
         tax_amount=tax_amount,
         shipping_amount=shipping,
         total=total,
+        notes=order.customer_notes or None,
         status=invoice_status,
         amount_paid=amount_paid,
         paid_at=paid_at,
@@ -785,13 +803,26 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     for i, line in enumerate(lines, 1):
         qty_val = float(line.quantity)
         qty_str = str(int(qty_val)) if qty_val == int(qty_val) else f"{qty_val:g}"
+        item_markup = esc(line.description)
+        long_desc = document_discount_rows.description_html(line.long_description, esc)
+        if long_desc:
+            item_markup += f'<br/><font size="8" color="#64748b">{long_desc}</font>'
+        line_amount = line.line_total
+        if line.discount_amount and Decimal(str(line.discount_amount)) > 0:
+            # Amount column shows the line before its own discount; the
+            # discount is printed under the item and again in the totals.
+            line_amount = Decimal(str(line.line_total)) + Decimal(str(line.discount_amount))
+            item_markup += (
+                f'<br/><font size="8" color="#16a34a">{esc(line.discount_label or "Discount")} '
+                f'\u2212{_fmt(line.discount_amount)}</font>'
+            )
         table_data.append([
             Paragraph(str(i), td_muted),
             Paragraph(esc(line.sku or "—"), td_muted),
-            Paragraph(esc(line.description), td),
+            Paragraph(item_markup, td),
             Paragraph(qty_str, td_right),
             Paragraph(_fmt(line.unit_price), td_right),
-            Paragraph(_fmt(line.line_total), td_bold_right),
+            Paragraph(_fmt(line_amount), td_bold_right),
         ])
 
     items_table = Table(
@@ -819,15 +850,43 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     # TOTALS — right-aligned summary block (same pattern as quote PDF)
     # ================================================================
     totals_data = []
-    totals_data.append([
-        Paragraph('Subtotal', td_muted_right),
-        Paragraph(_fmt(invoice.subtotal), td_right),
-    ])
-    if invoice.discount_amount and Decimal(str(invoice.discount_amount or "0")) > 0:
+    line_discount_total = sum(
+        (Decimal(str(ln.discount_amount)) for ln in lines if ln.discount_amount),
+        Decimal("0"),
+    )
+    if invoice.discount_label or line_discount_total > 0:
+        # Invoice made from a discounted quote/order: Items total, discounts,
+        # then the discounted Subtotal — the same rows the quote PDF printed.
+        doc_discount = Decimal(str(invoice.discount_amount or "0"))
+        items_gross = Decimal(str(invoice.subtotal)) + line_discount_total
         totals_data.append([
-            Paragraph('Discount', td_muted_right),
-            Paragraph(f'−{_fmt(invoice.discount_amount)}', td_muted_right),
+            Paragraph('Items total', td_muted_right),
+            Paragraph(_fmt(items_gross), td_right),
         ])
+        if line_discount_total > 0:
+            totals_data.append([
+                Paragraph('Line discounts', td_muted_right),
+                Paragraph(f'−{_fmt(line_discount_total)}', td_muted_right),
+            ])
+        if doc_discount > 0:
+            totals_data.append([
+                Paragraph(esc(invoice.discount_label or 'Discount'), td_muted_right),
+                Paragraph(f'−{_fmt(doc_discount)}', td_muted_right),
+            ])
+        totals_data.append([
+            Paragraph('Subtotal', td_muted_right),
+            Paragraph(_fmt(Decimal(str(invoice.subtotal)) - doc_discount), td_right),
+        ])
+    else:
+        totals_data.append([
+            Paragraph('Subtotal', td_muted_right),
+            Paragraph(_fmt(invoice.subtotal), td_right),
+        ])
+        if invoice.discount_amount and Decimal(str(invoice.discount_amount or "0")) > 0:
+            totals_data.append([
+                Paragraph('Discount', td_muted_right),
+                Paragraph(f'−{_fmt(invoice.discount_amount)}', td_muted_right),
+            ])
     if invoice.tax_amount and Decimal(str(invoice.tax_amount or "0")) > 0:
         tax_label = "Sales Tax"
         if settings and settings.tax_name:
@@ -878,6 +937,14 @@ def generate_invoice_pdf(db: Session, invoice_id: int) -> io.BytesIO:
     totals_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
     content.append(totals_table)
     content.append(Spacer(1, 0.3 * inch))
+
+    # ================================================================
+    # NOTES — customer-facing notes carried from the quote/order (if any)
+    # ================================================================
+    if invoice.notes and invoice.notes.strip():
+        content.append(Paragraph("NOTES", s_section))
+        content.append(Paragraph(document_discount_rows.description_html(invoice.notes, esc), td))
+        content.append(Spacer(1, 0.2 * inch))
 
     # ================================================================
     # PAYMENT TERMS — generated verbiage + optional company override

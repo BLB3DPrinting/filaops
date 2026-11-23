@@ -64,7 +64,7 @@ def setup_database():
             "ALTER TABLE inventory_transactions "
             "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
         ))
-        # Unit factors widened to 15 places (migration 106). create_all won't
+        # Unit factors widened to 15 places (migration 107). create_all won't
         # ALTER the pre-existing column; the exact ounce does not fit in 8.
         conn.execute(text(
             "ALTER TABLE units_of_measure "
@@ -395,6 +395,28 @@ def setup_database():
         conn.execute(text(
             "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS void_reason VARCHAR(255)"
         ))
+        # Migration 106: line descriptions and discounts on quotes, orders
+        # and invoices. create_all won't ALTER the pre-existing tables.
+        _discount_cols = (
+            "discount_type VARCHAR(10)",
+            "discount_value NUMERIC(10,2)",
+            "discount_label VARCHAR(100)",
+            "discount_amount NUMERIC(10,2)",
+        )
+        for _table, _cols in (
+            ("quotes", _discount_cols),
+            ("quote_lines", ("description TEXT",) + _discount_cols),
+            ("sales_orders", _discount_cols),
+            ("sales_order_lines", ("long_description TEXT",) + _discount_cols),
+            ("invoices", ("discount_label VARCHAR(100)", "notes TEXT")),
+            ("invoice_lines", (
+                "long_description TEXT",
+                "discount_label VARCHAR(100)",
+                "discount_amount NUMERIC(12,2)",
+            )),
+        ):
+            for _col in _cols:
+                conn.execute(text(f"ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS {_col}"))
         # FK backfill so the accumulated test DB matches a fresh migration-102
         # DB (same pg_constraint-guarded pattern as the other FK patches here).
         conn.execute(text("""
@@ -413,7 +435,7 @@ def setup_database():
         """))
         conn.commit()
 
-    # Standard units of measure: the rows migration 106 gives every install,
+    # Standard units of measure: the rows migration 107 gives every install,
     # at their exact factors, whatever unit rows a reused local database
     # holds. Committed once per run like the rest of the required data, so
     # tests do not insert them one by one and two test runs on one database

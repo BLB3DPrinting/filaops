@@ -6,7 +6,7 @@ Handles quote requests, file uploads, and approval workflow
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Numeric, BigInteger, Boolean,
-    DateTime, Date, ForeignKey, JSON, LargeBinary, func, text
+    DateTime, Date, ForeignKey, JSON, LargeBinary, Text, func, text
 )
 from sqlalchemy.orm import relationship
 
@@ -143,6 +143,13 @@ class Quote(Base):
 
     # Customer discount (from PRO price level, snapshotted at quote creation)
     discount_percent = Column(Numeric(5, 2), nullable=True)
+
+    # Quote-level discount, applied after line discounts (see discount_math).
+    # discount_amount is the computed money value; NULL type = no discount.
+    discount_type = Column(String(10), nullable=True)  # "percent" | "amount"
+    discount_value = Column(Numeric(10, 2), nullable=True)
+    discount_label = Column(String(100), nullable=True)
+    discount_amount = Column(Numeric(10, 2), nullable=True)
 
     def __repr__(self):
         return f"<Quote(id={self.id}, number={self.quote_number}, status={self.status}, price=${self.total_price})>"
@@ -323,7 +330,16 @@ class QuoteLine(Base):
     quantity = Column(Integer, nullable=False, default=1)
     unit_price = Column(Numeric(10, 2), nullable=False)
     discount_percent = Column(Numeric(5, 2), nullable=True)
-    total = Column(Numeric(10, 2), nullable=False)  # quantity * unit_price (after discount)
+    total = Column(Numeric(10, 2), nullable=False)  # quantity * unit_price - line discount
+
+    # Customer-facing item description, printed under the item name.
+    description = Column(Text, nullable=True)
+
+    # Per-line discount (see discount_math); discount_amount is the money value.
+    discount_type = Column(String(10), nullable=True)  # "percent" | "amount"
+    discount_value = Column(Numeric(10, 2), nullable=True)
+    discount_label = Column(String(100), nullable=True)
+    discount_amount = Column(Numeric(10, 2), nullable=True)
 
     material_type = Column(String(50), nullable=True)
     color = Column(String(50), nullable=True)

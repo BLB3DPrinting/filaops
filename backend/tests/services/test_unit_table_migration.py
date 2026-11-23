@@ -1,5 +1,5 @@
 """
-Migration 106: the standard units with exact factors, and unit codes tidied.
+Migration 107: the standard units with exact factors, and unit codes tidied.
 
 The migration's functions take a connection, so they are run here against real
 rows inside the test transaction. The test database starts with the standard
@@ -26,7 +26,7 @@ from app.services import unit_conversion as uc
 
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[2]
-    / "migrations" / "versions" / "106_unit_table_and_item_units.py"
+    / "migrations" / "versions" / "107_unit_table_and_item_units.py"
 )
 
 # What the setup wizard's example data has written until now.
@@ -40,8 +40,8 @@ _EXAMPLE_DATA_UNITS = [
 
 @pytest.fixture(scope="module")
 def migration():
-    """Load migration 106 as a module."""
-    spec = importlib.util.spec_from_file_location("migration_106", _MIGRATION_PATH)
+    """Load migration 107 as a module."""
+    spec = importlib.util.spec_from_file_location("migration_107", _MIGRATION_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -530,7 +530,7 @@ class TestShape:
             "not_added")},
             "codes": [], "unknown": {}, "no_unit": [], "no_purchase_unit": []}
         assert migration.report_lines(empty) == [
-            (logging.INFO, "106: the unit table and unit codes needed no change")
+            (logging.INFO, "107: the unit table and unit codes needed no change")
         ]
 
     def test_the_projection_is_what_the_database_holds_afterwards(self, db, migration, make_product, make_bom):

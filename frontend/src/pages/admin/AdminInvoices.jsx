@@ -7,6 +7,9 @@ import StatCard from "../../components/StatCard";
 import EmptyState from "../../components/EmptyState";
 import { API_URL } from "../../config/api";
 import RecordPaymentModal from "../../components/payments/RecordPaymentModal";
+import DiscountSummaryRows from "../../components/discounts/DiscountSummaryRows";
+import LineDescription from "../../components/discounts/LineDescription";
+import { savedLineGross, savedSummaryRows } from "../../lib/discounts";
 
 const STATUS_TABS = [
   { value: "", label: "All" },
@@ -46,6 +49,9 @@ export default function AdminInvoices() {
 
   // Detail modal state
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const invoiceDiscountRows = selectedInvoice
+    ? savedSummaryRows(selectedInvoice.lines, selectedInvoice, "line_total")
+    : [];
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Payment modal state
@@ -539,6 +545,7 @@ export default function AdminInvoices() {
                                 </td>
                                 <td className="py-2 px-3 text-white">
                                   {line.description || line.product_name || "-"}
+                                  <LineDescription text={line.long_description} line={line} />
                                 </td>
                                 <td className="py-2 px-3 text-right text-gray-300">
                                   {line.quantity}
@@ -547,7 +554,9 @@ export default function AdminInvoices() {
                                   {formatCurrency(line.unit_price || 0)}
                                 </td>
                                 <td className="py-2 px-3 text-right text-white">
-                                  {formatCurrency(line.total || line.line_total || 0)}
+                                  {formatCurrency(
+                                    line.total || savedLineGross(line, "line_total") || 0
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -560,13 +569,25 @@ export default function AdminInvoices() {
                   {/* Totals */}
                   <div className="bg-gray-800 rounded-lg p-4 mb-6">
                     <div className="space-y-2 text-sm">
+                      {/* Invoices from discounted quotes/orders list the
+                          discounts above a discounted Subtotal, like the PDF. */}
+                      <DiscountSummaryRows
+                        rows={invoiceDiscountRows}
+                        className="flex justify-between"
+                        format={formatCurrency}
+                      />
                       <div className="flex justify-between">
                         <span className="text-gray-400">Subtotal</span>
                         <span className="text-white">
-                          {formatCurrency(selectedInvoice.subtotal || 0)}
+                          {formatCurrency(
+                            invoiceDiscountRows.length
+                              ? parseFloat(selectedInvoice.subtotal || 0) -
+                                  parseFloat(selectedInvoice.discount_amount || 0)
+                              : selectedInvoice.subtotal || 0
+                          )}
                         </span>
                       </div>
-                      {parseFloat(selectedInvoice.discount_amount || 0) > 0 && (
+                      {!invoiceDiscountRows.length && parseFloat(selectedInvoice.discount_amount || 0) > 0 && (
                         <div className="flex justify-between">
                           <span className="text-gray-400">Discount</span>
                           <span className="text-red-400">
@@ -610,6 +631,14 @@ export default function AdminInvoices() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Customer-facing notes carried from the quote/order */}
+                  {selectedInvoice.notes && (
+                    <div className="bg-gray-800 rounded-lg p-4 mb-6">
+                      <h4 className="text-sm font-medium text-gray-400 mb-2">Notes (printed on the invoice)</h4>
+                      <p className="text-sm text-white whitespace-pre-line">{selectedInvoice.notes}</p>
+                    </div>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-800">

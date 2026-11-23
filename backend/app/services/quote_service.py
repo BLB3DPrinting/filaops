@@ -19,6 +19,7 @@ from app.models.quote import Quote, QuoteLine
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 from app.services.sales_order_service import generate_order_number
+from app.services import document_discount_rows, quote_totals
 from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
@@ -306,14 +307,32 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
     if request.customer_id:
         discount_percent = _get_customer_discount(db, request.customer_id)
 
+    # Quote-level discount (after line discounts) — shared math in discount_math.
+    quote_discount_type, quote_discount_value = quote_totals.normalize_discount_type(
+        getattr(request, "discount_type", None), getattr(request, "discount_value", None)
+    )
+    quote_totals.check_discount(quote_discount_type, quote_discount_value)
+    quote_discount_amount = None
+
     # Calculate subtotal — from lines or header
+    line_values = []
     if has_lines:
-        subtotal = Decimal("0")
-        for line in request.lines:
-            line_price = Decimal(str(line.unit_price)).quantize(Decimal("0.01"))
-            if line.product_id and discount_percent and discount_percent > 0:
-                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
-            subtotal += line_price * line.quantity
+        line_values = [
+            quote_totals.build_line_values(
+                db,
+                line.model_dump(exclude_unset=True) | {
+                    "product_id": line.product_id,
+                    "product_name": line.product_name,
+                    "quantity": line.quantity,
+                    "unit_price": line.unit_price,
+                },
+                price_level_percent=discount_percent,
+            )
+            for line in request.lines
+        ]
+        subtotal, quote_discount_amount = quote_totals.quote_subtotal_from_line_values(
+            line_values, quote_discount_type, quote_discount_value
+        )
         # Use the first product line for header-level backward compat, else first line.
         header_line = next((line for line in request.lines if line.product_id), request.lines[0])
         header_product_name = header_line.product_name
@@ -325,7 +344,12 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         quantity = request.quantity or 1
         if discount_percent and discount_percent > 0:
             unit_price = (unit_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
-        subtotal = unit_price * quantity
+        if quote_discount_type:
+            subtotal, quote_discount_amount = quote_totals.single_item_subtotal(
+                unit_price, quantity, quote_discount_type, quote_discount_value
+            )
+        else:
+            subtotal = unit_price * quantity
         header_product_name = request.product_name
         header_product_id = request.product_id
         header_quantity = quantity
@@ -372,6 +396,10 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         tax_amount=tax_amount,
         tax_name=tax_name,
         discount_percent=discount_percent,
+        discount_type=quote_discount_type,
+        discount_value=quote_discount_value,
+        discount_label=(getattr(request, "discount_label", None) or None) if quote_discount_type else None,
+        discount_amount=quote_discount_amount,
         shipping_cost=shipping_cost if shipping_cost > 0 else None,
         shipping_state=getattr(request, "shipping_state", None),
         total_price=total_price,
@@ -393,26 +421,8 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
 
     # Create line items
     if has_lines:
-        for idx, line_data in enumerate(request.lines, start=1):
-            line_price = Decimal(str(line_data.unit_price)).quantize(Decimal("0.01"))
-            line_discount = None
-            if line_data.product_id and discount_percent and discount_percent > 0:
-                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
-                line_discount = discount_percent
-            line = QuoteLine(
-                quote_id=quote.id,
-                product_id=line_data.product_id,
-                line_number=idx,
-                product_name=line_data.product_name,
-                quantity=line_data.quantity,
-                unit_price=line_price,
-                discount_percent=line_discount,
-                total=(line_price * line_data.quantity).quantize(Decimal("0.01")),
-                material_type=line_data.material_type,
-                color=line_data.color,
-                notes=line_data.notes,
-            )
-            db.add(line)
+        for idx, values in enumerate(line_values, start=1):
+            db.add(QuoteLine(quote_id=quote.id, line_number=idx, **values))
 
     try:
         db.commit()
@@ -488,8 +498,21 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
     shipping_cost_updated = "shipping_cost" in update_data
     shipping_state_updated = "shipping_state" in update_data
 
+    discount_updated = bool({"discount_type", "discount_value", "discount_label"} & update_data.keys())
+
     for field, value in update_data.items():
         setattr(quote, field, value)
+
+    if discount_updated:
+        quote_totals.check_discount(quote.discount_type or None, quote.discount_value)
+        quote.discount_type, quote.discount_value = quote_totals.normalize_discount_type(
+            quote.discount_type, quote.discount_value
+        )
+        if not quote.discount_type:
+            quote.discount_label = None
+            quote.discount_amount = None
+        else:
+            quote.discount_label = quote.discount_label or None
 
     use_selected_tax_rate = tax_rate_id_updated and tax_rate_id is not None and apply_tax is not False
     should_recalculate = (
@@ -500,6 +523,7 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         or tax_rate_id_updated
         or shipping_cost_updated
         or shipping_state_updated
+        or discount_updated
     )
     company_settings = (
         db.query(CompanySettings).filter(CompanySettings.id == 1).first()
@@ -527,31 +551,15 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
         quote.discount_percent = discount_percent
 
         # Create new lines
-        subtotal = Decimal("0")
+        line_values = []
         for idx, line_data in enumerate(lines_data, start=1):
-            ld = line_data if isinstance(line_data, dict) else line_data.model_dump()
-            line_price = Decimal(str(ld["unit_price"])).quantize(Decimal("0.01"))
-            line_discount = None
-            if ld.get("product_id") and discount_percent and discount_percent > 0:
-                line_price = (line_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
-                line_discount = discount_percent
-            line_total = (line_price * ld["quantity"]).quantize(Decimal("0.01"))
-            subtotal += line_total
-
-            line = QuoteLine(
-                quote_id=quote.id,
-                product_id=ld.get("product_id"),
-                line_number=idx,
-                product_name=ld["product_name"],
-                quantity=ld["quantity"],
-                unit_price=line_price,
-                discount_percent=line_discount,
-                total=line_total,
-                material_type=ld.get("material_type"),
-                color=ld.get("color"),
-                notes=ld.get("notes"),
-            )
-            db.add(line)
+            ld = line_data if isinstance(line_data, dict) else line_data.model_dump(exclude_unset=True)
+            values = quote_totals.build_line_values(db, ld, price_level_percent=discount_percent)
+            line_values.append(values)
+            db.add(QuoteLine(quote_id=quote.id, line_number=idx, **values))
+        subtotal, quote.discount_amount = quote_totals.quote_subtotal_from_line_values(
+            line_values, quote.discount_type, quote.discount_value
+        )
 
         # Update header from lines
         header_line = next(
@@ -599,12 +607,20 @@ def update_quote(db: Session, quote_id: int, request) -> Quote:
 
     # Recalculate pricing for single-item updates (only if no lines provided)
     elif should_recalculate:
-        if request.unit_price is None and quote.unit_price is None:
+        has_discounts = bool(quote.discount_type) or any(ql.discount_type for ql in quote.lines)
+        if quote.lines and (discount_updated or has_discounts):
+            subtotal = quote_totals.quote_subtotal_from_lines(quote)
+        elif request.unit_price is None and quote.unit_price is None:
             subtotal = quote.subtotal or Decimal("0")
         else:
             unit_price = request.unit_price if request.unit_price is not None else quote.unit_price
             quantity = request.quantity if request.quantity is not None else quote.quantity
-            subtotal = unit_price * quantity
+            if quote.discount_type:
+                subtotal, quote.discount_amount = quote_totals.single_item_subtotal(
+                    unit_price, quantity, quote.discount_type, quote.discount_value
+                )
+            else:
+                subtotal = unit_price * quantity
         quote.subtotal = subtotal
         shipping = quote.shipping_cost or Decimal("0")
 
@@ -828,6 +844,7 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
         tax_rate=quote.tax_rate,
         shipping_cost=shipping,
         grand_total=subtotal + tax + shipping,
+        **quote_totals.order_discount_fields(quote),
         status="pending",
         payment_status="pending",
         rush_level=quote.rush_level or "standard",
@@ -863,6 +880,8 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
                 discount=Decimal("0"),
                 total=ql.total,
                 notes=ql.notes,
+                long_description=ql.description,
+                **quote_totals.order_discount_fields(ql),
             )
             db.add(sol)
 
@@ -1307,6 +1326,19 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     table_data = [headers]
     line_num = 0
 
+    def _item_cell(name: str, line=None) -> Paragraph:
+        """Item name, then its description and its own discount, if any."""
+        markup = esc(name)
+        if line is not None:
+            desc = document_discount_rows.description_html(getattr(line, "description", None), esc)
+            if desc:
+                markup += f'<br/><font size="8" color="#64748b">{desc}</font>'
+            disc_text = document_discount_rows.line_discount_text(line)
+            if disc_text:
+                amount = document_discount_rows.format_signed(-line.discount_amount, _fmt)
+                markup += f'<br/><font size="8" color="#16a34a">{esc(disc_text)} {amount}</font>'
+        return Paragraph(markup, td)
+
     # Helper to compute list price from discounted price + discount percent
     def _list_price(discounted_price: float, discount_pct: float) -> float:
         if discount_pct and discount_pct > 0 and discount_pct < 100:
@@ -1320,7 +1352,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
             mat_desc = esc(ql.material_type or '')
             if ql.color:
                 mat_desc += f" {esc(ql.color)}" if mat_desc else esc(ql.color)
-            line_total = float(ql.total)
+            line_total = float(document_discount_rows.line_gross(ql))
             subtotal += ql.total
 
             disc_pct = float(ql.discount_percent or quote.discount_percent or 0)
@@ -1329,7 +1361,7 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
 
             row = [
                 Paragraph(str(line_num), td_muted),
-                Paragraph(esc(ql.product_name or 'Item'), td),
+                _item_cell(ql.product_name or 'Item', ql),
             ]
             if show_material:
                 row.append(Paragraph(mat_desc or '\u2014', td_muted))
@@ -1370,9 +1402,13 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
                 row.append(Paragraph(f'\u2212{disc_pct:.0f}%', td_discount))
             else:
                 row.append(Paragraph('\u2014', td_muted_right))
+        single_amount = subtotal
+        if quote.discount_type and quote.discount_amount:
+            # The amount column shows the item before the quote discount.
+            single_amount = float(quote.subtotal or 0) + float(quote.discount_amount)
         row.extend([
             Paragraph(_fmt(unit_price_f), td_right),
-            Paragraph(_fmt(subtotal), td_bold_right),
+            Paragraph(_fmt(single_amount), td_bold_right),
         ])
         table_data.append(row)
 
@@ -1406,6 +1442,22 @@ def generate_quote_pdf(db: Session, quote_id: int) -> io.BytesIO:
     # TOTALS — right-aligned summary block
     # ================================================================
     totals_data = []
+
+    # Discount rows (Items total, line discounts, quote discount) sit between
+    # the items and the subtotal. None for an undiscounted quote, which then
+    # prints exactly as it always has.
+    discount_rows = document_discount_rows.summary_rows(
+        quote.lines if has_lines else [],
+        quote,
+        items_gross_fallback=Decimal(str(subtotal)) + (quote.discount_amount or Decimal("0")),
+    )
+    for label, amount in discount_rows:
+        totals_data.append([
+            Paragraph(esc(label), td_muted_right),
+            Paragraph(document_discount_rows.format_signed(amount, _fmt), td_discount if amount < 0 else td_right),
+        ])
+    if discount_rows:
+        subtotal = float(quote.subtotal or 0)
 
     totals_data.append([
         Paragraph('Subtotal', td_muted_right),
