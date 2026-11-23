@@ -117,6 +117,11 @@ def _latest_completed_payment(db: Session, sales_order_id: int) -> Payment | Non
 # Create Invoice
 # ============================================================================
 
+def _order_discount(order) -> Decimal:
+    """Order-level discount amount carried from the quote, or 0."""
+    return order.discount_amount if order.discount_type and order.discount_amount else Decimal("0")
+
+
 def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     """Generate an invoice from a confirmed sales order.
 
@@ -211,7 +216,15 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
         description = order.product_name or (product.name if product else "Item")
         unit_price = order.unit_price or Decimal("0")
         quantity = Decimal(str(order.quantity or 1))
-        line_total = quantity * unit_price
+        if order.total_price is not None:
+            # The order stores the accepted subtotal (after the order discount).
+            # quantity * unit_price can be a cent off when unit_price was
+            # derived by dividing that subtotal (multi-line portal quotes), so
+            # the invoice line is the stored subtotal plus the discount that is
+            # subtracted again below. The invoice total then equals the order.
+            line_total = order.total_price + _order_discount(order)
+        else:
+            line_total = quantity * unit_price
 
         invoice_lines.append(InvoiceLine(
             product_id=order.product_id,
@@ -226,11 +239,7 @@ def create_invoice(db: Session, sales_order_id: int) -> Invoice:
     # Order-level discount carried from the quote. GL posting already books
     # revenue as subtotal - discount_amount, so the invoice total, the order
     # grand total and the quote total all agree.
-    discount = (
-        order.discount_amount
-        if order.discount_type and order.discount_amount
-        else Decimal("0")
-    )
+    discount = _order_discount(order)
     tax_rate = order.tax_rate or Decimal("0")
     tax_amount = order.tax_amount or Decimal("0")
     shipping = order.shipping_cost or Decimal("0")

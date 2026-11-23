@@ -19,7 +19,7 @@ from app.models.quote import Quote, QuoteLine
 from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.user import User
 from app.services.sales_order_service import generate_order_number
-from app.services import document_discount_rows, quote_totals
+from app.services import discount_math, document_discount_rows, quote_totals
 from app.services.tax_calculation_service import calculate_sales_tax
 
 logger = get_logger(__name__)
@@ -343,7 +343,7 @@ def create_quote(db: Session, request, user_id: int) -> Quote:
         unit_price = request.unit_price
         quantity = request.quantity or 1
         if discount_percent and discount_percent > 0:
-            unit_price = (unit_price * (Decimal("1") - discount_percent / Decimal("100"))).quantize(Decimal("0.01"))
+            unit_price = discount_math.to_money(unit_price * (Decimal("1") - discount_percent / Decimal("100")))
         if quote_discount_type:
             subtotal, quote_discount_amount = quote_totals.single_item_subtotal(
                 unit_price, quantity, quote_discount_type, quote_discount_value
@@ -800,7 +800,12 @@ def convert_quote_to_order(db: Session, quote_id: int) -> dict:
     # numeric max). This path has always padded to four digits; keep that.
     order_number = generate_order_number(db, width=4)
 
-    subtotal = quote.subtotal or (quote.unit_price * quote.quantity if quote.unit_price else quote.total_price)
+    # ``is not None``: a 100%-discounted quote stores a subtotal of 0, which
+    # must reach the order as 0, not fall back to the undiscounted price.
+    if quote.subtotal is not None:
+        subtotal = quote.subtotal
+    else:
+        subtotal = quote.unit_price * quote.quantity if quote.unit_price else quote.total_price
     tax = quote.tax_amount or Decimal("0")
     shipping = quote.shipping_cost or Decimal("0")
 

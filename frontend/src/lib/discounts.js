@@ -19,8 +19,41 @@ const toNumber = (value) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * Round half away from zero at ``places`` decimals, working on the number's
+ * decimal text rather than its binary value. ``1.005`` is stored as
+ * 1.00499999999999989..., so ``Math.round(1.005 * 100)`` gives 100; shifting
+ * the decimal point in the text ("1.005e2" = 100.5) gives 101, which matches
+ * the server's Decimal ROUND_HALF_UP.
+ */
+export const roundHalfUp = (value, places = 0) => {
+  const n = toNumber(value);
+  if (n === 0) return 0;
+  const sign = n < 0 ? -1 : 1;
+  const [mantissa, exponent = "0"] = String(Math.abs(n)).split("e");
+  const shifted = Math.round(Number(`${mantissa}e${Number(exponent) + places}`));
+  return sign * Number(`${shifted}e-${places}`);
+};
+
+/**
+ * Tax in cents on ``baseCents`` at ``rate`` (a fraction, e.g. 0.0825),
+ * mirroring tax_calculation_service: Decimal quantize with its default
+ * half-even rounding. Integer arithmetic, so a tie is seen as a tie.
+ */
+export const taxCents = (baseCents, rate) => {
+  const r = toNumber(rate);
+  if (r <= 0 || !baseCents) return 0;
+  const SCALE = 1000000; // rates carry at most 6 decimal places
+  const product = Math.round(baseCents) * Math.round(r * SCALE);
+  const whole = Math.floor(product / SCALE);
+  const remainder = product - whole * SCALE;
+  if (remainder * 2 > SCALE) return whole + 1;
+  if (remainder * 2 < SCALE) return whole;
+  return whole % 2 === 0 ? whole : whole + 1;
+};
+
 /** Dollars -> integer cents, half up. */
-export const toCents = (value) => Math.round(toNumber(value) * 100 + Number.EPSILON);
+export const toCents = (value) => Math.round(roundHalfUp(value, 2) * 100);
 
 export const fromCents = (cents) => cents / 100;
 
@@ -48,7 +81,7 @@ export const discountCents = (baseCents, type, value) => {
   if (!hasDiscountInput(type, value) || baseCents <= 0) return 0;
   const n = parseFloat(value);
   if (n <= 0) return 0;
-  if (type === "percent") return Math.min(baseCents, Math.round((baseCents * n) / 100 + Number.EPSILON));
+  if (type === "percent") return Math.min(baseCents, roundHalfUp((baseCents * n) / 100));
   if (type === "amount") return Math.min(baseCents, toCents(n));
   return 0;
 };
@@ -148,11 +181,14 @@ export const estimateQuoteTotals = ({
   shippingTaxable = false,
 }) => {
   const lineResults = (lines || []).map((li) => {
-    let unit = toNumber(li.unit_price);
-    if (li.line_type === "product" && priceLevelPercent > 0) {
-      unit = Math.round(unit * (1 - priceLevelPercent / 100) * 100 + Number.EPSILON) / 100;
+    // Work in cents so the price-level step rounds the same way the server does.
+    let unitCents = toCents(li.unit_price);
+    // A line reopened from a saved quote already includes its price level.
+    const alreadyApplied = li.price_level_percent_applied !== null && li.price_level_percent_applied !== undefined;
+    if (li.line_type === "product" && priceLevelPercent > 0 && !alreadyApplied) {
+      unitCents = roundHalfUp((unitCents * (100 - priceLevelPercent)) / 100);
     }
-    const gross = toCents(unit * (li.quantity || 1));
+    const gross = unitCents * (li.quantity || 1);
     const disc = discountCents(gross, li.discount_type, li.discount_value);
     return { gross, discount: disc, net: gross - disc };
   });
@@ -163,7 +199,7 @@ export const estimateQuoteTotals = ({
   const subtotal = itemsTotal - docDiscount;
   const shipping = toCents(shippingCost);
   const taxableBase = subtotal + (shippingTaxable ? shipping : 0);
-  const tax = taxRate > 0 ? Math.round(taxableBase * taxRate + Number.EPSILON) : 0;
+  const tax = taxCents(taxableBase, taxRate);
   return {
     lines: lineResults.map((r) => ({ gross: fromCents(r.gross), discount: fromCents(r.discount), net: fromCents(r.net) })),
     itemsGross: fromCents(itemsGross),
