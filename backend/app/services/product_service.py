@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.logging_config import get_logger
 from app.models.product import Product
 from app.core.utils import get_or_404, check_unique_or_400
+from app.services import item_unit_service as item_units
 
 logger = get_logger(__name__)
 
@@ -115,8 +116,17 @@ def create_product(db: Session, *, data: dict) -> Product:
     """Create a new product."""
     check_unique_or_400(db, Product, "sku", data["sku"])
 
+    data["unit"] = item_units.require_item_unit(db, data.get("unit") or "EA")
+    data["purchase_uom"] = item_units.require_item_unit(
+        db,
+        data.get("purchase_uom") or item_units.default_purchase_unit(data["unit"], data.get("item_type")),
+        field="purchase unit",
+    )
+    data.pop("purchase_factor", None)
+
     product = Product(**data)
     db.add(product)
+    item_units.sync_purchase_factor(db, product)
     db.commit()
     db.refresh(product)
 
@@ -144,8 +154,18 @@ def update_product(db: Session, product_id: int, *, data: dict) -> Product:
             )
         check_unique_or_400(db, Product, "sku", data["sku"])
 
+    if "unit" in data:
+        if not (data["unit"] or "").strip():
+            data.pop("unit")
+        else:
+            data["unit"] = item_units.check_stock_unit_change(db, product, data["unit"])
+    unit_changed = "unit" in data and data["unit"] != product.unit
+
     for field, value in data.items():
         setattr(product, field, value)
+
+    if unit_changed:
+        item_units.sync_purchase_factor(db, product)
 
     db.commit()
     db.refresh(product)

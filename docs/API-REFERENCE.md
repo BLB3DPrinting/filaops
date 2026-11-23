@@ -184,8 +184,8 @@ that operator owns (the list returns only those, the others answer 403).
 ## 6. Items (`/items`)
 
 **Tier**: Core
-**File**: `endpoints/items.py`
-**Endpoints**: 29
+**File**: `endpoints/items.py`, and `endpoints/units.py` for an item's own units
+**Endpoints**: 32
 
 | Method | Path | Description | Auth |
 | ------ | ---- | ----------- | ---- |
@@ -218,6 +218,21 @@ that operator owns (the list returns only those, the others answer 403).
 | POST | `/items/{item_id}/variants/bulk` | Bulk-create variants from MaterialColor selections. | STAFF |
 | POST | `/items/{item_id}/variants/sync-routing` | Propagate the template's routing to all variants, preserving material substitutions. | STAFF |
 | DELETE | `/items/{item_id}/variants/{variant_id}` | Delete a variant product. | STAFF |
+| GET | `/items/{item_id}/units` | The units the item can be entered in, each with its size in the stock unit, and the item's own units. | STAFF |
+| PUT | `/items/{item_id}/units/{unit_code}` | Add one of the item's own units (a pack, or a unit of another kind), or change its size. Exactly one of `stock_units_per_unit` and `units_per_stock_unit`. | STAFF |
+| DELETE | `/items/{item_id}/units/{unit_code}` | Remove one of the item's own units. Refused while it is the purchase unit or a BOM, routing or purchase order line uses it. | STAFF |
+
+---
+
+## 6a. Units (`/units`)
+
+**Tier**: Core
+**File**: `endpoints/units.py`
+**Endpoints**: 1
+
+| Method | Path | Description | Auth |
+| ------ | ---- | ----------- | ---- |
+| GET | `/units` | The units switched on in the unit table, by kind and code, each marked `is_standard`. | STAFF |
 
 ---
 
@@ -926,8 +941,8 @@ that operator owns (the list returns only those, the others answer 403).
 | GET | `/admin/uom/classes` | List all UOM classes with their units. | ADMIN |
 | POST | `/admin/uom/convert` | Convert a quantity from one unit to another. | ADMIN |
 | GET | `/admin/uom/{code}` | Get a single unit of measure by code. | ADMIN |
-| POST | `/admin/uom/` | Create a new unit of measure. | ADMIN |
-| PATCH | `/admin/uom/{code}` | Update an existing unit of measure. | ADMIN |
+| POST | `/admin/uom/` | Add a unit: a pack (no factor), or a weight, length, area, volume or time unit with its factor to that kind's base, at most 15 decimal places. A counting unit, a new kind, and a code already in the table in any spelling are refused. | ADMIN |
+| PATCH | `/admin/uom/{code}` | Change a unit's name or symbol, an install unit's factor, or switch it on or off. A standard unit's factor is fixed and it cannot be switched off; a unit in use cannot be switched off. | ADMIN |
 
 ### 28.16. Locations (`/admin/locations`)
 

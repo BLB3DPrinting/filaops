@@ -72,6 +72,10 @@ def duplicate_item(
     db.add(new_item)
     db.flush()  # Get the new item's ID
 
+    # The item's own units (a BOX of 12) go with it; variants come through here too.
+    from app.services.item_unit_service import copy_item_units
+    copy_item_units(db, source.id, new_item)
+
     # Copy active BOM if source has one
     bom_id = None
     active_bom = (

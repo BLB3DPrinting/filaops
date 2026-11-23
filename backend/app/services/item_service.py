@@ -21,6 +21,7 @@ from app.models import Product, ItemCategory, Inventory, BOM, BOMLine
 from app.models.manufacturing import Routing
 from app.core.utils import get_or_404, check_unique_or_400
 from app.core.uom_config import DEFAULT_MATERIAL_UOM, get_default_material_sku_prefix
+from app.services import item_unit_service as item_units
 
 logger = get_logger(__name__)
 
@@ -777,20 +778,20 @@ def create_item(db: Session, *, data: dict) -> Product:
         if not db.query(ItemCategory).filter(ItemCategory.id == data["category_id"]).first():
             raise HTTPException(status_code=400, detail="Category not found")
 
-    # Auto-configure UOM for materials
+    # Units: known to the unit table; defaults from item_unit_service.
+    own_units = data.pop("units", None) or []
     if item_type == "material":
-        if not data.get("unit"):
-            data["unit"] = DEFAULT_MATERIAL_UOM.unit
-        if not data.get("purchase_uom"):
-            data["purchase_uom"] = DEFAULT_MATERIAL_UOM.purchase_uom
-        if not data.get("purchase_factor"):
-            data["purchase_factor"] = DEFAULT_MATERIAL_UOM.purchase_factor
+        data["unit"] = data.get("unit") or DEFAULT_MATERIAL_UOM.unit
         data["is_raw_material"] = True
     else:
-        if not data.get("unit"):
-            data["unit"] = "EA"
-        if not data.get("purchase_uom"):
-            data["purchase_uom"] = data.get("unit", "EA")
+        data["unit"] = data.get("unit") or "EA"
+    data["unit"] = item_units.require_item_unit(db, data["unit"])
+    data["purchase_uom"] = item_units.require_item_unit(
+        db,
+        data.get("purchase_uom") or item_units.default_purchase_unit(data["unit"], item_type),
+        field="purchase unit",
+    )
+    data.pop("purchase_factor", None)
 
     # Convert enums to values
     for enum_field in ["item_type", "procurement_type", "cost_method", "stocking_policy"]:
@@ -802,6 +803,13 @@ def create_item(db: Session, *, data: dict) -> Product:
     data["active"] = True
     item = Product(**data)
     db.add(item)
+    try:
+        db.flush()
+        item_units.apply_item_units(db, item, own_units)
+        item_units.sync_purchase_factor(db, item)
+    except Exception:
+        db.rollback()
+        raise
     db.commit()
     db.refresh(item)
 
@@ -821,55 +829,20 @@ def update_item(db: Session, item_id: int, *, data: dict) -> Product:
         if not db.query(ItemCategory).filter(ItemCategory.id == data["category_id"]).first():
             raise HTTPException(status_code=400, detail="Category not found")
 
-    # Handle unit change with inventory conversion
-    old_unit = item.unit
-    if "unit" in data and data["unit"] and data["unit"].upper() != (old_unit or "").upper():
-        new_unit = data["unit"].upper().strip()
-        old_unit_normalized = (old_unit or "EA").upper().strip()
-
-        if old_unit_normalized != new_unit:
-            from app.services.uom_service import convert_quantity_safe
-
-            inventory_records = (
-                db.query(Inventory).filter(Inventory.product_id == item.id).all()
-            )
-
-            if inventory_records:
-                test_qty = Decimal("1")
-                _, can_convert = convert_quantity_safe(
-                    db, test_qty, old_unit_normalized, new_unit
-                )
-
-                if not can_convert:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            f"Cannot change unit from {old_unit} to {new_unit}. "
-                            f"Units are incompatible."
-                        ),
-                    )
-
-                for inv in inventory_records:
-                    if inv.on_hand_quantity and inv.on_hand_quantity > 0:
-                        converted_qty, success = convert_quantity_safe(
-                            db, inv.on_hand_quantity, old_unit_normalized, new_unit
-                        )
-                        if success:
-                            inv.on_hand_quantity = converted_qty
-
-                    if inv.allocated_quantity and inv.allocated_quantity > 0:
-                        converted_allocated, success = convert_quantity_safe(
-                            db, inv.allocated_quantity, old_unit_normalized, new_unit
-                        )
-                        if success:
-                            inv.allocated_quantity = converted_allocated
-
-                    inv.updated_at = datetime.now(timezone.utc)
-
-                logger.info(
-                    f"Converted {len(inventory_records)} inventory records for {item.sku} "
-                    f"from {old_unit} to {new_unit}"
-                )
+    # Units: the stock unit is locked once the item has history (no rescaling),
+    # and both units must be known to the unit table unless sent back unchanged.
+    for field in ("unit", "purchase_uom"):
+        if field in data and not (data[field] or "").strip():
+            data.pop(field)
+    if "unit" in data:
+        data["unit"] = item_units.check_stock_unit_change(db, item, data["unit"])
+    purchase_unit_changed = False
+    if "purchase_uom" in data:
+        data["purchase_uom"] = item_units.require_item_unit(
+            db, data["purchase_uom"], field="purchase unit", current=item.purchase_uom
+        )
+        purchase_unit_changed = data["purchase_uom"] != item.purchase_uom
+    unit_changed = "unit" in data and data["unit"] != item.unit
 
     # Convert enums to values
     for enum_field in ["item_type", "procurement_type", "cost_method", "stocking_policy"]:
@@ -883,6 +856,9 @@ def update_item(db: Session, item_id: int, *, data: dict) -> Product:
 
     for field, value in data.items():
         setattr(item, field, value)
+
+    if purchase_unit_changed or unit_changed:
+        item_units.sync_purchase_factor(db, item, purchase_unit_changed=True)
 
     item.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -965,6 +941,7 @@ def build_item_response_data(item: Product, db: Session) -> dict:
         "name": item.name,
         "description": item.description,
         "unit": item.unit,
+        "purchase_uom": item.purchase_uom,
         "item_type": item.item_type or "finished_good",
         "procurement_type": item.procurement_type or "buy",
         "category_id": item.category_id,

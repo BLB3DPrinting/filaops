@@ -122,7 +122,14 @@ class ItemBase(BaseModel):
     # - purchase_uom: Purchasing unit (KG for filament, EA for hardware)
     # Costs (standard_cost, etc.) are per PURCHASE unit
     unit: Optional[str] = Field("EA", max_length=20, description="Storage/inventory unit (G, EA, etc.)")
-    purchase_uom: Optional[str] = Field("EA", max_length=20, description="Purchase unit - costs are per this unit (KG, EA, etc.)")
+    purchase_uom: Optional[str] = Field(
+        None,
+        max_length=20,
+        description=(
+            "Purchase unit. When left out: KG for a material stocked in G, otherwise the stock unit. "
+            "Must be a unit in the unit table."
+        ),
+    )
 
     # Classification
     item_type: ItemType = Field(ItemType.FINISHED_GOOD, description="Type of item")
@@ -161,9 +168,20 @@ class ItemBase(BaseModel):
     color_id: Optional[int] = Field(None, description="Color ID for material items")
 
 
+class ItemUnitInput(BaseModel):
+    """One of an item's own units, with exactly one size, the way it was typed.
+
+    ``stock_units_per_unit``: "1 BOX = 12 EA". ``units_per_stock_unit``:
+    "1 EA = 750 G", given on the G unit of an item stocked by the each.
+    """
+    unit_code: str = Field(..., min_length=1, max_length=10)
+    stock_units_per_unit: Optional[Decimal] = Field(None, gt=0)
+    units_per_stock_unit: Optional[Decimal] = Field(None, gt=0)
+
+
 class ItemCreate(ItemBase):
-    """Create a new item"""
-    pass
+    """Create a new item, optionally with units of its own."""
+    units: List[ItemUnitInput] = Field(default_factory=list, description="The item's own units (a BOX of 12)")
 
 
 class MaterialItemCreate(BaseModel):

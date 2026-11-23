@@ -23,16 +23,24 @@ from app.schemas.uom import (
     ConvertResponse,
 )
 from app.services.uom_service import (
-    get_uom_by_code,
-    convert_quantity_with_factor,
     get_all_uom_classes,
     get_units_by_class,
     UOMConversionError,
 )
+from app.services.unit_conversion import physical_factor, tidy_unit_code
+from app.services.unit_table_rules import check_unit_update, find_unit, new_unit_values
 
 router = APIRouter(prefix="/uom", tags=["Admin - Units of Measure"])
 
 logger = get_logger(__name__)
+
+
+def _base_code(db: Session, uom: UnitOfMeasure):
+    """The code of a unit's base unit, or None."""
+    if not uom.base_unit_id:
+        return None
+    base = db.query(UnitOfMeasure).filter(UnitOfMeasure.id == uom.base_unit_id).first()
+    return base.code if base else None
 
 
 # ============================================================================
@@ -109,15 +117,12 @@ async def convert_units(
     Units must be in the same class (e.g., weight, length).
     """
     try:
-        converted, factor = convert_quantity_with_factor(
-            db, request.quantity, request.from_unit, request.to_unit
-        )
-
+        factor = physical_factor(db, request.from_unit, request.to_unit)
         return ConvertResponse(
             original_quantity=request.quantity,
-            original_unit=request.from_unit.upper(),
-            converted_quantity=converted,
-            converted_unit=request.to_unit.upper(),
+            original_unit=tidy_unit_code(db, request.from_unit),
+            converted_quantity=request.quantity * factor,
+            converted_unit=tidy_unit_code(db, request.to_unit),
             conversion_factor=factor,
         )
     except UOMConversionError as e:
@@ -138,9 +143,9 @@ async def get_unit(
     db: Session = Depends(get_db),
 ):
     """
-    Get a single unit of measure by code.
+    Get a single unit of measure by code, switched on or off.
     """
-    uom = get_uom_by_code(db, code)
+    uom = find_unit(db, code)
     if not uom:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -182,39 +187,16 @@ async def create_unit(
 
     For derived units (non-base units), provide base_unit_code.
     """
-    # Check if code already exists
-    existing = get_uom_by_code(db, request.code)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unit with code '{request.code}' already exists"
-        )
-
-    # Get base unit ID if provided
-    base_unit_id = None
-    if request.base_unit_code:
-        base_unit = get_uom_by_code(db, request.base_unit_code)
-        if not base_unit:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Base unit not found: {request.base_unit_code}"
-            )
-        if base_unit.uom_class != request.uom_class:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Base unit must be in the same class ({request.uom_class})"
-            )
-        base_unit_id = base_unit.id
-
-    uom = UnitOfMeasure(
-        code=request.code.upper(),
-        name=request.name,
-        symbol=request.symbol,
-        uom_class=request.uom_class.lower(),
-        base_unit_id=base_unit_id,
-        to_base_factor=request.to_base_factor,
-        active=True,
+    # The unit rules: a pack, or a weight, length, area, volume or time unit
+    # with its factor to that kind's base. See app/services/unit_table_rules.py.
+    values = new_unit_values(
+        db,
+        code=request.code,
+        kind=request.uom_class,
+        factor=request.to_base_factor if request.uom_class.strip().lower() != "pack" else None,
+        base_unit_code=request.base_unit_code,
     )
+    uom = UnitOfMeasure(name=request.name, symbol=request.symbol, active=True, **values)
     db.add(uom)
     db.commit()
     db.refresh(uom)
@@ -228,7 +210,7 @@ async def create_unit(
         symbol=uom.symbol,
         uom_class=uom.uom_class,
         base_unit_id=uom.base_unit_id,
-        base_unit_code=request.base_unit_code,
+        base_unit_code=_base_code(db, uom),
         to_base_factor=uom.to_base_factor,
         active=uom.active,
     )
@@ -252,7 +234,7 @@ async def update_unit(
     These structural properties cannot be modified after creation
     to maintain data integrity and prevent conversion errors.
     """
-    uom = get_uom_by_code(db, code)
+    uom = find_unit(db, code)
     if not uom:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -273,12 +255,15 @@ async def update_unit(
                    f"Base unit and UOM class cannot be changed after creation to maintain data integrity."
         )
 
+    # A standard unit keeps its factor and stays on; a unit in use stays on.
+    new_factor = check_unit_update(db, uom, factor=request.to_base_factor, active=request.active)
+
     if request.name is not None:
         uom.name = request.name
     if request.symbol is not None:
         uom.symbol = request.symbol
-    if request.to_base_factor is not None:
-        uom.to_base_factor = request.to_base_factor
+    if new_factor is not None:
+        uom.to_base_factor = new_factor
     if request.active is not None:
         uom.active = request.active
 

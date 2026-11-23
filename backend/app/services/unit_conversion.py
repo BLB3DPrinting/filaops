@@ -187,6 +187,11 @@ def _code(db: Session, code: Optional[str]) -> str:
     return UNIT_SPELLINGS.get(tidy, tidy)
 
 
+def tidy_unit_code(db: Session, code: Optional[str]) -> str:
+    """The code a typed unit means on this install, as conversions read it. Empty when none was given."""
+    return _code(db, code)
+
+
 def _divide(numerator: Decimal, denominator: Decimal) -> Decimal:
     """Divide without the default 28-digit limit getting in the way of 15-place factors."""
     with localcontext() as context:

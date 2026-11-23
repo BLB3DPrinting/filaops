@@ -16,8 +16,11 @@ class UOMBase(BaseModel):
 
 
 class UOMCreate(UOMBase):
-    """Create a new UOM"""
-    base_unit_code: Optional[str] = Field(None, description="Base unit code for this class (NULL for base units)")
+    """Create a new unit: a pack (no factor), or a weight, length, area, volume or time unit with its factor"""
+    to_base_factor: Optional[Decimal] = Field(
+        None, description="How many of the kind's base unit one of this is. Required except for a pack."
+    )
+    base_unit_code: Optional[str] = Field(None, description="The kind's base unit (KG, M, M2, L, HR). Optional.")
 
 
 class UOMUpdate(BaseModel):
