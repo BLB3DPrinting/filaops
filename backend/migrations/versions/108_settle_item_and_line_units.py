@@ -1,10 +1,10 @@
 """Purchase units, item units and line units settled against the unit table
 
-Revision ID: 107
-Revises: 106
+Revision ID: 108
+Revises: 107
 Create Date: 2026-11-16
 
-Migration 106 made the unit table the one source of unit factors and tidied
+Migration 107 made the unit table the one source of unit factors and tidied
 every unit code. This one settles what the items and the lines say with those
 codes. It changes no schema.
 
@@ -67,7 +67,7 @@ Data, in this order
        Every other line the unit table cannot convert is left as written and
        listed with what each reader makes of it, because rewriting it would
        change a number or lose what the line meant. A line in a code the unit
-       table does not know is not looked at: migration 106 lists those. A line
+       table does not know is not looked at: migration 107 lists those. A line
        with no unit at all is listed.
 
        The readers named in the report are the ones at this revision. Planning
@@ -80,9 +80,9 @@ Safe to run twice: the second run changes nothing, and lists again what it
 left.
 
 How it is written
-    The same five functions as migration 106: ``read_state``, ``plan``,
+    The same five functions as migration 107: ``read_state``, ``plan``,
     ``project``, ``apply`` and ``report_lines``. ``scripts/uom_preflight.py``
-    runs this plan on the rows migration 106 would leave, so an install sees
+    runs this plan on the rows migration 107 would leave, so an install sees
     both reports before it upgrades.
 
 Downgrade: nothing. No schema changes here, and the data steps are not undone.
@@ -97,8 +97,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "107"
-down_revision = "106"
+revision = "108"
+down_revision = "107"
 branch_labels = None
 depends_on = None
 
@@ -598,7 +598,7 @@ def report_lines(planned: dict) -> list:
     changed = planned["purchase_units"]
     if changed:
         lines.append((logging.INFO, (
-            "107: %d gram-stocked material(s) bought by the EA of 1000 G: purchase unit EA -> KG. The size stays "
+            "108: %d gram-stocked material(s) bought by the EA of 1000 G: purchase unit EA -> KG. The size stays "
             "1000, so no cost changes. A purchase order made from planning for them is now written in KG: %s"
         ) % (len(changed), _named([sku for _id, sku, _why in changed]))))
         for why, said in (
@@ -608,17 +608,17 @@ def report_lines(planned: dict) -> list:
             left_by_105 = [sku for _id, sku, reason in changed if reason == why]
             if left_by_105:
                 lines.append((logging.WARNING, (
-                    "107: %d of those: the 4.4.0 upgrade (migration 105) leaves a material at purchase unit EA "
+                    "108: %d of those: the 4.4.0 upgrade (migration 105) leaves a material at purchase unit EA "
                     "when it %s. If its output listed any of these for you to set by hand, that is done now: %s"
                 ) % (len(left_by_105), said, _named(left_by_105))))
     if planned["purchase_units_left"]:
         lines.append((logging.WARNING, (
-            "107: LEFT %d gram-stocked material(s) at purchase unit EA with size 1000: the unit table here does "
+            "108: LEFT %d gram-stocked material(s) at purchase unit EA with size 1000: the unit table here does "
             "not hold a KG of 1000 G to change them to: %s"
         ) % (len(planned["purchase_units_left"]), _named(planned["purchase_units_left"]))))
     if planned["po_lines_left"]:
         lines.append((logging.WARNING, (
-            "107: LEFT %d open purchase order line(s) in EA on gram-stocked material: receiving refuses them, as "
+            "108: LEFT %d open purchase order line(s) in EA on gram-stocked material: receiving refuses them, as "
             "before. Change each line to a unit of weight (KG or G), with the quantity and the price in that "
             "unit, before receiving it: %s"
         ) % (len(planned["po_lines_left"]), _named(
@@ -629,12 +629,12 @@ def report_lines(planned: dict) -> list:
         made.setdefault((unit, _plain(size), stock), []).append(sku)
     for (unit, size, stock), skus in sorted(made.items()):
         lines.append((logging.INFO, (
-            "107: %d item(s) now have %s as a unit of their own, 1 %s = %s %s, from the purchase unit and size "
+            "108: %d item(s) now have %s as a unit of their own, 1 %s = %s %s, from the purchase unit and size "
             "they already held: %s"
         ) % (len(skus), unit, unit, size, stock, _named(skus))))
     for sku, unit, existing, size, stock in planned["kept"]:
         lines.append((logging.WARNING, (
-            "107: KEPT item %s's own unit as it is, 1 %s = %s %s, although its purchase size says %s. "
+            "108: KEPT item %s's own unit as it is, 1 %s = %s %s, although its purchase size says %s. "
             "One of the two is wrong."
         ) % (sku, unit, _plain(existing), stock, _plain(size))))
 
@@ -645,7 +645,7 @@ def report_lines(planned: dict) -> list:
     for (purchase, stock, by_the_table, size), skus in sorted(differ.items()):
         theirs = "these items say %s" % size if size else "these items hold no size"
         lines.append((logging.WARNING, (
-            "107: DIFFERENT SIZES for %d item(s) stocked by the %s and bought by the %s: the unit table says "
+            "108: DIFFERENT SIZES for %d item(s) stocked by the %s and bought by the %s: the unit table says "
             "1 %s = %s %s, and %s. Receiving uses the unit table; cost uses the item's size. Nothing was "
             "changed. One of the two is wrong: %s"
         ) % (len(skus), stock, purchase, purchase, by_the_table, stock, theirs, _named(skus))))
@@ -669,7 +669,7 @@ def report_lines(planned: dict) -> list:
             "too_large": "their size, %s, is too large to record. Check it" % detail,
         }[why]
         lines.append((logging.WARNING, (
-            "107: NO SIZE for %d item(s) stocked by the %s and bought by the %s, so %s cannot be converted for "
+            "108: NO SIZE for %d item(s) stocked by the %s and bought by the %s, so %s cannot be converted for "
             "them: %s: %s"
         ) % (len(skus), stock, purchase, purchase, because, _named(skus))))
 
@@ -678,7 +678,7 @@ def report_lines(planned: dict) -> list:
         rewritten[(key, new)] = rewritten.get((key, new), 0) + 1
     for (key, new), count in sorted(rewritten.items()):
         line = (
-            "107: %d %s in EA on a component stocked by the %s now say %s, with the same quantity. Cost, "
+            "108: %d %s in EA on a component stocked by the %s now say %s, with the same quantity. Cost, "
             "planning and the fulfilment queue already took the number as %s. On a production order no stock "
             "was reserved for these lines and completing or shipping the order failed; both work now."
         ) % (count, _LINE_WORDS[key], new, new, new)
@@ -687,18 +687,18 @@ def report_lines(planned: dict) -> list:
         lines.append((logging.INFO, line))
     if planned["lines_on_changed_materials"]:
         lines.append((logging.INFO, (
-            "107: %d of those BOM line(s) are on the materials whose purchase unit became KG. The BOM page showed "
+            "108: %d of those BOM line(s) are on the materials whose purchase unit became KG. The BOM page showed "
             "each EA on them as 1000 G needed; it now shows the number as grams, as cost and planning took it."
         ) % planned["lines_on_changed_materials"]))
     for (key, sku, own_size, stock), names in sorted(planned["lines_despite_own_size"].items()):
         lines.append((logging.WARNING, (
-            "107: CHECK %d of those %s, on %s, for which the item says 1 EA = %s %s. They were taken as %s, "
+            "108: CHECK %d of those %s, on %s, for which the item says 1 EA = %s %s. They were taken as %s, "
             "which is how cost and planning already took them. If a line meant that many of the item, change "
             "its quantity: %s"
         ) % (len(names), _LINE_WORDS[key], sku, own_size, stock, stock, _named(names))))
     for name, sku, stock, order_status in planned["failed_rows"]:
         lines.append((logging.WARNING, (
-            "107: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s. Its order "
+            "108: %s (%s) had failed to be consumed and is still marked as failed. Its unit is now %s. Its order "
             "is %s. Completing its operation again is not possible, and this upgrade consumes nothing. FilaOps "
             "takes a failed row up again when the production order is completed, or when the order ships for a "
             "packing or shipping material, and then it goes through: if its stock was already corrected by "
@@ -730,7 +730,7 @@ def report_lines(planned: dict) -> list:
                     "on a production order, and one in %s is not." % stock
                 )
         lines.append((logging.WARNING, (
-            "107: LEFT %d %s in %s on %s, which is stocked by the %s. The unit table cannot convert %s to %s. "
+            "108: LEFT %d %s in %s on %s, which is stocked by the %s. The unit table cannot convert %s to %s. "
             "As FilaOps reads such a line: %s. %s Lines: %s"
         ) % (
             len(group["names"]), _LINE_WORDS[key], unit, sku, stock, unit, stock,
@@ -740,12 +740,12 @@ def report_lines(planned: dict) -> list:
     for key, names in sorted(planned["no_unit_lines"].items()):
         advice = "" if key == "order_lines" else " Open each line and pick its unit."
         lines.append((logging.WARNING, (
-            "107: LEFT %d %s with no unit at all. Some parts of FilaOps read a missing unit as EA and others as "
+            "108: LEFT %d %s with no unit at all. Some parts of FilaOps read a missing unit as EA and others as "
             "the component's stock unit.%s Lines: %s"
         ) % (len(names), _LINE_WORDS[key], advice, _named(names))))
 
     if not lines:
-        lines.append((logging.INFO, "107: purchase units, item units and line units needed no change"))
+        lines.append((logging.INFO, "108: purchase units, item units and line units needed no change"))
     return lines
 
 

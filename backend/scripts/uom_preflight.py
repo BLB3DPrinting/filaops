@@ -47,6 +47,17 @@ from alembic.util import CommandError  # noqa: E402
 
 _NEEDED = ("read_state", "plan", "project", "report_lines")
 
+# Migrations with no unit report that write nothing the unit reports read.
+# One of these may still be pending ahead of the unit migrations: the report
+# is the same whether it has run or not. Any other pending migration ahead of
+# them could change the rows they plan from, so the report asks for it first.
+# A migration goes on this list only after reading what it writes.
+_TOUCHES_NO_UNIT_ROWS = {
+    # Quote descriptions and discounts (4.4.x): nullable columns on quotes,
+    # sales orders, invoices and their lines, and nothing else.
+    "106",
+}
+
 
 class Step(NamedTuple):
     """A migration still to run, and whether it can be reported on."""
@@ -134,10 +145,11 @@ def run(bind, out=print) -> int:
         return 0
 
     first = steps.index(reportable[0])
-    if first > 0:
+    blocking = [step for step in steps[:first] if step.revision not in _TOUCHES_NO_UNIT_ROWS]
+    if blocking:
         out(
-            f"This database still has {first} older migration(s) to run before the first one this report "
-            f"covers ({reportable[0].revision}). Upgrade it to revision {steps[first - 1].revision} first, "
+            f"This database still has {len(blocking)} older migration(s) to run before the first one this "
+            f"report covers ({reportable[0].revision}). Upgrade it to revision {blocking[-1].revision} first, "
             f"then run this report again."
         )
         return 1

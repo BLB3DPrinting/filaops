@@ -1,9 +1,9 @@
 """
-Migration 107: purchase units, item units and line units settled.
+Migration 108: purchase units, item units and line units settled.
 
 The migration's functions take a connection, so they are run here against real
 rows inside the test transaction. The test database already holds the standard
-units, which is what migration 106 leaves. It may hold other rows too, so a
+units, which is what migration 107 leaves. It may hold other rows too, so a
 report is always searched for the SKU the test made.
 """
 import importlib.util
@@ -35,8 +35,8 @@ def _load(name, filename):
 
 @pytest.fixture(scope="module")
 def migration():
-    """Load migration 107 as a module."""
-    return _load("migration_107", "107_settle_item_and_line_units.py")
+    """Load migration 108 as a module."""
+    return _load("migration_108", "108_settle_item_and_line_units.py")
 
 
 def _run(db, migration):
@@ -649,7 +649,7 @@ class TestLinesLeft:
         assert item.sku not in _report(migration, planned)
 
     def test_a_line_in_a_code_the_table_does_not_know_is_not_touched(self, db, migration, bom_line, filament):
-        """Migration 106 lists those. Nothing can be said about what such a line means."""
+        """Migration 107 lists those. Nothing can be said about what such a line means."""
         item = filament(purchase_uom="KG")
         _, line = bom_line(item, unit="SCOOP")
         planned = _run(db, migration)
@@ -716,7 +716,7 @@ class TestShape:
         empty = migration.plan({key: [] for key in migration._STATE_KEYS})
         assert migration.changes(empty) == 0
         assert migration.report_lines(empty) == [
-            (logging.INFO, "107: purchase units, item units and line units needed no change")
+            (logging.INFO, "108: purchase units, item units and line units needed no change")
         ]
 
     def test_the_projection_is_what_the_database_holds_afterwards(self, db, migration, make_product, bom_line,

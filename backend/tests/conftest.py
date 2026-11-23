@@ -64,7 +64,7 @@ def setup_database():
             "ALTER TABLE inventory_transactions "
             "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(50)"
         ))
-        # Unit factors widened to 15 places (migration 106). create_all won't
+        # Unit factors widened to 15 places (migration 107). create_all won't
         # ALTER the pre-existing column; the exact ounce does not fit in 8.
         conn.execute(text(
             "ALTER TABLE units_of_measure "
@@ -435,7 +435,7 @@ def setup_database():
         """))
         conn.commit()
 
-    # Standard units of measure: the rows migration 106 gives every install,
+    # Standard units of measure: the rows migration 107 gives every install,
     # at their exact factors, whatever unit rows a reused local database
     # holds. Committed once per run like the rest of the required data, so
     # tests do not insert them one by one and two test runs on one database
