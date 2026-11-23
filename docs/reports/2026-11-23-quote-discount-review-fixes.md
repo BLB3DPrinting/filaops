@@ -50,9 +50,46 @@ price-level step half-even. It is not part of the quote path or the findings.
   `AdminInvoices`: all pass. `npm run lint:ci`: 0 errors (warnings are
   pre-existing).
 
+## Independent review (in place of CodeRabbit)
+
+CodeRabbit hit its free review limit on this PR, so the full diff was
+reviewed in-session for correctness, security, migrations and missing tests.
+
+Fixed:
+
+- Header-only invoice (finding 7) could over-bill portal orders made before
+  PR #1090, whose stored subtotal is the whole quote total (tax and shipping
+  included). `invoice_service._header_only_line_total` now uses the stored
+  subtotal only when it is within the rounding residue (half a cent per unit)
+  of `quantity x unit_price`, or when there is no unit price; otherwise it
+  invoices `quantity x unit_price` as before. Test added.
+- The quote form did not stop a discount with more than 2 decimal places,
+  which the server now rejects (422), so the save would fail with a raw
+  validation error. `discountError` now says "Use at most 2 decimal places".
+  Test added.
+
+Checked, no change needed:
+
+- Security: `price_level_percent_applied` is accepted only on staff-only
+  endpoints (create, update, preview); the customer portal does not use
+  `QuoteLineCreate`. It only skips a discount and sets the printed percent.
+- Migrations: none; no schema change.
+- The audit check fails closed on a non-object report too (AttributeError path).
+- Quote duplicate (`AdminQuotes.handleDuplicateQuote`) already drops the
+  customer so net prices are not discounted again; unchanged.
+
+Not fixed, noted: an API client that changes a quote's customer while sending
+lines marked `price_level_percent_applied` keeps the old customer's pricing.
+The quote form restores list prices on a customer change, so it does not do
+this.
+
+Re-run after these fixes: quote, discount, quote-to-cash and invoice test
+files (207 tests) pass; frontend unit tests for lib, quotes, orders,
+discounts and admin pages: 413 pass; `npm run lint:ci` 0 errors.
+
 ## Status checks
 
-Head `bda0b73`, PR #1093 (draft).
+Head `bda0b73`, PR #1093 (draft at the time). Re-recorded below after the review fixes.
 
 CircleCI:
 

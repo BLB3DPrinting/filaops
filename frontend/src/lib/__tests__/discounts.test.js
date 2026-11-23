@@ -165,3 +165,13 @@ describe("decimal-aware rounding", () => {
     expect(taxCents(1000, 0)).toBe(0);
   });
 });
+
+describe("discount precision", () => {
+  it("rejects more than 2 decimal places, as the server does", () => {
+    expect(discountError("percent", "12.555")).toBe("Use at most 2 decimal places");
+    expect(discountError("amount", "0.005")).toBe("Use at most 2 decimal places");
+    expect(discountError("percent", "12.5")).toBeNull();
+    expect(discountError("amount", "10.00")).toBeNull();
+    expect(discountError("percent", 10)).toBeNull();
+  });
+});

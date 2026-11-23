@@ -73,6 +73,9 @@ export const discountError = (type, value) => {
   const n = parseFloat(value);
   if (n < 0) return "Discounts cannot be negative";
   if (type === "percent" && n > 100) return "A percent discount cannot exceed 100%";
+  // The server stores discounts to the cent / hundredth of a percent and
+  // rejects more decimals (422), so say so here instead of failing the save.
+  if (!/^\d*(\.\d{0,2})?$/.test(String(value).trim())) return "Use at most 2 decimal places";
   return null;
 };
 

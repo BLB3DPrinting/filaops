@@ -255,3 +255,28 @@ class TestHeaderOnlyInvoice:
         assert invoice.subtotal == D("100.00")
         assert invoice.discount_amount == D("10.00")
         assert invoice.total == D("90.00") == order.grand_total
+
+
+    def test_pre_1090_portal_order_keeps_unit_price_invoicing(self, db):
+        # Before PR #1090 a portal order stored the whole quote total (tax and
+        # shipping included) as its subtotal. That is not a rounding residue,
+        # so the invoice keeps quantity x unit price rather than billing the
+        # tax and shipping twice.
+        order = SalesOrder(
+            order_number=f"SO-R-{uuid.uuid4().hex[:8]}",
+            user_id=1,
+            order_type="quote_based",
+            product_name="Widget",
+            material_type="PLA",
+            quantity=2,
+            unit_price=D("45.00"),
+            total_price=D("105.93"),  # 90.00 + 7.43 tax + 8.50 shipping
+            tax_amount=D("0"),
+            shipping_cost=D("8.50"),
+            grand_total=D("114.43"),
+            status="confirmed",
+        )
+        db.add(order)
+        db.flush()
+        invoice = invoice_service.create_invoice(db, order.id)
+        assert invoice.subtotal == D("90.00")
