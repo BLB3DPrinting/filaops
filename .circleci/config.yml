@@ -273,6 +273,8 @@ jobs:
       language:
         type: string
     executor: python-312-node
+    # 8 GB. On the default 4 GB CodeQL ran out of Java heap on the first query.
+    resource_class: large
     environment:
       CODEQL_BUNDLE_VERSION: codeql-bundle-v2.27.5
       CODEQL_BUNDLE_SHA256: a5f205466b976ea9b345957fc133eeea9021e71aeffc99243ec7b9e99b1d6ed5
@@ -312,6 +314,8 @@ jobs:
             set -euo pipefail
             mkdir -p /tmp/codeql-results
             "$HOME/codeql/codeql" database analyze /tmp/codeql-db \
+              --ram=6000 \
+              --threads=4 \
               --format=sarif-latest \
               --sarif-category="/language:<< parameters.language >>" \
               --output="/tmp/codeql-results/<< parameters.language >>.sarif"
