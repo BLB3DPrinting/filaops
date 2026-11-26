@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.15-slim
 
 # Build-time metadata (optional)
 ARG FILAOPS_BUILD_DATE
