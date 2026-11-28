@@ -62,3 +62,20 @@ export function reloadForNewBuild({
   reload();
   return true;
 }
+
+/**
+ * Handler for Vite's `vite:preloadError` event. Returns true when a reload
+ * was started.
+ *
+ * Vite sends every rejected dynamic import through this event, not only a
+ * file that could not be fetched: a screen whose code throws while it loads
+ * arrives here too, with that error as the payload. Only a missing file means
+ * the build is stale. Anything else is left alone, so it reaches the error
+ * screen instead of being hidden behind a reload.
+ */
+export function handlePreloadError(event, options) {
+  if (!isStaleBuildError(event?.payload)) return false;
+  if (!reloadForNewBuild(options)) return false;
+  event.preventDefault();
+  return true;
+}
