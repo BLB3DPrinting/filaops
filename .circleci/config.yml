@@ -338,8 +338,8 @@ jobs:
   # repository and installs nothing but the checksum-pinned CodeQL bundle: it
   # reads the SARIF files the analysis jobs handed on and sends them.
   #
-  # A pull request from a fork gets no context, so there the analyses run and
-  # the upload is skipped. Anywhere else a missing token fails the job: a
+  # The workflow does not schedule this job for a pull request from a fork
+  # (see the filter there). Where it does run, a missing token fails it: a
   # scan nobody can see is not a scan.
   codeql-upload:
     executor: python-312
@@ -382,8 +382,15 @@ workflows:
           matrix:
             parameters:
               language: [python, javascript-typescript]
+      # Not scheduled for a pull request from a fork, which CircleCI builds on
+      # a branch named pull/<number>. A fork's author has no access to the
+      # context, and CircleCI would mark a job that asks for it Unauthorized
+      # before any step ran. The analyses still run there.
       - codeql-upload:
           context: codeql-upload
+          filters:
+            branches:
+              ignore: /^pull\/[0-9]+$/
           requires:
             - codeql-python
             - codeql-javascript-typescript

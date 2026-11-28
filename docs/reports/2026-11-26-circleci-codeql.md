@@ -19,14 +19,21 @@ Permission mode: default (desktop session, Claude Code). Kickoff:
     request and `refs/heads/<branch>` otherwise. It is the only job given the
     CircleCI context `codeql-upload`, which holds `CODEQL_UPLOAD_TOKEN`. It
     checks out nothing and installs nothing but the bundle.
-- Without the token the upload job fails, except on a pull request from a
-  fork, which gets no context: there the analyses run and the upload is
-  skipped.
+- Without the token the upload job fails. It is not scheduled at all for a
+  pull request from a fork (CircleCI's `pull/<number>` branches): a fork's
+  author cannot use the context, and CircleCI would mark the job
+  Unauthorized. There the analyses run and nothing is uploaded, so such a
+  pull request gets no `CodeQL` check and cannot meet that requirement by
+  itself.
 
 Not changed: `.github/workflows/codeql.yml`, the ruleset, any repository or
 CircleCI setting.
 
 ## Review
+
+CodeRabbit ran on `fbeff533`: 2 findings, both applied. The upload job is no
+longer scheduled for a fork's pull request, and the ruleset change now comes
+before the merge (step C).
 
 CodeRabbit ran on `f3e40340`: 2 findings, both applied.
 
@@ -61,8 +68,12 @@ the owner's.
    appears on the pull request.
 
 **C. Re-point the required status checks** (repository Settings, Rules,
-Rulesets, "Protect main"; it covers `main` and `uom-rebuild`). Only after B,
-and only once this pull request is on `main`.
+Rulesets, "Protect main"; it covers `main` and `uom-rebuild`). After B and
+before this pull request is merged: while the rule still names the Actions
+checks, which cannot start, this pull request cannot be merged in the usual
+way either. Once the rule names the CircleCI checks, this pull request meets
+it and merges normally. Other open pull requests then need `main` merged in
+before they have a CodeQL job of their own.
 
 1. Under "Require status checks to pass", remove the seven entries bound to
    GitHub Actions: `core-backend-static`, `core-backend-tests`,
@@ -78,7 +89,7 @@ and only once this pull request is on `main`.
    high severity or above, and it reads the same uploaded results.
 5. Save.
 
-**D. Afterwards.** Merge `main` into `uom-rebuild`, so that branch has the
+**D. Merge this pull request,** then merge `main` into `uom-rebuild`, so that branch has the
 CodeQL jobs too. Optionally disable the Actions workflows that cannot start,
 to stop their failed marks on every pull request.
 
