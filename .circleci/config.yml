@@ -75,6 +75,33 @@ commands:
           paths:
             - ~/.cache/pip
 
+  # The CodeQL command-line bundle, version and checksum pinned.
+  install_codeql:
+    steps:
+      - restore_cache:
+          keys:
+            - v1-codeql-bundle-v2.27.5
+      - run:
+          name: Install the CodeQL bundle
+          environment:
+            CODEQL_BUNDLE_VERSION: codeql-bundle-v2.27.5
+            CODEQL_BUNDLE_SHA256: a5f205466b976ea9b345957fc133eeea9021e71aeffc99243ec7b9e99b1d6ed5
+          command: |
+            set -euo pipefail
+            if [ ! -x "$HOME/codeql/codeql" ]; then
+              curl --fail --silent --show-error --location \
+                --output /tmp/codeql-bundle.tar.gz \
+                "https://github.com/github/codeql-action/releases/download/${CODEQL_BUNDLE_VERSION}/codeql-bundle-linux64.tar.gz"
+              echo "${CODEQL_BUNDLE_SHA256}  /tmp/codeql-bundle.tar.gz" | sha256sum --check -
+              tar --extract --gzip --file /tmp/codeql-bundle.tar.gz --directory "$HOME"
+              rm /tmp/codeql-bundle.tar.gz
+            fi
+            "$HOME/codeql/codeql" version
+      - save_cache:
+          key: v1-codeql-bundle-v2.27.5
+          paths:
+            - ~/codeql
+
   install_frontend_dependencies:
     steps:
       - restore_cache:
@@ -263,11 +290,14 @@ jobs:
   # analyses one language and uploads the results to GitHub code scanning,
   # which reports them on the pull request the way the Actions workflow did.
   #
-  # The upload needs CODEQL_UPLOAD_TOKEN in the project's environment
-  # variables: a token for this repository only, with "Code scanning alerts:
-  # read and write". A pull request from a fork gets no secrets, so there the
-  # analysis runs and the upload is skipped. Anywhere else a missing token
-  # fails the job: a scan nobody can see is not a scan.
+  # Two jobs, so that the credential is held by as little as possible:
+  # `codeql` analyses one language and hands its SARIF file on; it has no
+  # secret. `codeql-upload` sends the files to GitHub and is the only job
+  # given the `codeql-upload` context, which holds CODEQL_UPLOAD_TOKEN: a
+  # token for this repository only, with "Code scanning alerts: read and
+  # write". The token must not be a project environment variable, because
+  # every job, the ones that install dependencies and run tests included,
+  # would receive it.
   codeql:
     parameters:
       language:
@@ -275,31 +305,9 @@ jobs:
     executor: python-312-node
     # 8 GB. On the default 4 GB CodeQL ran out of Java heap on the first query.
     resource_class: large
-    environment:
-      CODEQL_BUNDLE_VERSION: codeql-bundle-v2.27.5
-      CODEQL_BUNDLE_SHA256: a5f205466b976ea9b345957fc133eeea9021e71aeffc99243ec7b9e99b1d6ed5
     steps:
       - checkout
-      - restore_cache:
-          keys:
-            - v1-codeql-bundle-v2.27.5
-      - run:
-          name: Install the CodeQL bundle
-          command: |
-            set -euo pipefail
-            if [ ! -x "$HOME/codeql/codeql" ]; then
-              curl --fail --silent --show-error --location \
-                --output /tmp/codeql-bundle.tar.gz \
-                "https://github.com/github/codeql-action/releases/download/${CODEQL_BUNDLE_VERSION}/codeql-bundle-linux64.tar.gz"
-              echo "${CODEQL_BUNDLE_SHA256}  /tmp/codeql-bundle.tar.gz" | sha256sum --check -
-              tar --extract --gzip --file /tmp/codeql-bundle.tar.gz --directory "$HOME"
-              rm /tmp/codeql-bundle.tar.gz
-            fi
-            "$HOME/codeql/codeql" version
-      - save_cache:
-          key: v1-codeql-bundle-v2.27.5
-          paths:
-            - ~/codeql
+      - install_codeql
       - run:
           name: Build the CodeQL database
           command: |
@@ -321,16 +329,35 @@ jobs:
               --output="/tmp/codeql-results/<< parameters.language >>.sarif"
       - store_artifacts:
           path: /tmp/codeql-results
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - codeql-results
+
+  # The only job that holds the upload token. It checks out nothing from the
+  # repository and installs nothing but the checksum-pinned CodeQL bundle: it
+  # reads the SARIF files the analysis jobs handed on and sends them.
+  #
+  # A pull request from a fork gets no context, so there the analyses run and
+  # the upload is skipped. Anywhere else a missing token fails the job: a
+  # scan nobody can see is not a scan.
+  codeql-upload:
+    executor: python-312
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - install_codeql
       - run:
           name: Upload the results to GitHub code scanning
           command: |
             set -euo pipefail
             if [ -z "${CODEQL_UPLOAD_TOKEN:-}" ]; then
               if [ -n "${CIRCLE_PR_NUMBER:-}" ]; then
-                echo "Pull request from a fork: no upload token here. Analysis ran; upload skipped."
+                echo "Pull request from a fork: no upload token here. Analyses ran; upload skipped."
                 exit 0
               fi
               echo "CODEQL_UPLOAD_TOKEN is not set, so the results cannot reach GitHub."
+              echo "It belongs in the CircleCI context named codeql-upload."
               exit 1
             fi
             if [ -n "${CIRCLE_PULL_REQUEST:-}" ]; then
@@ -338,12 +365,14 @@ jobs:
             else
               ref="refs/heads/${CIRCLE_BRANCH}"
             fi
-            echo "Uploading for ${ref} at ${CIRCLE_SHA1}"
-            GITHUB_TOKEN="${CODEQL_UPLOAD_TOKEN}" "$HOME/codeql/codeql" github upload-results \
-              --repository="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
-              --ref="${ref}" \
-              --commit="${CIRCLE_SHA1}" \
-              --sarif="/tmp/codeql-results/<< parameters.language >>.sarif"
+            for sarif in /tmp/workspace/codeql-results/*.sarif; do
+              echo "Uploading ${sarif} for ${ref} at ${CIRCLE_SHA1}"
+              GITHUB_TOKEN="${CODEQL_UPLOAD_TOKEN}" "$HOME/codeql/codeql" github upload-results \
+                --repository="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
+                --ref="${ref}" \
+                --commit="${CIRCLE_SHA1}" \
+                --sarif="${sarif}"
+            done
 
 workflows:
   core-ci:
@@ -353,6 +382,11 @@ workflows:
           matrix:
             parameters:
               language: [python, javascript-typescript]
+      - codeql-upload:
+          context: codeql-upload
+          requires:
+            - codeql-python
+            - codeql-javascript-typescript
       - core-guardrails
       - core-dependency-audit
       - core-version-parity
