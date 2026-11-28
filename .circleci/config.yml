@@ -76,11 +76,24 @@ commands:
             - ~/.cache/pip
 
   # The CodeQL command-line bundle, version and checksum pinned.
+  #
+  # With use_cache, an unpacked bundle saved by an earlier run is used as it
+  # is, without a download or a checksum. A cache is written by whichever job
+  # saves that key first, on any branch, so a job that holds a secret must
+  # not take its program from one: it passes use_cache: false, and downloads
+  # and checks the bundle every time.
   install_codeql:
+    parameters:
+      use_cache:
+        type: boolean
+        default: true
     steps:
-      - restore_cache:
-          keys:
-            - v1-codeql-bundle-v2.27.5
+      - when:
+          condition: << parameters.use_cache >>
+          steps:
+            - restore_cache:
+                keys:
+                  - v1-codeql-bundle-v2.27.5
       - run:
           name: Install the CodeQL bundle
           environment:
@@ -97,10 +110,13 @@ commands:
               rm /tmp/codeql-bundle.tar.gz
             fi
             "$HOME/codeql/codeql" version
-      - save_cache:
-          key: v1-codeql-bundle-v2.27.5
-          paths:
-            - ~/codeql
+      - when:
+          condition: << parameters.use_cache >>
+          steps:
+            - save_cache:
+                key: v1-codeql-bundle-v2.27.5
+                paths:
+                  - ~/codeql
 
   install_frontend_dependencies:
     steps:
@@ -346,7 +362,9 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp/workspace
-      - install_codeql
+      # Never from the cache: this job holds the token.
+      - install_codeql:
+          use_cache: false
       - run:
           name: Upload the results to GitHub code scanning
           command: |
