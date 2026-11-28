@@ -1,14 +1,21 @@
 import React from "react";
+import { isStaleBuildError, reloadForNewBuild } from "../lib/staleBuild";
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, info: null, key: 0 };
+    this.state = { error: null, info: null, key: 0, reloading: false };
   }
   static getDerivedStateFromError(error) {
     return { error };
   }
   componentDidCatch(error, info) {
+    // A screen's script file is gone because the app was updated while this
+    // tab was open: reload once onto the new build instead of showing an error.
+    if (isStaleBuildError(error) && reloadForNewBuild()) {
+      this.setState({ reloading: true });
+      return;
+    }
     this.setState({ info });
     // why: place to send to Sentry/etc
     if (this.props.onError) this.props.onError(error, info);
@@ -19,6 +26,13 @@ export default class ErrorBoundary extends React.Component {
     this.setState({ error: null, info: null, key: this.state.key + 1 });
 
   render() {
+    if (this.state.reloading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-950">
+          <div className="text-gray-300 text-sm">FilaOps was updated. Loading the new version…</div>
+        </div>
+      );
+    }
     if (this.state.error) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-950">
